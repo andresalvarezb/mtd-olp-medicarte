@@ -1,0 +1,21 @@
+# Índice de ejecución por fase
+
+| Fase | Specs principales | ADRs principales | Agentes |
+|---|---|---|---|
+| F0 | DECISIONS_PENDING | todos los afectados | Orchestrator + Architect |
+| F1 | SPEC-008, 009, 010 | 002,003,004,007,011,012,014,015,016,017 | Architect, Backend, QA, Security |
+| F2 | SPEC-001,002 | 003,009,013,015,016 | Backend, Frontend, QA |
+| F3 | SPEC-003,009 | 004,008,014 | Backend, Integrations, QA |
+| F4 | SPEC-002,004,009 | 006,009,014 | Backend, Integrations, Frontend, QA |
+| F5 | SPEC-005,008 | 005,007,009,016 | Backend, Integrations, Frontend, QA, Security |
+| F6 | SPEC-006,008,010 | 003,007,009,016 | Backend, Frontend, QA, Security |
+| F7 | SPEC-007,009 | 004,010,014 | Backend, Integrations, QA |
+
+## Regla
+El orquestador asigna tareas por SPEC, no por “haz el backend completo”. Las tareas deben poder verificarse de forma independiente.
+
+- ADR-018: exportaciones CSV/XLSX bajo demanda, sin persistencia del archivo generado.
+
+- DEC-010: repositorio nuevo e independiente en GitHub, monorepo.
+
+- ADR-019: repositorio GitHub independiente en monorepo.
