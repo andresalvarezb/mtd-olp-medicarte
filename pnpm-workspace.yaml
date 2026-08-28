@@ -1,0 +1,14 @@
+packages:
+  - apps/*
+  - packages/*
+
+overrides:
+  esbuild: 0.25.12
+
+allowBuilds:
+  '@nestjs/core': true
+  '@scarf/scarf': false
+  esbuild: true
+  msgpackr-extract: true
+  protobufjs: true
+  sharp: true

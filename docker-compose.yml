@@ -1,0 +1,126 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: authorization
+      POSTGRES_USER: authorization
+      POSTGRES_PASSWORD: authorization
+    ports:
+      - "127.0.0.1:15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authorization -d authorization"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis-data:/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    command: ["start-dev", "--import-realm", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: http://localhost:8080
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:9000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3; grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  migrate:
+    image: authorization-platform-api:local
+    working_dir: /workspace
+    command: ["node", "packages/database/dist/migrate.js"]
+    environment:
+      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: authorization-platform-api:local
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization
+      REDIS_URL: redis://redis:6379
+      OIDC_ISSUER: http://localhost:8080/realms/authorization
+      OIDC_JWKS_URL: http://keycloak:8080/realms/authorization/protocol/openid-connect/certs
+      OIDC_AUDIENCE: authorization-api
+      API_PUBLIC_URL: http://localhost:3001
+      WEB_ORIGIN: http://localhost:3000
+      API_PORT: 3001
+    ports:
+      - "127.0.0.1:3001:3001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/worker.Dockerfile
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization
+      REDIS_URL: redis://redis:6379
+      OIDC_ISSUER: http://localhost:8080/realms/authorization
+      OIDC_AUDIENCE: authorization-api
+      SCHEDULER_ENABLED: "true"
+      OUTBOX_POLL_INTERVAL_MS: 500
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      - api
+      - keycloak
+
+volumes:
+  postgres-data:
+  redis-data:

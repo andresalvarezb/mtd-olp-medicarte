@@ -1,0 +1,46 @@
+{
+  "name": "@authorization/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "nest build",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@authorization/config": "workspace:*",
+    "@authorization/contracts": "workspace:*",
+    "@authorization/database": "workspace:*",
+    "@nestjs/common": "11.1.6",
+    "@nestjs/core": "11.1.6",
+    "@nestjs/platform-express": "11.1.6",
+    "@nestjs/swagger": "11.2.0",
+    "@nestjs/throttler": "6.4.0",
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.204.0",
+    "@opentelemetry/sdk-node": "0.204.0",
+    "@sentry/node": "9.46.0",
+    "drizzle-orm": "0.44.5",
+    "ioredis": "5.7.0",
+    "jose": "5.10.0",
+    "nestjs-pino": "4.4.1",
+    "pino-http": "10.5.0",
+    "prom-client": "15.1.3",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "11.0.10",
+    "@nestjs/testing": "11.1.6",
+    "@types/express": "5.0.3",
+    "@types/node": "22.18.0",
+    "supertest": "7.1.4",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}

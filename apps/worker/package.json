@@ -1,0 +1,34 @@
+{
+  "name": "@authorization/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "nest build",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@authorization/config": "workspace:*",
+    "@authorization/contracts": "workspace:*",
+    "@authorization/database": "workspace:*",
+    "@nestjs/common": "11.1.6",
+    "@nestjs/core": "11.1.6",
+    "@sentry/node": "9.46.0",
+    "bullmq": "5.58.5",
+    "drizzle-orm": "0.44.5",
+    "ioredis": "5.7.0",
+    "pino": "9.9.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "11.0.10",
+    "@types/node": "22.18.0",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}
