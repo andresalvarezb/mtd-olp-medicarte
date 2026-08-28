@@ -15,7 +15,7 @@
 - Cualquier otro valor normalizado de `CUPS_PRINCIPAL` => `PBS`.
 - PBS no requiere consulta MIPRES para clasificación y usa `direction_status = NOT_APPLICABLE`.
 - Solo `NO_PBS + ENABLED` entra a validación de direccionamiento MIPRES.
-- Un direccionamiento MIPRES es vigente solo si `current_date(America/Bogota) <= fecha_maxima`; igualdad con `fecha_maxima` no es válida.
+- Un direccionamiento MIPRES es vigente solo si `current_date(America/Bogota) < fecha_maxima`; igualdad con `fecha_maxima` no es válida.
 - Medicarte registra la dispensación al cargar los soportes requeridos.
 - El registro de Medicarte produce `DISPENSATION_REPORTED`; `DISPENSED` solo se produce tras `audit_status = APPROVED`.
 - Los reportes operativos son diarios y cubren el día calendario anterior en `America/Bogota`.
@@ -51,3 +51,9 @@
 - Despliegue esperado: Render; alternativa Google Cloud; región requerida Colombia.
 
 - El producto vive en un repositorio nuevo e independiente de GitHub, estructurado como monorepo; no se integra en `vita-back` ni `vita-core`.
+
+- Al entrar en `READY_TO_DISPENSE`, se notifica a OLP y Medicarte.
+- Medicarte es el único actor operativo que define/modifica el punto de aplicación.
+- La dirección de aplicación es un dato persistido, versionado y auditado; nunca existe solo en un correo.
+- Asignar o cambiar el punto de aplicación notifica a OLP mediante outbox.
+- La aplicación/registro de dispensación requiere `application_site_status = ASSIGNED`.

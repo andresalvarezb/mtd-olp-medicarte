@@ -30,3 +30,12 @@ Ejecución duplicada produce un único efecto lógico.
 Las exportaciones no son un artefacto persistente de background. CSV/XLSX se generan a solicitud del usuario y se entregan sin conservar una copia permanente.
 
 Si se usa almacenamiento temporal, debe ser efímero y limpiarse al terminar o fallar la operación. Sí debe persistirse el evento de auditoría de exportación.
+
+## Eventos logísticos
+Los siguientes eventos deben producirse vía outbox transaccional:
+
+- `AUTHORIZATION_READY_TO_DISPENSE`
+- `APPLICATION_SITE_ASSIGNED`
+- `APPLICATION_SITE_CHANGED`
+
+`APPLICATION_SITE_ASSIGNED` y `APPLICATION_SITE_CHANGED` solo pueden publicarse después de persistir correctamente la versión de la dirección.

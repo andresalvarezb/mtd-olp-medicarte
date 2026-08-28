@@ -6,6 +6,7 @@
 - coverage
 - direction
 - operation
+- application_site
 - support
 - audit
 - admission
@@ -35,8 +36,25 @@ Estados iniciales de `operation_status`:
 - `DISPENSATION_REPORTED`
 - `DISPENSED`
 
-Reglas confirmadas:
-- Medicarte registra la dispensación al cargar los soportes requeridos.
+`READY_TO_DISPENSE` significa que el ítem superó las reglas previas de habilitación/cobertura/direccionamiento y entra a coordinación logística. No significa todavía que el medicamento haya sido aplicado.
+
+## Punto de aplicación
+
+Nueva dimensión `application_site_status`:
+- `NOT_REQUIRED`
+- `PENDING_ASSIGNMENT`
+- `ASSIGNED`
+
+Reglas:
+- Cuando un ítem entra en `READY_TO_DISPENSE`, `application_site_status = PENDING_ASSIGNMENT`.
+- Medicarte es quien define el punto/dirección donde realizará la aplicación.
+- Al guardar la dirección, `application_site_status = ASSIGNED`.
+- La asignación debe conservar dirección estructurada, texto de referencia, actor, organización, timestamp e historial de cambios.
+- Cambiar una dirección ya asignada debe auditarse y volver a disparar la notificación logística correspondiente a OLP.
+- El punto de aplicación no debe guardarse como texto suelto dentro de `authorization_items`; debe modelarse como dato de negocio explícito.
+
+## Continuidad de operación
+- Medicarte registra la dispensación/aplicación al cargar los soportes requeridos.
 - Ese registro mueve el ítem a `DISPENSATION_REPORTED`.
 - `DISPENSED` se deriva únicamente cuando `audit_status = APPROVED`.
 - La regla final que marque `READY_TO_DISPENSE` debe quedar congelada por tests antes de Fase 4.

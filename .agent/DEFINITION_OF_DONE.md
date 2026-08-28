@@ -24,3 +24,10 @@ Una tarea no está terminada solo porque compila.
 - Migraciones.
 - Riesgos/concesiones.
 - Capturas solo cuando aporten valor a UI.
+
+## Coordinación logística
+- `READY_TO_DISPENSE` genera eventos idempotentes para OLP y Medicarte.
+- Solo Medicarte puede asignar/modificar el punto de aplicación.
+- Dirección persistida, versionada y auditada.
+- OLP recibe evento/notificación por cada versión vigente.
+- No se registra aplicación/dispensación con `application_site_status = PENDING_ASSIGNMENT`.

@@ -219,3 +219,22 @@ Al cambiar una decisión:
 3. actualizar SPEC afectada;
 4. actualizar pruebas;
 5. revisar `IMPLEMENTATION_PLAN.md` e `INDEX.md`.
+
+---
+
+## DEC-011 — Coordinación logística del punto de aplicación
+
+**Estado:** RESOLVED
+
+1. Cuando un registro entra en `READY_TO_DISPENSE`, se generan notificaciones event-driven a:
+   - OLP;
+   - Medicarte.
+2. Medicarte define el punto/dirección donde realizará la aplicación.
+3. La dirección se persiste, versiona y audita.
+4. La primera asignación produce `APPLICATION_SITE_ASSIGNED`.
+5. Una modificación produce `APPLICATION_SITE_CHANGED`.
+6. Cada asignación/modificación genera una notificación event-driven a OLP con la dirección vigente.
+7. La notificación permite a OLP saber dónde coordinar el envío del medicamento.
+8. La aplicación/registro de dispensación requiere `application_site_status = ASSIGNED`.
+9. El flujo posterior de soportes, auditoría y `DISPENSED` continúa sin cambios.
+10. El reporte diario de las 08:00 sigue existiendo como consolidado y no reemplaza estas notificaciones operativas.

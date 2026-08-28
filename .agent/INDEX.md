@@ -19,3 +19,6 @@ El orquestador asigna tareas por SPEC, no por “haz el backend completo”. Las
 - DEC-010: repositorio nuevo e independiente en GitHub, monorepo.
 
 - ADR-019: repositorio GitHub independiente en monorepo.
+
+- ADR-020: punto de aplicación como etapa logística explícita entre disponibilidad y aplicación.
+- SPEC-011: asignación/versionado del punto de aplicación y segunda notificación a OLP.

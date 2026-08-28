@@ -99,6 +99,7 @@ El patrón outbox **no nace en esta fase**; debe existir desde Fase 1. Aquí se 
 **Objetivo:** habilitar la operación de Medicarte y el manejo documental sin perder versiones.
 
 - Bandeja de disponibles según permisos.
+- Precondición: `application_site_status = ASSIGNED`.
 - Medicarte registra la dispensación cuando carga los soportes requeridos.
 - El registro produce `DISPENSATION_REPORTED`.
 - `DISPENSED` solo se produce posteriormente cuando auditoría = `APPROVED`.

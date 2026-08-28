@@ -4,8 +4,8 @@
 ## Matriz confirmada
 - MTD: operación/admin completa según rol.
 - Compensar: ver autorizaciones; consolidado solo con permiso explícito.
-- OLP: ver autorizaciones y disponibles; consolidado según permiso.
-- Medicarte: ver autorizaciones, disponibles, registrar dispensación y cargar/corregir soportes; consolidado según permiso.
+- OLP: ver autorizaciones y disponibles, incluyendo el punto de aplicación cuando haya sido asignado; consolidado según permiso.
+- Medicarte: ver autorizaciones y disponibles, definir/modificar el punto de aplicación, registrar dispensación y cargar/corregir soportes; consolidado según permiso.
 - Auditoría: MTD.
 - Administración: MTD.
 
@@ -13,6 +13,8 @@
 Cada request debe aplicar permiso + alcance de organización. La UI solo refleja la autorización, no la sustituye.
 
 ## Permisos confirmados adicionales
+- `application_site.assign`: Medicarte.
+- `application_site.read`: OLP, Medicarte y MTD según alcance.
 - `dispensing.register`: Medicarte.
 - modificación del destino de soportes en Drive: solo MTD Admin.
 

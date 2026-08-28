@@ -158,6 +158,7 @@ authorization-platform/
 | `coverage` | PBS/NO PBS, homologaciones y versiones de catálogo. |
 | `mipres` | Credenciales, consultas, normalización, reintentos y evidencia de respuestas. |
 | `dispensing` | Disponibilidad, dispensación y fechas. |
+| `application-sites` | Punto/dirección de aplicación definido por Medicarte, versionado, permisos y coordinación logística con OLP. |
 | `documents` | Carga, versión, metadatos y Drive. |
 | `audit-reviews` | Revisión, hallazgos, rechazo, corrección y aprobación. |
 | `notifications` | Plantillas, destinatarios, agrupación, envío y deduplicación. |
@@ -198,7 +199,8 @@ Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar 
 | `coverage_evaluations` | Resultado PBS/NO PBS/SIN_CLASIFICAR y versión del catálogo. |
 | `mipres_checks` | Cada intento, consulta, respuesta normalizada, error y fecha siguiente. |
 | `mipres_directionamientos` | Datos vigentes del direccionamiento asociado. |
-| `dispensations` | Declaración de dispensación, cantidades, fecha y actor. |
+| `application_site_assignments` | Historial versionado del punto/dirección de aplicación definido por Medicarte, con actor, organización y vigencia. |
+| `dispensations` | Declaración de dispensación/aplicación, cantidades, fecha y actor. |
 | `attachments` | Metadatos del archivo, tipo, versión, `drive_file_id`, hash y responsable. |
 | `audit_reviews` | Auditoría iniciada/finalizada, decisión y auditor. |
 | `audit_findings` | Hallazgos tipificados y estado de subsanación. |
@@ -222,6 +224,8 @@ Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar 
 4. Solo puede existir una versión vigente por tipo de soporte e ítem, pero se conservan versiones anteriores.
 5. Los eventos de auditoría no admiten actualización ni borrado desde la aplicación.
 6. La aprobación para admisión se deriva de reglas; no debe escribirse libremente desde la interfaz.
+7. El punto de aplicación debe persistirse como entidad/versionado de negocio; no puede existir únicamente dentro del correo enviado a OLP.
+8. Solo una versión del punto de aplicación puede estar vigente por ítem; una modificación conserva la anterior y genera nueva notificación logística.
 
 ---
 
@@ -235,15 +239,44 @@ No habrá una columna mágica que intente representar todo. El ítem tendrá dim
 | `coverage_type` | `UNCLASSIFIED`, `PBS`, `NO_PBS` |
 | `direction_status` | `NOT_APPLICABLE`, `PENDING`, `CONFIRMED`, `QUERY_ERROR` |
 | `operation_status` | `BLOCKED`, `READY_TO_DISPENSE`, `DISPENSATION_REPORTED`, `DISPENSED` |
+| `application_site_status` | `PENDING_ASSIGNMENT`, `ASSIGNED` |
 | `support_status` | `PENDING`, `INCOMPLETE`, `COMPLETE`, `CORRECTION_REQUIRED` |
 | `audit_status` | `NOT_STARTED`, `READY`, `IN_REVIEW`, `REJECTED`, `APPROVED` |
 | `admission_status` | `NOT_READY`, `READY`, `HANDED_OFF`, `COMPLETED`, `ERROR` |
 
 Para la interfaz se calculará un `process_summary`, por ejemplo:
 
-`BLOQUEADO`, `SIN_CLASIFICAR`, `PENDIENTE_DIRECCIONAMIENTO`, `PENDIENTE_DISPENSACION`, `PENDIENTE_SOPORTES`, `PENDIENTE_AUDITORIA`, `RECHAZADO`, `APROBADO`.
+`BLOQUEADO`, `SIN_CLASIFICAR`, `PENDIENTE_DIRECCIONAMIENTO`, `PENDIENTE_PUNTO_APLICACION`, `LISTO_COORDINACION_OLP`, `PENDIENTE_DISPENSACION`, `PENDIENTE_SOPORTES`, `PENDIENTE_AUDITORIA`, `RECHAZADO`, `APROBADO`.
 
 Este resumen es una proyección de lectura; nunca sustituye las dimensiones reales.
+
+
+### Flujo logístico después de `READY_TO_DISPENSE`
+
+`READY_TO_DISPENSE` indica que el ítem ya superó las reglas previas necesarias para entrar a coordinación logística:
+
+- PBS habilitado: no requiere direccionamiento MIPRES.
+- NO PBS habilitado: requiere `direction_status = CONFIRMED`.
+
+A partir de allí:
+
+```mermaid
+flowchart TD
+    R["READY_TO_DISPENSE"] --> N1["Notificar OLP"]
+    R --> N2["Notificar MEDICARTE"]
+    R --> P["application_site_status = PENDING_ASSIGNMENT"]
+    P --> M["Medicarte define punto/dirección de aplicación"]
+    M --> A["application_site_status = ASSIGNED"]
+    A --> N3["Notificar OLP con dirección de aplicación"]
+    N3 --> D["OLP coordina envío del medicamento"]
+    D --> X["Medicarte aplica medicamento y carga soportes"]
+    X --> DR["DISPENSATION_REPORTED"]
+    DR --> AU["Auditoría humana"]
+    AU --> AP["APPROVED"]
+    AP --> DI["DISPENSED"]
+```
+
+Las dos notificaciones logísticas (`READY_TO_DISPENSE` y asignación del punto de aplicación) son **event-driven** y se procesan mediante outbox/worker. No deben esperar al consolidado diario de las 08:00, porque habilitan acciones operativas de OLP y Medicarte. El reporte diario continúa existiendo como resumen de novedades del día anterior.
 
 ---
 
@@ -426,6 +459,56 @@ flowchart LR
 
 La delegación de dominio de Google Workspace requiere intervención de un superadministrador y debe limitarse a los scopes estrictamente necesarios.
 
+
+### Notificaciones logísticas event-driven
+
+#### 1. Registro listo para dispensar
+
+Cuando la transición de dominio produzca `operation_status = READY_TO_DISPENSE`, la misma transacción debe registrar:
+
+```text
+AUTHORIZATION_READY_TO_DISPENSE
+```
+
+El evento genera dos notificaciones lógicas independientes:
+
+- OLP: informar que existe un registro disponible para coordinación.
+- Medicarte: informar que debe definir el punto/dirección donde realizará la aplicación.
+
+Cada destinatario tiene su propia idempotency key y resultado.
+
+#### 2. Punto de aplicación definido
+
+Cuando Medicarte guarde una dirección válida:
+
+```text
+application_site_status = ASSIGNED
+APPLICATION_SITE_ASSIGNED
+```
+
+se envía a OLP una segunda notificación con la ubicación necesaria para coordinar el envío del medicamento.
+
+Si Medicarte cambia la dirección:
+
+```text
+APPLICATION_SITE_CHANGED
+```
+
+se crea una nueva versión y se notifica nuevamente a OLP. El sistema nunca debe editar silenciosamente la dirección anterior.
+
+### Reporte diario
+
+El envío de las 08:00 `America/Bogota` se conserva como **reporte consolidado** de las novedades del día anterior. No sustituye las notificaciones logísticas event-driven.
+
+### Idempotencia logística
+
+Ejemplos:
+
+```text
+READY_TO_DISPENSE + authorization_item_id + readiness_version + organization
+APPLICATION_SITE_ASSIGNED + authorization_item_id + application_site_version + OLP
+```
+
 ---
 
 ## 13. Autenticación, empresas, roles y permisos
@@ -444,8 +527,8 @@ El token no será suficiente para decidir acceso a datos; el backend consultará
 | `MTD_ADMIN` | Usuarios, empresas, roles, catálogos, integraciones y parámetros. |
 | `MTD_OPERATOR` | Cargar y ver autorizaciones, gestionar direccionamientos, ver disponibles, cargar soportes, auditar y descargar consolidado. |
 | `COMPENSAR_VIEWER` | Ver autorizaciones. La descarga del consolidado solo se habilita si se asigna expresamente el permiso. |
-| `OLP_OPERATOR` | Ver autorizaciones y registros disponibles. La descarga del consolidado solo se habilita si se asigna expresamente el permiso. |
-| `MEDICARTE_OPERATOR` | Ver autorizaciones, ver disponibles y cargar/corregir soportes. La descarga del consolidado solo se habilita si se asigna expresamente el permiso. |
+| `OLP_OPERATOR` | Ver autorizaciones y disponibles, consultar el punto de aplicación asignado y coordinar el envío. La descarga del consolidado solo se habilita si se asigna expresamente el permiso. |
+| `MEDICARTE_OPERATOR` | Ver autorizaciones y disponibles, definir/modificar el punto de aplicación, registrar dispensación/aplicación y cargar/corregir soportes. La descarga del consolidado solo se habilita si se asigna expresamente el permiso. |
 | `READ_ONLY` | Consulta limitada según empresa y permisos explícitos. |
 
 La matriz funcional confirmada queda así. Una celda vacía significa que la empresa no tiene esa función por defecto; `según permiso` no debe interpretarse como acceso automático.
@@ -456,6 +539,8 @@ La matriz funcional confirmada queda así. Una celda vacía significa que la emp
 | Ver autorizaciones | ✓ | ✓ | ✓ | ✓ |
 | Gestionar direccionamientos | ✓ |  |  |  |
 | Ver disponibles | ✓ |  | ✓ | ✓ |
+| Definir punto de aplicación |  |  |  | ✓ |
+| Ver punto de aplicación | ✓ |  | ✓ | ✓ |
 | Cargar soportes | ✓ |  |  | ✓ |
 | Auditar | ✓ |  |  |  |
 | Descargar consolidado | ✓ | según permiso | según permiso | según permiso |
@@ -463,7 +548,7 @@ La matriz funcional confirmada queda así. Una celda vacía significa que la emp
 
 ### Permisos atómicos de ejemplo
 
-`imports.create`, `imports.confirm`, `authorizations.read`, `authorizations.read_sensitive`, `mipres.recheck`, `dispensing.register`, `attachments.upload`, `attachments.read`, `audit.start`, `audit.reject`, `audit.approve`, `exports.create`, `users.manage`.
+`imports.create`, `imports.confirm`, `authorizations.read`, `authorizations.read_sensitive`, `mipres.recheck`, `application_site.assign`, `application_site.read`, `dispensing.register`, `attachments.upload`, `attachments.read`, `audit.start`, `audit.reject`, `audit.approve`, `exports.create`, `users.manage`.
 
 La interfaz ocultará acciones no permitidas, pero el backend volverá a verificarlas. Ocultar un botón no es seguridad. Compensar puede consultar autorizaciones, pero no gestiona direccionamientos ni opera soportes salvo que la matriz sea modificada formalmente.
 
@@ -492,6 +577,8 @@ Prefijo: `/api/v1`.
 | `GET /authorization-items` | Bandeja con filtros, paginación y orden. |
 | `GET /authorization-items/:id` | Detalle e historial. |
 | `POST /authorization-items/:id/mipres-rechecks` | Solicitar revalidación autorizada. |
+| `GET /authorization-items/:id/application-site` | Consultar punto de aplicación vigente e historial autorizado. |
+| `PUT /authorization-items/:id/application-site` | Medicarte asigna/modifica el punto de aplicación. |
 | `POST /authorization-items/:id/dispensations` | Registrar dispensación. |
 | `POST /authorization-items/:id/attachments` | Cargar soporte. |
 | `GET /authorization-items/:id/attachments/:attachmentId` | Descargar soporte autorizado. |
@@ -531,7 +618,7 @@ Cada evento debe guardar:
 
 Eventos iniciales:
 
-`IMPORT_CREATED`, `IMPORT_ROW_REJECTED`, `AUTHORIZATION_ITEM_CREATED`, `SOURCE_STATUS_BLOCKED`, `COVERAGE_CLASSIFIED`, `MIPRES_CHECK_COMPLETED`, `DIRECTION_NOT_FOUND`, `DIRECTION_CONFIRMED`, `EPS_NOTIFICATION_SENT`, `OLP_NOTIFICATION_SENT`, `DISPENSATION_RECORDED`, `ATTACHMENT_UPLOADED`, `AUDIT_REJECTED`, `AUDIT_APPROVED`, `ADMISSION_HANDOFF_CREATED`.
+`IMPORT_CREATED`, `IMPORT_ROW_REJECTED`, `AUTHORIZATION_ITEM_CREATED`, `SOURCE_STATUS_BLOCKED`, `COVERAGE_CLASSIFIED`, `MIPRES_CHECK_COMPLETED`, `DIRECTION_NOT_FOUND`, `DIRECTION_CONFIRMED`, `AUTHORIZATION_READY_TO_DISPENSE`, `APPLICATION_SITE_ASSIGNED`, `APPLICATION_SITE_CHANGED`, `EPS_NOTIFICATION_SENT`, `OLP_NOTIFICATION_SENT`, `MEDICARTE_NOTIFICATION_SENT`, `DISPENSATION_RECORDED`, `ATTACHMENT_UPLOADED`, `AUDIT_REJECTED`, `AUDIT_APPROVED`, `ADMISSION_HANDOFF_CREATED`.
 
 La tabla de eventos de auditoría no sustituye las tablas de negocio ni pretende ser event sourcing. Es un historial inmutable complementario.
 
@@ -556,7 +643,9 @@ El worker publica/procesa después el evento. Así no existe el caso “se guard
 | Procesar archivo | `import_batch_id + file_hash + processor_version` |
 | Consultar MIPRES | `authorization_item_id + query_type + time_window` |
 | Notificar EPS | `notification_type + recipient_group + period + item_set_hash` |
-| Notificar OLP | `authorization_item_id + availability_version` |
+| Notificar disponibilidad OLP | `authorization_item_id + readiness_version + OLP` |
+| Notificar disponibilidad Medicarte | `authorization_item_id + readiness_version + MEDICARTE` |
+| Notificar dirección a OLP | `authorization_item_id + application_site_version + OLP` |
 | Cargar soporte | `authorization_item_id + support_type + file_hash` |
 | Crear admisión | `authorization_item_id + admission_contract_version` |
 
@@ -606,6 +695,9 @@ Este producto procesa información de pacientes y documentos clínico-operativos
 - PBS, NO PBS y sin clasificar.
 - Pendientes de direccionamiento y antigüedad.
 - Disponibles para dispensar y tiempo hasta dispensación.
+- Pendientes de asignación de punto de aplicación y antigüedad.
+- Tiempo desde `READY_TO_DISPENSE` hasta asignación del punto por Medicarte.
+- Tiempo desde asignación del punto hasta registro de aplicación/dispensación.
 - Soportes incompletos por tipo.
 - Auditorías aprobadas/rechazadas y causales.
 - Tiempo total del proceso por empresa y etapa.
@@ -641,6 +733,11 @@ Debe existir una bandeja administrativa de fallos recuperables. Obligar al equip
 10. El worker procesa dos veces el mismo job.
 11. El exportador bajo demanda maneja el volumen esperado sin persistir una copia del archivo ni agotar memoria de forma insegura.
 12. El scraper repite una solicitud de admisión.
+13. `READY_TO_DISPENSE` genera una notificación a OLP y otra a Medicarte sin duplicados.
+14. Medicarte asigna el punto de aplicación y OLP recibe la dirección.
+15. Medicarte modifica la dirección y OLP recibe una nueva versión, conservando historial.
+16. Un usuario de OLP intenta modificar el punto de aplicación y es rechazado.
+17. Gmail falla al notificar la dirección: la asignación permanece guardada y el job es reintentable.
 
 ---
 
@@ -654,7 +751,7 @@ La secuencia debe respetar dependencias técnicas y de negocio. Cada fase tiene 
 
 Entregables obligatorios:
 
-- Decisión del repositorio destino: monorepo independiente o incorporación a repositorios existentes.
+- Repositorio nuevo e independiente en GitHub, estructurado como monorepo.
 - Diccionario de datos definitivo del archivo de autorizaciones, con tipo, obligatoriedad, normalización y validaciones.
 - Confirmación de la llave `NUMERO_AUTORIZACION + COD_COMERCIAL`.
 - Catálogo estable de causales de carga.
@@ -664,10 +761,12 @@ Entregables obligatorios:
 - Reportes diarios a las 08:00 `America/Bogota`, con novedades del día anterior y destinatarios parametrizables.
 - Drive/carpeta destino parametrizable para cargas futuras; soportes sin borrado automático por antigüedad; máximo 20 MB; exportaciones CSV/XLSX bajo demanda y no persistentes.
 - Auditoría humana/visual; la aprobación explícita del auditor produce `APPROVED` y habilita consolidación.
+- Al llegar a `READY_TO_DISPENSE`, se notifica de forma event-driven a OLP y Medicarte.
+- Medicarte define el punto/dirección de aplicación; la asignación o cambio se persiste/versiona y notifica a OLP.
 - Medicarte registra la dispensación al cargar soportes (`DISPENSATION_REPORTED`); `DISPENSED` ocurre únicamente tras auditoría `APPROVED`.
 - Límite de 20 MB por archivo y capacidad esperada de hasta 2.500 archivos por mes.
 - Render como despliegue esperado, Google Cloud como alternativa y región requerida Colombia.
-- Código alojado en GitHub; falta definir repositorio nuevo monorepo vs. incorporación a repositorios existentes.
+- Repositorio nuevo e independiente en GitHub, estructurado como monorepo.
 
 **Gate F0:** las decisiones pendientes que afecten esquema, estados o permisos están documentadas como `ACCEPTED` o explícitamente marcadas como `PENDING` con una prohibición de implementación.
 
@@ -730,21 +829,28 @@ Entregables obligatorios:
 
 - Regla de derivación de `operation_status` y `READY_TO_DISPENSE`, centralizada en dominio.
 - Evento de pendiente de direccionamiento para EPS cuando corresponda.
-- Evento de disponibilidad para OLP cuando corresponda.
-- Plantillas versionadas y destinatarios configurables.
+- Al producir `READY_TO_DISPENSE`, crear `AUTHORIZATION_READY_TO_DISPENSE`.
+- Enviar notificación event-driven a OLP y a Medicarte.
+- Inicializar `application_site_status = PENDING_ASSIGNMENT`.
+- UI/API para que Medicarte defina/modifique el punto de aplicación.
+- Persistencia versionada de `application_site_assignments`.
+- Al asignar: `APPLICATION_SITE_ASSIGNED` + notificación event-driven a OLP con la dirección.
+- Al modificar: `APPLICATION_SITE_CHANGED` + nueva notificación a OLP.
+- Plantillas versionadas y destinatarios configurables para EPS, OLP y Medicarte.
 - Handlers de outbox para Gmail.
 - Consolidación diaria a las 08:00 de novedades del día calendario anterior en `America/Bogota`, destinatarios parametrizables, deduplicación, idempotency keys y bandeja administrativa de fallos.
 - Historial de notificaciones y `gmail_message_id`.
 
 El patrón outbox **no nace en esta fase**; debe existir desde Fase 1. Aquí se implementan los eventos y handlers específicos del negocio.
 
-**Gate F4:** repetir el mismo evento no duplica correo; una caída de Gmail no revierte el estado de negocio; un fallo queda visible y reintentable.
+**Gate F4:** `READY_TO_DISPENSE` notifica una sola vez por versión a OLP y Medicarte; asignar/cambiar el punto notifica a OLP con la versión correcta; una caída de Gmail no revierte estados ni direcciones; los fallos quedan visibles y reintentables.
 
 ### Fase 5 — Dispensación y soportes
 
 **Objetivo:** habilitar la operación de Medicarte y el manejo documental sin perder versiones.
 
 - Bandeja de disponibles según permisos.
+- Precondición para registrar aplicación/dispensación: `application_site_status = ASSIGNED`.
 - Medicarte registra la dispensación al cargar los soportes requeridos.
 - Ese registro produce `DISPENSATION_REPORTED`.
 - `DISPENSED` ocurre únicamente cuando auditoría = `APPROVED`.
@@ -921,6 +1027,15 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 **Consecuencias:** CI/CD unificado, contratos compartidos y límites internos obligatorios entre módulos.
 
 
+
+### ADR-020 — Punto de aplicación como etapa logística explícita
+
+**Estado:** Aceptado.  
+**Contexto:** OLP necesita conocer dónde enviar el medicamento y Medicarte es quien define el lugar donde realizará la aplicación.  
+**Decisión:** `READY_TO_DISPENSE` notifica a OLP y Medicarte; luego Medicarte persiste/versiona el punto de aplicación y esta acción notifica a OLP. Se introduce `application_site_status = PENDING_ASSIGNMENT | ASSIGNED`.  
+**Consecuencias:** La dirección es parte del dominio, tiene historial/auditoría, permisos propios e idempotencia por versión. La aplicación/dispensación no debe registrarse mientras el punto siga pendiente.
+
+
 ---
 
 ## 22. Decisiones de negocio cerradas y pendientes
@@ -947,6 +1062,14 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 
 Con DEC-010 resuelta, las decisiones DEC-001 a DEC-010 quedan cerradas y la Fase 0 puede considerarse completada a nivel de definición arquitectónica y de negocio.
 
+### Nueva decisión cerrada
+
+| ID | Decisión | Definición |
+|---|---|---|
+| DEC-011 | Coordinación logística de aplicación | Al entrar en `READY_TO_DISPENSE` se notifica a OLP y Medicarte. Medicarte define/versiona el punto de aplicación; esa asignación o modificación notifica a OLP. La aplicación posterior requiere un punto asignado. |
+
+DEC-011 modifica el flujo posterior a disponibilidad, pero no altera las reglas ya cerradas de PBS/NO PBS, vigencia MIPRES, soportes ni auditoría.
+
 ---
 
 ## 23. Criterios de aceptación del MVP
@@ -968,6 +1091,10 @@ El MVP está listo solo cuando:
 13. Un usuario de una empresa no puede ejecutar acciones ni ver campos fuera de su alcance.
 14. Backups, restauración, secretos, alertas y trabajos fallidos han sido probados.
 15. El scraper puede consumir un registro aprobado dos veces sin crear dos admisiones.
+16. Cada transición a `READY_TO_DISPENSE` genera las notificaciones lógicas a OLP y Medicarte sin duplicados.
+17. Medicarte puede asignar/modificar el punto de aplicación y cada versión queda auditada.
+18. OLP recibe la dirección vigente después de cada asignación/modificación.
+19. La aplicación/dispensación no puede registrarse si `application_site_status != ASSIGNED`.
 
 ---
 
