@@ -19,6 +19,7 @@ Estados:
 | DEC-008 | RESOLVED | Máximo 20 MB por archivo y volumen esperado de hasta 2.500 archivos por mes. |
 | DEC-009 | RESOLVED | Despliegue esperado en Render, Google Cloud como alternativa, región requerida Colombia. |
 | DEC-010 | RESOLVED | El código se alojará en un repositorio nuevo e independiente en GitHub, estructurado como monorepo. |
+| DEC-012 | RESOLVED | Las autorizaciones son registros únicos y compartidos; el alcance se resuelve por usuario, organización, permisos y relación explícita del recurso, sin duplicar `authorization_items`. |
 
 ---
 
@@ -238,3 +239,28 @@ Al cambiar una decisión:
 8. La aplicación/registro de dispensación requiere `application_site_status = ASSIGNED`.
 9. El flujo posterior de soportes, auditoría y `DISPENSED` continúa sin cambios.
 10. El reporte diario de las 08:00 sigue existiendo como consolidado y no reemplaza estas notificaciones operativas.
+
+---
+
+## DEC-012 — Alcance multi-organización de autorizaciones
+
+**Estado:** RESOLVED
+
+Una autorización es un único registro global. La llave `NUMERO_AUTORIZACION + COD_COMERCIAL` no se replica por organización.
+
+El acceso se decide en backend usando, conjuntamente:
+
+- identidad local del usuario;
+- organización seleccionada;
+- membresía y permisos vigentes;
+- relación explícita entre la autorización y la organización, salvo MTD, que tiene lectura global según su permiso.
+
+En el alcance inicial:
+
+- MTD tiene lectura global y acciones según sus permisos;
+- Compensar, OLP y Medicarte tienen lectura de autorizaciones relacionadas y autorizada por `authorizations.read`;
+- las acciones específicas de OLP y Medicarte quedan fuera de Fase 2 y dependerán del estado posterior del proceso.
+
+Fase 2 persiste la relación en `authorization_item_organizations` y no crea copias del ítem principal. Para los cuatro organismos iniciales de la plataforma, un ítem confirmado queda relacionado con cada organización activa del alcance inicial; organizaciones futuras requieren una relación explícita.
+
+La UI puede ocultar acciones, pero toda consulta y mutación vuelve a validar el alcance en el backend y en la consulta a PostgreSQL.

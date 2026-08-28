@@ -57,3 +57,5 @@
 - La dirección de aplicación es un dato persistido, versionado y auditado; nunca existe solo en un correo.
 - Asignar o cambiar el punto de aplicación notifica a OLP mediante outbox.
 - La aplicación/registro de dispensación requiere `application_site_status = ASSIGNED`.
+- `authorization_items` es un registro global único; su lectura multi-organización se controla con permisos y `authorization_item_organizations`, sin duplicarlo por empresa.
+- En Fase 2 las cuatro columnas de negocio validadas son `NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `CUPS_PRINCIPAL` y `ESTADO_AUTORIZACION`; las demás columnas del archivo se conservan como evidencia sin reglas semánticas adicionales no documentadas.
