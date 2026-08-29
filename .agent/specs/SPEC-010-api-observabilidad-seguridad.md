@@ -12,6 +12,7 @@
 - error `{code,message,fields?,correlationId}`;
 - optimistic concurrency para actualizaciones sensibles;
 - `Idempotency-Key` en mutaciones críticas.
+- replay idempotente sujeto a autorización, alcance y redacción vigentes.
 
 ## Límites operativos iniciales
 

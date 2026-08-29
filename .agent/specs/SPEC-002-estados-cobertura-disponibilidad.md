@@ -46,6 +46,16 @@ Estados iniciales de `operation_status`:
 
 `READY_TO_DISPENSE` significa que el ítem superó las reglas previas de habilitación/cobertura/direccionamiento y entra a coordinación logística. No significa todavía que el medicamento haya sido aplicado.
 
+### Invariante de actualización explícita
+
+Cuando una actualización explícita permitida reemplaza la evidencia y reevalúa las cuatro columnas de negocio, `deriveOperationStatus()` recalcula el estado operacional de forma pura:
+
+- `ENABLED + PBS + NOT_APPLICABLE` => `READY_TO_DISPENSE`.
+- `ENABLED + NO_PBS + CONFIRMED` => `READY_TO_DISPENSE`.
+- Cualquier otra combinación => `BLOCKED`.
+
+La actualización solo puede iniciarse cuando el estado anterior es `READY_TO_DISPENSE`. En Fase 2, `NO_PBS + ENABLED + PENDING` no llama MIPRES y queda `BLOCKED`; Fase 3 podrá confirmar el direccionamiento y Fase 4 aplicará la transición de disponibilidad correspondiente. Esta regla no modifica `DISPENSATION_REPORTED` ni `DISPENSED`, que permanecen protegidos por DEC-002.
+
 ## Punto de aplicación
 
 Nueva dimensión `application_site_status`:
@@ -68,6 +78,8 @@ Reglas:
 - Ese registro mueve el ítem a `DISPENSATION_REPORTED`.
 - `DISPENSED` se deriva únicamente cuando `audit_status = APPROVED`.
 - La regla final que marque `READY_TO_DISPENSE` debe quedar congelada por tests antes de Fase 4.
+
+Durante Fase 2, la confirmación de un ítem nuevo puede dejar `operation_status = NULL`: la transición operacional y sus notificaciones pertenecen a Fase 4. Cuando una actualización explícita se ejecuta sobre un ítem que ya está en `READY_TO_DISPENSE`, la regla anterior se aplica inmediatamente y solo persiste `READY_TO_DISPENSE` o `BLOCKED`.
 
 ## Prohibición
 

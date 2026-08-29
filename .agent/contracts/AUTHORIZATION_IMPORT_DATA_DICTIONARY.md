@@ -55,7 +55,11 @@ Este contrato congela el tratamiento tecnico del archivo de autorizaciones. Solo
 
 La identidad global es la pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL`. La representacion tecnica escapa `\` y `:` en cada componente y los separa con `:`; su longitud maxima es 511 caracteres.
 
-Para una llave repetida dentro del archivo, la primera aparicion conserva su resultado normal y la segunda aparicion y posteriores producen `DUPLICATE_IN_FILE`. Una llave existente produce `EXISTING_ITEM_REVIEW_REQUIRED` y no se actualiza automaticamente. La actualizacion explicita solo se permite en `READY_TO_DISPENSE` y se bloquea desde `DISPENSATION_REPORTED`.
+Para una llave repetida dentro del archivo, la primera aparicion conserva su resultado normal y la segunda aparicion y posteriores producen `DUPLICATE_IN_FILE`. Una llave existente produce `EXISTING_ITEM_REVIEW_REQUIRED` y no se actualiza automaticamente. La actualizacion explicita solo se permite en `READY_TO_DISPENSE`, reemplaza la evidencia y reevalua las cuatro columnas de negocio, recalcula `operation_status` y se bloquea desde `DISPENSATION_REPORTED`.
+
+La actualizacion conserva `READY_TO_DISPENSE` solo para `ENABLED + PBS + NOT_APPLICABLE` o `ENABLED + NO_PBS + CONFIRMED`; cualquier otra combinacion queda `BLOCKED`. La pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL` debe coincidir con la llave existente y sus componentes no cambian. En Fase 2, `NO_PBS + ENABLED + PENDING` queda bloqueado sin consulta externa.
+
+La auditoria de la actualizacion explicita referencia la fila de evidencia anterior y la nueva, conserva sus hashes SHA-256 y compara `NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `CUPS_PRINCIPAL` y `ESTADO_AUTORIZACION` normalizados. El registro idempotente se enlaza por ID y hashes tecnicos; su respuesta persistida no contiene `sourceData`. La evidencia cruda permanece en `import_rows` y `authorization_items` para no duplicar datos sensibles.
 
 ## Catalogo estable de resultados
 

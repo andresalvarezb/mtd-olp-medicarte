@@ -227,6 +227,8 @@ Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar 
 7. El punto de aplicación debe persistirse como entidad/versionado de negocio; no puede existir únicamente dentro del correo enviado a OLP.
 8. Solo una versión del punto de aplicación puede estar vigente por ítem; una modificación conserva la anterior y genera nueva notificación logística.
 9. Una autorización es un registro global único. MTD puede leer globalmente con permiso; Compensar, OLP y Medicarte requieren relación explícita y permiso vigente.
+10. Una actualización explícita iniciada desde `READY_TO_DISPENSE` reemplaza la evidencia y reevalúa las cuatro columnas de negocio; la pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL` debe coincidir con la llave existente. Solo conserva `READY_TO_DISPENSE` si `ENABLED + PBS + NOT_APPLICABLE` o `ENABLED + NO_PBS + CONFIRMED`; cualquier otra combinación queda `BLOCKED` en la misma transacción.
+11. La base de datos impide persistir `READY_TO_DISPENSE` cuando las dimensiones de habilitación, cobertura y direccionamiento no cumplen esos prerrequisitos.
 
 ---
 
@@ -257,6 +259,10 @@ Este resumen es una proyección de lectura; nunca sustituye las dimensiones real
 
 - PBS habilitado: no requiere direccionamiento MIPRES.
 - NO PBS habilitado: requiere `direction_status = CONFIRMED`.
+
+Una actualización explícita puede cambiar esas dimensiones. La actualización se autoriza únicamente para un ítem cuyo estado anterior sea `READY_TO_DISPENSE`; luego la regla pura de dominio conserva `READY_TO_DISPENSE` solo cuando los prerrequisitos continúan satisfechos y usa `BLOCKED` en cualquier otra combinación. En Fase 2, `NO_PBS + ENABLED + PENDING` no consulta MIPRES y queda `BLOCKED` hasta una confirmación posterior.
+
+La confirmación de ítems nuevos en Fase 2 puede dejar `operation_status = NULL` mientras Fase 4 materializa la transición operacional y sus notificaciones. La restricción de base de datos solo protege los valores no nulos, y la actualización explícita siempre persiste `READY_TO_DISPENSE` o `BLOCKED`.
 
 A partir de allí:
 
@@ -569,28 +575,29 @@ La interfaz ocultará acciones no permitidas, pero el backend volverá a verific
 
 Prefijo: `/api/v1`.
 
-| Método y ruta                                            | Uso                                                                       |
-| -------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `GET /me`                                                | Perfil, organizaciones, roles y permisos efectivos.                       |
-| `POST /imports`                                          | Crear batch y obtener mecanismo de carga.                                 |
-| `GET /imports/:id`                                       | Progreso y totales.                                                       |
-| `GET /imports/:id/rows`                                  | Filas y causales paginadas.                                               |
-| `POST /imports/:id/confirm`                              | Confirmar persistencia de filas válidas.                                  |
-| `GET /authorization-items`                               | Bandeja con filtros, paginación y orden.                                  |
-| `GET /authorization-items/:id`                           | Detalle e historial.                                                      |
-| `POST /authorization-items/:id/mipres-rechecks`          | Solicitar revalidación autorizada.                                        |
-| `GET /authorization-items/:id/application-site`          | Consultar punto de aplicación vigente e historial autorizado.             |
-| `PUT /authorization-items/:id/application-site`          | Medicarte asigna/modifica el punto de aplicación.                         |
-| `POST /authorization-items/:id/dispensations`            | Registrar dispensación.                                                   |
-| `POST /authorization-items/:id/attachments`              | Cargar soporte.                                                           |
-| `GET /authorization-items/:id/attachments/:attachmentId` | Descargar soporte autorizado.                                             |
-| `POST /authorization-items/:id/audit-reviews`            | Iniciar revisión.                                                         |
-| `POST /audit-reviews/:id/findings`                       | Crear hallazgo.                                                           |
-| `POST /audit-reviews/:id/reject`                         | Rechazar con causal.                                                      |
-| `POST /audit-reviews/:id/approve`                        | Aprobar.                                                                  |
-| `GET /exports/authorization-items.csv`                   | Generar/descargar consolidado CSV bajo demanda según filtros y permisos.  |
-| `GET /exports/authorization-items.xlsx`                  | Generar/descargar consolidado XLSX bajo demanda según filtros y permisos. |
-| `GET /admin/dead-letter-jobs`                            | Ver trabajos que agotaron reintentos.                                     |
+| Método y ruta                                            | Uso                                                                                             |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `GET /me`                                                | Perfil, organizaciones, roles y permisos efectivos.                                             |
+| `POST /imports`                                          | Crear batch y obtener mecanismo de carga.                                                       |
+| `GET /imports/:id`                                       | Progreso y totales.                                                                             |
+| `GET /imports/:id/rows`                                  | Filas y causales paginadas.                                                                     |
+| `POST /imports/:id/confirm`                              | Confirmar persistencia de filas válidas.                                                        |
+| `GET /authorization-items`                               | Bandeja con filtros, paginación y orden.                                                        |
+| `GET /authorization-items/:id`                           | Detalle e historial.                                                                            |
+| `POST /authorization-items/:id/source-updates`           | Actualización explícita de una llave existente elegible, con control de versión e idempotencia. |
+| `POST /authorization-items/:id/mipres-rechecks`          | Solicitar revalidación autorizada.                                                              |
+| `GET /authorization-items/:id/application-site`          | Consultar punto de aplicación vigente e historial autorizado.                                   |
+| `PUT /authorization-items/:id/application-site`          | Medicarte asigna/modifica el punto de aplicación.                                               |
+| `POST /authorization-items/:id/dispensations`            | Registrar dispensación.                                                                         |
+| `POST /authorization-items/:id/attachments`              | Cargar soporte.                                                                                 |
+| `GET /authorization-items/:id/attachments/:attachmentId` | Descargar soporte autorizado.                                                                   |
+| `POST /authorization-items/:id/audit-reviews`            | Iniciar revisión.                                                                               |
+| `POST /audit-reviews/:id/findings`                       | Crear hallazgo.                                                                                 |
+| `POST /audit-reviews/:id/reject`                         | Rechazar con causal.                                                                            |
+| `POST /audit-reviews/:id/approve`                        | Aprobar.                                                                                        |
+| `GET /exports/authorization-items.csv`                   | Generar/descargar consolidado CSV bajo demanda según filtros y permisos.                        |
+| `GET /exports/authorization-items.xlsx`                  | Generar/descargar consolidado XLSX bajo demanda según filtros y permisos.                       |
+| `GET /admin/dead-letter-jobs`                            | Ver trabajos que agotaron reintentos.                                                           |
 
 ### Convenciones
 
@@ -620,9 +627,11 @@ Cada evento debe guardar:
 
 Eventos iniciales:
 
-`IMPORT_CREATED`, `IMPORT_ROW_REJECTED`, `AUTHORIZATION_ITEM_CREATED`, `SOURCE_STATUS_BLOCKED`, `COVERAGE_CLASSIFIED`, `MIPRES_CHECK_COMPLETED`, `DIRECTION_NOT_FOUND`, `DIRECTION_CONFIRMED`, `AUTHORIZATION_READY_TO_DISPENSE`, `APPLICATION_SITE_ASSIGNED`, `APPLICATION_SITE_CHANGED`, `EPS_NOTIFICATION_SENT`, `OLP_NOTIFICATION_SENT`, `MEDICARTE_NOTIFICATION_SENT`, `DISPENSATION_RECORDED`, `ATTACHMENT_UPLOADED`, `AUDIT_REJECTED`, `AUDIT_APPROVED`, `ADMISSION_HANDOFF_CREATED`.
+`IMPORT_CREATED`, `IMPORT_ROW_REJECTED`, `AUTHORIZATION_ITEM_CREATED`, `AUTHORIZATION_ITEM_UPDATED`, `SOURCE_STATUS_BLOCKED`, `COVERAGE_CLASSIFIED`, `MIPRES_CHECK_COMPLETED`, `DIRECTION_NOT_FOUND`, `DIRECTION_CONFIRMED`, `AUTHORIZATION_READY_TO_DISPENSE`, `APPLICATION_SITE_ASSIGNED`, `APPLICATION_SITE_CHANGED`, `EPS_NOTIFICATION_SENT`, `OLP_NOTIFICATION_SENT`, `MEDICARTE_NOTIFICATION_SENT`, `DISPENSATION_RECORDED`, `ATTACHMENT_UPLOADED`, `AUDIT_REJECTED`, `AUDIT_APPROVED`, `ADMISSION_HANDOFF_CREATED`.
 
 La tabla de eventos de auditoría no sustituye las tablas de negocio ni pretende ser event sourcing. Es un historial inmutable complementario.
+
+En `AUTHORIZATION_ITEM_UPDATED`, `before` y `after` comparan `NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `CUPS_PRINCIPAL` y `ESTADO_AUTORIZACION` normalizados, y referencian las filas de importación y sus hashes SHA-256. `after` enlaza el registro idempotente creado en la misma transacción. La evidencia cruda permanece en `import_rows` y `authorization_items`; ni la auditoría ni la respuesta idempotente persistida duplican esos datos sensibles.
 
 ---
 
@@ -652,6 +661,8 @@ El worker publica/procesa después el evento. Así no existe el caso “se guard
 | Crear admisión                     | `authorization_item_id + admission_contract_version`           |
 
 Los jobs deben poder ejecutarse más de una vez. La cola entrega trabajo; la base de datos decide si el efecto ya ocurrió.
+
+Una respuesta idempotente persistida no sustituye la autorización del request actual. Antes de devolverla, la API revalida permiso y alcance organizacional, y aplica la redacción de campos sensibles según los permisos vigentes.
 
 ---
 
@@ -758,6 +769,7 @@ Entregables obligatorios:
 - Confirmación de la llave `NUMERO_AUTORIZACION + COD_COMERCIAL`.
 - Catálogo estable de causales de carga.
 - Si ya existe `NUMERO_AUTORIZACION + COD_COMERCIAL`, reportar para verificación humana; permitir actualización explícita únicamente si `operation_status = READY_TO_DISPENSE`.
+- Si una actualización explícita cambia la clasificación, recalcular `operation_status` en la misma transacción; no conservar `READY_TO_DISPENSE` cuando falte un prerrequisito.
 - Contrato MIPRES de direccionamientos y credenciales de sandbox. Mientras DEC-013 esté `PENDING`, la integración HTTP real queda prohibida.
 - Direccionamiento válido: `current_date(America/Bogota) < fecha_maxima`; igualdad con `fecha_maxima` no es válida.
 - Reportes diarios a las 08:00 `America/Bogota`, con novedades del día anterior y destinatarios parametrizables.
@@ -798,7 +810,7 @@ Entregables obligatorios:
 - Normalización y validaciones por campo.
 - Detección de duplicados dentro del archivo y contra `authorization_items`.
 - Confirmación transaccional y reporte por fila con causal estable.
-- Llave existente: reportar para verificación humana; actualización explícita solo si `operation_status = READY_TO_DISPENSE`.
+- Llave existente: reportar para verificación humana; actualización explícita solo si `operation_status = READY_TO_DISPENSE`, con recálculo del estado operacional para preservar invariantes.
 - `enablement_status` derivado de `ESTADO_AUTORIZACION`: `5 = ENABLED`; cualquier otro valor = `BLOCKED_SOURCE_STATUS`.
 - `coverage_type` derivado en esta fase, no en MIPRES:
   - `normalizar(CUPS_PRINCIPAL) == "MEDICAMENTOS NO POS"` → `NO_PBS`.
@@ -1031,6 +1043,12 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 **Decisión:** `READY_TO_DISPENSE` notifica a OLP y Medicarte; luego Medicarte persiste/versiona el punto de aplicación y esta acción notifica a OLP. Se introduce `application_site_status = PENDING_ASSIGNMENT | ASSIGNED`.  
 **Consecuencias:** La dirección es parte del dominio, tiene historial/auditoría, permisos propios e idempotencia por versión. La aplicación/dispensación no debe registrarse mientras el punto siga pendiente.
 
+### ADR-021 — Invariante operacional de actualización explícita
+
+**Estado:** Aceptado.
+
+Cuando una actualización explícita permitida reemplaza la evidencia y reevalúa la clasificación de un ítem, la pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL` debe seguir coincidiendo con la llave existente. La regla de dominio vuelve a evaluar sus prerrequisitos. `ENABLED + PBS + NOT_APPLICABLE` y `ENABLED + NO_PBS + CONFIRMED` producen `READY_TO_DISPENSE`; cualquier otra combinación produce `BLOCKED`. Fase 2 no consulta MIPRES, por lo que `NO_PBS + ENABLED + PENDING` permanece bloqueado hasta la validación posterior.
+
 ### DEC-012 — Alcance multi-organización de autorizaciones
 
 **Estado:** Resuelto.
@@ -1047,18 +1065,19 @@ La relación se crea al confirmar un ítem dentro del alcance inicial de organiz
 
 ### Cerradas
 
-| ID      | Decisión                    | Definición                                                                                                                               |
-| ------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| DEC-001 | Vigencia MIPRES             | Válido solo si `current_date(America/Bogota) < fecha_maxima`.                                                                            |
-| DEC-002 | Actualización de existentes | Revisión humana; solo puede actualizarse si `operation_status = READY_TO_DISPENSE`. Bloqueada desde `DISPENSATION_REPORTED` en adelante. |
-| DEC-003 | `DISPENSED`                 | Solo después de `audit_status = APPROVED`.                                                                                               |
-| DEC-004 | Registro de dispensación    | Medicarte registra al cargar soportes; queda `DISPENSATION_REPORTED` hasta aprobación.                                                   |
-| DEC-005 | Reportes                    | Todos los días a las 08:00 `America/Bogota`, con novedades del día anterior; destinatarios parametrizables.                              |
-| DEC-006 | Auditoría                   | Revisión humana/visual. La aprobación explícita del auditor produce `APPROVED`; no hay aprobación automática.                            |
-| DEC-007 | Drive y exportaciones       | Soportes sin borrado automático por antigüedad; exportaciones CSV/XLSX bajo demanda y sin copia persistente.                             |
-| DEC-008 | Capacidad                   | Máximo 20 MB por archivo; hasta 2.500 archivos por mes como volumen esperado.                                                            |
-| DEC-009 | Despliegue                  | Render esperado, Google Cloud alternativo, región requerida Colombia.                                                                    |
-| DEC-012 | Alcance multi-organización  | Ítem global único; lectura MTD global y lectura de otras organizaciones mediante relación explícita y permisos.                          |
+| ID      | Decisión                    | Definición                                                                                                                                    |
+| ------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| DEC-001 | Vigencia MIPRES             | Válido solo si `current_date(America/Bogota) < fecha_maxima`.                                                                                 |
+| DEC-002 | Actualización de existentes | Revisión humana; solo puede actualizarse si `operation_status = READY_TO_DISPENSE`. Bloqueada desde `DISPENSATION_REPORTED` en adelante.      |
+| DEC-003 | `DISPENSED`                 | Solo después de `audit_status = APPROVED`.                                                                                                    |
+| DEC-004 | Registro de dispensación    | Medicarte registra al cargar soportes; queda `DISPENSATION_REPORTED` hasta aprobación.                                                        |
+| DEC-005 | Reportes                    | Todos los días a las 08:00 `America/Bogota`, con novedades del día anterior; destinatarios parametrizables.                                   |
+| DEC-006 | Auditoría                   | Revisión humana/visual. La aprobación explícita del auditor produce `APPROVED`; no hay aprobación automática.                                 |
+| DEC-007 | Drive y exportaciones       | Soportes sin borrado automático por antigüedad; exportaciones CSV/XLSX bajo demanda y sin copia persistente.                                  |
+| DEC-008 | Capacidad                   | Máximo 20 MB por archivo; hasta 2.500 archivos por mes como volumen esperado.                                                                 |
+| DEC-009 | Despliegue                  | Render esperado, Google Cloud alternativo, región requerida Colombia.                                                                         |
+| DEC-012 | Alcance multi-organización  | Ítem global único; lectura MTD global y lectura de otras organizaciones mediante relación explícita y permisos.                               |
+| DEC-014 | Invariante de actualización | Una actualización permitida recalcula `operation_status` y solo conserva `READY_TO_DISPENSE` cuando sus prerrequisitos continúan satisfechos. |
 
 ### Repositorio
 
@@ -1066,7 +1085,7 @@ La relación se crea al confirmar un ítem dentro del alcance inicial de organiz
 | ------- | ----------- | --------------------------------------------------------------------------------------------------------------------- |
 | DEC-010 | Repositorio | Repositorio nuevo e independiente en GitHub, estructurado como monorepo. No se integra en `vita-back` ni `vita-core`. |
 
-Con DEC-010 resuelta, las decisiones DEC-001 a DEC-012 quedan cerradas a nivel arquitectónico y de negocio. DEC-013 mantiene pendiente el contrato externo y sandbox MIPRES, con prohibición explícita de implementar la integración real hasta recibir evidencia oficial.
+Con DEC-010 resuelta, las decisiones DEC-001 a DEC-012 y DEC-014 quedan cerradas a nivel arquitectónico y de negocio. DEC-013 mantiene pendiente el contrato externo y sandbox MIPRES, con prohibición explícita de implementar la integración real hasta recibir evidencia oficial.
 
 ### Nueva decisión cerrada
 

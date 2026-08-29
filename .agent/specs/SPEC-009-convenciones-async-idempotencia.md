@@ -32,6 +32,8 @@ Se escribe en la misma transacción del cambio de negocio. El dispatcher puede e
 
 Ejecución duplicada produce un único efecto lógico.
 
+Un replay HTTP siempre revalida la autenticación, el permiso y el alcance organizacional vigentes antes de devolver la respuesta persistida. Los campos sensibles se redactan según los permisos actuales, aunque la ejecución original hubiera autorizado su lectura.
+
 ## Exportaciones bajo demanda
 
 Las exportaciones no son un artefacto persistente de background. CSV/XLSX se generan a solicitud del usuario y se entregan sin conservar una copia permanente.

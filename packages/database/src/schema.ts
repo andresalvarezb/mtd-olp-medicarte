@@ -184,6 +184,15 @@ export const authorizationItems = pgTable(
       'authorization_items_operation_status_check',
       sql`${table.operationStatus} IS NULL OR ${table.operationStatus} IN ('BLOCKED', 'READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED')`,
     ),
+    check(
+      'authorization_items_ready_prerequisites_check',
+      sql`${table.operationStatus} IS NULL OR ${table.operationStatus} <> 'READY_TO_DISPENSE' OR (
+        ${table.enablementStatus} = 'ENABLED' AND (
+          (${table.coverageType} = 'PBS' AND ${table.directionStatus} = 'NOT_APPLICABLE') OR
+          (${table.coverageType} = 'NO_PBS' AND ${table.directionStatus} = 'CONFIRMED')
+        )
+      )`,
+    ),
     check('authorization_items_version_check', sql`${table.version} > 0`),
   ],
 );
