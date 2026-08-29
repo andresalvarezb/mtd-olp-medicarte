@@ -5,6 +5,7 @@ import {
   deriveCoverageType,
   deriveDirectionStatus,
   deriveEnablementStatus,
+  deriveOperationStatus,
   normalizeSourceText,
 } from './authorization-classification';
 
@@ -27,6 +28,37 @@ describe('authorization classification', () => {
     expect(deriveEnablementStatus('4')).toBe('BLOCKED_SOURCE_STATUS');
     expect(deriveDirectionStatus('PBS')).toBe('NOT_APPLICABLE');
     expect(deriveDirectionStatus('NO_PBS')).toBe('PENDING');
+  });
+
+  it('derives a safe operational status from readiness dimensions', () => {
+    expect(
+      deriveOperationStatus({
+        enablementStatus: 'ENABLED',
+        coverageType: 'PBS',
+        directionStatus: 'NOT_APPLICABLE',
+      }),
+    ).toBe('READY_TO_DISPENSE');
+    expect(
+      deriveOperationStatus({
+        enablementStatus: 'ENABLED',
+        coverageType: 'NO_PBS',
+        directionStatus: 'CONFIRMED',
+      }),
+    ).toBe('READY_TO_DISPENSE');
+    expect(
+      deriveOperationStatus({
+        enablementStatus: 'BLOCKED_SOURCE_STATUS',
+        coverageType: 'PBS',
+        directionStatus: 'NOT_APPLICABLE',
+      }),
+    ).toBe('BLOCKED');
+    expect(
+      deriveOperationStatus({
+        enablementStatus: 'ENABLED',
+        coverageType: 'NO_PBS',
+        directionStatus: 'PENDING',
+      }),
+    ).toBe('BLOCKED');
   });
 
   it('builds a stable, delimited identity key', () => {

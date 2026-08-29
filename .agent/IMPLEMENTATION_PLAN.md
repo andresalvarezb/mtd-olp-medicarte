@@ -12,7 +12,7 @@ Entregables obligatorios:
 - Diccionario de datos definitivo del archivo de autorizaciones, con tipo, obligatoriedad, normalización y validaciones.
 - Confirmación de la llave `NUMERO_AUTORIZACION + COD_COMERCIAL`.
 - Catálogo estable de causales de carga.
-- Llave existente: revisión humana; actualización explícita solo si `operation_status = READY_TO_DISPENSE`, bloqueada desde `DISPENSATION_REPORTED` en adelante.
+- Llave existente: revisión humana; actualización explícita solo si `operation_status = READY_TO_DISPENSE`, recalcula el estado operacional y queda `BLOCKED` si la nueva clasificación no cumple los prerrequisitos; bloqueada desde `DISPENSATION_REPORTED` en adelante.
 - Contrato MIPRES de direccionamientos y credenciales de sandbox. `PENDING` en DEC-013; queda prohibida la implementación real de Fase 3 hasta recibir y validar la evidencia externa.
 - Regla de direccionamiento confirmada: `current_date(America/Bogota) < fecha_maxima`; igualdad con la fecha máxima no es válida.
 - Reportes diarios a las 08:00 `America/Bogota`, con novedades del día anterior y destinatarios parametrizables.
@@ -52,12 +52,13 @@ Entregables obligatorios:
 - Normalización y validaciones por campo.
 - Detección de duplicados dentro del archivo y contra `authorization_items`.
 - Confirmación transaccional y reporte por fila con causal estable.
-- Si una llave ya existe, reportarla para verificación humana y permitir actualización explícita solo si `operation_status = READY_TO_DISPENSE`.
+- Si una llave ya existe, reportarla para verificación humana y permitir actualización explícita solo si `operation_status = READY_TO_DISPENSE`; recalcular `operation_status` en la misma transacción y degradarlo a `BLOCKED` si corresponde.
 - `enablement_status` derivado de `ESTADO_AUTORIZACION`: `5 = ENABLED`; cualquier otro valor = `BLOCKED_SOURCE_STATUS`.
 - `coverage_type` derivado en esta fase, no en MIPRES:
   - `normalizar(CUPS_PRINCIPAL) == "MEDICAMENTOS NO POS"` → `NO_PBS`.
   - cualquier otro valor → `PBS`.
 - Para `PBS`, `direction_status = NOT_APPLICABLE`.
+- La confirmación de un ítem nuevo puede dejar `operation_status = NULL` hasta la derivación operacional de Fase 4; una actualización explícita de un ítem ya `READY_TO_DISPENSE` siempre recalcula `READY_TO_DISPENSE` o `BLOCKED`.
 - Bandeja de autorizaciones, detalle, filtros y trazabilidad de la carga.
 - La bandeja aplica `authorizations.read` y el alcance de `authorization_item_organizations`; MTD conserva lectura global.
 
@@ -84,7 +85,7 @@ Entregables obligatorios:
 
 **Objetivo:** convertir estados técnicos en acciones operativas y comunicaciones confiables.
 
-- Regla de derivación de `operation_status` y `READY_TO_DISPENSE`, centralizada en dominio.
+- Regla de derivación de `operation_status` y `READY_TO_DISPENSE`, centralizada en dominio y reutilizada por actualizaciones explícitas.
 - Evento de pendiente de direccionamiento para EPS cuando corresponda.
 - Evento de disponibilidad para OLP cuando corresponda.
 - Plantillas versionadas y destinatarios configurables.

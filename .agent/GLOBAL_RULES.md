@@ -46,6 +46,7 @@
 - Pruebas unitarias para reglas puras, integración para DB/colas y E2E para historias verticales.
 
 - Una llave existente solo puede actualizarse si `operation_status = READY_TO_DISPENSE`; queda bloqueada desde `DISPENSATION_REPORTED` en adelante.
+- Una actualización explícita reemplaza la evidencia y reevalúa las cuatro columnas de negocio, manteniendo la pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL`; recalcula `operation_status`: solo `ENABLED + PBS + NOT_APPLICABLE` o `ENABLED + NO_PBS + CONFIRMED` conserva `READY_TO_DISPENSE`; cualquier otra combinación queda `BLOCKED`.
 - Los reportes diarios se ejecutan a las 08:00 `America/Bogota` y cubren el día anterior.
 - Los destinatarios son parametrizables y sus cambios se auditan.
 - Solo una persona autorizada puede producir `audit_status = APPROVED`; no existe aprobación automática.

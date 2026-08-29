@@ -63,6 +63,22 @@ export function deriveDirectionStatus(
   return coverageType === 'PBS' ? 'NOT_APPLICABLE' : 'PENDING';
 }
 
+export type OperationStatusInput = Readonly<{
+  enablementStatus: 'ENABLED' | 'BLOCKED_SOURCE_STATUS';
+  coverageType: 'PBS' | 'NO_PBS';
+  directionStatus: 'NOT_APPLICABLE' | 'PENDING' | 'CONFIRMED' | 'QUERY_ERROR';
+}>;
+
+export function deriveOperationStatus(
+  input: OperationStatusInput,
+): 'BLOCKED' | 'READY_TO_DISPENSE' {
+  const ready =
+    input.enablementStatus === 'ENABLED' &&
+    ((input.coverageType === 'PBS' && input.directionStatus === 'NOT_APPLICABLE') ||
+      (input.coverageType === 'NO_PBS' && input.directionStatus === 'CONFIRMED'));
+  return ready ? 'READY_TO_DISPENSE' : 'BLOCKED';
+}
+
 export function deriveAuthorizationClassification(
   input: AuthorizationClassificationInput,
 ): AuthorizationClassification | null {

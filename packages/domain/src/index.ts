@@ -10,6 +10,10 @@ export {
   deriveCoverageType,
   deriveDirectionStatus,
   deriveEnablementStatus,
+  deriveOperationStatus,
   normalizeSourceText,
 } from './authorization-classification';
-export type { AuthorizationClassificationInput } from './authorization-classification';
+export type {
+  AuthorizationClassificationInput,
+  OperationStatusInput,
+} from './authorization-classification';

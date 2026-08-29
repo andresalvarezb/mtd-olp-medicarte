@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -15,6 +16,7 @@ import {
   type AuthorizationItemListQuery,
 } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
+import { deriveOperationStatus } from '@authorization/domain';
 import { DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
 
@@ -90,6 +92,12 @@ function rawText(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return `${value}`;
   return JSON.stringify(value) ?? '';
+}
+
+function evidenceHash(value: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(value) ?? 'null')
+    .digest('hex');
 }
 
 function escapeLikePattern(value: string): string {
@@ -213,16 +221,81 @@ export class AuthorizationItemsService {
     const requestHash = createHash('sha256')
       .update(`${rowId}:${input.expectedVersion}`)
       .digest('hex');
+    const idempotencyKeyHash = createHash('sha256').update(input.idempotencyKey).digest('hex');
     const client = await this.database.pool.connect();
     try {
       await client.query('begin');
       await client.query('select pg_advisory_xact_lock(hashtext($1))', [
         `${idempotencyScope}:${input.idempotencyKey}`,
       ]);
+      const access = await client.query<{ organization_code: string; role_id: string }>(
+        `select o.code as organization_code, uor.role_id
+         from users u
+         inner join user_organization_roles uor on uor.user_id = u.id
+         inner join organizations o on o.id = uor.organization_id
+         where u.id = $1 and u.active = true and uor.organization_id = $2
+           and uor.active = true and o.active = true
+         for share of u, uor, o`,
+        [input.scope.userId, input.scope.organizationId],
+      );
+      if (access.rows.length === 0) {
+        throw new ForbiddenException({
+          code: 'PERMISSION_DENIED',
+          message: 'Permission denied for organization',
+        });
+      }
+      const currentPermissions = await client.query<{ code: string }>(
+        `select p.code
+         from role_permissions rp
+         inner join permissions p on p.id = rp.permission_id
+         where rp.role_id = any($1::uuid[])
+           and p.code in ('imports.confirm', 'authorizations.read_sensitive')
+         for share of rp, p`,
+        [[...new Set(access.rows.map((row) => row.role_id))]],
+      );
+      const permissionCodes = new Set(currentPermissions.rows.map((row) => row.code));
+      if (!permissionCodes.has('imports.confirm')) {
+        throw new ForbiddenException({
+          code: 'PERMISSION_DENIED',
+          message: 'Permission denied for organization',
+        });
+      }
+      const currentReadSensitive = permissionCodes.has('authorizations.read_sensitive');
+      const currentOrganizationCode = access.rows[0]?.organization_code;
+      if (currentOrganizationCode !== 'MTD') {
+        const relationship = await client.query(
+          `select authorization_item_id
+           from authorization_item_organizations
+           where authorization_item_id = $1 and organization_id = $2
+           for share`,
+          [itemId, input.scope.organizationId],
+        );
+        if (relationship.rows.length === 0) {
+          throw new NotFoundException({
+            code: 'AUTHORIZATION_ITEM_NOT_FOUND',
+            message: 'Authorization item not found',
+          });
+        }
+      }
       await client.query(
         'delete from idempotency_records where scope = $1 and key = $2 and expires_at <= now()',
         [idempotencyScope, input.idempotencyKey],
       );
+      const itemResult = await client.query<ItemRow>(
+        `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
+                i.source_status_normalized, i.source_cups_principal_normalized, i.enablement_status, i.coverage_type,
+                i.direction_status, i.operation_status, i.coverage_rule_version, i.version, i.created_at, i.updated_at
+         from authorization_items i
+         where i.id = $1
+         for update`,
+        [itemId],
+      );
+      const item = itemResult.rows[0];
+      if (!item)
+        throw new NotFoundException({
+          code: 'AUTHORIZATION_ITEM_NOT_FOUND',
+          message: 'Authorization item not found',
+        });
       const existingIdempotency = await client.query<{
         request_hash: string;
         response: { item: AuthorizationItemResponse; rowId: string; resultCode: 'ITEM_UPDATED' };
@@ -238,26 +311,30 @@ export class AuthorizationItemsService {
             message: 'Idempotency key reused with another payload',
           });
         }
+        let replaySourceData: Record<string, unknown> | null = null;
+        if (currentReadSensitive) {
+          const replayEvidence = await client.query<{ raw_data: unknown }>(
+            `select r.raw_data
+             from import_rows r
+             inner join import_batches b on b.id = r.import_batch_id
+             where r.id = $1 and r.authorization_item_id = $2 and r.result_code = 'ITEM_UPDATED'
+               and b.organization_id = $3`,
+            [previous.response.rowId, itemId, input.scope.organizationId],
+          );
+          replaySourceData = sourceDataRecord(replayEvidence.rows[0]?.raw_data);
+          if (!replaySourceData) throw new Error('Idempotent source evidence was not found');
+          await this.insertReadAudit(itemId, input.scope, client);
+        }
         await client.query('commit');
-        return previous.response;
+        return {
+          ...previous.response,
+          item: {
+            ...previous.response.item,
+            sourceData: replaySourceData,
+          },
+        };
       }
 
-      const itemResult = await client.query<ItemRow>(
-        `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
-                i.source_status_normalized, i.source_cups_principal_normalized, i.enablement_status, i.coverage_type,
-                i.direction_status, i.operation_status, i.coverage_rule_version, i.version, i.created_at, i.updated_at
-         from authorization_items i
-         where i.id = $1
-           and ($2::boolean = true or exists (select 1 from authorization_item_organizations aio where aio.authorization_item_id = i.id and aio.organization_id = $3))
-         for update`,
-        [itemId, input.scope.organizationCode === 'MTD', input.scope.organizationId],
-      );
-      const item = itemResult.rows[0];
-      if (!item)
-        throw new NotFoundException({
-          code: 'AUTHORIZATION_ITEM_NOT_FOUND',
-          message: 'Authorization item not found',
-        });
       if (item.operation_status !== 'READY_TO_DISPENSE') {
         throw new ConflictException({
           code: 'EXPLICIT_UPDATE_NOT_ALLOWED',
@@ -300,14 +377,29 @@ export class AuthorizationItemsService {
           message: 'Import row does not match the authorization item',
         });
       }
+      const previousEvidence = await client.query<{ id: string; raw_data: unknown }>(
+        `select id, raw_data
+         from import_rows
+         where authorization_item_id = $1 and result_code in ('ITEM_CREATED', 'ITEM_UPDATED')
+         order by created_at desc, id desc
+         limit 1`,
+        [itemId],
+      );
+      const previousEvidenceRow = previousEvidence.rows[0];
+      if (!previousEvidenceRow) throw new Error('Previous source evidence was not found');
 
+      const operationStatus = deriveOperationStatus({
+        enablementStatus: classification.data.enablementStatus,
+        coverageType: classification.data.coverageType,
+        directionStatus: classification.data.directionStatus,
+      });
       const updated = await client.query<ItemRow>(
         `update authorization_items set
            source_data = $2::jsonb, source_status_normalized = $3, source_cups_principal_normalized = $4,
-           enablement_status = $5, coverage_type = $6, direction_status = $7,
+           enablement_status = $5, coverage_type = $6, direction_status = $7, operation_status = $8,
            coverage_rule_version = 'F2-COVERAGE-1', version = version + 1, updated_at = now()
-         where id = $1 and version = $8
-         returning id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
+          where id = $1 and version = $9
+          returning id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
                    source_status_normalized, source_cups_principal_normalized, enablement_status, coverage_type,
                    direction_status, operation_status, coverage_rule_version, version, created_at, updated_at`,
         [
@@ -318,6 +410,7 @@ export class AuthorizationItemsService {
           classification.data.enablementStatus,
           classification.data.coverageType,
           classification.data.directionStatus,
+          operationStatus,
           input.expectedVersion,
         ],
       );
@@ -344,6 +437,19 @@ export class AuthorizationItemsService {
         `update import_rows set result_code = 'ITEM_UPDATED', result_message = $2, confirmable = false where id = $1`,
         [rowId, importRowResultMessages.ITEM_UPDATED],
       );
+      const storedResponse = {
+        item: toItemResponse(changed, false),
+        rowId,
+        resultCode: 'ITEM_UPDATED' as const,
+      };
+      const idempotencyRecord = await client.query<{ id: string }>(
+        `insert into idempotency_records (scope, key, request_hash, status_code, response, expires_at)
+         values ($1, $2, $3, 200, $4::jsonb, now() + interval '24 hours')
+         returning id`,
+        [idempotencyScope, input.idempotencyKey, requestHash, JSON.stringify(storedResponse)],
+      );
+      const idempotencyRecordId = idempotencyRecord.rows[0]?.id;
+      if (!idempotencyRecordId) throw new Error('Idempotency record was not created');
       await this.insertAudit(client, {
         actorId: input.scope.userId,
         organizationId: input.scope.organizationId,
@@ -353,27 +459,52 @@ export class AuthorizationItemsService {
         before: {
           version: item.version,
           authorizationKey: item.authorization_key,
+          numeroAutorizacionNormalized: item.numero_autorizacion,
+          codigoComercialNormalized: item.codigo_medicamento,
+          sourceEvidence: {
+            importRowId: previousEvidenceRow.id,
+            sha256: evidenceHash(previousEvidenceRow.raw_data),
+          },
+          sourceStatusNormalized: item.source_status_normalized,
+          sourceCupsPrincipalNormalized: item.source_cups_principal_normalized,
           coverageType: item.coverage_type,
           enablementStatus: item.enablement_status,
+          directionStatus: item.direction_status,
+          operationStatus: item.operation_status,
+          coverageRuleVersion: item.coverage_rule_version,
         },
         after: {
           version: changed.version,
           authorizationKey: changed.authorization_key,
+          numeroAutorizacionNormalized: changed.numero_autorizacion,
+          codigoComercialNormalized: changed.codigo_medicamento,
+          sourceEvidence: {
+            importRowId: rowId,
+            sha256: evidenceHash(row.raw_data),
+          },
+          sourceStatusNormalized: changed.source_status_normalized,
+          sourceCupsPrincipalNormalized: changed.source_cups_principal_normalized,
           coverageType: changed.coverage_type,
           enablementStatus: changed.enablement_status,
+          directionStatus: changed.direction_status,
+          operationStatus: changed.operation_status,
+          coverageRuleVersion: changed.coverage_rule_version,
+          idempotency: {
+            recordId: idempotencyRecordId,
+            scope: idempotencyScope,
+            requestHash,
+            keyHash: idempotencyKeyHash,
+          },
         },
         correlationId: input.scope.correlationId,
       });
       const response = {
-        item: toItemResponse(changed, input.scope.readSensitive),
-        rowId,
-        resultCode: 'ITEM_UPDATED' as const,
+        ...storedResponse,
+        item: {
+          ...storedResponse.item,
+          sourceData: currentReadSensitive ? sourceDataRecord(changed.source_data) : null,
+        },
       };
-      await client.query(
-        `insert into idempotency_records (scope, key, request_hash, status_code, response, expires_at)
-         values ($1, $2, $3, 200, $4::jsonb, now() + interval '24 hours')`,
-        [idempotencyScope, input.idempotencyKey, requestHash, JSON.stringify(response)],
-      );
       await client.query('commit');
       return response;
     } catch (error) {
@@ -402,8 +533,12 @@ export class AuthorizationItemsService {
     return result.rows[0];
   }
 
-  private async insertReadAudit(itemId: string, scope: Scope): Promise<void> {
-    await this.database.pool.query(
+  private async insertReadAudit(
+    itemId: string,
+    scope: Scope,
+    client: { query: (query: string, values?: unknown[]) => Promise<unknown> } = this.database.pool,
+  ): Promise<void> {
+    await client.query(
       `insert into audit_events
          (actor_type, actor_id, organization_id, action, resource_type, resource_id, correlation_id, request_id, result)
        values ('USER', $1, $2, 'AUTHORIZATION_ITEM_READ_SENSITIVE', 'authorization_item', $3, $4, $5, 'SUCCESS')`,

@@ -23,6 +23,7 @@ Estados:
 | DEC-011 | ACCEPTED | Medicarte define y versiona el punto de aplicación; cada asignación o cambio notifica a OLP.                                                                                            |
 | DEC-012 | ACCEPTED | Las autorizaciones son registros únicos y compartidos; el alcance se resuelve por usuario, organización, permisos y relación explícita del recurso, sin duplicar `authorization_items`. |
 | DEC-013 | PENDING  | Falta contrato HTTP oficial de direccionamientos y acceso seguro al sandbox MIPRES. Su implementación real está prohibida.                                                              |
+| DEC-014 | ACCEPTED | Una actualización explícita permitida recalcula `operation_status`: conserva `READY_TO_DISPENSE` solo si los prerrequisitos siguen válidos; en caso contrario queda `BLOCKED`.          |
 
 ---
 
@@ -67,7 +68,9 @@ operation_status = DISPENSATION_REPORTED
 
 o si ya avanzó a `DISPENSED`.
 
-5. La actualización debe conservar auditoría de antes/después, actor, fecha e idempotencia.
+5. La actualización debe conservar auditoría de antes/después, actor, fecha e idempotencia. La evidencia compara las dimensiones F2 normalizadas, referencia las filas de importación anterior y nueva, y enlaza el registro idempotente sin duplicar datos sensibles del archivo en `audit_events`.
+
+El resultado operacional posterior a una actualización permitida se rige por DEC-014.
 
 ---
 
@@ -267,7 +270,7 @@ En el alcance inicial:
 
 Fase 2 persiste la relación en `authorization_item_organizations` y no crea copias del ítem principal. Para los cuatro organismos iniciales de la plataforma, un ítem confirmado queda relacionado con cada organización activa del alcance inicial; organizaciones futuras requieren una relación explícita.
 
-La UI puede ocultar acciones, pero toda consulta y mutación vuelve a validar el alcance en el backend y en la consulta a PostgreSQL.
+La UI puede ocultar acciones, pero toda consulta y mutación vuelve a validar el alcance en el backend y en la consulta a PostgreSQL. Un replay idempotente no omite esta validación y redacta su respuesta con los permisos sensibles vigentes.
 
 ---
 
@@ -285,3 +288,29 @@ Mientras esta decisión permanezca abierta:
 4. no iniciar el alcance funcional de Fase 3 que dependa del proveedor real.
 
 Sí se mantienen como decisiones internas aceptadas la precondición `NO_PBS + ENABLED`, los estados internos, la capa anticorrupción y la comparación estricta de `fecha_maxima`.
+
+---
+
+## DEC-014 — Invariante operacional de actualización explícita
+
+**Estado:** ACCEPTED
+
+La actualización explícita reemplaza la evidencia de origen y reevalúa las cuatro columnas de negocio de la fila aprobada. Solo puede comenzar cuando el estado actual es `READY_TO_DISPENSE`, conforme a DEC-002.
+
+La pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL` debe coincidir con la llave del ítem existente; sus componentes de identidad no cambian mediante esta acción.
+
+Después de clasificar la nueva fila, la transacción recalcula `operation_status` con la regla pura centralizada:
+
+```text
+ENABLED + PBS + NOT_APPLICABLE
+o
+ENABLED + NO_PBS + CONFIRMED
+    => READY_TO_DISPENSE
+
+cualquier otra combinación
+    => BLOCKED
+```
+
+En Fase 2, `NO_PBS + ENABLED` tiene direccionamiento `PENDING` porque MIPRES pertenece a Fase 3; por tanto, esa actualización queda `BLOCKED` sin realizar llamadas externas. Las actualizaciones posteriores a `DISPENSATION_REPORTED` o `DISPENSED` continúan prohibidas.
+
+La actualización conserva control de versión, idempotencia y auditoría dentro de la misma transacción. La restricción equivalente en PostgreSQL impide persistir `READY_TO_DISPENSE` con prerrequisitos incompatibles desde cualquier ruta de escritura.

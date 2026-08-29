@@ -1,10 +1,11 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   importBatchResponseSchema,
   paginatedAuthorizationItemsResponseSchema,
   paginatedImportRowsResponseSchema,
+  sourceUpdateResponseSchema,
 } from '../../packages/contracts/src/index.js';
 
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
@@ -14,7 +15,10 @@ const databaseUrl =
   'postgresql://authorization:authorization@localhost:15432/authorization';
 const mtdOrganizationId = '10000000-0000-4000-8000-000000000001';
 const olpOrganizationId = '10000000-0000-4000-8000-000000000003';
+const foundationAdminUserId = '40000000-0000-4000-8000-000000000001';
 const olpOperatorRoleId = '20000000-0000-4000-8000-000000000004';
+const authorizationsReadSensitivePermissionId = '30000000-0000-4000-8000-000000000003';
+const importsCreatePermissionId = '30000000-0000-4000-8000-000000000004';
 const importsConfirmPermissionId = '30000000-0000-4000-8000-000000000005';
 const sourceColumns = [
   'CODEPS',
@@ -76,6 +80,12 @@ function csvRow(values: string[]): string {
   return values.map(csvValue).join(',');
 }
 
+function jsonEvidenceHash(value: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(value) ?? 'null')
+    .digest('hex');
+}
+
 function authorizationCsv(
   rows: Array<{ authorization: string; medication: string; coverage: string; status: string }>,
 ): string {
@@ -119,6 +129,7 @@ async function createImport(
   content: string,
   key = randomUUID(),
   filename = 'authorizations.csv',
+  organizationId = mtdOrganizationId,
 ): Promise<{ id: string }> {
   const form = new FormData();
   form.append('file', new Blob([content], { type: 'text/csv' }), filename);
@@ -126,7 +137,7 @@ async function createImport(
     method: 'POST',
     headers: {
       authorization: `Bearer ${token}`,
-      'x-organization-id': mtdOrganizationId,
+      'x-organization-id': organizationId,
       'idempotency-key': key,
     },
     body: form,
@@ -139,19 +150,23 @@ async function createImport(
 async function waitForBatch(
   token: string,
   batchId: string,
+  organizationId = mtdOrganizationId,
 ): Promise<ReturnType<typeof importBatchResponseSchema.parse>> {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
-    const response = await fetch(`${apiUrl}/api/v1/imports/${batchId}`, {
-      headers: { authorization: `Bearer ${token}`, 'x-organization-id': mtdOrganizationId },
-    });
-    const batch = importBatchResponseSchema.parse(await response.json());
-    if (
-      batch.status === 'READY_TO_CONFIRM' ||
-      batch.status === 'COMPLETED' ||
-      batch.status === 'FAILED'
-    )
-      return batch;
+    const result = await database.query<{ status: string }>(
+      'select status from import_batches where id = $1',
+      [batchId],
+    );
+    const status = result.rows[0]?.status;
+    if (status === 'READY_TO_CONFIRM' || status === 'COMPLETED' || status === 'FAILED') {
+      const response = await fetch(`${apiUrl}/api/v1/imports/${batchId}`, {
+        headers: { authorization: `Bearer ${token}`, 'x-organization-id': organizationId },
+      });
+      if (response.status !== 200)
+        throw new Error(`Import read failed: ${response.status} ${await response.text()}`);
+      return importBatchResponseSchema.parse(await response.json());
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`Import ${batchId} did not finish validation`);
@@ -160,12 +175,13 @@ async function waitForBatch(
 async function confirmImport(
   token: string,
   batchId: string,
+  organizationId = mtdOrganizationId,
 ): Promise<{ status: string; createdRows: number; existingRows: number }> {
   const response = await fetch(`${apiUrl}/api/v1/imports/${batchId}/confirm`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${token}`,
-      'x-organization-id': mtdOrganizationId,
+      'x-organization-id': organizationId,
       'idempotency-key': randomUUID(),
       'content-type': 'application/json',
     },
@@ -176,21 +192,26 @@ async function confirmImport(
   return (await response.json()) as { status: string; createdRows: number; existingRows: number };
 }
 
-async function withOlpImportConfirmationPermission<T>(operation: () => Promise<T>): Promise<T> {
-  const inserted = await database.query(
+async function withOlpPermissions<T>(
+  permissionIds: string[],
+  operation: () => Promise<T>,
+): Promise<T> {
+  const inserted = await database.query<{ permission_id: string }>(
     `insert into role_permissions (role_id, permission_id)
-     values ($1, $2)
+     select $1, requested.permission_id
+     from unnest($2::uuid[]) as requested(permission_id)
      on conflict do nothing
-     returning role_id`,
-    [olpOperatorRoleId, importsConfirmPermissionId],
+     returning permission_id`,
+    [olpOperatorRoleId, permissionIds],
   );
   try {
     return await operation();
   } finally {
-    if (inserted.rowCount) {
+    const insertedPermissionIds = inserted.rows.map((row) => row.permission_id);
+    if (insertedPermissionIds.length > 0) {
       await database.query(
-        'delete from role_permissions where role_id = $1 and permission_id = $2',
-        [olpOperatorRoleId, importsConfirmPermissionId],
+        'delete from role_permissions where role_id = $1 and permission_id = any($2::uuid[])',
+        [olpOperatorRoleId, insertedPermissionIds],
       );
     }
   }
@@ -319,7 +340,7 @@ describe('Gate F2', () => {
       expect(crossOrganizationBatch.status).toBe(404);
       expect(await crossOrganizationBatch.json()).toMatchObject({ code: 'IMPORT_NOT_FOUND' });
     }
-    const crossOrganizationConfirm = await withOlpImportConfirmationPermission(() =>
+    const crossOrganizationConfirm = await withOlpPermissions([importsConfirmPermissionId], () =>
       fetch(`${apiUrl}/api/v1/imports/${batch.id}/confirm`, {
         method: 'POST',
         headers: {
@@ -423,6 +444,583 @@ describe('Gate F2', () => {
     });
   });
 
+  it('recalculates operation status after an explicit source update', async () => {
+    const cases = [
+      {
+        name: 'keeps a PBS item ready',
+        coverage: 'MEDICAMENTOS POS',
+        status: '5',
+        expectedOperationStatus: 'READY_TO_DISPENSE',
+        expectedEnablementStatus: 'ENABLED',
+        expectedCoverageType: 'PBS',
+        expectedDirectionStatus: 'NOT_APPLICABLE',
+      },
+      {
+        name: 'blocks an item with a blocked source status',
+        coverage: 'MEDICAMENTOS POS',
+        status: '4',
+        expectedOperationStatus: 'BLOCKED',
+        expectedEnablementStatus: 'BLOCKED_SOURCE_STATUS',
+        expectedCoverageType: 'PBS',
+        expectedDirectionStatus: 'NOT_APPLICABLE',
+      },
+      {
+        name: 'blocks a NO_PBS item pending MIPRES',
+        coverage: 'MEDICAMENTOS NO POS',
+        status: '5',
+        expectedOperationStatus: 'BLOCKED',
+        expectedEnablementStatus: 'ENABLED',
+        expectedCoverageType: 'NO_PBS',
+        expectedDirectionStatus: 'PENDING',
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const authorization = `AUTH-UPDATE-STATUS-${testCase.name}-${randomUUID()}`;
+      const initialBatch = await createImport(
+        adminToken,
+        authorizationCsv([
+          {
+            authorization,
+            medication: 'MED-UPDATE-STATUS',
+            coverage: 'MEDICAMENTOS POS',
+            status: '5',
+          },
+        ]),
+      );
+      await waitForBatch(adminToken, initialBatch.id);
+      await confirmImport(adminToken, initialBatch.id);
+      const initialEvidence = await database.query<{ id: string; raw_data: unknown }>(
+        `select id, raw_data from import_rows
+         where import_batch_id = $1 and result_code = 'ITEM_CREATED'`,
+        [initialBatch.id],
+      );
+      const initialEvidenceRowId = initialEvidence.rows[0]?.id;
+      if (!initialEvidenceRowId) throw new Error(`Expected initial evidence for ${testCase.name}`);
+      const initialEvidenceHash = jsonEvidenceHash(initialEvidence.rows[0]?.raw_data);
+
+      const reviewBatch = await createImport(
+        adminToken,
+        authorizationCsv([
+          {
+            authorization,
+            medication: 'MED-UPDATE-STATUS',
+            coverage: testCase.coverage,
+            status: testCase.status,
+          },
+        ]),
+      );
+      await waitForBatch(adminToken, reviewBatch.id);
+      const rows = (await (
+        await fetch(`${apiUrl}/api/v1/imports/${reviewBatch.id}/rows?limit=10`, {
+          headers: {
+            authorization: `Bearer ${adminToken}`,
+            'x-organization-id': mtdOrganizationId,
+          },
+        })
+      ).json()) as {
+        items: Array<{ id: string; authorizationItemId: string | null; resultCode: string }>;
+      };
+      const row = rows.items[0];
+      if (!row?.authorizationItemId) throw new Error(`Expected update row for ${testCase.name}`);
+      expect(row.resultCode).toBe('EXISTING_ITEM_REVIEW_REQUIRED');
+
+      const ready = await database.query<{ version: number }>(
+        `update authorization_items
+         set operation_status = 'READY_TO_DISPENSE'
+         where id = $1
+         returning version`,
+        [row.authorizationItemId],
+      );
+      const expectedVersion = ready.rows[0]?.version;
+      if (!expectedVersion) throw new Error(`Expected item version for ${testCase.name}`);
+
+      const idempotencyKey = randomUUID();
+      const response = await fetch(
+        `${apiUrl}/api/v1/authorization-items/${row.authorizationItemId}/source-updates`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${adminToken}`,
+            'x-organization-id': mtdOrganizationId,
+            'idempotency-key': idempotencyKey,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ importRowId: row.id, expectedVersion }),
+        },
+      );
+      expect(response.status).toBe(200);
+      const updated = sourceUpdateResponseSchema.parse(await response.json());
+      expect(updated.item).toMatchObject({
+        operationStatus: testCase.expectedOperationStatus,
+        enablementStatus: testCase.expectedEnablementStatus,
+        coverageType: testCase.expectedCoverageType,
+        directionStatus: testCase.expectedDirectionStatus,
+      });
+
+      const replay = await fetch(
+        `${apiUrl}/api/v1/authorization-items/${row.authorizationItemId}/source-updates`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${adminToken}`,
+            'x-organization-id': mtdOrganizationId,
+            'idempotency-key': idempotencyKey,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ importRowId: row.id, expectedVersion }),
+        },
+      );
+      expect(replay.status).toBe(200);
+      expect(sourceUpdateResponseSchema.parse(await replay.json())).toEqual(updated);
+
+      const stored = await database.query<{
+        operation_status: string;
+        enablement_status: string;
+        coverage_type: string;
+        direction_status: string;
+      }>(
+        `select operation_status, enablement_status, coverage_type, direction_status
+         from authorization_items
+         where id = $1`,
+        [row.authorizationItemId],
+      );
+      expect(stored.rows[0]).toEqual({
+        operation_status: testCase.expectedOperationStatus,
+        enablement_status: testCase.expectedEnablementStatus,
+        coverage_type: testCase.expectedCoverageType,
+        direction_status: testCase.expectedDirectionStatus,
+      });
+
+      const idempotencyScope = `authorization-items.update:${mtdOrganizationId}:${row.authorizationItemId}`;
+      const idempotency = await database.query<{
+        id: string;
+        request_hash: string;
+        response: { item: { sourceData: unknown } };
+      }>(
+        `select id, request_hash, response
+         from idempotency_records
+         where scope = $1 and key = $2`,
+        [idempotencyScope, idempotencyKey],
+      );
+      const idempotencyRecord = idempotency.rows[0];
+      if (!idempotencyRecord) throw new Error(`Expected idempotency record for ${testCase.name}`);
+      const requestHash = createHash('sha256').update(`${row.id}:${expectedVersion}`).digest('hex');
+      const keyHash = createHash('sha256').update(idempotencyKey).digest('hex');
+      expect(idempotencyRecord.request_hash).toBe(requestHash);
+      expect(idempotencyRecord.response.item.sourceData).toBeNull();
+      expect(JSON.stringify(idempotencyRecord.response)).not.toContain('Paciente de prueba');
+
+      const newEvidence = await database.query<{ raw_data: unknown }>(
+        'select raw_data from import_rows where id = $1',
+        [row.id],
+      );
+      const newEvidenceHash = jsonEvidenceHash(newEvidence.rows[0]?.raw_data);
+
+      type AuditState = {
+        version: number;
+        authorizationKey: string;
+        numeroAutorizacionNormalized: string;
+        codigoComercialNormalized: string;
+        sourceEvidence: { importRowId: string | null; sha256: string };
+        sourceStatusNormalized: string;
+        sourceCupsPrincipalNormalized: string;
+        enablementStatus: string;
+        coverageType: string;
+        directionStatus: string;
+        operationStatus: string;
+        coverageRuleVersion: string;
+      };
+      const audits = await database.query<{
+        actor_id: string;
+        organization_id: string;
+        occurred_at: Date;
+        correlation_id: string;
+        request_id: string;
+        before: AuditState;
+        after: AuditState & {
+          idempotency: { recordId: string; scope: string; requestHash: string; keyHash: string };
+        };
+      }>(
+        `select actor_id, organization_id, occurred_at, correlation_id, request_id, before, after
+         from audit_events
+         where action = 'AUTHORIZATION_ITEM_UPDATED' and resource_id = $1
+         order by occurred_at desc`,
+        [row.authorizationItemId],
+      );
+      expect(audits.rows).toHaveLength(1);
+      const audit = audits.rows[0];
+      if (!audit) throw new Error(`Expected update audit for ${testCase.name}`);
+      expect(audit).toMatchObject({
+        actor_id: foundationAdminUserId,
+        organization_id: mtdOrganizationId,
+      });
+      expect(audit.occurred_at).toBeInstanceOf(Date);
+      expect(audit.correlation_id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(audit.request_id).toBe(audit.correlation_id);
+      expect(audit.before).toMatchObject({
+        version: expectedVersion,
+        authorizationKey: updated.item.authorizationKey,
+        numeroAutorizacionNormalized: updated.item.numeroAutorizacion,
+        codigoComercialNormalized: updated.item.codigoMedicamento,
+        sourceEvidence: {
+          importRowId: initialEvidenceRowId,
+          sha256: initialEvidenceHash,
+        },
+        sourceStatusNormalized: '5',
+        sourceCupsPrincipalNormalized: 'MEDICAMENTOS POS',
+        enablementStatus: 'ENABLED',
+        coverageType: 'PBS',
+        directionStatus: 'NOT_APPLICABLE',
+        operationStatus: 'READY_TO_DISPENSE',
+        coverageRuleVersion: 'F2-COVERAGE-1',
+      });
+      expect(audit.after).toMatchObject({
+        version: expectedVersion + 1,
+        authorizationKey: updated.item.authorizationKey,
+        numeroAutorizacionNormalized: updated.item.numeroAutorizacion,
+        codigoComercialNormalized: updated.item.codigoMedicamento,
+        sourceEvidence: {
+          importRowId: row.id,
+          sha256: newEvidenceHash,
+        },
+        sourceStatusNormalized: testCase.status,
+        sourceCupsPrincipalNormalized: testCase.coverage,
+        enablementStatus: testCase.expectedEnablementStatus,
+        coverageType: testCase.expectedCoverageType,
+        directionStatus: testCase.expectedDirectionStatus,
+        operationStatus: testCase.expectedOperationStatus,
+        coverageRuleVersion: 'F2-COVERAGE-1',
+        idempotency: {
+          recordId: idempotencyRecord.id,
+          scope: idempotencyScope,
+          requestHash,
+          keyHash,
+        },
+      });
+      expect(JSON.stringify(audit)).not.toContain('Paciente de prueba');
+
+      if (testCase.expectedOperationStatus === 'BLOCKED') {
+        await expect(
+          database.query(
+            `update authorization_items
+             set operation_status = 'READY_TO_DISPENSE'
+             where id = $1`,
+            [row.authorizationItemId],
+          ),
+        ).rejects.toThrow('authorization_items_ready_prerequisites_check');
+      }
+    }
+  });
+
+  it('rolls back the complete source update when audit persistence fails', async () => {
+    const authorization = `AUTH-UPDATE-ROLLBACK-${randomUUID()}`;
+    const content = authorizationCsv([
+      {
+        authorization,
+        medication: 'MED-UPDATE-ROLLBACK',
+        coverage: 'MEDICAMENTOS POS',
+        status: '5',
+      },
+    ]);
+    const initialBatch = await createImport(adminToken, content);
+    await waitForBatch(adminToken, initialBatch.id);
+    await confirmImport(adminToken, initialBatch.id);
+    const reviewBatch = await createImport(adminToken, content);
+    await waitForBatch(adminToken, reviewBatch.id);
+    const rows = (await (
+      await fetch(`${apiUrl}/api/v1/imports/${reviewBatch.id}/rows?limit=10`, {
+        headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
+      })
+    ).json()) as {
+      items: Array<{ id: string; authorizationItemId: string | null; resultCode: string }>;
+    };
+    const row = rows.items[0];
+    if (!row?.authorizationItemId) throw new Error('Expected rollback update row');
+    const ready = await database.query<{ version: number }>(
+      `update authorization_items
+       set operation_status = 'READY_TO_DISPENSE'
+       where id = $1
+       returning version`,
+      [row.authorizationItemId],
+    );
+    const expectedVersion = ready.rows[0]?.version;
+    if (!expectedVersion) throw new Error('Expected rollback item version');
+    const baseline = await database.query<{
+      version: number;
+      source_data: unknown;
+      coverage_type: string;
+      enablement_status: string;
+      direction_status: string;
+      operation_status: string;
+    }>(
+      `select version, source_data, coverage_type, enablement_status, direction_status, operation_status
+       from authorization_items where id = $1`,
+      [row.authorizationItemId],
+    );
+    const idempotencyKey = randomUUID();
+
+    await database.query('drop trigger if exists test_reject_update_audit on audit_events');
+    await database.query('drop function if exists test_reject_update_audit()');
+    await database.query(`
+      create function test_reject_update_audit() returns trigger language plpgsql as $$
+      begin
+        if new.action = 'AUTHORIZATION_ITEM_UPDATED' and new.resource_id = '${row.authorizationItemId}' then
+          raise exception 'forced audit failure';
+        end if;
+        return new;
+      end
+      $$
+    `);
+    await database.query(`
+      create trigger test_reject_update_audit
+      before insert on audit_events
+      for each row execute function test_reject_update_audit()
+    `);
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/authorization-items/${row.authorizationItemId}/source-updates`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${adminToken}`,
+            'x-organization-id': mtdOrganizationId,
+            'idempotency-key': idempotencyKey,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ importRowId: row.id, expectedVersion }),
+        },
+      );
+      expect(response.status).toBe(500);
+    } finally {
+      await database.query('drop trigger if exists test_reject_update_audit on audit_events');
+      await database.query('drop function if exists test_reject_update_audit()');
+    }
+
+    const itemAfterFailure = await database.query(
+      `select version, source_data, coverage_type, enablement_status, direction_status, operation_status
+       from authorization_items where id = $1`,
+      [row.authorizationItemId],
+    );
+    expect(itemAfterFailure.rows).toEqual(baseline.rows);
+    const rowAfterFailure = await database.query<{
+      result_code: string;
+      confirmable: boolean;
+    }>('select result_code, confirmable from import_rows where id = $1', [row.id]);
+    expect(rowAfterFailure.rows[0]).toEqual({
+      result_code: 'EXISTING_ITEM_REVIEW_REQUIRED',
+      confirmable: false,
+    });
+    const partialEffects = await database.query<{
+      evaluations: string;
+      idempotency_records: string;
+      audits: string;
+    }>(
+      `select
+         (select count(*)::text from coverage_evaluations where authorization_item_id = $1 and evaluation_version = $2) as evaluations,
+         (select count(*)::text from idempotency_records where scope = $3 and key = $4) as idempotency_records,
+         (select count(*)::text from audit_events where action = 'AUTHORIZATION_ITEM_UPDATED' and resource_id = $1::text) as audits`,
+      [
+        row.authorizationItemId,
+        expectedVersion + 1,
+        `authorization-items.update:${mtdOrganizationId}:${row.authorizationItemId}`,
+        idempotencyKey,
+      ],
+    );
+    expect(partialEffects.rows[0]).toEqual({
+      evaluations: '0',
+      idempotency_records: '0',
+      audits: '0',
+    });
+  });
+
+  it('revalidates current sensitive permission and organization scope on source update replay', async () => {
+    await withOlpPermissions(
+      [
+        importsCreatePermissionId,
+        importsConfirmPermissionId,
+        authorizationsReadSensitivePermissionId,
+      ],
+      async () => {
+        const authorization = `AUTH-REPLAY-SCOPE-${randomUUID()}`;
+        const content = authorizationCsv([
+          {
+            authorization,
+            medication: 'MED-REPLAY-SCOPE',
+            coverage: 'MEDICAMENTOS POS',
+            status: '5',
+          },
+        ]);
+        const initialBatch = await createImport(
+          olpToken,
+          content,
+          randomUUID(),
+          'authorizations.csv',
+          olpOrganizationId,
+        );
+        await waitForBatch(olpToken, initialBatch.id, olpOrganizationId);
+        await confirmImport(olpToken, initialBatch.id, olpOrganizationId);
+        const reviewBatch = await createImport(
+          olpToken,
+          content,
+          randomUUID(),
+          'authorizations.csv',
+          olpOrganizationId,
+        );
+        await waitForBatch(olpToken, reviewBatch.id, olpOrganizationId);
+        const rows = (await (
+          await fetch(`${apiUrl}/api/v1/imports/${reviewBatch.id}/rows?limit=10`, {
+            headers: {
+              authorization: `Bearer ${olpToken}`,
+              'x-organization-id': olpOrganizationId,
+            },
+          })
+        ).json()) as {
+          items: Array<{ id: string; authorizationItemId: string | null; resultCode: string }>;
+        };
+        const row = rows.items[0];
+        if (!row?.authorizationItemId) throw new Error('Expected OLP update row');
+        expect(row.resultCode).toBe('EXISTING_ITEM_REVIEW_REQUIRED');
+        const ready = await database.query<{ version: number }>(
+          `update authorization_items
+           set operation_status = 'READY_TO_DISPENSE'
+           where id = $1
+           returning version`,
+          [row.authorizationItemId],
+        );
+        const expectedVersion = ready.rows[0]?.version;
+        if (!expectedVersion) throw new Error('Expected OLP item version');
+        const idempotencyKey = randomUUID();
+        const requestUpdate = () =>
+          fetch(`${apiUrl}/api/v1/authorization-items/${row.authorizationItemId}/source-updates`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${olpToken}`,
+              'x-organization-id': olpOrganizationId,
+              'idempotency-key': idempotencyKey,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ importRowId: row.id, expectedVersion }),
+          });
+
+        await database.query(
+          'delete from role_permissions where role_id = $1 and permission_id = $2',
+          [olpOperatorRoleId, authorizationsReadSensitivePermissionId],
+        );
+        const initial = await requestUpdate();
+        expect(initial.status).toBe(200);
+        expect(sourceUpdateResponseSchema.parse(await initial.json()).item.sourceData).toBeNull();
+
+        await database.query(
+          `insert into role_permissions (role_id, permission_id)
+           values ($1, $2)
+           on conflict do nothing`,
+          [olpOperatorRoleId, authorizationsReadSensitivePermissionId],
+        );
+        const sensitiveReplay = await requestUpdate();
+        expect(sensitiveReplay.status).toBe(200);
+        expect(
+          sourceUpdateResponseSchema.parse(await sensitiveReplay.json()).item.sourceData,
+        ).toMatchObject({ NUMERO_AUTORIZACION: authorization });
+        const sensitiveReadAudits = await database.query<{ count: string }>(
+          `select count(*)::text as count
+           from audit_events
+           where action = 'AUTHORIZATION_ITEM_READ_SENSITIVE' and resource_id = $1`,
+          [row.authorizationItemId],
+        );
+        expect(sensitiveReadAudits.rows[0]?.count).toBe('1');
+
+        await database.query(
+          'delete from role_permissions where role_id = $1 and permission_id = $2',
+          [olpOperatorRoleId, authorizationsReadSensitivePermissionId],
+        );
+        const redactedReplay = await requestUpdate();
+        expect(redactedReplay.status).toBe(200);
+        expect(
+          sourceUpdateResponseSchema.parse(await redactedReplay.json()).item.sourceData,
+        ).toBeNull();
+
+        const itemLock = new Client({ connectionString: databaseUrl });
+        const permissionRevocation = new Client({ connectionString: databaseUrl });
+        await Promise.all([itemLock.connect(), permissionRevocation.connect()]);
+        let concurrentReplay: Promise<Response> | undefined;
+        let revocation: Promise<unknown> | undefined;
+        try {
+          await itemLock.query('begin');
+          await itemLock.query('select id from authorization_items where id = $1 for update', [
+            row.authorizationItemId,
+          ]);
+          concurrentReplay = requestUpdate();
+          const waitDeadline = Date.now() + 5_000;
+          let replayWaitingForItem = false;
+          while (Date.now() < waitDeadline) {
+            const waiting = await database.query<{ waiting: boolean }>(
+              `select exists (
+                 select 1 from pg_stat_activity
+                 where wait_event_type = 'Lock'
+                   and query like '%from authorization_items i%'
+                   and query like '%for update%'
+               ) as waiting`,
+            );
+            if (waiting.rows[0]?.waiting) {
+              replayWaitingForItem = true;
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          expect(replayWaitingForItem).toBe(true);
+
+          revocation = permissionRevocation.query(
+            'delete from role_permissions where role_id = $1 and permission_id = $2',
+            [olpOperatorRoleId, importsConfirmPermissionId],
+          );
+          const revokedBeforeReplayCommit = await Promise.race([
+            revocation.then(() => true),
+            new Promise<false>((resolve) => setTimeout(() => resolve(false), 150)),
+          ]);
+          expect(revokedBeforeReplayCommit).toBe(false);
+
+          await itemLock.query('commit');
+          const serializedReplay = await concurrentReplay;
+          expect(serializedReplay.status).toBe(200);
+          expect(
+            sourceUpdateResponseSchema.parse(await serializedReplay.json()).item.sourceData,
+          ).toBeNull();
+          await revocation;
+        } finally {
+          await itemLock.query('rollback').catch(() => undefined);
+          await revocation?.catch(() => undefined);
+          await concurrentReplay?.catch(() => undefined);
+          await Promise.all([itemLock.end(), permissionRevocation.end()]);
+          await database.query(
+            `insert into role_permissions (role_id, permission_id)
+             values ($1, $2)
+             on conflict do nothing`,
+            [olpOperatorRoleId, importsConfirmPermissionId],
+          );
+        }
+
+        await database.query(
+          `delete from authorization_item_organizations
+           where authorization_item_id = $1 and organization_id = $2`,
+          [row.authorizationItemId, olpOrganizationId],
+        );
+        try {
+          const deniedReplay = await requestUpdate();
+          expect(deniedReplay.status).toBe(404);
+          expect(await deniedReplay.json()).toMatchObject({ code: 'AUTHORIZATION_ITEM_NOT_FOUND' });
+        } finally {
+          await database.query(
+            `insert into authorization_item_organizations (authorization_item_id, organization_id)
+             values ($1, $2)
+             on conflict do nothing`,
+            [row.authorizationItemId, olpOrganizationId],
+          );
+        }
+      },
+    );
+  });
+
   it('rejects a source update row owned by another organization even when the item is shared', async () => {
     const authorization = `AUTH-SOURCE-SCOPE-${randomUUID()}`;
     const content = authorizationCsv([
@@ -448,7 +1046,7 @@ describe('Gate F2', () => {
       `update authorization_items set operation_status = 'READY_TO_DISPENSE' where id = $1 returning version`,
       [row.authorizationItemId],
     );
-    const response = await withOlpImportConfirmationPermission(() =>
+    const response = await withOlpPermissions([importsConfirmPermissionId], () =>
       fetch(`${apiUrl}/api/v1/authorization-items/${row.authorizationItemId}/source-updates`, {
         method: 'POST',
         headers: {

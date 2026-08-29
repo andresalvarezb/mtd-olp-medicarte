@@ -71,7 +71,11 @@ La lista suministrada contiene 25 columnas; F2 no inventa una columna adicional.
 - Si la llave ya existe, la fila se reporta para verificación humana y no se actualiza automáticamente.
 - Debe existir una acción explícita de actualización.
 - Solo se habilita si `operation_status = READY_TO_DISPENSE`.
+- La actualización reemplaza la evidencia y reevalúa las cuatro columnas de negocio de la fila aprobada. `NUMERO_AUTORIZACION + COD_COMERCIAL` debe coincidir con la llave existente y sus componentes de identidad no cambian.
+- Después de clasificar la fila nueva, `operation_status` conserva `READY_TO_DISPENSE` solo si la combinación habilitación/cobertura/direccionamiento sigue siendo elegible; en cualquier otra combinación se persiste `BLOCKED`.
+- En Fase 2, `NO_PBS + ENABLED + PENDING` queda `BLOCKED` y no invoca MIPRES.
 - Se bloquea para `DISPENSATION_REPORTED`, `DISPENSED` y estados posteriores.
+- La auditoría de la actualización registra antes/después de `NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `CUPS_PRINCIPAL` y `ESTADO_AUTORIZACION` normalizados, referencias y hashes de la evidencia anterior/nueva, y el registro idempotente asociado; no duplica la evidencia cruda con datos sensibles en auditoría ni en la respuesta idempotente persistida.
 - Los mensajes de excepción técnicos no son causales de negocio.
 
 ## Flujo
@@ -90,3 +94,4 @@ Excepciones: `FAILED`, `CANCELLED`.
 - cada fila tiene código de resultado estable;
 - se puede consultar progreso y reporte paginado;
 - confirmación es transaccional.
+- actualización explícita, auditoría, consumo de la fila e idempotencia confirman o revierten como una sola unidad.
