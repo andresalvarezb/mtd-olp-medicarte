@@ -25,7 +25,12 @@ const job: AuthorizationImportJob = {
 
 const config = { IMPORT_PROCESSOR_VERSION: 1 } as WorkerConfig;
 
-function source(processorVersion: number, content = Buffer.from('NUMERO_AUTORIZACION,COD_COMERCIAL,CUPS_PRINCIPAL,ESTADO_AUTORIZACION\nA,M,C,ACTIVA')) {
+function source(
+  processorVersion: number,
+  content = Buffer.from(
+    'NUMERO_AUTORIZACION,COD_COMERCIAL,CUPS_PRINCIPAL,ESTADO_AUTORIZACION\nA,M,C,ACTIVA',
+  ),
+) {
   const sha256 = createHash('sha256').update(content).digest('hex');
   return {
     batch_id: job.payload.batchId,
@@ -60,7 +65,11 @@ describe('ImportProcessor processor version validation', () => {
   it('rechecks the configured and batch versions under the batch row lock', async () => {
     const client = {
       query: vi.fn((query: string) => {
-        if (query.includes('for update')) return Promise.resolve({ rows: [{ status: 'UPLOADED', processor_version: 2 }], rowCount: 1 });
+        if (query.includes('for update'))
+          return Promise.resolve({
+            rows: [{ status: 'UPLOADED', processor_version: 2 }],
+            rowCount: 1,
+          });
         return Promise.resolve({ rows: [], rowCount: 0 });
       }),
       release: vi.fn(),
@@ -72,7 +81,9 @@ describe('ImportProcessor processor version validation', () => {
       },
     } as unknown as Database;
 
-    await expect(new ImportProcessor(database, config).process(job)).rejects.toBeInstanceOf(NonRetryableImportError);
+    await expect(new ImportProcessor(database, config).process(job)).rejects.toBeInstanceOf(
+      NonRetryableImportError,
+    );
     expect(client.query).toHaveBeenCalledWith(
       'select status, processor_version from import_batches where id = $1 for update',
       [job.payload.batchId],

@@ -3,6 +3,7 @@
 Revisa autenticación/autorización, scopes, secretos, archivos, logs, exportaciones y datos sensibles.
 
 Debe intentar:
+
 - acceso horizontal entre organizaciones;
 - elevación vertical de privilegios;
 - bypass de descarga;

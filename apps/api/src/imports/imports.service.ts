@@ -58,7 +58,9 @@ type RowQueryResult = {
 const INITIAL_SCOPE_ORGANIZATION_CODES = ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'];
 
 function requestHash(filename: string, mimeType: string, contentHash: string): string {
-  return createHash('sha256').update(`${filename}\u0000${mimeType}\u0000${contentHash}`).digest('hex');
+  return createHash('sha256')
+    .update(`${filename}\u0000${mimeType}\u0000${contentHash}`)
+    .digest('hex');
 }
 
 function isRetryableTransactionError(error: unknown): boolean {
@@ -80,7 +82,10 @@ function rawText(value: unknown): string {
 
 function parseUuid(value: string, field: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
-    throw new BadRequestException({ code: 'INVALID_IDENTIFIER', message: `${field} must be a UUID` });
+    throw new BadRequestException({
+      code: 'INVALID_IDENTIFIER',
+      message: `${field} must be a UUID`,
+    });
   }
   return value;
 }
@@ -92,8 +97,15 @@ function encodeRowCursor(rowNumber: number): string {
 function decodeRowCursor(cursor: string | undefined): number | undefined {
   if (!cursor) return undefined;
   try {
-    const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { rowNumber?: unknown };
-    if (typeof decoded.rowNumber !== 'number' || !Number.isInteger(decoded.rowNumber) || decoded.rowNumber < 1) throw new Error('invalid');
+    const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      rowNumber?: unknown;
+    };
+    if (
+      typeof decoded.rowNumber !== 'number' ||
+      !Number.isInteger(decoded.rowNumber) ||
+      decoded.rowNumber < 1
+    )
+      throw new Error('invalid');
     return decoded.rowNumber;
   } catch {
     throw new BadRequestException({ code: 'INVALID_CURSOR', message: 'Invalid pagination cursor' });
@@ -121,12 +133,19 @@ function toBatchResponse(row: BatchRow): ImportBatchResponse {
   };
 }
 
-function toValidationErrors(value: unknown): Array<{ field: string; code: string; message: string }> {
+function toValidationErrors(
+  value: unknown,
+): Array<{ field: string; code: string; message: string }> {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
     if (!entry || typeof entry !== 'object') return [];
     const candidate = entry as { field?: unknown; code?: unknown; message?: unknown };
-    if (typeof candidate.field !== 'string' || typeof candidate.code !== 'string' || typeof candidate.message !== 'string') return [];
+    if (
+      typeof candidate.field !== 'string' ||
+      typeof candidate.code !== 'string' ||
+      typeof candidate.message !== 'string'
+    )
+      return [];
     return [{ field: candidate.field, code: candidate.code, message: candidate.message }];
   });
 }
@@ -144,16 +163,28 @@ export class ImportsService {
     scope: Scope;
   }): Promise<ImportBatchResponse> {
     if (input.file.size <= 0) {
-      throw new BadRequestException({ code: 'IMPORT_FILE_EMPTY', message: 'Import file cannot be empty' });
+      throw new BadRequestException({
+        code: 'IMPORT_FILE_EMPTY',
+        message: 'Import file cannot be empty',
+      });
     }
     if (input.file.size > this.config.IMPORT_MAX_FILE_BYTES) {
-      throw new PayloadTooLargeException({ code: 'IMPORT_FILE_TOO_LARGE', message: 'Import file exceeds the 20 MB limit' });
+      throw new PayloadTooLargeException({
+        code: 'IMPORT_FILE_TOO_LARGE',
+        message: 'Import file exceeds the 20 MB limit',
+      });
     }
     if (input.file.originalname.length > 255) {
-      throw new BadRequestException({ code: 'IMPORT_FILENAME_TOO_LONG', message: 'Import filename cannot exceed 255 characters' });
+      throw new BadRequestException({
+        code: 'IMPORT_FILENAME_TOO_LONG',
+        message: 'Import filename cannot exceed 255 characters',
+      });
     }
     if (input.file.mimetype.length > 160) {
-      throw new BadRequestException({ code: 'IMPORT_MIME_TYPE_TOO_LONG', message: 'Import MIME type cannot exceed 160 characters' });
+      throw new BadRequestException({
+        code: 'IMPORT_MIME_TYPE_TOO_LONG',
+        message: 'Import MIME type cannot exceed 160 characters',
+      });
     }
     const contentHash = createHash('sha256').update(input.file.buffer).digest('hex');
     const hash = requestHash(input.file.originalname, input.file.mimetype, contentHash);
@@ -161,8 +192,13 @@ export class ImportsService {
     const client = await this.database.pool.connect();
     try {
       await client.query('begin');
-      await client.query('select pg_advisory_xact_lock(hashtext($1))', [`${idempotencyScope}:${input.idempotencyKey}`]);
-      await client.query('delete from idempotency_records where scope = $1 and key = $2 and expires_at <= now()', [idempotencyScope, input.idempotencyKey]);
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [
+        `${idempotencyScope}:${input.idempotencyKey}`,
+      ]);
+      await client.query(
+        'delete from idempotency_records where scope = $1 and key = $2 and expires_at <= now()',
+        [idempotencyScope, input.idempotencyKey],
+      );
       const existing = await client.query<{ request_hash: string; response: ImportBatchResponse }>(
         'select request_hash, response from idempotency_records where scope = $1 and key = $2',
         [idempotencyScope, input.idempotencyKey],
@@ -170,7 +206,10 @@ export class ImportsService {
       const previous = existing.rows[0];
       if (previous) {
         if (previous.request_hash !== hash) {
-          throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency key reused with another payload' });
+          throw new ConflictException({
+            code: 'IDEMPOTENCY_CONFLICT',
+            message: 'Idempotency key reused with another payload',
+          });
         }
         await client.query('commit');
         return previous.response;
@@ -206,7 +245,15 @@ export class ImportsService {
         `insert into import_source_files
            (id, import_batch_id, original_filename, mime_type, size_bytes, sha256, content)
          values ($1, $2, $3, $4, $5, $6, $7)`,
-        [sourceFileId, batchId, input.file.originalname, input.file.mimetype, input.file.size, contentHash, input.file.buffer],
+        [
+          sourceFileId,
+          batchId,
+          input.file.originalname,
+          input.file.mimetype,
+          input.file.size,
+          contentHash,
+          input.file.buffer,
+        ],
       );
       const payload = {
         eventId,
@@ -220,13 +267,31 @@ export class ImportsService {
         `insert into audit_events
            (id, actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
          values ($1, 'USER', $2, $3, 'IMPORT_CREATED', 'import_batch', $4, $5::jsonb, $6, $7, 'SUCCESS')`,
-        [eventId, input.scope.userId, input.scope.organizationId, batchId, JSON.stringify({ filename: input.file.originalname, sizeBytes: input.file.size, sha256: contentHash }), input.scope.correlationId, input.scope.correlationId],
+        [
+          eventId,
+          input.scope.userId,
+          input.scope.organizationId,
+          batchId,
+          JSON.stringify({
+            filename: input.file.originalname,
+            sizeBytes: input.file.size,
+            sha256: contentHash,
+          }),
+          input.scope.correlationId,
+          input.scope.correlationId,
+        ],
       );
       await client.query(
         `insert into outbox_events
            (id, event_type, version, payload, correlation_id, organization_id, idempotency_key)
          values ($1, 'authorization.import', 1, $2::jsonb, $3, $4, $5)`,
-        [eventId, JSON.stringify(payload), input.scope.correlationId, input.scope.organizationId, outboxIdempotencyKey],
+        [
+          eventId,
+          JSON.stringify(payload),
+          input.scope.correlationId,
+          input.scope.organizationId,
+          outboxIdempotencyKey,
+        ],
       );
       const response = toBatchResponse(batch);
       await client.query(
@@ -246,14 +311,21 @@ export class ImportsService {
 
   async getBatch(batchId: string, scope: Scope): Promise<ImportBatchResponse> {
     const row = await this.findBatch(parseUuid(batchId, 'batchId'), scope);
-    if (!row) throw new NotFoundException({ code: 'IMPORT_NOT_FOUND', message: 'Import batch not found' });
+    if (!row)
+      throw new NotFoundException({ code: 'IMPORT_NOT_FOUND', message: 'Import batch not found' });
     return toBatchResponse(row);
   }
 
-  async getRows(input: { batchId: string; cursor?: string; limit: number; scope: Scope }): Promise<{ items: ImportRowResponse[]; nextCursor: string | null }> {
+  async getRows(input: {
+    batchId: string;
+    cursor?: string;
+    limit: number;
+    scope: Scope;
+  }): Promise<{ items: ImportRowResponse[]; nextCursor: string | null }> {
     const batchId = parseUuid(input.batchId, 'batchId');
     const batch = await this.findBatch(batchId, input.scope);
-    if (!batch) throw new NotFoundException({ code: 'IMPORT_NOT_FOUND', message: 'Import batch not found' });
+    if (!batch)
+      throw new NotFoundException({ code: 'IMPORT_NOT_FOUND', message: 'Import batch not found' });
     const cursor = decodeRowCursor(input.cursor);
     const values: unknown[] = [batchId];
     let where = 'r.import_batch_id = $1';
@@ -294,23 +366,38 @@ export class ImportsService {
     return { items: rows, nextCursor: hasNext && last ? encodeRowCursor(last.rowNumber) : null };
   }
 
-  async confirm(input: { batchId: string; idempotencyKey: string; scope: Scope }): Promise<ConfirmImportResponse> {
+  async confirm(input: {
+    batchId: string;
+    idempotencyKey: string;
+    scope: Scope;
+  }): Promise<ConfirmImportResponse> {
     const batchId = parseUuid(input.batchId, 'batchId');
     const idempotencyScope = `imports.confirm:${input.scope.organizationId}:${batchId}`;
     const requestHash = createHash('sha256').update(batchId).digest('hex');
     const client = await this.database.pool.connect();
     try {
       await client.query('begin');
-      await client.query('select pg_advisory_xact_lock(hashtext($1))', [`${idempotencyScope}:${input.idempotencyKey}`]);
-      await client.query('delete from idempotency_records where scope = $1 and key = $2 and expires_at <= now()', [idempotencyScope, input.idempotencyKey]);
-      const existing = await client.query<{ request_hash: string; response: ConfirmImportResponse }>(
-        'select request_hash, response from idempotency_records where scope = $1 and key = $2',
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [
+        `${idempotencyScope}:${input.idempotencyKey}`,
+      ]);
+      await client.query(
+        'delete from idempotency_records where scope = $1 and key = $2 and expires_at <= now()',
         [idempotencyScope, input.idempotencyKey],
       );
+      const existing = await client.query<{
+        request_hash: string;
+        response: ConfirmImportResponse;
+      }>('select request_hash, response from idempotency_records where scope = $1 and key = $2', [
+        idempotencyScope,
+        input.idempotencyKey,
+      ]);
       const previous = existing.rows[0];
       if (previous) {
         if (previous.request_hash !== requestHash) {
-          throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency key reused with another payload' });
+          throw new ConflictException({
+            code: 'IDEMPOTENCY_CONFLICT',
+            message: 'Idempotency key reused with another payload',
+          });
         }
         await client.query('commit');
         return previous.response;
@@ -326,7 +413,11 @@ export class ImportsService {
         [batchId, input.scope.organizationId],
       );
       const batch = batchResult.rows[0];
-      if (!batch) throw new NotFoundException({ code: 'IMPORT_NOT_FOUND', message: 'Import batch not found' });
+      if (!batch)
+        throw new NotFoundException({
+          code: 'IMPORT_NOT_FOUND',
+          message: 'Import batch not found',
+        });
       if (batch.status === 'COMPLETED') {
         const response: ConfirmImportResponse = {
           batchId,
@@ -335,17 +426,34 @@ export class ImportsService {
           existingRows: batch.existing_rows,
           confirmedAt: (batch.confirmed_at ?? new Date()).toISOString(),
         };
-        await this.storeIdempotency(client, idempotencyScope, input.idempotencyKey, requestHash, response);
+        await this.storeIdempotency(
+          client,
+          idempotencyScope,
+          input.idempotencyKey,
+          requestHash,
+          response,
+        );
         await client.query('commit');
         return response;
       }
       if (batch.status !== 'READY_TO_CONFIRM') {
-        throw new ConflictException({ code: 'IMPORT_NOT_READY', message: 'Import batch is not ready to confirm' });
+        throw new ConflictException({
+          code: 'IMPORT_NOT_READY',
+          message: 'Import batch is not ready to confirm',
+        });
       }
 
-      await client.query(`update import_batches set status = 'CONFIRMING' where id = $1`, [batchId]);
-      const rows = await client.query<{ id: string; row_number: number; raw_data: unknown; normalized_data: unknown; authorization_key: string }>(
-         `select id, row_number, raw_data, normalized_data, authorization_key
+      await client.query(`update import_batches set status = 'CONFIRMING' where id = $1`, [
+        batchId,
+      ]);
+      const rows = await client.query<{
+        id: string;
+        row_number: number;
+        raw_data: unknown;
+        normalized_data: unknown;
+        authorization_key: string;
+      }>(
+        `select id, row_number, raw_data, normalized_data, authorization_key
           from import_rows where import_batch_id = $1 and result_code = 'ROW_VALID' and confirmable = true
           order by authorization_key, row_number for update`,
         [batchId],
@@ -395,7 +503,12 @@ export class ImportsService {
           `insert into coverage_evaluations
              (authorization_item_id, evaluation_version, source_value, normalized_value, coverage_type, rule_version)
            values ($1, 1, $2, $3, $4, 'F2-COVERAGE-1')`,
-          [itemId, sourceValue, classification.cupsPrincipalNormalized, classification.coverageType],
+          [
+            itemId,
+            sourceValue,
+            classification.cupsPrincipalNormalized,
+            classification.coverageType,
+          ],
         );
         await client.query(
           `insert into authorization_item_organizations (authorization_item_id, organization_id)
@@ -418,7 +531,11 @@ export class ImportsService {
           action: 'COVERAGE_CLASSIFIED',
           resourceType: 'authorization_item',
           resourceId: itemId,
-          after: { coverageType: classification.coverageType, normalizedValue: classification.cupsPrincipalNormalized, ruleVersion: 'F2-COVERAGE-1' },
+          after: {
+            coverageType: classification.coverageType,
+            normalizedValue: classification.cupsPrincipalNormalized,
+            ruleVersion: 'F2-COVERAGE-1',
+          },
           correlationId: input.scope.correlationId,
         });
         if (classification.enablementStatus === 'BLOCKED_SOURCE_STATUS') {
@@ -464,13 +581,22 @@ export class ImportsService {
         existingRows: batch.existing_rows + concurrentExistingRows,
         confirmedAt: confirmedAt.toISOString(),
       };
-      await this.storeIdempotency(client, idempotencyScope, input.idempotencyKey, requestHash, response);
+      await this.storeIdempotency(
+        client,
+        idempotencyScope,
+        input.idempotencyKey,
+        requestHash,
+        response,
+      );
       await client.query('commit');
       return response;
     } catch (error) {
       await client.query('rollback');
       if (isRetryableTransactionError(error)) {
-        throw new ServiceUnavailableException({ code: 'TRANSACTION_RETRY_REQUIRED', message: 'The transaction could not complete; retry the request' });
+        throw new ServiceUnavailableException({
+          code: 'TRANSACTION_RETRY_REQUIRED',
+          message: 'The transaction could not complete; retry the request',
+        });
       }
       throw error;
     } finally {
@@ -520,7 +646,16 @@ export class ImportsService {
       `insert into audit_events
          (actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
          values ('USER', $1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'SUCCESS')`,
-      [input.actorId, input.organizationId, input.action, input.resourceType, input.resourceId, JSON.stringify(input.after), input.correlationId, input.correlationId],
+      [
+        input.actorId,
+        input.organizationId,
+        input.action,
+        input.resourceType,
+        input.resourceId,
+        JSON.stringify(input.after),
+        input.correlationId,
+        input.correlationId,
+      ],
     );
   }
 }

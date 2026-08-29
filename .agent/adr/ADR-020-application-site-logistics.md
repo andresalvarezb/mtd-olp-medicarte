@@ -1,10 +1,13 @@
 # ADR-020 — Punto de aplicación como etapa logística explícita
+
 **Estado:** ACCEPTED
 
 ## Contexto
+
 Cuando una autorización queda lista para dispensar, OLP necesita saber que debe iniciar coordinación y Medicarte necesita definir dónde realizará la aplicación. OLP solo puede despachar correctamente después de conocer ese punto/dirección.
 
 ## Decisión
+
 Introducir una etapa logística explícita y persistida.
 
 1. `READY_TO_DISPENSE` genera notificación a OLP y Medicarte.
@@ -15,6 +18,7 @@ Introducir una etapa logística explícita y persistida.
 6. El flujo continúa posteriormente con aplicación, soportes y auditoría.
 
 ## Modelo
+
 Nueva dimensión:
 
 ```text
@@ -25,6 +29,7 @@ PENDING_ASSIGNMENT -> ASSIGNED
 La dirección no forma parte de `operation_status` porque representa logística, no el estado clínico-operativo de la dispensación.
 
 ## Consecuencias
+
 - Debe existir persistencia específica para la asignación.
 - Medicarte obtiene permiso `application_site.assign`.
 - OLP puede leer la dirección dentro de su alcance.

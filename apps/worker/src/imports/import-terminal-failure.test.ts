@@ -9,7 +9,11 @@ function createPool(status: string): { pool: Pool; queries: string[] } {
   const client = {
     query: vi.fn((query: string) => {
       queries.push(query);
-      return Promise.resolve(query.includes('select status') ? { rows: [{ status }], rowCount: 1 } : { rows: [], rowCount: 1 });
+      return Promise.resolve(
+        query.includes('select status')
+          ? { rows: [{ status }], rowCount: 1 }
+          : { rows: [], rowCount: 1 },
+      );
     }),
     release: vi.fn(),
   };

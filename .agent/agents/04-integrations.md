@@ -3,6 +3,7 @@
 Implementa adaptadores MIPRES, Google Drive y Gmail detrás de ports.
 
 Obligatorio:
+
 - timeouts;
 - retries solo recuperables;
 - redacción de secretos;

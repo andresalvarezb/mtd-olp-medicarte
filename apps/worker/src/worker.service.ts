@@ -68,42 +68,83 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
     @Inject(DATABASE) private readonly database: Database,
   ) {
-    this.logger = pino({ level: config.LOG_LEVEL, base: { service: 'authorization-worker' }, redact: ['token', 'authorization'] });
+    this.logger = pino({
+      level: config.LOG_LEVEL,
+      base: { service: 'authorization-worker' },
+      redact: ['token', 'authorization'],
+    });
     this.connection = new IORedis(config.REDIS_URL, { maxRetriesPerRequest: null });
-    this.foundationQueue = new Queue<FoundationJob>(FOUNDATION_QUEUE, { connection: this.connection });
-    this.importQueue = new Queue<AuthorizationImportJob>(IMPORT_QUEUE, { connection: this.connection });
-    this.foundationDeadLetterQueue = new Queue<DeadLetterJob>(FOUNDATION_DEAD_LETTER_QUEUE, { connection: this.connection });
-    this.importDeadLetterQueue = new Queue<DeadLetterJob>(IMPORT_DEAD_LETTER_QUEUE, { connection: this.connection });
+    this.foundationQueue = new Queue<FoundationJob>(FOUNDATION_QUEUE, {
+      connection: this.connection,
+    });
+    this.importQueue = new Queue<AuthorizationImportJob>(IMPORT_QUEUE, {
+      connection: this.connection,
+    });
+    this.foundationDeadLetterQueue = new Queue<DeadLetterJob>(FOUNDATION_DEAD_LETTER_QUEUE, {
+      connection: this.connection,
+    });
+    this.importDeadLetterQueue = new Queue<DeadLetterJob>(IMPORT_DEAD_LETTER_QUEUE, {
+      connection: this.connection,
+    });
     this.foundationQueueEvents = new QueueEvents(FOUNDATION_QUEUE, { connection: this.connection });
     this.importQueueEvents = new QueueEvents(IMPORT_QUEUE, { connection: this.connection });
     this.importProcessor = new ImportProcessor(database, config);
-    this.foundationWorker = new Worker<FoundationJob>((FOUNDATION_QUEUE), (job) => this.processFoundation(job), {
-      connection: this.connection,
-      concurrency: 5,
-    });
-    this.importWorker = new Worker<AuthorizationImportJob>(IMPORT_QUEUE, (job) => this.processImport(job), {
-      connection: this.connection,
-      concurrency: config.IMPORT_QUEUE_CONCURRENCY,
-    });
+    this.foundationWorker = new Worker<FoundationJob>(
+      FOUNDATION_QUEUE,
+      (job) => this.processFoundation(job),
+      {
+        connection: this.connection,
+        concurrency: 5,
+      },
+    );
+    this.importWorker = new Worker<AuthorizationImportJob>(
+      IMPORT_QUEUE,
+      (job) => this.processImport(job),
+      {
+        connection: this.connection,
+        concurrency: config.IMPORT_QUEUE_CONCURRENCY,
+      },
+    );
   }
 
   onModuleInit(): void {
     this.foundationWorker.on('completed', (job) => {
-      this.logger.info({ jobId: job.id, correlationId: job.data?.correlationId, queue: FOUNDATION_QUEUE }, 'job completed');
+      this.logger.info(
+        { jobId: job.id, correlationId: job.data?.correlationId, queue: FOUNDATION_QUEUE },
+        'job completed',
+      );
     });
     this.importWorker.on('completed', (job) => {
-      this.logger.info({ jobId: job.id, correlationId: job.data?.correlationId, queue: IMPORT_QUEUE }, 'job completed');
+      this.logger.info(
+        { jobId: job.id, correlationId: job.data?.correlationId, queue: IMPORT_QUEUE },
+        'job completed',
+      );
     });
     this.foundationWorker.on('error', (error) => this.handleWorkerError(error));
     this.importWorker.on('error', (error) => this.handleWorkerError(error));
     this.foundationQueueEvents.on('failed', ({ jobId, failedReason }) => {
-      void this.moveToDeadLetterWhenExhausted(this.foundationQueue, this.foundationDeadLetterQueue, FOUNDATION_QUEUE, jobId, failedReason);
+      void this.moveToDeadLetterWhenExhausted(
+        this.foundationQueue,
+        this.foundationDeadLetterQueue,
+        FOUNDATION_QUEUE,
+        jobId,
+        failedReason,
+      );
     });
     this.importQueueEvents.on('failed', ({ jobId, failedReason }) => {
-      void this.moveToDeadLetterWhenExhausted(this.importQueue, this.importDeadLetterQueue, IMPORT_QUEUE, jobId, failedReason);
+      void this.moveToDeadLetterWhenExhausted(
+        this.importQueue,
+        this.importDeadLetterQueue,
+        IMPORT_QUEUE,
+        jobId,
+        failedReason,
+      );
     });
     if (this.config.SCHEDULER_ENABLED) {
-      this.timer = setInterval(() => void this.dispatchOutbox(), this.config.OUTBOX_POLL_INTERVAL_MS);
+      this.timer = setInterval(
+        () => void this.dispatchOutbox(),
+        this.config.OUTBOX_POLL_INTERVAL_MS,
+      );
       void this.dispatchOutbox();
     }
   }
@@ -174,12 +215,28 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       };
       const foundation = foundationJobSchema.safeParse(sharedInput);
       if (foundation.success) {
-        await this.enqueueOutboxJob(client, event, FOUNDATION_QUEUE, FOUNDATION_JOB_NAME, this.foundationQueue, foundation.data, FOUNDATION_JOB_OPTIONS);
+        await this.enqueueOutboxJob(
+          client,
+          event,
+          FOUNDATION_QUEUE,
+          FOUNDATION_JOB_NAME,
+          this.foundationQueue,
+          foundation.data,
+          FOUNDATION_JOB_OPTIONS,
+        );
         return true;
       }
       const authorizationImport = authorizationImportJobSchema.safeParse(sharedInput);
       if (authorizationImport.success) {
-        await this.enqueueOutboxJob(client, event, IMPORT_QUEUE, IMPORT_JOB_NAME, this.importQueue, authorizationImport.data, IMPORT_JOB_OPTIONS);
+        await this.enqueueOutboxJob(
+          client,
+          event,
+          IMPORT_QUEUE,
+          IMPORT_JOB_NAME,
+          this.importQueue,
+          authorizationImport.data,
+          IMPORT_JOB_OPTIONS,
+        );
         return true;
       }
 
@@ -188,7 +245,10 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         [event.id, 'Non-retryable outbox contract validation failure'],
       );
       await client.query('commit');
-      this.logger.error({ eventId: event.id, eventType: event.event_type }, 'non-retryable outbox event rejected');
+      this.logger.error(
+        { eventId: event.id, eventType: event.event_type },
+        'non-retryable outbox event rejected',
+      );
       return true;
     } catch (error) {
       await client.query('rollback');
@@ -201,7 +261,12 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async enqueueOutboxJob<T extends QueueJob>(
-    client: { query: (query: string, values?: unknown[]) => Promise<{ rows: Array<{ [key: string]: unknown }>; rowCount?: number | null }> },
+    client: {
+      query: (
+        query: string,
+        values?: unknown[],
+      ) => Promise<{ rows: Array<{ [key: string]: unknown }>; rowCount?: number | null }>;
+    },
     event: OutboxRow,
     queueName: string,
     jobName: Parameters<Queue<T>['add']>[0],
@@ -209,7 +274,9 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     data: T,
     options: Parameters<Queue<T>['add']>[2],
   ): Promise<void> {
-    const jobId = createHash('sha256').update(`${queueName}:${event.idempotency_key}`).digest('hex');
+    const jobId = createHash('sha256')
+      .update(`${queueName}:${event.idempotency_key}`)
+      .digest('hex');
     const persistedResult = await client.query(
       'select 1 from job_results where queue = $1 and idempotency_key = $2',
       [queueName, event.idempotency_key],
@@ -230,7 +297,14 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         state === 'failed' || state === 'completed'
           ? `update outbox_events set status = 'FAILED', last_error = $2 where id = $1`
           : `update outbox_events set status = 'DISPATCHED', dispatched_at = now() where id = $1`,
-        [event.id, state === 'failed' ? existingJob.failedReason : state === 'completed' ? 'Completed queue job has no persistent result' : null],
+        [
+          event.id,
+          state === 'failed'
+            ? existingJob.failedReason
+            : state === 'completed'
+              ? 'Completed queue job has no persistent result'
+              : null,
+        ],
       );
       await client.query('commit');
       return;
@@ -264,7 +338,12 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       .where(eq(outboxEvents.id, job.payload.eventId));
 
     this.logger.info(
-      { jobId: rawJob.id, correlationId: job.correlationId, duplicate: inserted.length === 0, queue: FOUNDATION_QUEUE },
+      {
+        jobId: rawJob.id,
+        correlationId: job.correlationId,
+        duplicate: inserted.length === 0,
+        queue: FOUNDATION_QUEUE,
+      },
       'foundation event processed',
     );
     return { processed: true };
@@ -295,7 +374,13 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
       .where(eq(outboxEvents.id, job.payload.eventId));
     this.logger.info(
-      { jobId: rawJob.id, correlationId: job.correlationId, duplicate: inserted.length === 0, queue: IMPORT_QUEUE, batchId: job.payload.batchId },
+      {
+        jobId: rawJob.id,
+        correlationId: job.correlationId,
+        duplicate: inserted.length === 0,
+        queue: IMPORT_QUEUE,
+        batchId: job.payload.batchId,
+      },
       'authorization import processed',
     );
     return { processed: true };

@@ -1,15 +1,19 @@
 # SPEC-004 — Notificaciones EPS, OLP y Medicarte
+
 **Fase:** 4
 
 ## Arquitectura
+
 Negocio -> transacción DB -> outbox -> BullMQ -> worker -> Gmail API.
 
 ## Eventos lógicos
+
 - pendiente de direccionamiento para EPS, cuando la regla aprobada lo determine;
 - `AUTHORIZATION_READY_TO_DISPENSE`: notifica simultáneamente a OLP y Medicarte que el registro está disponible para coordinación;
 - `APPLICATION_SITE_ASSIGNED`: cuando Medicarte define el punto/dirección de aplicación, notifica a OLP la ubicación a la que debe enviar el medicamento.
 
 ## Reglas
+
 - plantillas versionadas;
 - destinatarios por organización/evento;
 - ejecución diaria;
@@ -24,6 +28,7 @@ Negocio -> transacción DB -> outbox -> BullMQ -> worker -> Gmail API.
 - fallo visible/reintentable.
 
 ## Aceptación
+
 Reprocesar evento no duplica correo. Gmail caído no revierte estado de negocio.
 
 ## Secuencia logística
@@ -41,10 +46,12 @@ READY_TO_DISPENSE
 ### Notificación 1 — disponibilidad
 
 Destinatarios lógicos:
+
 - OLP;
 - Medicarte.
 
 Contenido mínimo:
+
 - identificación interna del ítem;
 - número de autorización;
 - medicamento/código comercial;
@@ -57,9 +64,11 @@ Contenido mínimo:
 Se genera únicamente después de que Medicarte persista una asignación válida.
 
 Destinatario lógico:
+
 - OLP.
 
 Contenido mínimo:
+
 - identificación del ítem;
 - número de autorización;
 - medicamento;
@@ -72,6 +81,7 @@ La notificación no puede enviarse antes de comprometer la dirección en Postgre
 ## Idempotencia específica
 
 Claves sugeridas:
+
 - disponibilidad OLP: `READY_TO_DISPENSE + authorization_item_id + readiness_version + OLP`;
 - disponibilidad Medicarte: `READY_TO_DISPENSE + authorization_item_id + readiness_version + MEDICARTE`;
 - dirección a OLP: `APPLICATION_SITE_ASSIGNED + authorization_item_id + application_site_version + OLP`.

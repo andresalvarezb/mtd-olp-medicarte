@@ -3,6 +3,7 @@
 Valida límites de módulos, ADRs, contratos y migraciones de alto impacto. No implementa reglas pendientes por conveniencia.
 
 Debe revisar:
+
 - dependencia entre módulos;
 - duplicación de DTO/enums;
 - consistencia con estados ortogonales;

@@ -13,7 +13,32 @@ export class MeController {
 
   @Get()
   @UseGuards(AuthGuard)
-  @ApiOkResponse({ schema: { type: 'object', required: ['id', 'subject', 'email', 'displayName', 'organizations'], properties: { id: { type: 'string', format: 'uuid' }, subject: { type: 'string' }, email: { type: 'string', format: 'email' }, displayName: { type: 'string' }, organizations: { type: 'array', items: { type: 'object', required: ['id', 'code', 'name', 'roles', 'permissions'], properties: { id: { type: 'string', format: 'uuid' }, code: { type: 'string' }, name: { type: 'string' }, roles: { type: 'array', items: { type: 'string' } }, permissions: { type: 'array', items: { type: 'string' } } } } } } } })
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+      required: ['id', 'subject', 'email', 'displayName', 'organizations'],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        subject: { type: 'string' },
+        email: { type: 'string', format: 'email' },
+        displayName: { type: 'string' },
+        organizations: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['id', 'code', 'name', 'roles', 'permissions'],
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              code: { type: 'string' },
+              name: { type: 'string' },
+              roles: { type: 'array', items: { type: 'string' } },
+              permissions: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+    },
+  })
   getMe(@Req() request: AuthenticatedRequest): Promise<MeResponse> {
     return this.access.getProfile(request.auth.sub);
   }

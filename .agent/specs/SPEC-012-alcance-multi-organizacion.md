@@ -1,4 +1,5 @@
 # SPEC-012 — Alcance multi-organización de autorizaciones
+
 **Fase:** 2
 
 ## Objetivo

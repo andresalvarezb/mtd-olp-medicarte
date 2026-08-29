@@ -4,7 +4,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 const keycloakUrl = process.env.KEYCLOAK_URL ?? 'http://localhost:8080';
-const databaseUrl = process.env.DATABASE_URL ?? 'postgresql://authorization:authorization@localhost:15432/authorization';
+const databaseUrl =
+  process.env.DATABASE_URL ??
+  'postgresql://authorization:authorization@localhost:15432/authorization';
 const organizationId = '10000000-0000-4000-8000-000000000001';
 const database = new Client({ connectionString: databaseUrl });
 let token: string;
@@ -13,14 +15,23 @@ let suspendedToken: string;
 let unknownToken: string;
 
 async function login(username: string, password: string): Promise<string> {
-  const body = new URLSearchParams({ grant_type: 'password', client_id: 'authorization-web', username, password });
-  const response = await fetch(`${keycloakUrl}/realms/authorization/protocol/openid-connect/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body,
+  const body = new URLSearchParams({
+    grant_type: 'password',
+    client_id: 'authorization-web',
+    username,
+    password,
   });
+  const response = await fetch(
+    `${keycloakUrl}/realms/authorization/protocol/openid-connect/token`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    },
+  );
   const result = (await response.json()) as { access_token?: string };
-  if (!result.access_token) throw new Error(`Keycloak login failed for ${username}: ${response.status}`);
+  if (!result.access_token)
+    throw new Error(`Keycloak login failed for ${username}: ${response.status}`);
   return result.access_token;
 }
 
@@ -40,13 +51,20 @@ describe('Gate F1', () => {
   it('reports API, PostgreSQL and Redis as healthy', async () => {
     const response = await fetch(`${apiUrl}/api/v1/health`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: 'ok', checks: { api: 'up', database: 'up', redis: 'up' } });
+    expect(await response.json()).toEqual({
+      status: 'ok',
+      checks: { api: 'up', database: 'up', redis: 'up' },
+    });
   });
 
   it('authenticates with Keycloak and resolves local organization permissions', async () => {
-    const response = await fetch(`${apiUrl}/api/v1/me`, { headers: { authorization: `Bearer ${token}` } });
+    const response = await fetch(`${apiUrl}/api/v1/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
     expect(response.status).toBe(200);
-    const profile = (await response.json()) as { organizations: Array<{ id: string; permissions: string[] }> };
+    const profile = (await response.json()) as {
+      organizations: Array<{ id: string; permissions: string[] }>;
+    };
     expect(profile.organizations).toHaveLength(2);
     const mtd = profile.organizations.find((scope) => scope.id === organizationId);
     expect(mtd?.permissions).toContain('platform.foundation.execute');
@@ -55,12 +73,18 @@ describe('Gate F1', () => {
   });
 
   it('enforces local suspension, organization scope and least privilege', async () => {
-    const suspended = await fetch(`${apiUrl}/api/v1/me`, { headers: { authorization: `Bearer ${suspendedToken}` } });
+    const suspended = await fetch(`${apiUrl}/api/v1/me`, {
+      headers: { authorization: `Bearer ${suspendedToken}` },
+    });
     expect(suspended.status).toBe(401);
-    const unknown = await fetch(`${apiUrl}/api/v1/me`, { headers: { authorization: `Bearer ${unknownToken}` } });
+    const unknown = await fetch(`${apiUrl}/api/v1/me`, {
+      headers: { authorization: `Bearer ${unknownToken}` },
+    });
     expect(unknown.status).toBe(401);
 
-    const olpProfile = await fetch(`${apiUrl}/api/v1/me`, { headers: { authorization: `Bearer ${olpToken}` } });
+    const olpProfile = await fetch(`${apiUrl}/api/v1/me`, {
+      headers: { authorization: `Bearer ${olpToken}` },
+    });
     expect(olpProfile.status).toBe(200);
     const denied = await fetch(`${apiUrl}/api/v1/foundation/events`, {
       method: 'POST',
@@ -86,7 +110,10 @@ describe('Gate F1', () => {
     expect(horizontal.status).toBe(403);
 
     const deadLetterDenied = await fetch(`${apiUrl}/api/v1/admin/dead-letter-jobs`, {
-      headers: { authorization: `Bearer ${olpToken}`, 'x-organization-id': '10000000-0000-4000-8000-000000000003' },
+      headers: {
+        authorization: `Bearer ${olpToken}`,
+        'x-organization-id': '10000000-0000-4000-8000-000000000003',
+      },
     });
     expect(deadLetterDenied.status).toBe(403);
   });
@@ -100,17 +127,23 @@ describe('Gate F1', () => {
       'x-organization-id': organizationId,
     };
     const invalid = await fetch(`${apiUrl}/api/v1/foundation/events`, {
-      method: 'POST', headers, body: JSON.stringify({ message: '' }),
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ message: '' }),
     });
     expect(invalid.status).toBe(400);
     expect((await invalid.json()) as { code: string }).toMatchObject({ code: 'VALIDATION_ERROR' });
 
     const first = await fetch(`${apiUrl}/api/v1/foundation/events`, {
-      method: 'POST', headers, body: JSON.stringify({ message: 'first payload' }),
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ message: 'first payload' }),
     });
     expect(first.status).toBe(202);
     const conflict = await fetch(`${apiUrl}/api/v1/foundation/events`, {
-      method: 'POST', headers, body: JSON.stringify({ message: 'different payload' }),
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ message: 'different payload' }),
     });
     expect(conflict.status).toBe(409);
   });
@@ -126,20 +159,30 @@ describe('Gate F1', () => {
       'x-correlation-id': correlationId,
     };
     const first = await fetch(`${apiUrl}/api/v1/foundation/events`, {
-      method: 'POST', headers, body: JSON.stringify({ message: 'Gate F1 end-to-end' }),
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ message: 'Gate F1 end-to-end' }),
     });
     expect(first.status).toBe(202);
     const accepted = (await first.json()) as { eventId: string };
     const replay = await fetch(`${apiUrl}/api/v1/foundation/events`, {
-      method: 'POST', headers, body: JSON.stringify({ message: 'Gate F1 end-to-end' }),
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ message: 'Gate F1 end-to-end' }),
     });
     expect(await replay.json()).toEqual(accepted);
 
     const deadline = Date.now() + 15_000;
     let processed = false;
     while (Date.now() < deadline) {
-      const result = await database.query<{ status: string }>('select status from outbox_events where id = $1', [accepted.eventId]);
-      if (result.rows[0]?.status === 'PROCESSED') { processed = true; break; }
+      const result = await database.query<{ status: string }>(
+        'select status from outbox_events where id = $1',
+        [accepted.eventId],
+      );
+      if (result.rows[0]?.status === 'PROCESSED') {
+        processed = true;
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     expect(processed).toBe(true);
@@ -148,16 +191,26 @@ describe('Gate F1', () => {
       [accepted.eventId],
     );
     expect(jobs.rowCount).toBe(1);
-    const audits = await database.query('select id from audit_events where resource_id = $1', [accepted.eventId]);
+    const audits = await database.query('select id from audit_events where resource_id = $1', [
+      accepted.eventId,
+    ]);
     expect(audits.rowCount).toBe(1);
-    await expect(database.query('delete from audit_events where resource_id = $1', [accepted.eventId])).rejects.toThrow('append-only');
+    await expect(
+      database.query('delete from audit_events where resource_id = $1', [accepted.eventId]),
+    ).rejects.toThrow('append-only');
   });
 
   it('publishes OpenAPI under the versioned API', async () => {
     const response = await fetch(`${apiUrl}/api/v1/openapi.json`);
     expect(response.status).toBe(200);
     const document = (await response.json()) as {
-      paths: Record<string, { get?: { parameters?: Array<{ name: string }>; responses?: Record<string, unknown> }; post?: { responses?: Record<string, unknown> } }>;
+      paths: Record<
+        string,
+        {
+          get?: { parameters?: Array<{ name: string }>; responses?: Record<string, unknown> };
+          post?: { responses?: Record<string, unknown> };
+        }
+      >;
     };
     expect(document.paths['/api/v1/me']).toBeDefined();
     expect(document.paths['/api/v1/me']?.get?.responses?.['200']).toBeDefined();
@@ -190,8 +243,14 @@ describe('Gate F1', () => {
     const deadline = Date.now() + 10_000;
     let failed = false;
     while (Date.now() < deadline) {
-      const result = await database.query<{ status: string }>('select status from outbox_events where id = $1', [poisonId]);
-      if (result.rows[0]?.status === 'FAILED') { failed = true; break; }
+      const result = await database.query<{ status: string }>(
+        'select status from outbox_events where id = $1',
+        [poisonId],
+      );
+      if (result.rows[0]?.status === 'FAILED') {
+        failed = true;
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     expect(failed).toBe(true);
@@ -199,7 +258,9 @@ describe('Gate F1', () => {
       headers: { authorization: `Bearer ${token}`, 'x-organization-id': organizationId },
     });
     expect(response.status).toBe(200);
-    expect((await response.json()) as Array<{ id: string }>).toContainEqual(expect.objectContaining({ id: poisonId }));
+    expect((await response.json()) as Array<{ id: string }>).toContainEqual(
+      expect.objectContaining({ id: poisonId }),
+    );
   });
 
   it('recovers a stale dispatched event after a lost Redis delivery', async () => {
@@ -215,8 +276,14 @@ describe('Gate F1', () => {
     const deadline = Date.now() + 10_000;
     let processed = false;
     while (Date.now() < deadline) {
-      const result = await database.query<{ status: string }>('select status from outbox_events where id = $1', [eventId]);
-      if (result.rows[0]?.status === 'PROCESSED') { processed = true; break; }
+      const result = await database.query<{ status: string }>(
+        'select status from outbox_events where id = $1',
+        [eventId],
+      );
+      if (result.rows[0]?.status === 'PROCESSED') {
+        processed = true;
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     expect(processed).toBe(true);

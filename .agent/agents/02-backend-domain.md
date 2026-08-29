@@ -3,6 +3,7 @@
 Implementa reglas puras, servicios de aplicación, API NestJS, persistencia Drizzle y eventos.
 
 Prioridades:
+
 1. invariant tests;
 2. dominio sin dependencias externas;
 3. transacciones;

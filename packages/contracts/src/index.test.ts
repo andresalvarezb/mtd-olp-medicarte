@@ -16,20 +16,22 @@ describe('foundationJobSchema', () => {
 describe('phase two contracts', () => {
   it('accepts a versioned import job and only approved row result codes', () => {
     const id = '10000000-0000-4000-8000-000000000001';
-    expect(authorizationImportJobSchema.parse({
-      name: 'authorization.import',
-      version: 1,
-      payload: {
-        eventId: id,
-        batchId: id,
-        sourceFileId: id,
-        processorVersion: 1,
+    expect(
+      authorizationImportJobSchema.parse({
+        name: 'authorization.import',
+        version: 1,
+        payload: {
+          eventId: id,
+          batchId: id,
+          sourceFileId: id,
+          processorVersion: 1,
+          correlationId: id,
+          idempotencyKey: 'import-key-1',
+        },
         correlationId: id,
         idempotencyKey: 'import-key-1',
-      },
-      correlationId: id,
-      idempotencyKey: 'import-key-1',
-    }).name).toBe('authorization.import');
+      }).name,
+    ).toBe('authorization.import');
     expect(importRowResultCodeSchema.safeParse('DUPLICATE_IN_FILE').success).toBe(true);
     expect(importRowResultCodeSchema.safeParse('TECHNICAL_EXCEPTION_MESSAGE').success).toBe(false);
   });
@@ -54,15 +56,23 @@ describe('phase two contracts', () => {
     };
 
     expect(importBatchResponseSchema.parse(batch).lastErrorCode).toBe('PROCESSING_ERROR');
-    expect(importBatchResponseSchema.parse({ ...batch, lastErrorCode: null }).lastErrorCode).toBeNull();
-    expect(importBatchResponseSchema.safeParse({ ...batch, lastErrorCode: undefined }).success).toBe(false);
-    expect(importBatchResponseSchema.safeParse({ ...batch, createdAt: '2026-08-28' }).success).toBe(false);
-    expect(confirmImportResponseSchema.safeParse({
-      batchId: batch.id,
-      status: 'COMPLETED',
-      createdRows: 1,
-      existingRows: 0,
-      confirmedAt: 'not-a-date',
-    }).success).toBe(false);
+    expect(
+      importBatchResponseSchema.parse({ ...batch, lastErrorCode: null }).lastErrorCode,
+    ).toBeNull();
+    expect(
+      importBatchResponseSchema.safeParse({ ...batch, lastErrorCode: undefined }).success,
+    ).toBe(false);
+    expect(importBatchResponseSchema.safeParse({ ...batch, createdAt: '2026-08-28' }).success).toBe(
+      false,
+    );
+    expect(
+      confirmImportResponseSchema.safeParse({
+        batchId: batch.id,
+        status: 'COMPLETED',
+        createdRows: 1,
+        existingRows: 0,
+        confirmedAt: 'not-a-date',
+      }).success,
+    ).toBe(false);
   });
 });

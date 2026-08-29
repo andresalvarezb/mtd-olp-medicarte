@@ -58,7 +58,10 @@ export function IdentityPanel() {
                 </article>
               ))}
             </div>
-            <Button className="secondary" onClick={() => void keycloak?.logout({ redirectUri: window.location.origin })}>
+            <Button
+              className="secondary"
+              onClick={() => void keycloak?.logout({ redirectUri: window.location.origin })}
+            >
               Cerrar sesión
             </Button>
           </>
@@ -68,7 +71,9 @@ export function IdentityPanel() {
           </Button>
         )}
       </section>
-      {profile && keycloak && apiUrl ? <PhaseTwoWorkspace apiUrl={apiUrl} keycloak={keycloak} profile={profile} /> : null}
+      {profile && keycloak && apiUrl ? (
+        <PhaseTwoWorkspace apiUrl={apiUrl} keycloak={keycloak} profile={profile} />
+      ) : null}
     </>
   );
 }

@@ -1,31 +1,34 @@
 # Decisiones de negocio — registro de cierre
 
 Estados:
-- `RESOLVED`: suficientemente cerrada para implementación.
+
+- `ACCEPTED`: suficientemente cerrada para implementación.
 - `PARTIAL`: existe una decisión válida, pero falta una definición estructural.
 - `PENDING`: no existe información suficiente.
 
 ## Resumen
 
-| ID | Estado | Decisión |
-|---|---|---|
-| DEC-001 | RESOLVED | Un direccionamiento MIPRES es válido únicamente cuando `current_date(America/Bogota) < fecha_maxima`. |
-| DEC-002 | RESOLVED | Una llave existente solo puede actualizarse explícitamente si `operation_status = READY_TO_DISPENSE`. Se bloquea desde `DISPENSATION_REPORTED` en adelante. |
-| DEC-003 | RESOLVED | `DISPENSED` solo se alcanza cuando `audit_status = APPROVED`. |
-| DEC-004 | RESOLVED | Medicarte registra la dispensación al cargar los soportes; el sistema usa `DISPENSATION_REPORTED` hasta aprobación. |
-| DEC-005 | RESOLVED | Los reportes se envían todos los días a las 08:00 `America/Bogota`, con novedades del día anterior. Los destinatarios son parametrizables. |
-| DEC-006 | RESOLVED | La auditoría es humana y visual. La aprobación explícita del auditor es condición suficiente para `APPROVED`; no existe aprobación automática. |
-| DEC-007 | RESOLVED | Los soportes permanecen en Drive sin vencimiento automático. Las exportaciones CSV/XLSX se generan bajo demanda y no se almacenan como copia persistente. |
-| DEC-008 | RESOLVED | Máximo 20 MB por archivo y volumen esperado de hasta 2.500 archivos por mes. |
-| DEC-009 | RESOLVED | Despliegue esperado en Render, Google Cloud como alternativa, región requerida Colombia. |
-| DEC-010 | RESOLVED | El código se alojará en un repositorio nuevo e independiente en GitHub, estructurado como monorepo. |
-| DEC-012 | RESOLVED | Las autorizaciones son registros únicos y compartidos; el alcance se resuelve por usuario, organización, permisos y relación explícita del recurso, sin duplicar `authorization_items`. |
+| ID      | Estado   | Decisión                                                                                                                                                                                |
+| ------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DEC-001 | ACCEPTED | Un direccionamiento MIPRES es válido únicamente cuando `current_date(America/Bogota) < fecha_maxima`.                                                                                   |
+| DEC-002 | ACCEPTED | Una llave existente solo puede actualizarse explícitamente si `operation_status = READY_TO_DISPENSE`. Se bloquea desde `DISPENSATION_REPORTED` en adelante.                             |
+| DEC-003 | ACCEPTED | `DISPENSED` solo se alcanza cuando `audit_status = APPROVED`.                                                                                                                           |
+| DEC-004 | ACCEPTED | Medicarte registra la dispensación al cargar los soportes; el sistema usa `DISPENSATION_REPORTED` hasta aprobación.                                                                     |
+| DEC-005 | ACCEPTED | Los reportes se envían todos los días a las 08:00 `America/Bogota`, con novedades del día anterior. Los destinatarios son parametrizables.                                              |
+| DEC-006 | ACCEPTED | La auditoría es humana y visual. La aprobación explícita del auditor es condición suficiente para `APPROVED`; no existe aprobación automática.                                          |
+| DEC-007 | ACCEPTED | Los soportes permanecen en Drive sin vencimiento automático. Las exportaciones CSV/XLSX se generan bajo demanda y no se almacenan como copia persistente.                               |
+| DEC-008 | ACCEPTED | Máximo 20 MB por archivo y volumen esperado de hasta 2.500 archivos por mes.                                                                                                            |
+| DEC-009 | ACCEPTED | Despliegue esperado en Render, Google Cloud como alternativa, región requerida Colombia.                                                                                                |
+| DEC-010 | ACCEPTED | El código se alojará en un repositorio nuevo e independiente en GitHub, estructurado como monorepo.                                                                                     |
+| DEC-011 | ACCEPTED | Medicarte define y versiona el punto de aplicación; cada asignación o cambio notifica a OLP.                                                                                            |
+| DEC-012 | ACCEPTED | Las autorizaciones son registros únicos y compartidos; el alcance se resuelve por usuario, organización, permisos y relación explícita del recurso, sin duplicar `authorization_items`. |
+| DEC-013 | PENDING  | Falta contrato HTTP oficial de direccionamientos y acceso seguro al sandbox MIPRES. Su implementación real está prohibida.                                                              |
 
 ---
 
 ## DEC-001 — Vigencia de direccionamiento MIPRES
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 ```text
 current_date(America/Bogota) < fecha_maxima
@@ -38,7 +41,7 @@ La comparación es estricta. Si la fecha actual es igual o superior a `fecha_max
 
 ## DEC-002 — Actualización de una llave existente
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 Llave:
 
@@ -70,7 +73,7 @@ o si ya avanzó a `DISPENSED`.
 
 ## DEC-003 — Momento de `DISPENSED`
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 ```text
 audit_status = APPROVED
@@ -81,7 +84,7 @@ audit_status = APPROVED
 
 ## DEC-004 — Registro y confirmación de dispensación
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 ```text
 READY_TO_DISPENSE
@@ -99,7 +102,7 @@ READY_TO_DISPENSE
 
 ## DEC-005 — Reportes diarios
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 - Hora: `08:00`.
 - Zona horaria: `America/Bogota`.
@@ -112,7 +115,7 @@ READY_TO_DISPENSE
 
 ## DEC-006 — Auditoría
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 - La auditoría es humana y visual.
 - Solo un auditor autorizado puede aprobar o rechazar.
@@ -133,7 +136,7 @@ audit_status = APPROVED
 
 ## DEC-007 — Drive y exportaciones
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 ### Soportes
 
@@ -156,7 +159,7 @@ audit_status = APPROVED
 
 ## DEC-008 — Capacidad inicial
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 - Máximo por archivo: `20 MB`.
 - Volumen esperado: hasta `2.500 archivos por mes`.
@@ -166,7 +169,7 @@ audit_status = APPROVED
 
 ## DEC-009 — Despliegue
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 - Destino esperado: Render.
 - Alternativa: Google Cloud.
@@ -179,7 +182,7 @@ Si algún servicio seleccionado no ofrece presencia física compatible en Colomb
 
 ## DEC-010 — Repositorio
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 Decisión final:
 
@@ -215,6 +218,7 @@ La estructura física definitiva debe respetar los límites de módulos y depend
 ## Regla de mantenimiento
 
 Al cambiar una decisión:
+
 1. actualizar este archivo;
 2. actualizar ADR afectado;
 3. actualizar SPEC afectada;
@@ -225,7 +229,7 @@ Al cambiar una decisión:
 
 ## DEC-011 — Coordinación logística del punto de aplicación
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 1. Cuando un registro entra en `READY_TO_DISPENSE`, se generan notificaciones event-driven a:
    - OLP;
@@ -244,7 +248,7 @@ Al cambiar una decisión:
 
 ## DEC-012 — Alcance multi-organización de autorizaciones
 
-**Estado:** RESOLVED
+**Estado:** ACCEPTED
 
 Una autorización es un único registro global. La llave `NUMERO_AUTORIZACION + COD_COMERCIAL` no se replica por organización.
 
@@ -264,3 +268,20 @@ En el alcance inicial:
 Fase 2 persiste la relación en `authorization_item_organizations` y no crea copias del ítem principal. Para los cuatro organismos iniciales de la plataforma, un ítem confirmado queda relacionado con cada organización activa del alcance inicial; organizaciones futuras requieren una relación explícita.
 
 La UI puede ocultar acciones, pero toda consulta y mutación vuelve a validar el alcance en el backend y en la consulta a PostgreSQL.
+
+---
+
+## DEC-013 — Contrato y sandbox MIPRES
+
+**Estado:** PENDING
+
+No se recibieron endpoint, autenticación, esquema oficial, fixtures aprobados ni credenciales de sandbox. El detalle de la evidencia necesaria está en `contracts/MIPRES_DIRECCIONAMIENTOS_SANDBOX.md`.
+
+Mientras esta decisión permanezca abierta:
+
+1. no implementar `MipresHttpAdapter` contra un contrato inferido;
+2. no presentar fixtures inventados como respuestas oficiales;
+3. no almacenar secretos en Git, documentación, frontend, logs o base de datos;
+4. no iniciar el alcance funcional de Fase 3 que dependa del proveedor real.
+
+Sí se mantienen como decisiones internas aceptadas la precondición `NO_PBS + ENABLED`, los estados internos, la capa anticorrupción y la comparación estricta de `fecha_maxima`.

@@ -19,7 +19,10 @@ export class AuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authorization = request.header('authorization');
     if (!authorization?.startsWith('Bearer ')) {
-      throw new UnauthorizedException({ code: 'AUTH_TOKEN_REQUIRED', message: 'Bearer token required' });
+      throw new UnauthorizedException({
+        code: 'AUTH_TOKEN_REQUIRED',
+        message: 'Bearer token required',
+      });
     }
 
     try {
@@ -31,7 +34,10 @@ export class AuthGuard implements CanActivate {
       request.auth = { ...payload, sub: payload.sub };
       return true;
     } catch {
-      throw new UnauthorizedException({ code: 'AUTH_TOKEN_INVALID', message: 'Invalid access token' });
+      throw new UnauthorizedException({
+        code: 'AUTH_TOKEN_INVALID',
+        message: 'Invalid access token',
+      });
     }
   }
 }

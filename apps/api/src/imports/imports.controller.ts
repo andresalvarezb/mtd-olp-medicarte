@@ -64,11 +64,35 @@ const errorSchema = {
   },
 };
 
-const batchStatusEnum = ['UPLOADED', 'VALIDATING', 'READY_TO_CONFIRM', 'CONFIRMING', 'COMPLETED', 'FAILED', 'CANCELLED'];
+const batchStatusEnum = [
+  'UPLOADED',
+  'VALIDATING',
+  'READY_TO_CONFIRM',
+  'CONFIRMING',
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+];
 
 const importBatchResponseSchema = {
   type: 'object',
-  required: ['id', 'status', 'originalFilename', 'mimeType', 'sizeBytes', 'sha256', 'totalRows', 'validRows', 'rejectedRows', 'duplicateRows', 'existingRows', 'confirmedRows', 'lastErrorCode', 'createdAt', 'completedAt'],
+  required: [
+    'id',
+    'status',
+    'originalFilename',
+    'mimeType',
+    'sizeBytes',
+    'sha256',
+    'totalRows',
+    'validRows',
+    'rejectedRows',
+    'duplicateRows',
+    'existingRows',
+    'confirmedRows',
+    'lastErrorCode',
+    'createdAt',
+    'completedAt',
+  ],
   properties: {
     id: { type: 'string', format: 'uuid' },
     status: { type: 'string', enum: batchStatusEnum },
@@ -92,7 +116,34 @@ const paginatedRowsResponseSchema = {
   type: 'object',
   required: ['items', 'nextCursor'],
   properties: {
-    items: { type: 'array', items: { type: 'object', required: ['id', 'rowNumber', 'resultCode', 'resultMessage', 'confirmable', 'authorizationItemId', 'authorizationKey', 'normalized', 'validationErrors'], properties: { id: { type: 'string', format: 'uuid' }, rowNumber: { type: 'integer' }, resultCode: { type: 'string' }, resultMessage: { type: 'string' }, confirmable: { type: 'boolean' }, authorizationItemId: { type: 'string', format: 'uuid', nullable: true }, authorizationKey: { type: 'string', nullable: true }, normalized: { type: 'object', nullable: true }, validationErrors: { type: 'array', items: { type: 'object' } } } } },
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: [
+          'id',
+          'rowNumber',
+          'resultCode',
+          'resultMessage',
+          'confirmable',
+          'authorizationItemId',
+          'authorizationKey',
+          'normalized',
+          'validationErrors',
+        ],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          rowNumber: { type: 'integer' },
+          resultCode: { type: 'string' },
+          resultMessage: { type: 'string' },
+          confirmable: { type: 'boolean' },
+          authorizationItemId: { type: 'string', format: 'uuid', nullable: true },
+          authorizationKey: { type: 'string', nullable: true },
+          normalized: { type: 'object', nullable: true },
+          validationErrors: { type: 'array', items: { type: 'object' } },
+        },
+      },
+    },
     nextCursor: { type: 'string', nullable: true },
   },
 };
@@ -127,8 +178,17 @@ export class ImportsController {
   @ApiConsumes('multipart/form-data')
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiBody({ schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } })
-  @ApiAcceptedResponse({ description: 'Import batch accepted for asynchronous processing', schema: importBatchResponseSchema })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiAcceptedResponse({
+    description: 'Import batch accepted for asynchronous processing',
+    schema: importBatchResponseSchema,
+  })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiConflictResponse({ schema: errorSchema })
@@ -139,17 +199,32 @@ export class ImportsController {
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    if (!file) throw new BadRequestException({ code: 'IMPORT_FILE_REQUIRED', message: 'An import file is required' });
+    if (!file)
+      throw new BadRequestException({
+        code: 'IMPORT_FILE_REQUIRED',
+        message: 'An import file is required',
+      });
     const idempotencyKey = idempotencyKeySchema.parse(rawIdempotencyKey);
     const organization = uuidSchema.parse(organizationId);
-    const profile = await this.access.requirePermission(request.auth.sub, organization, 'imports.create');
-    return this.imports.create({ file, idempotencyKey, scope: scopeFromProfile(profile, organization, request) });
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'imports.create',
+    );
+    return this.imports.create({
+      file,
+      idempotencyKey,
+      scope: scopeFromProfile(profile, organization, request),
+    });
   }
 
   @Get(':id')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiOkResponse({ description: 'Import batch progress and totals', schema: importBatchResponseSchema })
+  @ApiOkResponse({
+    description: 'Import batch progress and totals',
+    schema: importBatchResponseSchema,
+  })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiNotFoundResponse({ schema: errorSchema })
@@ -160,14 +235,21 @@ export class ImportsController {
   ) {
     const id = uuidSchema.parse(rawId);
     const organization = uuidSchema.parse(organizationId);
-    const profile = await this.access.requirePermission(request.auth.sub, organization, 'authorizations.read');
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'authorizations.read',
+    );
     return this.imports.getBatch(id, scopeFromProfile(profile, organization, request));
   }
 
   @Get(':id/rows')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiOkResponse({ description: 'Paginated import row report', schema: paginatedRowsResponseSchema })
+  @ApiOkResponse({
+    description: 'Paginated import row report',
+    schema: paginatedRowsResponseSchema,
+  })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiNotFoundResponse({ schema: errorSchema })
@@ -180,7 +262,11 @@ export class ImportsController {
     const id = uuidSchema.parse(rawId);
     const query = rowsQuerySchema.parse(rawQuery);
     const organization = uuidSchema.parse(organizationId);
-    const profile = await this.access.requirePermission(request.auth.sub, organization, 'authorizations.read');
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'authorizations.read',
+    );
     return this.imports.getRows({
       batchId: id,
       limit: query.limit,
@@ -195,7 +281,10 @@ export class ImportsController {
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
   @ApiBody({ schema: { type: 'object', additionalProperties: false } })
-  @ApiOkResponse({ description: 'Import rows confirmed transactionally', schema: confirmResponseSchema })
+  @ApiOkResponse({
+    description: 'Import rows confirmed transactionally',
+    schema: confirmResponseSchema,
+  })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiConflictResponse({ schema: errorSchema })
@@ -212,7 +301,15 @@ export class ImportsController {
     const id = uuidSchema.parse(rawId);
     const idempotencyKey = idempotencyKeySchema.parse(rawIdempotencyKey);
     const organization = uuidSchema.parse(organizationId);
-    const profile = await this.access.requirePermission(request.auth.sub, organization, 'imports.confirm');
-    return this.imports.confirm({ batchId: id, idempotencyKey, scope: scopeFromProfile(profile, organization, request) });
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'imports.confirm',
+    );
+    return this.imports.confirm({
+      batchId: id,
+      idempotencyKey,
+      scope: scopeFromProfile(profile, organization, request),
+    });
   }
 }

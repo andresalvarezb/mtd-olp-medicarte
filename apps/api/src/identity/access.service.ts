@@ -34,7 +34,10 @@ export class AccessService {
         permissionCode: permissions.code,
       })
       .from(users)
-      .innerJoin(userOrganizationRoles, and(eq(userOrganizationRoles.userId, users.id), eq(userOrganizationRoles.active, true)))
+      .innerJoin(
+        userOrganizationRoles,
+        and(eq(userOrganizationRoles.userId, users.id), eq(userOrganizationRoles.active, true)),
+      )
       .innerJoin(organizations, eq(organizations.id, userOrganizationRoles.organizationId))
       .innerJoin(roles, eq(roles.id, userOrganizationRoles.roleId))
       .leftJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
@@ -43,7 +46,10 @@ export class AccessService {
 
     const first = rows[0];
     if (!first || !first.userActive) {
-      throw new UnauthorizedException({ code: 'LOCAL_USER_INACTIVE', message: 'Local user is not active' });
+      throw new UnauthorizedException({
+        code: 'LOCAL_USER_INACTIVE',
+        message: 'Local user is not active',
+      });
     }
 
     const scopes = new Map<string, MeResponse['organizations'][number]>();
@@ -57,7 +63,8 @@ export class AccessService {
         permissions: [],
       };
       if (!scope.roles.includes(row.roleCode)) scope.roles.push(row.roleCode);
-      if (row.permissionCode && !scope.permissions.includes(row.permissionCode)) scope.permissions.push(row.permissionCode);
+      if (row.permissionCode && !scope.permissions.includes(row.permissionCode))
+        scope.permissions.push(row.permissionCode);
       scopes.set(row.organizationId, scope);
     }
 
@@ -70,14 +77,24 @@ export class AccessService {
     };
   }
 
-  async requirePermission(subject: string, organizationId: string | undefined, permission: string): Promise<MeResponse> {
+  async requirePermission(
+    subject: string,
+    organizationId: string | undefined,
+    permission: string,
+  ): Promise<MeResponse> {
     if (!organizationId) {
-      throw new ForbiddenException({ code: 'ORGANIZATION_REQUIRED', message: 'X-Organization-Id is required' });
+      throw new ForbiddenException({
+        code: 'ORGANIZATION_REQUIRED',
+        message: 'X-Organization-Id is required',
+      });
     }
     const profile = await this.getProfile(subject);
     const scope = profile.organizations.find((organization) => organization.id === organizationId);
     if (!scope?.permissions.includes(permission)) {
-      throw new ForbiddenException({ code: 'PERMISSION_DENIED', message: 'Permission denied for organization' });
+      throw new ForbiddenException({
+        code: 'PERMISSION_DENIED',
+        message: 'Permission denied for organization',
+      });
     }
     return profile;
   }

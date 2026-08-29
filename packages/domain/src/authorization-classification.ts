@@ -8,11 +8,12 @@ export type AuthorizationClassificationInput = Readonly<{
 }>;
 
 export function normalizeSourceText(value: unknown): string {
-  const text = value === null || value === undefined
-    ? ''
-    : typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-    ? `${value}`
-    : JSON.stringify(value) ?? '';
+  const text =
+    value === null || value === undefined
+      ? ''
+      : typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+        ? `${value}`
+        : (JSON.stringify(value) ?? '');
   return text.trim().toUpperCase().replace(/\s+/g, ' ');
 }
 
@@ -23,7 +24,10 @@ function escapeKeyComponent(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
 }
 
-export function buildAuthorizationKey(numeroAutorizacion: unknown, codigoComercial: unknown): {
+export function buildAuthorizationKey(
+  numeroAutorizacion: unknown,
+  codigoComercial: unknown,
+): {
   numeroAutorizacion: string;
   codigoMedicamento: string;
   authorizationKey: string;
@@ -31,7 +35,11 @@ export function buildAuthorizationKey(numeroAutorizacion: unknown, codigoComerci
   const normalizedAuthorization = normalizeSourceText(numeroAutorizacion);
   const normalizedMedication = normalizeSourceText(codigoComercial);
   if (!normalizedAuthorization || !normalizedMedication) return null;
-  if (normalizedAuthorization.length > MAX_IDENTITY_COMPONENT_LENGTH || normalizedMedication.length > MAX_IDENTITY_COMPONENT_LENGTH) return null;
+  if (
+    normalizedAuthorization.length > MAX_IDENTITY_COMPONENT_LENGTH ||
+    normalizedMedication.length > MAX_IDENTITY_COMPONENT_LENGTH
+  )
+    return null;
   const authorizationKey = `${escapeKeyComponent(normalizedAuthorization)}:${escapeKeyComponent(normalizedMedication)}`;
   if (authorizationKey.length > MAX_AUTHORIZATION_KEY_LENGTH) return null;
   return {
@@ -49,11 +57,15 @@ export function deriveCoverageType(value: unknown): 'PBS' | 'NO_PBS' {
   return normalizeSourceText(value) === 'MEDICAMENTOS NO POS' ? 'NO_PBS' : 'PBS';
 }
 
-export function deriveDirectionStatus(coverageType: 'PBS' | 'NO_PBS'): 'NOT_APPLICABLE' | 'PENDING' {
+export function deriveDirectionStatus(
+  coverageType: 'PBS' | 'NO_PBS',
+): 'NOT_APPLICABLE' | 'PENDING' {
   return coverageType === 'PBS' ? 'NOT_APPLICABLE' : 'PENDING';
 }
 
-export function deriveAuthorizationClassification(input: AuthorizationClassificationInput): AuthorizationClassification | null {
+export function deriveAuthorizationClassification(
+  input: AuthorizationClassificationInput,
+): AuthorizationClassification | null {
   const key = buildAuthorizationKey(input.numeroAutorizacion, input.codigoComercial);
   const cupsPrincipalNormalized = normalizeSourceText(input.cupsPrincipal);
   const sourceStatusNormalized = normalizeSourceText(input.estadoAutorizacion);
