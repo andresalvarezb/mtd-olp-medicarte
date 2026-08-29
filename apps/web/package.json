@@ -1,0 +1,27 @@
+{
+  "name": "@authorization/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev --port 3000",
+    "start": "next start --port 3000",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@authorization/contracts": "workspace:*",
+    "@authorization/ui": "workspace:*",
+    "keycloak-js": "26.2.0",
+    "next": "16.3.3",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.0",
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}
