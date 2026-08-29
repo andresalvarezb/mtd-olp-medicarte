@@ -22,6 +22,7 @@ Entregables obligatorios:
 - Límite inicial de 20 MB y capacidad esperada de hasta 2.500 archivos por mes.
 - Render esperado, Google Cloud alternativo, región Colombia.
 - Repositorio nuevo e independiente en GitHub, estructurado como monorepo.
+- Alcance multi-organización de autorizaciones cerrado en DEC-012, sin duplicar `authorization_items`.
 
 **Gate F0:** las decisiones pendientes que afecten esquema, estados o permisos están documentadas como `ACCEPTED` o explícitamente marcadas como `PENDING` con una prohibición de implementación.
 
@@ -58,6 +59,7 @@ Entregables obligatorios:
   - cualquier otro valor → `PBS`.
 - Para `PBS`, `direction_status = NOT_APPLICABLE`.
 - Bandeja de autorizaciones, detalle, filtros y trazabilidad de la carga.
+- La bandeja aplica `authorizations.read` y el alcance de `authorization_item_organizations`; MTD conserva lectura global.
 
 **Gate F2:** cargar dos veces el mismo archivo no duplica ítems; dos cargas concurrentes de la misma llave no crean duplicados; cada fila tiene resultado reproducible; PBS/NO PBS se prueba sin llamadas externas.
 

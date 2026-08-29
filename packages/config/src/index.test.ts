@@ -12,6 +12,10 @@ const base = {
 };
 
 describe('parseApiConfig', () => {
+  it('uses the approved twenty megabyte import limit by default', () => {
+    expect(parseApiConfig(base).IMPORT_MAX_FILE_BYTES).toBe(20 * 1024 * 1024);
+  });
+
   it('rejects insecure public production URLs', () => {
     expect(() => parseApiConfig({ ...base, API_PUBLIC_URL: 'http://api.example.test' })).toThrow(
       'API_PUBLIC_URL must use HTTPS in production',

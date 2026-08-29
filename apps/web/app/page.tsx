@@ -7,11 +7,11 @@ export default function Home() {
         <p className="eyebrow">MTD / Plataforma segura</p>
         <h1>Autorizaciones con trazabilidad desde el primer evento.</h1>
         <p className="lede">
-          Fundación técnica activa: identidad corporativa, alcance organizacional y procesamiento confiable.
+          Fase 2 activa: ingesta con staging, clasificación reproducible y trazabilidad por fila.
         </p>
       </section>
       <IdentityPanel />
-      <footer>Fase 1 · Sin información clínica en esta pantalla</footer>
+      <footer>Fase 2 · La autorización backend decide cada alcance</footer>
     </main>
   );
 }

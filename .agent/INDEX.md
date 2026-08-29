@@ -22,3 +22,5 @@ El orquestador asigna tareas por SPEC, no por “haz el backend completo”. Las
 
 - ADR-020: punto de aplicación como etapa logística explícita entre disponibilidad y aplicación.
 - SPEC-011: asignación/versionado del punto de aplicación y segunda notificación a OLP.
+- SPEC-012: alcance multi-organización de autorizaciones sin duplicar el registro principal.
+- DEC-012: autorización global compartida y relación explícita por organización.

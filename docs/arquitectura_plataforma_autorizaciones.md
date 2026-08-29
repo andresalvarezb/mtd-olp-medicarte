@@ -196,6 +196,7 @@ Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar 
 | Entidad | Propósito |
 |---|---|
 | `authorization_items` | Unidad central: autorización + medicamento + discriminadores necesarios. |
+| `authorization_item_organizations` | Relación explícita entre un ítem global y las organizaciones que pueden leerlo según sus permisos. No duplica el ítem. |
 | `coverage_evaluations` | Resultado PBS/NO PBS/SIN_CLASIFICAR y versión del catálogo. |
 | `mipres_checks` | Cada intento, consulta, respuesta normalizada, error y fecha siguiente. |
 | `mipres_directionamientos` | Datos vigentes del direccionamiento asociado. |
@@ -226,6 +227,7 @@ Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar 
 6. La aprobación para admisión se deriva de reglas; no debe escribirse libremente desde la interfaz.
 7. El punto de aplicación debe persistirse como entidad/versionado de negocio; no puede existir únicamente dentro del correo enviado a OLP.
 8. Solo una versión del punto de aplicación puede estar vigente por ítem; una modificación conserva la anterior y genera nueva notificación logística.
+9. Una autorización es un registro global único. MTD puede leer globalmente con permiso; Compensar, OLP y Medicarte requieren relación explícita y permiso vigente.
 
 ---
 
@@ -312,24 +314,27 @@ Estados excepcionales:
 
 Para cargas pequeñas puede configurarse confirmación automática. Para producción se recomienda mostrar primero el resumen y exigir confirmación cuando una carga actualice registros existentes.
 
-### Causales mínimas de rechazo/omisión
+### Catálogo estable de resultados por fila
 
-- Campo obligatorio ausente.
-- Formato inválido.
-- Estado de origen desconocido.
-- Duplicado dentro del archivo.
-- Registro ya existente sin cambios.
-- Conflicto con un registro existente.
-- Código de medicamento sin homologar.
-- Paciente inconsistente.
-- Regla de negocio no satisfecha.
-- Error interno de procesamiento.
+Fase 2 usa exclusivamente estos códigos, con texto estable y legible:
 
-Una causal debe tener código estable y texto legible. El reporte no debe depender de mensajes de excepción técnicos.
+| Código | Uso |
+|---|---|
+| `ROW_VALID` | Fila validada y elegible para confirmar un ítem nuevo. |
+| `MISSING_REQUIRED_FIELD` | Falta una de las cuatro columnas de negocio o su valor. |
+| `INVALID_FIELD_FORMAT` | El archivo o valor no cumple el formato técnico definido para Fase 2. |
+| `DUPLICATE_IN_FILE` | La llave aparece repetida dentro del archivo. |
+| `EXISTING_ITEM_REVIEW_REQUIRED` | La llave ya existe y requiere verificación humana. |
+| `EXPLICIT_UPDATE_NOT_ALLOWED` | Una actualización explícita fue intentada fuera de `READY_TO_DISPENSE`. |
+| `ITEM_CREATED` | La fila válida creó un ítem durante la confirmación. |
+| `ITEM_UPDATED` | Una actualización explícita autorizada terminó correctamente. |
+| `PROCESSING_ERROR` | Error técnico estable de procesamiento, sin exponer la excepción interna. |
+
+El estado de origen distinto de `5` no es causal de rechazo: deriva `BLOCKED_SOURCE_STATUS` y queda auditado.
 
 ### Evidencia de la fuente recibida
 
-El archivo `AUTORIZACIONES SEPTIEMBRE PASO A MTD.xlsx` contiene una hoja (`Hoja1`), 26 columnas y, en la copia analizada, un registro de datos. Sus campos relevantes son:
+ El archivo `AUTORIZACIONES SEPTIEMBRE PASO A MTD.xlsx` contiene una hoja (`Hoja1`), 25 columnas según el diccionario recibido, y en la copia analizada un registro de datos. Sus campos relevantes son:
 
 | Concepto lógico | Columna observada | Regla o uso |
 |---|---|---|
@@ -337,9 +342,9 @@ El archivo `AUTORIZACIONES SEPTIEMBRE PASO A MTD.xlsx` contiene una hoja (`Hoja1
 | Código de medicamento | `COD_COMERCIAL` | Segundo componente de la llave única. `CUMS` y `COD_CUPS_AUTORIZADO` se conservan como datos de origen independientes. |
 | Clasificación de cobertura | `CUPS_PRINCIPAL` | `MEDICAMENTOS NO POS` exacto normalizado = `NO_PBS`; cualquier otro valor = `PBS`. |
 | Estado de origen | `ESTADO_AUTORIZACION` | Valor `5` habilita el registro; cualquier valor distinto de `5` lo bloquea. |
-| Número de prescripción | `No.PRESCRIPCION` | Se conserva como dato de origen; para NO PBS la validación operativa se hará contra MIPRES. |
+| Columnas restantes | Las 21 columnas adicionales suministradas | Se conservan como datos de origen; Fase 2 no les asigna reglas semánticas no documentadas. |
 
-En el registro recibido, `CUPS_PRINCIPAL = MEDICAMENTOS POS` y `ESTADO_AUTORIZACION = 5`; por la regla confirmada, ese registro se clasifica como `PBS` y queda habilitado por estado de origen. El archivo de muestra no permite demostrar todavía que la llave sea única a escala real porque solo contiene una fila; esa verificación debe ejecutarse durante cada carga y quedar en el reporte.
+ En el registro recibido, `CUPS_PRINCIPAL = MEDICAMENTOS POS` y `ESTADO_AUTORIZACION = 5`; por la regla confirmada, ese registro se clasifica como `PBS` y queda habilitado por estado de origen. El archivo de muestra no permite demostrar todavía que la llave sea única a escala real porque solo contiene una fila; esa verificación debe ejecutarse durante cada carga y quedar en el reporte.
 
 La comparación de `CUPS_PRINCIPAL` debe aplicar únicamente normalización técnica —recorte de espacios, mayúsculas y espacios repetidos— y después igualdad exacta. No se debe usar una búsqueda parcial que convierta valores como `MEDICAMENTOS NO POS - ALTO COSTO` en coincidencias sin una decisión de negocio explícita.
 
@@ -1035,6 +1040,16 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 **Decisión:** `READY_TO_DISPENSE` notifica a OLP y Medicarte; luego Medicarte persiste/versiona el punto de aplicación y esta acción notifica a OLP. Se introduce `application_site_status = PENDING_ASSIGNMENT | ASSIGNED`.  
 **Consecuencias:** La dirección es parte del dominio, tiene historial/auditoría, permisos propios e idempotencia por versión. La aplicación/dispensación no debe registrarse mientras el punto siga pendiente.
 
+### DEC-012 — Alcance multi-organización de autorizaciones
+
+**Estado:** Resuelto.
+
+Una autorización es un registro global único y no se replica por organización. El backend decide el acceso usando identidad local, organización seleccionada, membresía, permisos y la relación explícita `authorization_item_organizations`.
+
+MTD tiene lectura global cuando cuenta con `authorizations.read`. Compensar, OLP y Medicarte leen únicamente autorizaciones relacionadas con su organización y con permiso vigente. Las acciones específicas de OLP y Medicarte quedan fuera de Fase 2.
+
+La relación se crea al confirmar un ítem dentro del alcance inicial de organizaciones activas. Organizaciones futuras requieren relación explícita. La UI puede ocultar acciones, pero nunca sustituye la autorización del backend.
+
 
 ---
 
@@ -1053,6 +1068,7 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 | DEC-007 | Drive y exportaciones | Soportes sin borrado automático por antigüedad; exportaciones CSV/XLSX bajo demanda y sin copia persistente. |
 | DEC-008 | Capacidad | Máximo 20 MB por archivo; hasta 2.500 archivos por mes como volumen esperado. |
 | DEC-009 | Despliegue | Render esperado, Google Cloud alternativo, región requerida Colombia. |
+| DEC-012 | Alcance multi-organización | Ítem global único; lectura MTD global y lectura de otras organizaciones mediante relación explícita y permisos. |
 
 ### Repositorio
 

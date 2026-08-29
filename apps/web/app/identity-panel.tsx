@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Keycloak from 'keycloak-js';
 import { meResponseSchema, type MeResponse } from '@authorization/contracts';
 import { Button } from '@authorization/ui';
+import { PhaseTwoWorkspace } from './phase-two-workspace';
 
 const oidcUrl = process.env.NEXT_PUBLIC_OIDC_URL;
 const realm = process.env.NEXT_PUBLIC_OIDC_REALM;
@@ -41,30 +42,33 @@ export function IdentityPanel() {
   }, []);
 
   return (
-    <section className="identity" aria-live="polite">
-      <span className="status-dot" />
-      <p className="status">{status}</p>
-      {profile ? (
-        <>
-          <h2>{profile.displayName}</h2>
-          <p>{profile.email}</p>
-          <div className="scope-list">
-            {profile.organizations.map((organization) => (
-              <article key={organization.id}>
-                <strong>{organization.name}</strong>
-                <span>{organization.roles.join(' · ')}</span>
-              </article>
-            ))}
-          </div>
-          <Button className="secondary" onClick={() => void keycloak?.logout({ redirectUri: window.location.origin })}>
-            Cerrar sesión
+    <>
+      <section className="identity" aria-live="polite">
+        <span className="status-dot" />
+        <p className="status">{status}</p>
+        {profile ? (
+          <>
+            <h2>{profile.displayName}</h2>
+            <p>{profile.email}</p>
+            <div className="scope-list">
+              {profile.organizations.map((organization) => (
+                <article key={organization.id}>
+                  <strong>{organization.name}</strong>
+                  <span>{organization.roles.join(' · ')}</span>
+                </article>
+              ))}
+            </div>
+            <Button className="secondary" onClick={() => void keycloak?.logout({ redirectUri: window.location.origin })}>
+              Cerrar sesión
+            </Button>
+          </>
+        ) : (
+          <Button className="primary" disabled={!keycloak} onClick={() => void keycloak?.login()}>
+            Ingresar con identidad corporativa
           </Button>
-        </>
-      ) : (
-        <Button className="primary" disabled={!keycloak} onClick={() => void keycloak?.login()}>
-          Ingresar con identidad corporativa
-        </Button>
-      )}
-    </section>
+        )}
+      </section>
+      {profile && keycloak && apiUrl ? <PhaseTwoWorkspace apiUrl={apiUrl} keycloak={keycloak} profile={profile} /> : null}
+    </>
   );
 }

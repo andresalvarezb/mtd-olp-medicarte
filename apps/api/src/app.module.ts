@@ -16,6 +16,10 @@ import { AdminJobsController } from './foundation/admin-jobs.controller';
 import { AccessService } from './identity/access.service';
 import { MeController } from './identity/me.controller';
 import { OperationsController } from './operations/operations.controller';
+import { ImportsController } from './imports/imports.controller';
+import { ImportsService } from './imports/imports.service';
+import { AuthorizationItemsController } from './authorization-items/authorization-items.controller';
+import { AuthorizationItemsService } from './authorization-items/authorization-items.service';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
 
 const config = parseApiConfig(process.env);
@@ -37,11 +41,13 @@ new Gauge({ name: 'authorization_queue_jobs', help: 'BullMQ jobs by queue and st
     }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
   ],
-  controllers: [MeController, OperationsController, AdminJobsController, ...(config.NODE_ENV === 'production' ? [] : [FoundationController])],
+  controllers: [MeController, OperationsController, AdminJobsController, ImportsController, AuthorizationItemsController, ...(config.NODE_ENV === 'production' ? [] : [FoundationController])],
   providers: [
     AuthGuard,
     AccessService,
     FoundationService,
+    ImportsService,
+    AuthorizationItemsService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

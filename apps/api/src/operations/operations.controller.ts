@@ -4,6 +4,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import type { createDatabase } from '@authorization/database';
 import type Redis from 'ioredis';
 import { Gauge, Registry } from 'prom-client';
+import { IMPORT_QUEUE } from '@authorization/contracts';
 import { DATABASE, REDIS } from '../tokens';
 import { AuthGuard } from '../common/auth.guard';
 import { AccessService } from '../identity/access.service';
@@ -48,16 +49,24 @@ export class OperationsController {
     await this.access.requirePermission(request.auth.sub, organizationId, 'platform.jobs.manage');
     const metric = this.registry.getSingleMetric('authorization_queue_jobs');
     if (metric instanceof Gauge) {
-      const [waiting, active, failed, deadLetter] = await Promise.all([
+      const [waiting, active, failed, deadLetter, importWaiting, importActive, importFailed, importDeadLetter] = await Promise.all([
         this.redis.llen('bull:foundation:wait'),
         this.redis.llen('bull:foundation:active'),
         this.redis.zcard('bull:foundation:failed'),
         this.redis.llen('bull:foundation.dead-letter:wait'),
+        this.redis.llen(`bull:${IMPORT_QUEUE}:wait`),
+        this.redis.llen(`bull:${IMPORT_QUEUE}:active`),
+        this.redis.zcard(`bull:${IMPORT_QUEUE}:failed`),
+        this.redis.llen(`bull:${IMPORT_QUEUE}.dead-letter:wait`),
       ]);
       metric.set({ queue: 'foundation', state: 'waiting' }, waiting);
       metric.set({ queue: 'foundation', state: 'active' }, active);
       metric.set({ queue: 'foundation', state: 'failed' }, failed);
       metric.set({ queue: 'foundation.dead-letter', state: 'waiting' }, deadLetter);
+      metric.set({ queue: IMPORT_QUEUE, state: 'waiting' }, importWaiting);
+      metric.set({ queue: IMPORT_QUEUE, state: 'active' }, importActive);
+      metric.set({ queue: IMPORT_QUEUE, state: 'failed' }, importFailed);
+      metric.set({ queue: `${IMPORT_QUEUE}.dead-letter`, state: 'waiting' }, importDeadLetter);
     }
     return this.registry.metrics();
   }

@@ -13,16 +13,23 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const context = host.switchToHttp();
     const request = context.getRequest<AuthenticatedRequest>();
     const response = context.getResponse<Response>();
-    const status = exception instanceof ZodError
+    const multerFileTooLarge = typeof exception === 'object' && exception !== null && 'code' in exception && exception.code === 'LIMIT_FILE_SIZE';
+    const status = multerFileTooLarge
+      ? HttpStatus.PAYLOAD_TOO_LARGE
+      : exception instanceof ZodError
       ? HttpStatus.BAD_REQUEST
       : exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const raw = exception instanceof HttpException ? exception.getResponse() : undefined;
-    const message = exception instanceof ZodError
+    const message = multerFileTooLarge
+      ? 'Import file exceeds the 20 MB limit'
+      : exception instanceof ZodError
       ? 'Request validation failed'
       : typeof raw === 'object' && raw && 'message' in raw
       ? (Array.isArray(raw.message) ? raw.message.join(', ') : String(raw.message))
       : status === 500 ? 'Internal server error' : typeof raw === 'string' ? raw : 'Request failed';
-    const code = exception instanceof ZodError
+    const code = multerFileTooLarge
+      ? 'IMPORT_FILE_TOO_LARGE'
+      : exception instanceof ZodError
       ? 'VALIDATION_ERROR'
       : typeof raw === 'object' && raw && 'code' in raw ? String(raw.code) : `HTTP_${status}`;
     const fields = exception instanceof ZodError

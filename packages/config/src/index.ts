@@ -12,13 +12,21 @@ const commonSchema = z.object({
   SENTRY_DSN: z.string().url().optional().or(z.literal('')),
 });
 
+const importConfigSchema = {
+  IMPORT_MAX_FILE_BYTES: z.coerce.number().int().positive().max(20 * 1024 * 1024).default(20 * 1024 * 1024),
+  IMPORT_PROCESSOR_VERSION: z.coerce.number().int().positive().default(1),
+};
+
 export const apiConfigSchema = commonSchema.extend({
+  ...importConfigSchema,
   API_PORT: z.coerce.number().int().positive().default(3001),
   API_PUBLIC_URL: z.string().url(),
   WEB_ORIGIN: z.string().url(),
 });
 
 export const workerConfigSchema = commonSchema.extend({
+  ...importConfigSchema,
+  IMPORT_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
   SCHEDULER_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true').default('true'),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(100).default(1000),
 });
