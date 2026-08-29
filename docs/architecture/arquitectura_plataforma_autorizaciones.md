@@ -30,8 +30,7 @@ La base de datos será la fuente de verdad del proceso. Google Drive será el re
 
 ## 2. Por qué una aplicación web
 
- Acceso centralizado para MTD, Compensar, OLP y Medicarte; despliegue único; adecuada para tablas, filtros, archivos y auditoría. La función de Facturación queda dentro del alcance operativo de MTD.
-
+Acceso centralizado para MTD, Compensar, OLP y Medicarte; despliegue único; adecuada para tablas, filtros, archivos y auditoría. La función de Facturación queda dentro del alcance operativo de MTD.
 
 ---
 
@@ -69,18 +68,18 @@ flowchart TB
 
 ### Contenedores lógicos
 
-| Componente | Responsabilidad |
-|---|---|
-| Web | Navegación, formularios, tablas, carga de archivos, auditoría y administración. No contiene reglas finales de negocio. |
-| API | Autenticación, autorización, reglas de dominio, persistencia, consultas y contratos REST. |
-| Worker | Procesamiento de archivos, clasificación, MIPRES, Drive, correo, exportaciones y reintentos. |
-| Scheduler | Genera trabajos periódicos: revalidación MIPRES, correos consolidados y tareas de mantenimiento. |
-| PostgreSQL | Fuente de verdad transaccional. |
-| Redis/BullMQ | Cola temporal y coordinación de trabajos. No almacena el estado definitivo del negocio. |
-| Proveedor de identidad | Inicio de sesión, recuperación de cuenta y MFA. |
-| Google Workspace | Archivos en unidad compartida y envío desde cuenta corporativa. |
-| MIPRES | Fuente externa de direccionamientos y catálogos aplicables. |
-| Scraper de admisiones | Proceso independiente que consume registros `READY_FOR_ADMISSION`. |
+| Componente             | Responsabilidad                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Web                    | Navegación, formularios, tablas, carga de archivos, auditoría y administración. No contiene reglas finales de negocio. |
+| API                    | Autenticación, autorización, reglas de dominio, persistencia, consultas y contratos REST.                              |
+| Worker                 | Procesamiento de archivos, clasificación, MIPRES, Drive, correo, exportaciones y reintentos.                           |
+| Scheduler              | Genera trabajos periódicos: revalidación MIPRES, correos consolidados y tareas de mantenimiento.                       |
+| PostgreSQL             | Fuente de verdad transaccional.                                                                                        |
+| Redis/BullMQ           | Cola temporal y coordinación de trabajos. No almacena el estado definitivo del negocio.                                |
+| Proveedor de identidad | Inicio de sesión, recuperación de cuenta y MFA.                                                                        |
+| Google Workspace       | Archivos en unidad compartida y envío desde cuenta corporativa.                                                        |
+| MIPRES                 | Fuente externa de direccionamientos y catálogos aplicables.                                                            |
+| Scraper de admisiones  | Proceso independiente que consume registros `READY_FOR_ADMISSION`.                                                     |
 
 ---
 
@@ -88,26 +87,26 @@ flowchart TB
 
 ### Stack principal
 
-| Capa | Tecnología | Criterio |
-|---|---|---|
-| Lenguaje | TypeScript con modo estricto | Unifica frontend, backend y contratos; reduce errores de tipos. |
-| Frontend | Next.js con App Router | Aplicación web moderna, rutas, layouts y despliegue en contenedor. |
-| UI | Tailwind CSS + shadcn/ui | Componentes accesibles y personalizables sin quedar atado a un sistema visual cerrado. |
-| Datos en frontend | TanStack Query y TanStack Table | Caché del servidor, paginación, filtros y tablas operativas grandes. |
-| Formularios | React Hook Form + Zod | Validación declarativa y reutilizable. |
-| Backend | NestJS REST + OpenAPI | Modularidad, inyección de dependencias, guards, validación y soporte de workers/colas. |
-| ORM | drizzle | Esquema tipado, migraciones y acceso consistente a PostgreSQL. SQL explícito cuando una consulta lo amerite. |
-| Base de datos | PostgreSQL administrado | Integridad, transacciones, restricciones, JSONB para respuestas externas y capacidades de auditoría. |
-| Trabajos | Redis + BullMQ | Reintentos, demoras, concurrencia, trabajos programados e inspección de fallos. |
-| Identidad | Keycloak mediante OIDC | No construir autenticación propia; soporta MFA, usuarios externos e integración futura con proveedores corporativos. |
-| Archivos | Google Drive API sobre una unidad compartida | Los documentos quedan bajo propiedad organizacional, no en el Drive personal de un usuario. |
-| Correo | Gmail API | Envío desde cuenta corporativa con trazabilidad del identificador externo. |
-| Excel/CSV | SheetJS o ExcelJS + parser CSV en streaming | Lectura controlada, plantillas y reportes. Los archivos grandes deben procesarse en el worker. |
-| Pruebas | Vitest/Jest, Supertest, Testcontainers y Playwright | Pruebas unitarias, integración real con PostgreSQL y flujos de interfaz. |
-| Calidad | ESLint, Prettier, commit hooks y CI | Reglas repetibles antes de integrar cambios. |
-| Observabilidad | OpenTelemetry + Sentry y logs JSON | Correlación de solicitudes, trabajos y errores externos. |
-| Empaquetado | Docker | Mismo artefacto en desarrollo, pruebas y producción. |
-| Repositorio | Monorepo pnpm + Turborepo | Comparte DTO, tipos, validaciones y configuración sin publicar paquetes internos. |
+| Capa              | Tecnología                                          | Criterio                                                                                                             |
+| ----------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Lenguaje          | TypeScript con modo estricto                        | Unifica frontend, backend y contratos; reduce errores de tipos.                                                      |
+| Frontend          | Next.js con App Router                              | Aplicación web moderna, rutas, layouts y despliegue en contenedor.                                                   |
+| UI                | Tailwind CSS + shadcn/ui                            | Componentes accesibles y personalizables sin quedar atado a un sistema visual cerrado.                               |
+| Datos en frontend | TanStack Query y TanStack Table                     | Caché del servidor, paginación, filtros y tablas operativas grandes.                                                 |
+| Formularios       | React Hook Form + Zod                               | Validación declarativa y reutilizable.                                                                               |
+| Backend           | NestJS REST + OpenAPI                               | Modularidad, inyección de dependencias, guards, validación y soporte de workers/colas.                               |
+| ORM               | drizzle                                             | Esquema tipado, migraciones y acceso consistente a PostgreSQL. SQL explícito cuando una consulta lo amerite.         |
+| Base de datos     | PostgreSQL administrado                             | Integridad, transacciones, restricciones, JSONB para respuestas externas y capacidades de auditoría.                 |
+| Trabajos          | Redis + BullMQ                                      | Reintentos, demoras, concurrencia, trabajos programados e inspección de fallos.                                      |
+| Identidad         | Keycloak mediante OIDC                              | No construir autenticación propia; soporta MFA, usuarios externos e integración futura con proveedores corporativos. |
+| Archivos          | Google Drive API sobre una unidad compartida        | Los documentos quedan bajo propiedad organizacional, no en el Drive personal de un usuario.                          |
+| Correo            | Gmail API                                           | Envío desde cuenta corporativa con trazabilidad del identificador externo.                                           |
+| Excel/CSV         | SheetJS o ExcelJS + parser CSV en streaming         | Lectura controlada, plantillas y reportes. Los archivos grandes deben procesarse en el worker.                       |
+| Pruebas           | Vitest/Jest, Supertest, Testcontainers y Playwright | Pruebas unitarias, integración real con PostgreSQL y flujos de interfaz.                                             |
+| Calidad           | ESLint, Prettier, commit hooks y CI                 | Reglas repetibles antes de integrar cambios.                                                                         |
+| Observabilidad    | OpenTelemetry + Sentry y logs JSON                  | Correlación de solicitudes, trabajos y errores externos.                                                             |
+| Empaquetado       | Docker                                              | Mismo artefacto en desarrollo, pruebas y producción.                                                                 |
+| Repositorio       | Monorepo pnpm + Turborepo                           | Comparte DTO, tipos, validaciones y configuración sin publicar paquetes internos.                                    |
 
 ### Versionamiento
 
@@ -148,24 +147,24 @@ authorization-platform/
 
 ### Módulos del backend
 
-| Módulo | Alcance |
-|---|---|
-| `identity` | Identidad OIDC, sesión y perfil local. |
-| `organizations` | Empresas y alcances de acceso. |
-| `access-control` | Roles, permisos y políticas por recurso. |
-| `authorization-imports` | Archivo, batch, staging, validación y confirmación. |
-| `authorization-items` | Entidad central y consulta operativa. |
-| `coverage` | PBS/NO PBS, homologaciones y versiones de catálogo. |
-| `mipres` | Credenciales, consultas, normalización, reintentos y evidencia de respuestas. |
-| `dispensing` | Disponibilidad, dispensación y fechas. |
-| `application-sites` | Punto/dirección de aplicación definido por Medicarte, versionado, permisos y coordinación logística con OLP. |
-| `documents` | Carga, versión, metadatos y Drive. |
-| `audit-reviews` | Revisión, hallazgos, rechazo, corrección y aprobación. |
-| `notifications` | Plantillas, destinatarios, agrupación, envío y deduplicación. |
-| `exports` | Consolidaciones y reportes descargables. |
-| `admission-handoff` | Cola/API para el scraper externo. |
-| `audit-log` | Eventos inmutables y consultas de historial. |
-| `admin` | Catálogos, usuarios, permisos y parámetros operativos. |
+| Módulo                  | Alcance                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `identity`              | Identidad OIDC, sesión y perfil local.                                                                       |
+| `organizations`         | Empresas y alcances de acceso.                                                                               |
+| `access-control`        | Roles, permisos y políticas por recurso.                                                                     |
+| `authorization-imports` | Archivo, batch, staging, validación y confirmación.                                                          |
+| `authorization-items`   | Entidad central y consulta operativa.                                                                        |
+| `coverage`              | PBS/NO PBS, homologaciones y versiones de catálogo.                                                          |
+| `mipres`                | Credenciales, consultas, normalización, reintentos y evidencia de respuestas.                                |
+| `dispensing`            | Disponibilidad, dispensación y fechas.                                                                       |
+| `application-sites`     | Punto/dirección de aplicación definido por Medicarte, versionado, permisos y coordinación logística con OLP. |
+| `documents`             | Carga, versión, metadatos y Drive.                                                                           |
+| `audit-reviews`         | Revisión, hallazgos, rechazo, corrección y aprobación.                                                       |
+| `notifications`         | Plantillas, destinatarios, agrupación, envío y deduplicación.                                                |
+| `exports`               | Consolidaciones y reportes descargables.                                                                     |
+| `admission-handoff`     | Cola/API para el scraper externo.                                                                            |
+| `audit-log`             | Eventos inmutables y consultas de historial.                                                                 |
+| `admin`                 | Catálogos, usuarios, permisos y parámetros operativos.                                                       |
 
 Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar servicios de aplicación o contratos internos. Esto mantiene la posibilidad de extraer un módulo en el futuro sin pagar desde ahora el costo de microservicios.
 
@@ -175,47 +174,47 @@ Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar 
 
 ### Núcleo de identidad y acceso
 
-| Entidad | Propósito |
-|---|---|
-| `organizations` | MTD, OLP, Compensar, Medicarte u otra organización. |
-| `users` | Perfil local relacionado con el `subject` del proveedor de identidad. |
-| `roles` | Agrupaciones de permisos. |
-| `permissions` | Acciones atómicas como `authorization.import` o `audit.approve`. |
+| Entidad                   | Propósito                                                                         |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| `organizations`           | MTD, OLP, Compensar, Medicarte u otra organización.                               |
+| `users`                   | Perfil local relacionado con el `subject` del proveedor de identidad.             |
+| `roles`                   | Agrupaciones de permisos.                                                         |
+| `permissions`             | Acciones atómicas como `authorization.import` o `audit.approve`.                  |
 | `user_organization_roles` | Relación usuario, empresa y rol. Permite que una persona tenga más de un alcance. |
 
 ### Ingesta
 
-| Entidad | Propósito |
-|---|---|
-| `import_batches` | Archivo, hash SHA-256, creador, estado, totales y fechas. |
-| `import_rows` | Fila original normalizada, resultado y causal. Conserva evidencia de rechazados. |
-| `validation_errors` | Uno o varios errores tipificados por fila y campo. |
+| Entidad             | Propósito                                                                        |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `import_batches`    | Archivo, hash SHA-256, creador, estado, totales y fechas.                        |
+| `import_rows`       | Fila original normalizada, resultado y causal. Conserva evidencia de rechazados. |
+| `validation_errors` | Uno o varios errores tipificados por fila y campo.                               |
 
 ### Proceso
 
-| Entidad | Propósito |
-|---|---|
-| `authorization_items` | Unidad central: autorización + medicamento + discriminadores necesarios. |
+| Entidad                            | Propósito                                                                                                              |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `authorization_items`              | Unidad central: autorización + medicamento + discriminadores necesarios.                                               |
 | `authorization_item_organizations` | Relación explícita entre un ítem global y las organizaciones que pueden leerlo según sus permisos. No duplica el ítem. |
-| `coverage_evaluations` | Resultado PBS/NO PBS/SIN_CLASIFICAR y versión del catálogo. |
-| `mipres_checks` | Cada intento, consulta, respuesta normalizada, error y fecha siguiente. |
-| `mipres_directionamientos` | Datos vigentes del direccionamiento asociado. |
-| `application_site_assignments` | Historial versionado del punto/dirección de aplicación definido por Medicarte, con actor, organización y vigencia. |
-| `dispensations` | Declaración de dispensación/aplicación, cantidades, fecha y actor. |
-| `attachments` | Metadatos del archivo, tipo, versión, `drive_file_id`, hash y responsable. |
-| `audit_reviews` | Auditoría iniciada/finalizada, decisión y auditor. |
-| `audit_findings` | Hallazgos tipificados y estado de subsanación. |
-| `admission_jobs` | Entrega controlada al scraper y su resultado independiente. |
+| `coverage_evaluations`             | Resultado PBS/NO PBS/SIN_CLASIFICAR y versión del catálogo.                                                            |
+| `mipres_checks`                    | Cada intento, consulta, respuesta normalizada, error y fecha siguiente.                                                |
+| `mipres_directionamientos`         | Datos vigentes del direccionamiento asociado.                                                                          |
+| `application_site_assignments`     | Historial versionado del punto/dirección de aplicación definido por Medicarte, con actor, organización y vigencia.     |
+| `dispensations`                    | Declaración de dispensación/aplicación, cantidades, fecha y actor.                                                     |
+| `attachments`                      | Metadatos del archivo, tipo, versión, `drive_file_id`, hash y responsable.                                             |
+| `audit_reviews`                    | Auditoría iniciada/finalizada, decisión y auditor.                                                                     |
+| `audit_findings`                   | Hallazgos tipificados y estado de subsanación.                                                                         |
+| `admission_jobs`                   | Entrega controlada al scraper y su resultado independiente.                                                            |
 
 ### Comunicación y trazabilidad
 
-| Entidad | Propósito |
-|---|---|
-| `notification_batches` | Consolidado enviado a una empresa o grupo. |
-| `notifications` | Mensaje individual/lógico, plantilla, destinatarios y estado. |
-| `outbox_events` | Eventos comprometidos en la misma transacción que el cambio de negocio. |
-| `audit_events` | Historial inmutable de quién, qué, cuándo, desde dónde y sobre qué registro. |
-| `export_audit_events` | Auditoría de exportaciones solicitadas: actor, filtros, formato, fecha y resultado. El archivo generado no se persiste. |
+| Entidad                | Propósito                                                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `notification_batches` | Consolidado enviado a una empresa o grupo.                                                                              |
+| `notifications`        | Mensaje individual/lógico, plantilla, destinatarios y estado.                                                           |
+| `outbox_events`        | Eventos comprometidos en la misma transacción que el cambio de negocio.                                                 |
+| `audit_events`         | Historial inmutable de quién, qué, cuándo, desde dónde y sobre qué registro.                                            |
+| `export_audit_events`  | Auditoría de exportaciones solicitadas: actor, filtros, formato, fecha y resultado. El archivo generado no se persiste. |
 
 ### Restricciones críticas
 
@@ -235,23 +234,22 @@ Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar 
 
 No habrá una columna mágica que intente representar todo. El ítem tendrá dimensiones separadas:
 
-| Dimensión | Valores iniciales |
-|---|---|
-| `enablement_status` | `ENABLED`, `BLOCKED_SOURCE_STATUS` |
-| `coverage_type` | `UNCLASSIFIED`, `PBS`, `NO_PBS` |
-| `direction_status` | `NOT_APPLICABLE`, `PENDING`, `CONFIRMED`, `QUERY_ERROR` |
-| `operation_status` | `BLOCKED`, `READY_TO_DISPENSE`, `DISPENSATION_REPORTED`, `DISPENSED` |
-| `application_site_status` | `PENDING_ASSIGNMENT`, `ASSIGNED` |
-| `support_status` | `PENDING`, `INCOMPLETE`, `COMPLETE`, `CORRECTION_REQUIRED` |
-| `audit_status` | `NOT_STARTED`, `READY`, `IN_REVIEW`, `REJECTED`, `APPROVED` |
-| `admission_status` | `NOT_READY`, `READY`, `HANDED_OFF`, `COMPLETED`, `ERROR` |
+| Dimensión                 | Valores iniciales                                                    |
+| ------------------------- | -------------------------------------------------------------------- |
+| `enablement_status`       | `ENABLED`, `BLOCKED_SOURCE_STATUS`                                   |
+| `coverage_type`           | `UNCLASSIFIED`, `PBS`, `NO_PBS`                                      |
+| `direction_status`        | `NOT_APPLICABLE`, `PENDING`, `CONFIRMED`, `QUERY_ERROR`              |
+| `operation_status`        | `BLOCKED`, `READY_TO_DISPENSE`, `DISPENSATION_REPORTED`, `DISPENSED` |
+| `application_site_status` | `PENDING_ASSIGNMENT`, `ASSIGNED`                                     |
+| `support_status`          | `PENDING`, `INCOMPLETE`, `COMPLETE`, `CORRECTION_REQUIRED`           |
+| `audit_status`            | `NOT_STARTED`, `READY`, `IN_REVIEW`, `REJECTED`, `APPROVED`          |
+| `admission_status`        | `NOT_READY`, `READY`, `HANDED_OFF`, `COMPLETED`, `ERROR`             |
 
 Para la interfaz se calculará un `process_summary`, por ejemplo:
 
 `BLOQUEADO`, `SIN_CLASIFICAR`, `PENDIENTE_DIRECCIONAMIENTO`, `PENDIENTE_PUNTO_APLICACION`, `LISTO_COORDINACION_OLP`, `PENDIENTE_DISPENSACION`, `PENDIENTE_SOPORTES`, `PENDIENTE_AUDITORIA`, `RECHAZADO`, `APROBADO`.
 
 Este resumen es una proyección de lectura; nunca sustituye las dimensiones reales.
-
 
 ### Flujo logístico después de `READY_TO_DISPENSE`
 
@@ -318,33 +316,33 @@ Para cargas pequeñas puede configurarse confirmación automática. Para producc
 
 Fase 2 usa exclusivamente estos códigos, con texto estable y legible:
 
-| Código | Uso |
-|---|---|
-| `ROW_VALID` | Fila validada y elegible para confirmar un ítem nuevo. |
-| `MISSING_REQUIRED_FIELD` | Falta una de las cuatro columnas de negocio o su valor. |
-| `INVALID_FIELD_FORMAT` | El archivo o valor no cumple el formato técnico definido para Fase 2. |
-| `DUPLICATE_IN_FILE` | La llave aparece repetida dentro del archivo. |
-| `EXISTING_ITEM_REVIEW_REQUIRED` | La llave ya existe y requiere verificación humana. |
-| `EXPLICIT_UPDATE_NOT_ALLOWED` | Una actualización explícita fue intentada fuera de `READY_TO_DISPENSE`. |
-| `ITEM_CREATED` | La fila válida creó un ítem durante la confirmación. |
-| `ITEM_UPDATED` | Una actualización explícita autorizada terminó correctamente. |
-| `PROCESSING_ERROR` | Error técnico estable de procesamiento, sin exponer la excepción interna. |
+| Código                          | Uso                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------- |
+| `ROW_VALID`                     | Fila validada y elegible para confirmar un ítem nuevo.                    |
+| `MISSING_REQUIRED_FIELD`        | Falta una de las cuatro columnas de negocio o su valor.                   |
+| `INVALID_FIELD_FORMAT`          | El archivo o valor no cumple el formato técnico definido para Fase 2.     |
+| `DUPLICATE_IN_FILE`             | La llave aparece repetida dentro del archivo.                             |
+| `EXISTING_ITEM_REVIEW_REQUIRED` | La llave ya existe y requiere verificación humana.                        |
+| `EXPLICIT_UPDATE_NOT_ALLOWED`   | Una actualización explícita fue intentada fuera de `READY_TO_DISPENSE`.   |
+| `ITEM_CREATED`                  | La fila válida creó un ítem durante la confirmación.                      |
+| `ITEM_UPDATED`                  | Una actualización explícita autorizada terminó correctamente.             |
+| `PROCESSING_ERROR`              | Error técnico estable de procesamiento, sin exponer la excepción interna. |
 
 El estado de origen distinto de `5` no es causal de rechazo: deriva `BLOCKED_SOURCE_STATUS` y queda auditado.
 
 ### Evidencia de la fuente recibida
 
- El archivo `AUTORIZACIONES SEPTIEMBRE PASO A MTD.xlsx` contiene una hoja (`Hoja1`), 25 columnas según el diccionario recibido, y en la copia analizada un registro de datos. Sus campos relevantes son:
+El archivo `AUTORIZACIONES SEPTIEMBRE PASO A MTD.xlsx` contiene una hoja (`Hoja1`), 25 columnas según el diccionario recibido, y en la copia analizada un registro de datos. Sus campos relevantes son:
 
-| Concepto lógico | Columna observada | Regla o uso |
-|---|---|---|
-| Autorización | `NUMERO_AUTORIZACION` | Primer componente de la llave única. |
-| Código de medicamento | `COD_COMERCIAL` | Segundo componente de la llave única. `CUMS` y `COD_CUPS_AUTORIZADO` se conservan como datos de origen independientes. |
-| Clasificación de cobertura | `CUPS_PRINCIPAL` | `MEDICAMENTOS NO POS` exacto normalizado = `NO_PBS`; cualquier otro valor = `PBS`. |
-| Estado de origen | `ESTADO_AUTORIZACION` | Valor `5` habilita el registro; cualquier valor distinto de `5` lo bloquea. |
-| Columnas restantes | Las 21 columnas adicionales suministradas | Se conservan como datos de origen; Fase 2 no les asigna reglas semánticas no documentadas. |
+| Concepto lógico            | Columna observada                         | Regla o uso                                                                                                            |
+| -------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Autorización               | `NUMERO_AUTORIZACION`                     | Primer componente de la llave única.                                                                                   |
+| Código de medicamento      | `COD_COMERCIAL`                           | Segundo componente de la llave única. `CUMS` y `COD_CUPS_AUTORIZADO` se conservan como datos de origen independientes. |
+| Clasificación de cobertura | `CUPS_PRINCIPAL`                          | `MEDICAMENTOS NO POS` exacto normalizado = `NO_PBS`; cualquier otro valor = `PBS`.                                     |
+| Estado de origen           | `ESTADO_AUTORIZACION`                     | Valor `5` habilita el registro; cualquier valor distinto de `5` lo bloquea.                                            |
+| Columnas restantes         | Las 21 columnas adicionales suministradas | Se conservan como datos de origen; Fase 2 no les asigna reglas semánticas no documentadas.                             |
 
- En el registro recibido, `CUPS_PRINCIPAL = MEDICAMENTOS POS` y `ESTADO_AUTORIZACION = 5`; por la regla confirmada, ese registro se clasifica como `PBS` y queda habilitado por estado de origen. El archivo de muestra no permite demostrar todavía que la llave sea única a escala real porque solo contiene una fila; esa verificación debe ejecutarse durante cada carga y quedar en el reporte.
+En el registro recibido, `CUPS_PRINCIPAL = MEDICAMENTOS POS` y `ESTADO_AUTORIZACION = 5`; por la regla confirmada, ese registro se clasifica como `PBS` y queda habilitado por estado de origen. El archivo de muestra no permite demostrar todavía que la llave sea única a escala real porque solo contiene una fila; esa verificación debe ejecutarse durante cada carga y quedar en el reporte.
 
 La comparación de `CUPS_PRINCIPAL` debe aplicar únicamente normalización técnica —recorte de espacios, mayúsculas y espacios repetidos— y después igualdad exacta. No se debe usar una búsqueda parcial que convierta valores como `MEDICAMENTOS NO POS - ALTO COSTO` en coincidencias sin una decisión de negocio explícita.
 
@@ -464,7 +462,6 @@ flowchart LR
 
 La delegación de dominio de Google Workspace requiere intervención de un superadministrador y debe limitarse a los scopes estrictamente necesarios.
 
-
 ### Notificaciones logísticas event-driven
 
 #### 1. Registro listo para dispensar
@@ -527,29 +524,29 @@ El token no será suficiente para decidir acceso a datos; el backend consultará
 
 ### Roles iniciales
 
-| Rol | Acciones principales |
-|---|---|
-| `MTD_ADMIN` | Usuarios, empresas, roles, catálogos, integraciones y parámetros. |
-| `MTD_OPERATOR` | Cargar y ver autorizaciones, gestionar direccionamientos, ver disponibles, cargar soportes, auditar y descargar consolidado. |
-| `COMPENSAR_VIEWER` | Ver autorizaciones. La descarga del consolidado solo se habilita si se asigna expresamente el permiso. |
-| `OLP_OPERATOR` | Ver autorizaciones y disponibles, consultar el punto de aplicación asignado y coordinar el envío. La descarga del consolidado solo se habilita si se asigna expresamente el permiso. |
+| Rol                  | Acciones principales                                                                                                                                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MTD_ADMIN`          | Usuarios, empresas, roles, catálogos, integraciones y parámetros.                                                                                                                                                            |
+| `MTD_OPERATOR`       | Cargar y ver autorizaciones, gestionar direccionamientos, ver disponibles, cargar soportes, auditar y descargar consolidado.                                                                                                 |
+| `COMPENSAR_VIEWER`   | Ver autorizaciones. La descarga del consolidado solo se habilita si se asigna expresamente el permiso.                                                                                                                       |
+| `OLP_OPERATOR`       | Ver autorizaciones y disponibles, consultar el punto de aplicación asignado y coordinar el envío. La descarga del consolidado solo se habilita si se asigna expresamente el permiso.                                         |
 | `MEDICARTE_OPERATOR` | Ver autorizaciones y disponibles, definir/modificar el punto de aplicación, registrar dispensación/aplicación y cargar/corregir soportes. La descarga del consolidado solo se habilita si se asigna expresamente el permiso. |
-| `READ_ONLY` | Consulta limitada según empresa y permisos explícitos. |
+| `READ_ONLY`          | Consulta limitada según empresa y permisos explícitos.                                                                                                                                                                       |
 
 La matriz funcional confirmada queda así. Una celda vacía significa que la empresa no tiene esa función por defecto; `según permiso` no debe interpretarse como acceso automático.
 
-| Función | MTD | Compensar | OLP | Medicarte |
-|---|:---:|:---:|:---:|:---:|
-| Cargar autorizaciones | ✓ |  |  |  |
-| Ver autorizaciones | ✓ | ✓ | ✓ | ✓ |
-| Gestionar direccionamientos | ✓ |  |  |  |
-| Ver disponibles | ✓ |  | ✓ | ✓ |
-| Definir punto de aplicación |  |  |  | ✓ |
-| Ver punto de aplicación | ✓ |  | ✓ | ✓ |
-| Cargar soportes | ✓ |  |  | ✓ |
-| Auditar | ✓ |  |  |  |
-| Descargar consolidado | ✓ | según permiso | según permiso | según permiso |
-| Administración | ✓ |  |  |  |
+| Función                     | MTD |   Compensar   |      OLP      |   Medicarte   |
+| --------------------------- | :-: | :-----------: | :-----------: | :-----------: |
+| Cargar autorizaciones       |  ✓  |               |               |               |
+| Ver autorizaciones          |  ✓  |       ✓       |       ✓       |       ✓       |
+| Gestionar direccionamientos |  ✓  |               |               |               |
+| Ver disponibles             |  ✓  |               |       ✓       |       ✓       |
+| Definir punto de aplicación |     |               |               |       ✓       |
+| Ver punto de aplicación     |  ✓  |               |       ✓       |       ✓       |
+| Cargar soportes             |  ✓  |               |               |       ✓       |
+| Auditar                     |  ✓  |               |               |               |
+| Descargar consolidado       |  ✓  | según permiso | según permiso | según permiso |
+| Administración              |  ✓  |               |               |               |
 
 ### Permisos atómicos de ejemplo
 
@@ -572,28 +569,28 @@ La interfaz ocultará acciones no permitidas, pero el backend volverá a verific
 
 Prefijo: `/api/v1`.
 
-| Método y ruta | Uso |
-|---|---|
-| `GET /me` | Perfil, organizaciones, roles y permisos efectivos. |
-| `POST /imports` | Crear batch y obtener mecanismo de carga. |
-| `GET /imports/:id` | Progreso y totales. |
-| `GET /imports/:id/rows` | Filas y causales paginadas. |
-| `POST /imports/:id/confirm` | Confirmar persistencia de filas válidas. |
-| `GET /authorization-items` | Bandeja con filtros, paginación y orden. |
-| `GET /authorization-items/:id` | Detalle e historial. |
-| `POST /authorization-items/:id/mipres-rechecks` | Solicitar revalidación autorizada. |
-| `GET /authorization-items/:id/application-site` | Consultar punto de aplicación vigente e historial autorizado. |
-| `PUT /authorization-items/:id/application-site` | Medicarte asigna/modifica el punto de aplicación. |
-| `POST /authorization-items/:id/dispensations` | Registrar dispensación. |
-| `POST /authorization-items/:id/attachments` | Cargar soporte. |
-| `GET /authorization-items/:id/attachments/:attachmentId` | Descargar soporte autorizado. |
-| `POST /authorization-items/:id/audit-reviews` | Iniciar revisión. |
-| `POST /audit-reviews/:id/findings` | Crear hallazgo. |
-| `POST /audit-reviews/:id/reject` | Rechazar con causal. |
-| `POST /audit-reviews/:id/approve` | Aprobar. |
-| `GET /exports/authorization-items.csv` | Generar/descargar consolidado CSV bajo demanda según filtros y permisos. |
-| `GET /exports/authorization-items.xlsx` | Generar/descargar consolidado XLSX bajo demanda según filtros y permisos. |
-| `GET /admin/dead-letter-jobs` | Ver trabajos que agotaron reintentos. |
+| Método y ruta                                            | Uso                                                                       |
+| -------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `GET /me`                                                | Perfil, organizaciones, roles y permisos efectivos.                       |
+| `POST /imports`                                          | Crear batch y obtener mecanismo de carga.                                 |
+| `GET /imports/:id`                                       | Progreso y totales.                                                       |
+| `GET /imports/:id/rows`                                  | Filas y causales paginadas.                                               |
+| `POST /imports/:id/confirm`                              | Confirmar persistencia de filas válidas.                                  |
+| `GET /authorization-items`                               | Bandeja con filtros, paginación y orden.                                  |
+| `GET /authorization-items/:id`                           | Detalle e historial.                                                      |
+| `POST /authorization-items/:id/mipres-rechecks`          | Solicitar revalidación autorizada.                                        |
+| `GET /authorization-items/:id/application-site`          | Consultar punto de aplicación vigente e historial autorizado.             |
+| `PUT /authorization-items/:id/application-site`          | Medicarte asigna/modifica el punto de aplicación.                         |
+| `POST /authorization-items/:id/dispensations`            | Registrar dispensación.                                                   |
+| `POST /authorization-items/:id/attachments`              | Cargar soporte.                                                           |
+| `GET /authorization-items/:id/attachments/:attachmentId` | Descargar soporte autorizado.                                             |
+| `POST /authorization-items/:id/audit-reviews`            | Iniciar revisión.                                                         |
+| `POST /audit-reviews/:id/findings`                       | Crear hallazgo.                                                           |
+| `POST /audit-reviews/:id/reject`                         | Rechazar con causal.                                                      |
+| `POST /audit-reviews/:id/approve`                        | Aprobar.                                                                  |
+| `GET /exports/authorization-items.csv`                   | Generar/descargar consolidado CSV bajo demanda según filtros y permisos.  |
+| `GET /exports/authorization-items.xlsx`                  | Generar/descargar consolidado XLSX bajo demanda según filtros y permisos. |
+| `GET /admin/dead-letter-jobs`                            | Ver trabajos que agotaron reintentos.                                     |
 
 ### Convenciones
 
@@ -643,16 +640,16 @@ El worker publica/procesa después el evento. Así no existe el caso “se guard
 
 ### Ejemplos de claves idempotentes
 
-| Operación | Clave sugerida |
-|---|---|
-| Procesar archivo | `import_batch_id + file_hash + processor_version` |
-| Consultar MIPRES | `authorization_item_id + query_type + time_window` |
-| Notificar EPS | `notification_type + recipient_group + period + item_set_hash` |
-| Notificar disponibilidad OLP | `authorization_item_id + readiness_version + OLP` |
-| Notificar disponibilidad Medicarte | `authorization_item_id + readiness_version + MEDICARTE` |
-| Notificar dirección a OLP | `authorization_item_id + application_site_version + OLP` |
-| Cargar soporte | `authorization_item_id + support_type + file_hash` |
-| Crear admisión | `authorization_item_id + admission_contract_version` |
+| Operación                          | Clave sugerida                                                 |
+| ---------------------------------- | -------------------------------------------------------------- |
+| Procesar archivo                   | `import_batch_id + file_hash + processor_version`              |
+| Consultar MIPRES                   | `authorization_item_id + query_type + time_window`             |
+| Notificar EPS                      | `notification_type + recipient_group + period + item_set_hash` |
+| Notificar disponibilidad OLP       | `authorization_item_id + readiness_version + OLP`              |
+| Notificar disponibilidad Medicarte | `authorization_item_id + readiness_version + MEDICARTE`        |
+| Notificar dirección a OLP          | `authorization_item_id + application_site_version + OLP`       |
+| Cargar soporte                     | `authorization_item_id + support_type + file_hash`             |
+| Crear admisión                     | `authorization_item_id + admission_contract_version`           |
 
 Los jobs deben poder ejecutarse más de una vez. La cola entrega trabajo; la base de datos decide si el efecto ya ocurrió.
 
@@ -716,13 +713,13 @@ Debe existir una bandeja administrativa de fallos recuperables. Obligar al equip
 
 ### Pirámide práctica
 
-| Nivel | Qué prueba |
-|---|---|
-| Unitarias | Reglas puras: estados, clasificación, permisos, causales e idempotencia. |
+| Nivel       | Qué prueba                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------ |
+| Unitarias   | Reglas puras: estados, clasificación, permisos, causales e idempotencia.                         |
 | Integración | Repositorios, restricciones, transacciones, outbox y colas con PostgreSQL/Redis reales efímeros. |
-| Contrato | Adaptadores de MIPRES, Drive, Gmail y API pública usando respuestas registradas y simuladores. |
-| E2E | Carga → validación → direccionamiento → soportes → auditoría → consolidado. |
-| Seguridad | Acceso cruzado entre empresas, elevación de privilegios, archivos inválidos y exportaciones. |
+| Contrato    | Adaptadores de MIPRES, Drive, Gmail y API pública usando respuestas registradas y simuladores.   |
+| E2E         | Carga → validación → direccionamiento → soportes → auditoría → consolidado.                      |
+| Seguridad   | Acceso cruzado entre empresas, elevación de privilegios, archivos inválidos y exportaciones.     |
 
 ### Casos que deben existir antes del MVP
 
@@ -761,7 +758,7 @@ Entregables obligatorios:
 - Confirmación de la llave `NUMERO_AUTORIZACION + COD_COMERCIAL`.
 - Catálogo estable de causales de carga.
 - Si ya existe `NUMERO_AUTORIZACION + COD_COMERCIAL`, reportar para verificación humana; permitir actualización explícita únicamente si `operation_status = READY_TO_DISPENSE`.
-- Contrato MIPRES de direccionamientos y credenciales de sandbox.
+- Contrato MIPRES de direccionamientos y credenciales de sandbox. Mientras DEC-013 esté `PENDING`, la integración HTTP real queda prohibida.
 - Direccionamiento válido: `current_date(America/Bogota) < fecha_maxima`; igualdad con `fecha_maxima` no es válida.
 - Reportes diarios a las 08:00 `America/Bogota`, con novedades del día anterior y destinatarios parametrizables.
 - Drive/carpeta destino parametrizable para cargas futuras; soportes sin borrado automático por antigüedad; máximo 20 MB; exportaciones CSV/XLSX bajo demanda y no persistentes.
@@ -1010,19 +1007,15 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 **Decisión:** REST `/api/v1` con OpenAPI. No introducir GraphQL en el MVP.  
 **Consecuencias:** Contratos simples y fáciles de integrar; algunos listados requerirán filtros y proyecciones específicas.
 
-
 ### ADR-017 — Proveedor de despliegue portable
 
 **Estado:** Aceptado.  
 **Decisión:** Render es el destino esperado; Google Cloud es alternativa. Mantener Docker y región requerida Colombia. Si un servicio no puede desplegarse de forma compatible con esa región, producción queda bloqueada hasta decisión explícita.
 
-
 ### ADR-018 — Exportaciones bajo demanda
 
 **Estado:** Aceptado.  
 **Decisión:** Generar CSV/XLSX a solicitud del usuario, con autorización y auditoría, sin almacenar persistentemente el archivo generado. Puede usarse streaming o almacenamiento temporal efímero con limpieza posterior.
-
-
 
 ### ADR-019 — Repositorio GitHub independiente en monorepo
 
@@ -1030,8 +1023,6 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 **Contexto:** La plataforma constituye un producto independiente y no debe acoplarse a `vita-back`/`vita-core`.  
 **Decisión:** Crear un repositorio nuevo en GitHub con estructura monorepo para `web`, `api`, `worker`, paquetes compartidos, infraestructura, pruebas y `.agent`.  
 **Consecuencias:** CI/CD unificado, contratos compartidos y límites internos obligatorios entre módulos.
-
-
 
 ### ADR-020 — Punto de aplicación como etapa logística explícita
 
@@ -1050,41 +1041,46 @@ MTD tiene lectura global cuando cuenta con `authorizations.read`. Compensar, OLP
 
 La relación se crea al confirmar un ítem dentro del alcance inicial de organizaciones activas. Organizaciones futuras requieren relación explícita. La UI puede ocultar acciones, pero nunca sustituye la autorización del backend.
 
-
 ---
 
 ## 22. Decisiones de negocio cerradas y pendientes
 
 ### Cerradas
 
-| ID | Decisión | Definición |
-|---|---|---|
-| DEC-001 | Vigencia MIPRES | Válido solo si `current_date(America/Bogota) < fecha_maxima`. |
+| ID      | Decisión                    | Definición                                                                                                                               |
+| ------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| DEC-001 | Vigencia MIPRES             | Válido solo si `current_date(America/Bogota) < fecha_maxima`.                                                                            |
 | DEC-002 | Actualización de existentes | Revisión humana; solo puede actualizarse si `operation_status = READY_TO_DISPENSE`. Bloqueada desde `DISPENSATION_REPORTED` en adelante. |
-| DEC-003 | `DISPENSED` | Solo después de `audit_status = APPROVED`. |
-| DEC-004 | Registro de dispensación | Medicarte registra al cargar soportes; queda `DISPENSATION_REPORTED` hasta aprobación. |
-| DEC-005 | Reportes | Todos los días a las 08:00 `America/Bogota`, con novedades del día anterior; destinatarios parametrizables. |
-| DEC-006 | Auditoría | Revisión humana/visual. La aprobación explícita del auditor produce `APPROVED`; no hay aprobación automática. |
-| DEC-007 | Drive y exportaciones | Soportes sin borrado automático por antigüedad; exportaciones CSV/XLSX bajo demanda y sin copia persistente. |
-| DEC-008 | Capacidad | Máximo 20 MB por archivo; hasta 2.500 archivos por mes como volumen esperado. |
-| DEC-009 | Despliegue | Render esperado, Google Cloud alternativo, región requerida Colombia. |
-| DEC-012 | Alcance multi-organización | Ítem global único; lectura MTD global y lectura de otras organizaciones mediante relación explícita y permisos. |
+| DEC-003 | `DISPENSED`                 | Solo después de `audit_status = APPROVED`.                                                                                               |
+| DEC-004 | Registro de dispensación    | Medicarte registra al cargar soportes; queda `DISPENSATION_REPORTED` hasta aprobación.                                                   |
+| DEC-005 | Reportes                    | Todos los días a las 08:00 `America/Bogota`, con novedades del día anterior; destinatarios parametrizables.                              |
+| DEC-006 | Auditoría                   | Revisión humana/visual. La aprobación explícita del auditor produce `APPROVED`; no hay aprobación automática.                            |
+| DEC-007 | Drive y exportaciones       | Soportes sin borrado automático por antigüedad; exportaciones CSV/XLSX bajo demanda y sin copia persistente.                             |
+| DEC-008 | Capacidad                   | Máximo 20 MB por archivo; hasta 2.500 archivos por mes como volumen esperado.                                                            |
+| DEC-009 | Despliegue                  | Render esperado, Google Cloud alternativo, región requerida Colombia.                                                                    |
+| DEC-012 | Alcance multi-organización  | Ítem global único; lectura MTD global y lectura de otras organizaciones mediante relación explícita y permisos.                          |
 
 ### Repositorio
 
-| ID | Decisión | Definición |
-|---|---|---|
+| ID      | Decisión    | Definición                                                                                                            |
+| ------- | ----------- | --------------------------------------------------------------------------------------------------------------------- |
 | DEC-010 | Repositorio | Repositorio nuevo e independiente en GitHub, estructurado como monorepo. No se integra en `vita-back` ni `vita-core`. |
 
-Con DEC-010 resuelta, las decisiones DEC-001 a DEC-010 quedan cerradas y la Fase 0 puede considerarse completada a nivel de definición arquitectónica y de negocio.
+Con DEC-010 resuelta, las decisiones DEC-001 a DEC-012 quedan cerradas a nivel arquitectónico y de negocio. DEC-013 mantiene pendiente el contrato externo y sandbox MIPRES, con prohibición explícita de implementar la integración real hasta recibir evidencia oficial.
 
 ### Nueva decisión cerrada
 
-| ID | Decisión | Definición |
-|---|---|---|
+| ID      | Decisión                             | Definición                                                                                                                                                                                                          |
+| ------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | DEC-011 | Coordinación logística de aplicación | Al entrar en `READY_TO_DISPENSE` se notifica a OLP y Medicarte. Medicarte define/versiona el punto de aplicación; esa asignación o modificación notifica a OLP. La aplicación posterior requiere un punto asignado. |
 
 DEC-011 modifica el flujo posterior a disponibilidad, pero no altera las reglas ya cerradas de PBS/NO PBS, vigencia MIPRES, soportes ni auditoría.
+
+### Contrato externo pendiente
+
+| ID      | Estado  | Definición                                                                                                                 |
+| ------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| DEC-013 | PENDING | Faltan endpoint, autenticación, esquema, fixtures aprobados y acceso seguro al sandbox MIPRES. Fase 3 real está bloqueada. |
 
 ---
 
@@ -1120,7 +1116,7 @@ Antes de construir funcionalidades de negocio, ejecutar la **Fase 0** y cerrar l
 
 1. Congelar en pruebas las decisiones DEC-001 a DEC-009.
 2. Crear el repositorio nuevo e independiente en GitHub con estructura monorepo.
-3. Confirmar contratos MIPRES y credenciales de pruebas.
+3. Resolver DEC-013: confirmar contrato MIPRES y entregar credenciales de pruebas por un canal seguro.
 4. Crear modelo entidad-relación definitivo.
 5. Crear máquina de transiciones por dimensión incluyendo `DISPENSATION_REPORTED`.
 6. Publicar contrato OpenAPI inicial.

@@ -24,7 +24,8 @@ export class ImportFileError extends Error {
 function cellToJsonValue(value: unknown): unknown {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    return value;
   return JSON.stringify(value) ?? '';
 }
 
@@ -34,21 +35,30 @@ function cellToHeader(value: unknown): string {
 }
 
 function isBlank(value: unknown): boolean {
-  return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+  return (
+    value === null || value === undefined || (typeof value === 'string' && value.trim() === '')
+  );
 }
 
 function isSupportedFile(filename: string, mimeType: string): boolean {
   const normalizedFilename = filename.toLowerCase();
-  if (normalizedFilename.endsWith('.csv')) return mimeType === 'text/csv' || mimeType === 'application/octet-stream' || mimeType === '';
+  if (normalizedFilename.endsWith('.csv'))
+    return mimeType === 'text/csv' || mimeType === 'application/octet-stream' || mimeType === '';
   if (normalizedFilename.endsWith('.xlsx')) {
-    return mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      || mimeType === 'application/octet-stream'
-      || mimeType === '';
+    return (
+      mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      mimeType === 'application/octet-stream' ||
+      mimeType === ''
+    );
   }
   return false;
 }
 
-export function parseImportFile(content: Buffer, filename: string, mimeType: string): ParsedImportFile {
+export function parseImportFile(
+  content: Buffer,
+  filename: string,
+  mimeType: string,
+): ParsedImportFile {
   if (!isSupportedFile(filename, mimeType)) {
     throw new ImportFileError('Solo se admiten archivos CSV o XLSX.');
   }
@@ -72,13 +82,18 @@ export function parseImportFile(content: Buffer, filename: string, mimeType: str
     blankrows: false,
   });
   const headerRow = matrix[0];
-  if (!headerRow || headerRow.length === 0) throw new ImportFileError('El archivo no contiene encabezados.');
+  if (!headerRow || headerRow.length === 0)
+    throw new ImportFileError('El archivo no contiene encabezados.');
 
   const headers = headerRow.map(cellToHeader);
-  if (headers.some((header) => !header)) throw new ImportFileError('Todos los encabezados deben tener nombre.');
-  if (new Set(headers).size !== headers.length) throw new ImportFileError('El archivo contiene encabezados duplicados.');
+  if (headers.some((header) => !header))
+    throw new ImportFileError('Todos los encabezados deben tener nombre.');
+  if (new Set(headers).size !== headers.length)
+    throw new ImportFileError('El archivo contiene encabezados duplicados.');
 
-  const missingHeaders = requiredAuthorizationSourceColumns.filter((column) => !headers.includes(column));
+  const missingHeaders = requiredAuthorizationSourceColumns.filter(
+    (column) => !headers.includes(column),
+  );
   const rows: ParsedImportRow[] = [];
   for (let index = 1; index < matrix.length; index += 1) {
     const values = matrix[index] ?? [];

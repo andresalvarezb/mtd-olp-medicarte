@@ -13,7 +13,12 @@ const commonSchema = z.object({
 });
 
 const importConfigSchema = {
-  IMPORT_MAX_FILE_BYTES: z.coerce.number().int().positive().max(20 * 1024 * 1024).default(20 * 1024 * 1024),
+  IMPORT_MAX_FILE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(20 * 1024 * 1024)
+    .default(20 * 1024 * 1024),
   IMPORT_PROCESSOR_VERSION: z.coerce.number().int().positive().default(1),
 };
 
@@ -27,7 +32,10 @@ export const apiConfigSchema = commonSchema.extend({
 export const workerConfigSchema = commonSchema.extend({
   ...importConfigSchema,
   IMPORT_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
-  SCHEDULER_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true').default('true'),
+  SCHEDULER_ENABLED: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .default('true'),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(100).default(1000),
 });
 
@@ -43,7 +51,8 @@ export function parseApiConfig(environment: NodeJS.ProcessEnv): ApiConfig {
       OIDC_ISSUER: config.OIDC_ISSUER,
     };
     for (const [name, value] of Object.entries(secureUrls)) {
-      if (new URL(value).protocol !== 'https:') throw new Error(`${name} must use HTTPS in production`);
+      if (new URL(value).protocol !== 'https:')
+        throw new Error(`${name} must use HTTPS in production`);
     }
   }
   return config;

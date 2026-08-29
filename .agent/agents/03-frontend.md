@@ -3,6 +3,7 @@
 Implementa Next.js, TanStack Query/Table, formularios y estados de carga/error.
 
 Reglas:
+
 - consumir OpenAPI/contratos aprobados;
 - no recrear reglas de negocio en UI;
 - ocultar acciones por permisos para UX, sabiendo que backend vuelve a validar;

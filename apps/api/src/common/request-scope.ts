@@ -10,9 +10,17 @@ export type Scope = Readonly<{
   readSensitive: boolean;
 }>;
 
-export function scopeFromProfile(profile: MeResponse, organizationId: string, request: AuthenticatedRequest): Scope {
+export function scopeFromProfile(
+  profile: MeResponse,
+  organizationId: string,
+  request: AuthenticatedRequest,
+): Scope {
   const organization = profile.organizations.find((candidate) => candidate.id === organizationId);
-  if (!organization) throw new BadRequestException({ code: 'ORGANIZATION_REQUIRED', message: 'Organization is not available for this user' });
+  if (!organization)
+    throw new BadRequestException({
+      code: 'ORGANIZATION_REQUIRED',
+      message: 'Organization is not available for this user',
+    });
   return {
     organizationId,
     organizationCode: organization.code,

@@ -15,6 +15,7 @@ Este directorio es la fuente operativa para agentes de IA que implementen la pla
 ## Regla principal
 
 Un agente **no puede inventar una regla de negocio pendiente**. Si una spec depende de una decisión `PENDING`, o de la porción no resuelta de una decisión `PARTIAL`, puede:
+
 - preparar interfaces, puertos, migraciones reversibles o tests pendientes;
 - documentar el bloqueo;
 - pero no fijar valores, actores, estados externos, destinatarios ni criterios no confirmados.
@@ -36,4 +37,5 @@ Una tarea debe referenciar una spec y, cuando aplique, un ADR:
 Los commits deben ser pequeños y describir el comportamiento implementado, no el nombre del agente.
 
 ## Repositorio objetivo
+
 La implementación se realizará en un repositorio nuevo e independiente de GitHub, estructurado como monorepo.

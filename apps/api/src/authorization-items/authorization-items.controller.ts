@@ -50,7 +50,22 @@ const errorSchema = {
 
 const authorizationItemResponseSchema = {
   type: 'object',
-  required: ['id', 'numeroAutorizacion', 'codigoMedicamento', 'authorizationKey', 'enablementStatus', 'coverageType', 'directionStatus', 'operationStatus', 'sourceData', 'sourceCupsPrincipalNormalized', 'coverageRuleVersion', 'version', 'createdAt', 'updatedAt'],
+  required: [
+    'id',
+    'numeroAutorizacion',
+    'codigoMedicamento',
+    'authorizationKey',
+    'enablementStatus',
+    'coverageType',
+    'directionStatus',
+    'operationStatus',
+    'sourceData',
+    'sourceCupsPrincipalNormalized',
+    'coverageRuleVersion',
+    'version',
+    'createdAt',
+    'updatedAt',
+  ],
   properties: {
     id: { type: 'string', format: 'uuid' },
     numeroAutorizacion: { type: 'string' },
@@ -111,7 +126,10 @@ export class AuthorizationItemsController {
 
   @Get()
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiOkResponse({ description: 'Scoped authorization item inbox', schema: paginatedItemsResponseSchema })
+  @ApiOkResponse({
+    description: 'Scoped authorization item inbox',
+    schema: paginatedItemsResponseSchema,
+  })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   async list(
@@ -121,14 +139,24 @@ export class AuthorizationItemsController {
   ) {
     const query = authorizationItemListQuerySchema.parse(rawQuery);
     const organization = uuidSchema.parse(organizationId);
-    const profile = await this.access.requirePermission(request.auth.sub, organization, 'authorizations.read');
-    return this.authorizationItems.list({ query, scope: scopeFromProfile(profile, organization, request) });
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'authorizations.read',
+    );
+    return this.authorizationItems.list({
+      query,
+      scope: scopeFromProfile(profile, organization, request),
+    });
   }
 
   @Get(':id')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiOkResponse({ description: 'Authorization item detail and import history', schema: itemDetailResponseSchema })
+  @ApiOkResponse({
+    description: 'Authorization item detail and import history',
+    schema: itemDetailResponseSchema,
+  })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiNotFoundResponse({ schema: errorSchema })
@@ -139,7 +167,11 @@ export class AuthorizationItemsController {
   ) {
     const id = uuidSchema.parse(rawId);
     const organization = uuidSchema.parse(organizationId);
-    const profile = await this.access.requirePermission(request.auth.sub, organization, 'authorizations.read');
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'authorizations.read',
+    );
     return this.authorizationItems.get(id, scopeFromProfile(profile, organization, request));
   }
 
@@ -148,8 +180,20 @@ export class AuthorizationItemsController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiBody({ schema: { type: 'object', required: ['importRowId', 'expectedVersion'], properties: { importRowId: { type: 'string', format: 'uuid' }, expectedVersion: { type: 'integer', minimum: 1 } } } })
-  @ApiOkResponse({ description: 'Explicit source update completed', schema: sourceUpdateResponseSchema })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['importRowId', 'expectedVersion'],
+      properties: {
+        importRowId: { type: 'string', format: 'uuid' },
+        expectedVersion: { type: 'integer', minimum: 1 },
+      },
+    },
+  })
+  @ApiOkResponse({
+    description: 'Explicit source update completed',
+    schema: sourceUpdateResponseSchema,
+  })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiConflictResponse({ schema: errorSchema })
@@ -165,7 +209,11 @@ export class AuthorizationItemsController {
     const body = sourceUpdateRequestSchema.parse(rawBody);
     const idempotencyKey = idempotencyKeySchema.parse(rawIdempotencyKey);
     const organization = uuidSchema.parse(organizationId);
-    const profile = await this.access.requirePermission(request.auth.sub, organization, 'imports.confirm');
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'imports.confirm',
+    );
     const scope = scopeFromProfile(profile, organization, request);
     return this.authorizationItems.updateFromImport({ itemId: id, ...body, idempotencyKey, scope });
   }

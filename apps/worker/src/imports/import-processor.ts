@@ -43,11 +43,15 @@ const messages: Record<ImportRowResultCode, string> = importRowResultMessages;
 
 function hasValue(row: Record<string, unknown>, field: string): boolean {
   const value = row[field];
-  return value !== null && value !== undefined && (typeof value !== 'string' || value.trim() !== '');
+  return (
+    value !== null && value !== undefined && (typeof value !== 'string' || value.trim() !== '')
+  );
 }
 
 function missingFields(row: Record<string, unknown>, headers: string[]): string[] {
-  return requiredAuthorizationSourceColumns.filter((field) => !headers.includes(field) || !hasValue(row, field));
+  return requiredAuthorizationSourceColumns.filter(
+    (field) => !headers.includes(field) || !hasValue(row, field),
+  );
 }
 
 function hashContent(content: Buffer): string {
@@ -63,24 +67,49 @@ export class ImportProcessor {
   async process(rawJob: AuthorizationImportJob): Promise<ImportProcessingResult> {
     const job = authorizationImportJobSchema.parse(rawJob);
     if (job.payload.processorVersion !== this.config.IMPORT_PROCESSOR_VERSION) {
-      throw new NonRetryableImportError(importTerminalErrorClassifications.processorVersionMismatch);
+      throw new NonRetryableImportError(
+        importTerminalErrorClassifications.processorVersionMismatch,
+      );
     }
     const source = await this.getSource(job);
     if (!source) throw new Error('Import batch or source file not found');
     if (job.payload.processorVersion !== source.batch_processor_version) {
-      throw new NonRetryableImportError(importTerminalErrorClassifications.processorVersionMismatch);
+      throw new NonRetryableImportError(
+        importTerminalErrorClassifications.processorVersionMismatch,
+      );
     }
 
     if (source.batch_status === 'READY_TO_CONFIRM' || source.batch_status === 'COMPLETED') {
-      return this.getResult(source.batch_id, source.batch_status === 'COMPLETED' ? 'COMPLETED' : 'READY_TO_CONFIRM');
+      return this.getResult(
+        source.batch_id,
+        source.batch_status === 'COMPLETED' ? 'COMPLETED' : 'READY_TO_CONFIRM',
+      );
     }
     if (!source.content) {
       await this.markFailed(source.batch_id, 'PROCESSING_ERROR');
-      return { status: 'FAILED', totalRows: 0, validRows: 0, rejectedRows: 0, duplicateRows: 0, existingRows: 0 };
+      return {
+        status: 'FAILED',
+        totalRows: 0,
+        validRows: 0,
+        rejectedRows: 0,
+        duplicateRows: 0,
+        existingRows: 0,
+      };
     }
-    if (source.content.length !== source.size_bytes || hashContent(source.content) !== source.source_sha256 || source.source_sha256 !== source.batch_sha256) {
+    if (
+      source.content.length !== source.size_bytes ||
+      hashContent(source.content) !== source.source_sha256 ||
+      source.source_sha256 !== source.batch_sha256
+    ) {
       await this.markFailed(source.batch_id, 'INVALID_FIELD_FORMAT');
-      return { status: 'FAILED', totalRows: 0, validRows: 0, rejectedRows: 0, duplicateRows: 0, existingRows: 0 };
+      return {
+        status: 'FAILED',
+        totalRows: 0,
+        validRows: 0,
+        rejectedRows: 0,
+        duplicateRows: 0,
+        existingRows: 0,
+      };
     }
 
     let parsed: ReturnType<typeof parseImportFile>;
@@ -89,7 +118,14 @@ export class ImportProcessor {
     } catch (error) {
       if (!(error instanceof ImportFileError)) throw error;
       await this.markFailed(source.batch_id, error.code);
-      return { status: 'FAILED', totalRows: 0, validRows: 0, rejectedRows: 0, duplicateRows: 0, existingRows: 0 };
+      return {
+        status: 'FAILED',
+        totalRows: 0,
+        validRows: 0,
+        rejectedRows: 0,
+        duplicateRows: 0,
+        existingRows: 0,
+      };
     }
 
     const client = await this.database.pool.connect();
@@ -102,14 +138,19 @@ export class ImportProcessor {
       const batch = locked.rows[0];
       if (!batch) throw new Error('Import batch not found');
       if (
-        job.payload.processorVersion !== this.config.IMPORT_PROCESSOR_VERSION
-        || job.payload.processorVersion !== batch.processor_version
+        job.payload.processorVersion !== this.config.IMPORT_PROCESSOR_VERSION ||
+        job.payload.processorVersion !== batch.processor_version
       ) {
-        throw new NonRetryableImportError(importTerminalErrorClassifications.processorVersionMismatch);
+        throw new NonRetryableImportError(
+          importTerminalErrorClassifications.processorVersionMismatch,
+        );
       }
       if (batch.status === 'READY_TO_CONFIRM' || batch.status === 'COMPLETED') {
         await client.query('commit');
-        return this.getResult(source.batch_id, batch.status === 'COMPLETED' ? 'COMPLETED' : 'READY_TO_CONFIRM');
+        return this.getResult(
+          source.batch_id,
+          batch.status === 'COMPLETED' ? 'COMPLETED' : 'READY_TO_CONFIRM',
+        );
       }
 
       await client.query('delete from import_rows where import_batch_id = $1', [source.batch_id]);
@@ -124,10 +165,16 @@ export class ImportProcessor {
       const candidateKeys = classifiedRows
         .filter((row) => row.resultCode === 'ROW_VALID' && row.classification)
         .map((row) => row.classification!.authorizationKey);
-      const existingResult = candidateKeys.length > 0
-        ? await client.query<ExistingItem>('select id, authorization_key from authorization_items where authorization_key = any($1::text[])', [candidateKeys])
-        : { rows: [] as ExistingItem[] };
-      const existingByKey = new Map(existingResult.rows.map((row) => [row.authorization_key, row.id]));
+      const existingResult =
+        candidateKeys.length > 0
+          ? await client.query<ExistingItem>(
+              'select id, authorization_key from authorization_items where authorization_key = any($1::text[])',
+              [candidateKeys],
+            )
+          : { rows: [] as ExistingItem[] };
+      const existingByKey = new Map(
+        existingResult.rows.map((row) => [row.authorization_key, row.id]),
+      );
       const seenKeys = new Set<string>();
       let validRows = 0;
       let rejectedRows = 0;
@@ -203,7 +250,14 @@ export class ImportProcessor {
         [source.source_file_id],
       );
       await client.query('commit');
-      return { status: 'READY_TO_CONFIRM', totalRows: parsed.rows.length, validRows, rejectedRows, duplicateRows, existingRows };
+      return {
+        status: 'READY_TO_CONFIRM',
+        totalRows: parsed.rows.length,
+        validRows,
+        rejectedRows,
+        duplicateRows,
+        existingRows,
+      };
     } catch (error) {
       await client.query('rollback');
       throw error;
@@ -212,7 +266,10 @@ export class ImportProcessor {
     }
   }
 
-  private classifyRow(row: ParsedImportRow, headers: string[]): {
+  private classifyRow(
+    row: ParsedImportRow,
+    headers: string[],
+  ): {
     row: ParsedImportRow;
     classification: AuthorizationClassification | null;
     resultCode: ImportRowResultCode;
@@ -224,7 +281,11 @@ export class ImportProcessor {
         row,
         classification: null,
         resultCode: 'MISSING_REQUIRED_FIELD',
-        errors: missing.map((field) => ({ field, code: 'MISSING_REQUIRED_FIELD', message: `Falta el campo obligatorio ${field}.` })),
+        errors: missing.map((field) => ({
+          field,
+          code: 'MISSING_REQUIRED_FIELD',
+          message: `Falta el campo obligatorio ${field}.`,
+        })),
       };
     }
     const classification = deriveAuthorizationClassification({
@@ -238,7 +299,13 @@ export class ImportProcessor {
         row,
         classification: null,
         resultCode: 'INVALID_FIELD_FORMAT',
-        errors: [{ field: 'authorization', code: 'INVALID_FIELD_FORMAT', message: messages.INVALID_FIELD_FORMAT }],
+        errors: [
+          {
+            field: 'authorization',
+            code: 'INVALID_FIELD_FORMAT',
+            message: messages.INVALID_FIELD_FORMAT,
+          },
+        ],
       };
     }
     return { row, classification, resultCode: 'ROW_VALID', errors: [] };
@@ -283,7 +350,10 @@ export class ImportProcessor {
     }
   }
 
-  private async getResult(batchId: string, status: 'READY_TO_CONFIRM' | 'COMPLETED'): Promise<ImportProcessingResult> {
+  private async getResult(
+    batchId: string,
+    status: 'READY_TO_CONFIRM' | 'COMPLETED',
+  ): Promise<ImportProcessingResult> {
     const result = await this.database.pool.query<{
       total_rows: number;
       valid_rows: number;

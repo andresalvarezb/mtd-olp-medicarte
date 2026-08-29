@@ -11,7 +11,9 @@ import {
 describe('authorization classification', () => {
   it('normalizes source text with exact technical normalization', () => {
     expect(normalizeSourceText('  medicamentos   no pos ')).toBe('MEDICAMENTOS NO POS');
-    expect(normalizeSourceText('Medicamentos no pos - alto costo')).toBe('MEDICAMENTOS NO POS - ALTO COSTO');
+    expect(normalizeSourceText('Medicamentos no pos - alto costo')).toBe(
+      'MEDICAMENTOS NO POS - ALTO COSTO',
+    );
   });
 
   it('uses exact equality for PBS and NO_PBS', () => {
@@ -49,11 +51,18 @@ describe('authorization classification', () => {
   });
 
   it('returns the complete phase two classification', () => {
-    expect(deriveAuthorizationClassification({
-      numeroAutorizacion: 'a-1',
-      codigoComercial: 'm-1',
-      cupsPrincipal: ' medicamentos no pos ',
-      estadoAutorizacion: 5,
-    })).toMatchObject({ coverageType: 'NO_PBS', enablementStatus: 'ENABLED', directionStatus: 'PENDING', operationStatus: null });
+    expect(
+      deriveAuthorizationClassification({
+        numeroAutorizacion: 'a-1',
+        codigoComercial: 'm-1',
+        cupsPrincipal: ' medicamentos no pos ',
+        estadoAutorizacion: 5,
+      }),
+    ).toMatchObject({
+      coverageType: 'NO_PBS',
+      enablementStatus: 'ENABLED',
+      directionStatus: 'PENDING',
+      operationStatus: null,
+    });
   });
 });

@@ -1,10 +1,13 @@
 # SPEC-011 — Punto de aplicación y coordinación logística
+
 **Fases:** 4 y 5
 
 ## Objetivo
+
 Permitir que Medicarte defina el lugar de aplicación de un medicamento y que OLP reciba esa información para coordinar el envío.
 
 ## Precondición
+
 El ítem debe tener:
 
 ```text
@@ -12,7 +15,9 @@ operation_status = READY_TO_DISPENSE
 ```
 
 ## Estados
+
 `application_site_status`:
+
 - `PENDING_ASSIGNMENT`
 - `ASSIGNED`
 
@@ -32,6 +37,7 @@ READY_TO_DISPENSE
 ```
 
 ## Datos mínimos del punto de aplicación
+
 - `authorization_item_id`
 - `address_line`
 - ciudad/municipio
@@ -48,6 +54,7 @@ READY_TO_DISPENSE
 No almacenar una dirección únicamente dentro del cuerpo de una notificación.
 
 ## Reglas
+
 1. Solo Medicarte puede crear/modificar el punto de aplicación.
 2. OLP y MTD pueden consultarlo según permisos.
 3. La primera asignación produce `APPLICATION_SITE_ASSIGNED`.
@@ -60,12 +67,14 @@ No almacenar una dirección únicamente dentro del cuerpo de una notificación.
 10. No iniciar la aplicación/registro de dispensación si el punto de aplicación aún está `PENDING_ASSIGNMENT`.
 
 ## API sugerida
+
 - `GET /authorization-items/:id/application-site`
 - `PUT /authorization-items/:id/application-site`
 
 `PUT` debe usar autorización, control de concurrencia e `Idempotency-Key`.
 
 ## Criterios de aceptación
+
 - Al llegar a `READY_TO_DISPENSE`, OLP y Medicarte reciben la notificación lógica correspondiente.
 - Medicarte asigna dirección y esta queda persistida/auditada.
 - OLP recibe una segunda notificación con la dirección.

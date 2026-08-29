@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   authorizationClassificationSchema,
   authorizationItemListQuerySchema,
@@ -41,20 +47,33 @@ type HistoryRow = {
 
 function parseUuid(value: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
-    throw new ConflictException({ code: 'INVALID_IDENTIFIER', message: 'authorization item identifier must be a UUID' });
+    throw new ConflictException({
+      code: 'INVALID_IDENTIFIER',
+      message: 'authorization item identifier must be a UUID',
+    });
   }
   return value;
 }
 
 function encodeItemCursor(createdAt: Date, id: string): string {
-  return Buffer.from(JSON.stringify({ createdAt: createdAt.toISOString(), id }), 'utf8').toString('base64url');
+  return Buffer.from(JSON.stringify({ createdAt: createdAt.toISOString(), id }), 'utf8').toString(
+    'base64url',
+  );
 }
 
 function decodeItemCursor(cursor: string | undefined): { createdAt: Date; id: string } | undefined {
   if (!cursor) return undefined;
   try {
-    const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { createdAt?: unknown; id?: unknown };
-    if (typeof value.createdAt !== 'string' || Number.isNaN(Date.parse(value.createdAt)) || typeof value.id !== 'string') throw new Error('invalid');
+    const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      createdAt?: unknown;
+      id?: unknown;
+    };
+    if (
+      typeof value.createdAt !== 'string' ||
+      Number.isNaN(Date.parse(value.createdAt)) ||
+      typeof value.id !== 'string'
+    )
+      throw new Error('invalid');
     return { createdAt: new Date(value.createdAt), id: parseUuid(value.id) };
   } catch {
     throw new BadRequestException({ code: 'INVALID_CURSOR', message: 'Invalid pagination cursor' });
@@ -98,11 +117,12 @@ function toItemResponse(row: ItemRow, includeSourceData: boolean): Authorization
 
 @Injectable()
 export class AuthorizationItemsService {
-  constructor(
-    @Inject(DATABASE) private readonly database: Database,
-  ) {}
+  constructor(@Inject(DATABASE) private readonly database: Database) {}
 
-  async list(input: { query: AuthorizationItemListQuery; scope: Scope }): Promise<{ items: AuthorizationItemResponse[]; nextCursor: string | null }> {
+  async list(input: {
+    query: AuthorizationItemListQuery;
+    scope: Scope;
+  }): Promise<{ items: AuthorizationItemResponse[]; nextCursor: string | null }> {
     const query = authorizationItemListQuerySchema.parse(input.query);
     const cursor = decodeItemCursor(query.cursor);
     const values: unknown[] = [input.scope.organizationCode === 'MTD', input.scope.organizationId];
@@ -114,14 +134,22 @@ export class AuthorizationItemsService {
       return `$${values.length}`;
     };
     if (query.coverageType) conditions.push(`i.coverage_type = ${add(query.coverageType)}`);
-    if (query.enablementStatus) conditions.push(`i.enablement_status = ${add(query.enablementStatus)}`);
-    if (query.directionStatus) conditions.push(`i.direction_status = ${add(query.directionStatus)}`);
-    if (query.operationStatus) conditions.push(`i.operation_status = ${add(query.operationStatus)}`);
-    if (query.authorizationKey) conditions.push(`i.authorization_key ilike ${add(`%${escapeLikePattern(query.authorizationKey)}%`)} escape '\\'`);
+    if (query.enablementStatus)
+      conditions.push(`i.enablement_status = ${add(query.enablementStatus)}`);
+    if (query.directionStatus)
+      conditions.push(`i.direction_status = ${add(query.directionStatus)}`);
+    if (query.operationStatus)
+      conditions.push(`i.operation_status = ${add(query.operationStatus)}`);
+    if (query.authorizationKey)
+      conditions.push(
+        `i.authorization_key ilike ${add(`%${escapeLikePattern(query.authorizationKey)}%`)} escape '\\'`,
+      );
     if (cursor) {
       const createdAt = add(cursor.createdAt);
       const id = add(cursor.id);
-      conditions.push(`(i.created_at < ${createdAt} or (i.created_at = ${createdAt} and i.id < ${id}))`);
+      conditions.push(
+        `(i.created_at < ${createdAt} or (i.created_at = ${createdAt} and i.id < ${id}))`,
+      );
     }
     const limit = add(query.limit + 1);
     const result = await this.database.pool.query<ItemRow>(
@@ -138,13 +166,20 @@ export class AuthorizationItemsService {
     const rows = hasNext ? result.rows.slice(0, query.limit) : result.rows;
     const items = rows.map((row) => toItemResponse(row, false));
     const last = rows.at(-1);
-    return { items, nextCursor: hasNext && last ? encodeItemCursor(last.created_at, last.id) : null };
+    return {
+      items,
+      nextCursor: hasNext && last ? encodeItemCursor(last.created_at, last.id) : null,
+    };
   }
 
   async get(itemId: string, scope: Scope): Promise<AuthorizationItemDetailResponse> {
     const id = parseUuid(itemId);
     const row = await this.findItem(id, scope, scope.readSensitive);
-    if (!row) throw new NotFoundException({ code: 'AUTHORIZATION_ITEM_NOT_FOUND', message: 'Authorization item not found' });
+    if (!row)
+      throw new NotFoundException({
+        code: 'AUTHORIZATION_ITEM_NOT_FOUND',
+        message: 'Authorization item not found',
+      });
     const history = await this.database.pool.query<HistoryRow>(
       `select r.import_batch_id as batch_id, r.row_number, r.result_code, r.created_at
        from import_rows r where r.authorization_item_id = $1 order by r.created_at asc, r.row_number asc`,
@@ -158,7 +193,8 @@ export class AuthorizationItemsService {
       importHistory: history.rows.map((entry) => ({
         batchId: entry.batch_id,
         rowNumber: entry.row_number,
-        resultCode: entry.result_code as AuthorizationItemDetailResponse['importHistory'][number]['resultCode'],
+        resultCode:
+          entry.result_code as AuthorizationItemDetailResponse['importHistory'][number]['resultCode'],
         createdAt: entry.created_at.toISOString(),
       })),
     };
@@ -174,20 +210,33 @@ export class AuthorizationItemsService {
     const itemId = parseUuid(input.itemId);
     const rowId = parseUuid(input.importRowId);
     const idempotencyScope = `authorization-items.update:${input.scope.organizationId}:${itemId}`;
-    const requestHash = createHash('sha256').update(`${rowId}:${input.expectedVersion}`).digest('hex');
+    const requestHash = createHash('sha256')
+      .update(`${rowId}:${input.expectedVersion}`)
+      .digest('hex');
     const client = await this.database.pool.connect();
     try {
       await client.query('begin');
-      await client.query('select pg_advisory_xact_lock(hashtext($1))', [`${idempotencyScope}:${input.idempotencyKey}`]);
-      await client.query('delete from idempotency_records where scope = $1 and key = $2 and expires_at <= now()', [idempotencyScope, input.idempotencyKey]);
-      const existingIdempotency = await client.query<{ request_hash: string; response: { item: AuthorizationItemResponse; rowId: string; resultCode: 'ITEM_UPDATED' } }>(
-        'select request_hash, response from idempotency_records where scope = $1 and key = $2',
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [
+        `${idempotencyScope}:${input.idempotencyKey}`,
+      ]);
+      await client.query(
+        'delete from idempotency_records where scope = $1 and key = $2 and expires_at <= now()',
         [idempotencyScope, input.idempotencyKey],
       );
+      const existingIdempotency = await client.query<{
+        request_hash: string;
+        response: { item: AuthorizationItemResponse; rowId: string; resultCode: 'ITEM_UPDATED' };
+      }>('select request_hash, response from idempotency_records where scope = $1 and key = $2', [
+        idempotencyScope,
+        input.idempotencyKey,
+      ]);
       const previous = existingIdempotency.rows[0];
       if (previous) {
         if (previous.request_hash !== requestHash) {
-          throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency key reused with another payload' });
+          throw new ConflictException({
+            code: 'IDEMPOTENCY_CONFLICT',
+            message: 'Idempotency key reused with another payload',
+          });
         }
         await client.query('commit');
         return previous.response;
@@ -204,15 +253,30 @@ export class AuthorizationItemsService {
         [itemId, input.scope.organizationCode === 'MTD', input.scope.organizationId],
       );
       const item = itemResult.rows[0];
-      if (!item) throw new NotFoundException({ code: 'AUTHORIZATION_ITEM_NOT_FOUND', message: 'Authorization item not found' });
+      if (!item)
+        throw new NotFoundException({
+          code: 'AUTHORIZATION_ITEM_NOT_FOUND',
+          message: 'Authorization item not found',
+        });
       if (item.operation_status !== 'READY_TO_DISPENSE') {
-        throw new ConflictException({ code: 'EXPLICIT_UPDATE_NOT_ALLOWED', message: importRowResultMessages.EXPLICIT_UPDATE_NOT_ALLOWED });
+        throw new ConflictException({
+          code: 'EXPLICIT_UPDATE_NOT_ALLOWED',
+          message: importRowResultMessages.EXPLICIT_UPDATE_NOT_ALLOWED,
+        });
       }
       if (item.version !== input.expectedVersion) {
-        throw new ConflictException({ code: 'VERSION_CONFLICT', message: 'Authorization item version has changed' });
+        throw new ConflictException({
+          code: 'VERSION_CONFLICT',
+          message: 'Authorization item version has changed',
+        });
       }
 
-      const sourceRow = await client.query<{ id: string; raw_data: unknown; normalized_data: unknown; authorization_item_id: string | null }>(
+      const sourceRow = await client.query<{
+        id: string;
+        raw_data: unknown;
+        normalized_data: unknown;
+        authorization_item_id: string | null;
+      }>(
         `select r.id, r.raw_data, r.normalized_data, r.authorization_item_id
          from import_rows r
          inner join import_batches b on b.id = r.import_batch_id
@@ -221,10 +285,20 @@ export class AuthorizationItemsService {
         [rowId, itemId, input.scope.organizationId],
       );
       const row = sourceRow.rows[0];
-      if (!row) throw new ConflictException({ code: 'SOURCE_UPDATE_ROW_INVALID', message: 'Import row is not eligible for this update' });
+      if (!row)
+        throw new ConflictException({
+          code: 'SOURCE_UPDATE_ROW_INVALID',
+          message: 'Import row is not eligible for this update',
+        });
       const classification = authorizationClassificationSchema.safeParse(row.normalized_data);
-      if (!classification.success || classification.data.authorizationKey !== item.authorization_key) {
-        throw new ConflictException({ code: 'SOURCE_UPDATE_KEY_MISMATCH', message: 'Import row does not match the authorization item' });
+      if (
+        !classification.success ||
+        classification.data.authorizationKey !== item.authorization_key
+      ) {
+        throw new ConflictException({
+          code: 'SOURCE_UPDATE_KEY_MISMATCH',
+          message: 'Import row does not match the authorization item',
+        });
       }
 
       const updated = await client.query<ItemRow>(
@@ -236,16 +310,35 @@ export class AuthorizationItemsService {
          returning id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
                    source_status_normalized, source_cups_principal_normalized, enablement_status, coverage_type,
                    direction_status, operation_status, coverage_rule_version, version, created_at, updated_at`,
-        [itemId, JSON.stringify(row.raw_data), classification.data.sourceStatusNormalized, classification.data.cupsPrincipalNormalized, classification.data.enablementStatus, classification.data.coverageType, classification.data.directionStatus, input.expectedVersion],
+        [
+          itemId,
+          JSON.stringify(row.raw_data),
+          classification.data.sourceStatusNormalized,
+          classification.data.cupsPrincipalNormalized,
+          classification.data.enablementStatus,
+          classification.data.coverageType,
+          classification.data.directionStatus,
+          input.expectedVersion,
+        ],
       );
       const changed = updated.rows[0];
-      if (!changed) throw new ConflictException({ code: 'VERSION_CONFLICT', message: 'Authorization item version has changed' });
+      if (!changed)
+        throw new ConflictException({
+          code: 'VERSION_CONFLICT',
+          message: 'Authorization item version has changed',
+        });
       const sourceValue = rawText(sourceDataRecord(row.raw_data)?.CUPS_PRINCIPAL);
       await client.query(
         `insert into coverage_evaluations
            (authorization_item_id, evaluation_version, source_value, normalized_value, coverage_type, rule_version)
          values ($1, $2, $3, $4, $5, 'F2-COVERAGE-1')`,
-        [itemId, changed.version, sourceValue, classification.data.cupsPrincipalNormalized, classification.data.coverageType],
+        [
+          itemId,
+          changed.version,
+          sourceValue,
+          classification.data.cupsPrincipalNormalized,
+          classification.data.coverageType,
+        ],
       );
       await client.query(
         `update import_rows set result_code = 'ITEM_UPDATED', result_message = $2, confirmable = false where id = $1`,
@@ -257,11 +350,25 @@ export class AuthorizationItemsService {
         action: 'AUTHORIZATION_ITEM_UPDATED',
         resourceType: 'authorization_item',
         resourceId: itemId,
-        before: { version: item.version, authorizationKey: item.authorization_key, coverageType: item.coverage_type, enablementStatus: item.enablement_status },
-        after: { version: changed.version, authorizationKey: changed.authorization_key, coverageType: changed.coverage_type, enablementStatus: changed.enablement_status },
+        before: {
+          version: item.version,
+          authorizationKey: item.authorization_key,
+          coverageType: item.coverage_type,
+          enablementStatus: item.enablement_status,
+        },
+        after: {
+          version: changed.version,
+          authorizationKey: changed.authorization_key,
+          coverageType: changed.coverage_type,
+          enablementStatus: changed.enablement_status,
+        },
         correlationId: input.scope.correlationId,
       });
-      const response = { item: toItemResponse(changed, input.scope.readSensitive), rowId, resultCode: 'ITEM_UPDATED' as const };
+      const response = {
+        item: toItemResponse(changed, input.scope.readSensitive),
+        rowId,
+        resultCode: 'ITEM_UPDATED' as const,
+      };
       await client.query(
         `insert into idempotency_records (scope, key, request_hash, status_code, response, expires_at)
          values ($1, $2, $3, 200, $4::jsonb, now() + interval '24 hours')`,
@@ -277,7 +384,11 @@ export class AuthorizationItemsService {
     }
   }
 
-  private async findItem(itemId: string, scope: Scope, includeSourceData: boolean): Promise<ItemRow | undefined> {
+  private async findItem(
+    itemId: string,
+    scope: Scope,
+    includeSourceData: boolean,
+  ): Promise<ItemRow | undefined> {
     const result = await this.database.pool.query<ItemRow>(
       `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key,
               ${includeSourceData ? 'i.source_data' : 'null::jsonb'} as source_data,
@@ -317,7 +428,17 @@ export class AuthorizationItemsService {
       `insert into audit_events
          (actor_type, actor_id, organization_id, action, resource_type, resource_id, before, after, correlation_id, request_id, result)
        values ('USER', $1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, 'SUCCESS')`,
-      [input.actorId, input.organizationId, input.action, input.resourceType, input.resourceId, JSON.stringify(input.before), JSON.stringify(input.after), input.correlationId, input.correlationId],
+      [
+        input.actorId,
+        input.organizationId,
+        input.action,
+        input.resourceType,
+        input.resourceId,
+        JSON.stringify(input.before),
+        JSON.stringify(input.after),
+        input.correlationId,
+        input.correlationId,
+      ],
     );
   }
 }

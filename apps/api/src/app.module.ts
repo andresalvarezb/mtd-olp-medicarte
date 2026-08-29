@@ -27,9 +27,23 @@ const database = createDatabase(config.DATABASE_URL);
 const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: true });
 const registry = new Registry();
 collectDefaultMetrics({ register: registry, prefix: 'authorization_api_' });
-const errors = new Counter({ name: 'authorization_api_errors_total', help: 'Captured API errors', registers: [registry] });
-const duration = new Histogram({ name: 'authorization_api_request_duration_seconds', help: 'HTTP request duration', labelNames: ['method'], registers: [registry] });
-new Gauge({ name: 'authorization_queue_jobs', help: 'BullMQ jobs by queue and state', labelNames: ['queue', 'state'], registers: [registry] });
+const errors = new Counter({
+  name: 'authorization_api_errors_total',
+  help: 'Captured API errors',
+  registers: [registry],
+});
+const duration = new Histogram({
+  name: 'authorization_api_request_duration_seconds',
+  help: 'HTTP request duration',
+  labelNames: ['method'],
+  registers: [registry],
+});
+new Gauge({
+  name: 'authorization_queue_jobs',
+  help: 'BullMQ jobs by queue and state',
+  labelNames: ['queue', 'state'],
+  registers: [registry],
+});
 
 @Module({
   imports: [
@@ -41,7 +55,14 @@ new Gauge({ name: 'authorization_queue_jobs', help: 'BullMQ jobs by queue and st
     }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
   ],
-  controllers: [MeController, OperationsController, AdminJobsController, ImportsController, AuthorizationItemsController, ...(config.NODE_ENV === 'production' ? [] : [FoundationController])],
+  controllers: [
+    MeController,
+    OperationsController,
+    AdminJobsController,
+    ImportsController,
+    AuthorizationItemsController,
+    ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
+  ],
   providers: [
     AuthGuard,
     AccessService,
@@ -61,13 +82,19 @@ export class AppModule implements NestModule {
     consumer
       .apply(
         correlationMiddleware,
-        (request: { method: string }, response: { statusCode: number; on: (event: string, callback: () => void) => void }, next: () => void) => {
+        (
+          request: { method: string },
+          response: { statusCode: number; on: (event: string, callback: () => void) => void },
+          next: () => void,
+        ) => {
           const end = duration.startTimer({ method: request.method });
           const span = trace.getTracer('authorization-api').startSpan(`HTTP ${request.method}`);
           response.on('finish', () => {
             end();
             if (response.statusCode >= 500) errors.inc();
-            span.setStatus({ code: response.statusCode >= 500 ? SpanStatusCode.ERROR : SpanStatusCode.OK });
+            span.setStatus({
+              code: response.statusCode >= 500 ? SpanStatusCode.ERROR : SpanStatusCode.OK,
+            });
             span.end();
           });
           next();

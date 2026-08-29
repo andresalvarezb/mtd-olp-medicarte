@@ -27,13 +27,21 @@ export class FoundationService {
       .digest('hex');
 
     return this.database.db.transaction(async (transaction) => {
-      await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${`${scope}:${input.idempotencyKey}`}))`);
+      await transaction.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`${scope}:${input.idempotencyKey}`}))`,
+      );
       const existing = await transaction.query.idempotencyRecords.findFirst({
-        where: and(eq(idempotencyRecords.scope, scope), eq(idempotencyRecords.key, input.idempotencyKey)),
+        where: and(
+          eq(idempotencyRecords.scope, scope),
+          eq(idempotencyRecords.key, input.idempotencyKey),
+        ),
       });
       if (existing) {
         if (existing.requestHash !== requestHash) {
-          throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency key reused with another payload' });
+          throw new ConflictException({
+            code: 'IDEMPOTENCY_CONFLICT',
+            message: 'Idempotency key reused with another payload',
+          });
         }
         return existing.response as { eventId: string; status: 'accepted' };
       }
@@ -81,12 +89,28 @@ export class FoundationService {
     });
   }
 
-  async listFailedJobs(input: { organizationId: string; userId: string; correlationId: string }): Promise<Array<{ id: string; eventType: string; attempts: number; lastError: string | null }>> {
+  async listFailedJobs(input: {
+    organizationId: string;
+    userId: string;
+    correlationId: string;
+  }): Promise<
+    Array<{ id: string; eventType: string; attempts: number; lastError: string | null }>
+  > {
     return this.database.db.transaction(async (transaction) => {
       const failures = await transaction
-        .select({ id: outboxEvents.id, eventType: outboxEvents.eventType, attempts: outboxEvents.attempts, lastError: outboxEvents.lastError })
+        .select({
+          id: outboxEvents.id,
+          eventType: outboxEvents.eventType,
+          attempts: outboxEvents.attempts,
+          lastError: outboxEvents.lastError,
+        })
         .from(outboxEvents)
-        .where(and(eq(outboxEvents.status, 'FAILED'), eq(outboxEvents.organizationId, input.organizationId)));
+        .where(
+          and(
+            eq(outboxEvents.status, 'FAILED'),
+            eq(outboxEvents.organizationId, input.organizationId),
+          ),
+        );
       await transaction.insert(auditEvents).values({
         actorType: 'USER',
         actorId: input.userId,

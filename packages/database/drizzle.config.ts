@@ -5,6 +5,8 @@ export default defineConfig({
   schema: './src/schema.ts',
   out: './migrations',
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? 'postgresql://authorization:authorization@localhost:5432/authorization',
+    url:
+      process.env.DATABASE_URL ??
+      'postgresql://authorization:authorization@localhost:5432/authorization',
   },
 });

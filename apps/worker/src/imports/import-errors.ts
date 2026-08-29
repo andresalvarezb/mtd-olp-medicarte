@@ -13,7 +13,9 @@ export class NonRetryableImportError extends Error {
   }
 }
 
-export function classifyTerminalImportError(failedReason: string): ImportTerminalErrorClassification {
+export function classifyTerminalImportError(
+  failedReason: string,
+): ImportTerminalErrorClassification {
   return failedReason === importTerminalErrorClassifications.processorVersionMismatch
     ? importTerminalErrorClassifications.processorVersionMismatch
     : importTerminalErrorClassifications.processing;

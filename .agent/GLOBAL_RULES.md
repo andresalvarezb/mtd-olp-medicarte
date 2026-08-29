@@ -1,12 +1,14 @@
 # Reglas globales para todos los agentes
 
 ## Fuente de verdad
+
 - PostgreSQL es la fuente de verdad transaccional.
 - Redis/BullMQ coordina jobs; no es fuente de verdad.
 - Google Drive guarda binarios; PostgreSQL guarda metadatos y referencias.
 - MIPRES es fuente externa oficial para los datos MIPRES aplicables, no para el estado operativo local.
 
 ## Reglas de negocio confirmadas
+
 - Unidad mínima: `authorization_item`.
 - Llave única: `numero_autorizacion + codigo_medicamento`.
 - `codigo_medicamento` proviene de `COD_COMERCIAL`.
@@ -23,6 +25,7 @@
 - Tamaño máximo inicial por archivo: 20 MB.
 
 ## Prohibiciones
+
 - No introducir una columna de “estado general” como fuente de verdad.
 - No borrar eventos de auditoría ni versiones históricas de soportes.
 - No enviar Gmail ni invocar MIPRES dentro de una transacción HTTP de negocio.
@@ -33,6 +36,7 @@
 - No implementar decisiones `PENDING` ni completar por inferencia la parte abierta de decisiones `PARTIAL`.
 
 ## Ingeniería
+
 - TypeScript strict.
 - Contratos validados en runtime.
 - Migraciones revisables y reversibles cuando sea técnicamente razonable.

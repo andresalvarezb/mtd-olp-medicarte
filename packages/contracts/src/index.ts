@@ -96,7 +96,8 @@ export const importRowResultMessages: Record<ImportRowResultCode, string> = {
   INVALID_FIELD_FORMAT: 'El archivo o el valor no cumple el formato técnico.',
   DUPLICATE_IN_FILE: 'La llave aparece repetida dentro del archivo.',
   EXISTING_ITEM_REVIEW_REQUIRED: 'La llave ya existe y requiere verificación humana.',
-  EXPLICIT_UPDATE_NOT_ALLOWED: 'La actualización explícita no está permitida para el estado actual.',
+  EXPLICIT_UPDATE_NOT_ALLOWED:
+    'La actualización explícita no está permitida para el estado actual.',
   ITEM_CREATED: 'Ítem creado durante la confirmación.',
   ITEM_UPDATED: 'Actualización explícita completada.',
   PROCESSING_ERROR: 'No fue posible procesar la fila.',
@@ -104,8 +105,18 @@ export const importRowResultMessages: Record<ImportRowResultCode, string> = {
 
 export const enablementStatusSchema = z.enum(['ENABLED', 'BLOCKED_SOURCE_STATUS']);
 export const coverageTypeSchema = z.enum(['UNCLASSIFIED', 'PBS', 'NO_PBS']);
-export const directionStatusSchema = z.enum(['NOT_APPLICABLE', 'PENDING', 'CONFIRMED', 'QUERY_ERROR']);
-export const operationStatusSchema = z.enum(['BLOCKED', 'READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED']);
+export const directionStatusSchema = z.enum([
+  'NOT_APPLICABLE',
+  'PENDING',
+  'CONFIRMED',
+  'QUERY_ERROR',
+]);
+export const operationStatusSchema = z.enum([
+  'BLOCKED',
+  'READY_TO_DISPENSE',
+  'DISPENSATION_REPORTED',
+  'DISPENSED',
+]);
 
 export const authorizationSourceColumns = [
   'CODEPS',

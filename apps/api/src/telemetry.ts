@@ -5,7 +5,9 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 const sdk = new NodeSDK({
   serviceName: 'authorization-api',
-  ...(endpoint ? { traceExporter: new OTLPTraceExporter({ url: `${endpoint.replace(/\/$/, '')}/v1/traces` }) } : {}),
+  ...(endpoint
+    ? { traceExporter: new OTLPTraceExporter({ url: `${endpoint.replace(/\/$/, '')}/v1/traces` }) }
+    : {}),
 });
 sdk.start();
 

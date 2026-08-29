@@ -3,6 +3,7 @@
 Una tarea no está terminada solo porque compila.
 
 ## Obligatorio
+
 - Criterios de aceptación de la SPEC cubiertos.
 - Tests relevantes verdes.
 - Sin nuevas reglas de negocio no documentadas.
@@ -18,6 +19,7 @@ Una tarea no está terminada solo porque compila.
 - Revisión por un agente distinto al implementador para tareas de riesgo medio/alto.
 
 ## Evidencia mínima en PR
+
 - Spec/issue relacionada.
 - Resumen de cambios.
 - Tests ejecutados.
@@ -26,6 +28,7 @@ Una tarea no está terminada solo porque compila.
 - Capturas solo cuando aporten valor a UI.
 
 ## Coordinación logística
+
 - `READY_TO_DISPENSE` genera eventos idempotentes para OLP y Medicarte.
 - Solo Medicarte puede asignar/modificar el punto de aplicación.
 - Dirección persistida, versionada y auditada.

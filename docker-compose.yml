@@ -6,9 +6,9 @@ services:
       POSTGRES_USER: authorization
       POSTGRES_PASSWORD: authorization
     ports:
-      - "127.0.0.1:15432:5432"
+      - '127.0.0.1:15432:5432'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U authorization -d authorization"]
+      test: ['CMD-SHELL', 'pg_isready -U authorization -d authorization']
       interval: 2s
       timeout: 3s
       retries: 20
@@ -17,11 +17,11 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ['redis-server', '--appendonly', 'yes']
     ports:
-      - "127.0.0.1:6379:6379"
+      - '127.0.0.1:6379:6379'
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 2s
       timeout: 3s
       retries: 20
@@ -30,16 +30,20 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.3
-    command: ["start-dev", "--import-realm", "--health-enabled=true"]
+    command: ['start-dev', '--import-realm', '--health-enabled=true']
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HOSTNAME: http://localhost:8080
     ports:
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:9000:9000"
+      - '127.0.0.1:8080:8080'
+      - '127.0.0.1:9000:9000'
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3; grep -q '200 OK' <&3"]
+      test:
+        [
+          'CMD-SHELL',
+          "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3; grep -q '200 OK' <&3",
+        ]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -49,7 +53,7 @@ services:
   migrate:
     image: authorization-platform-api:local
     working_dir: /workspace
-    command: ["node", "packages/database/dist/migrate.js"]
+    command: ['node', 'packages/database/dist/migrate.js']
     environment:
       DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization
     depends_on:
@@ -75,9 +79,15 @@ services:
       IMPORT_MAX_FILE_BYTES: 20971520
       IMPORT_PROCESSOR_VERSION: 1
     ports:
-      - "127.0.0.1:3001:3001"
+      - '127.0.0.1:3001:3001'
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3001/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -100,7 +110,7 @@ services:
       REDIS_URL: redis://redis:6379
       OIDC_ISSUER: http://localhost:8080/realms/authorization
       OIDC_AUDIENCE: authorization-api
-      SCHEDULER_ENABLED: "true"
+      SCHEDULER_ENABLED: 'true'
       OUTBOX_POLL_INTERVAL_MS: 500
       IMPORT_MAX_FILE_BYTES: 20971520
       IMPORT_PROCESSOR_VERSION: 1
@@ -116,9 +126,15 @@ services:
       context: .
       dockerfile: infra/docker/web.Dockerfile
     ports:
-      - "127.0.0.1:3000:3000"
+      - '127.0.0.1:3000:3000'
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 3s
       timeout: 3s
       retries: 20

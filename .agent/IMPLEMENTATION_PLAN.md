@@ -13,7 +13,7 @@ Entregables obligatorios:
 - Confirmación de la llave `NUMERO_AUTORIZACION + COD_COMERCIAL`.
 - Catálogo estable de causales de carga.
 - Llave existente: revisión humana; actualización explícita solo si `operation_status = READY_TO_DISPENSE`, bloqueada desde `DISPENSATION_REPORTED` en adelante.
-- Contrato MIPRES de direccionamientos y credenciales de sandbox.
+- Contrato MIPRES de direccionamientos y credenciales de sandbox. `PENDING` en DEC-013; queda prohibida la implementación real de Fase 3 hasta recibir y validar la evidencia externa.
 - Regla de direccionamiento confirmada: `current_date(America/Bogota) < fecha_maxima`; igualdad con la fecha máxima no es válida.
 - Reportes diarios a las 08:00 `America/Bogota`, con novedades del día anterior y destinatarios parametrizables.
 - Drive parametrizable para cargas futuras; soportes sin borrado automático; máximo 20 MB; exportaciones CSV/XLSX on-demand y no persistentes.
@@ -169,7 +169,9 @@ Dentro de una fase se permite paralelizar frontend, backend, pruebas e infraestr
 La estimación original de **12 a 16 semanas** para una sola persona sigue siendo razonable como orden de magnitud mientras existan integraciones reales, seguridad, QA y decisiones de negocio pendientes. El uso de agentes de IA puede reducir trabajo mecánico y permitir paralelismo, pero no elimina los gates de integración, revisión, pruebas ni las decisiones que requieren validación humana.
 
 ## Regla transversal de exportación
+
 CSV/XLSX se generan bajo demanda y no se conserva una copia persistente. Solo se conserva la auditoría de la operación.
 
 ## Cierre de Fase 0
-DEC-001 a DEC-010 están resueltas. La Fase 0 puede considerarse cerrada a nivel de decisiones arquitectónicas y de negocio documentadas en este paquete.
+
+El resultado verificable se documenta en `F0_CLOSURE.md`. DEC-001 a DEC-012 están `ACCEPTED`. DEC-013 permanece `PENDING` con prohibición explícita de implementar la integración MIPRES real; por ello el gate permite Fases 1 y 2, pero bloquea Fase 3 y cualquier trabajo posterior que infiera el contrato externo.

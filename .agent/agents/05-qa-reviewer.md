@@ -3,6 +3,7 @@
 No se limita a ejecutar tests existentes. Busca contradicciones y casos de carrera.
 
 Checklist:
+
 - duplicados;
 - doble ejecución de jobs;
 - carga concurrente;
