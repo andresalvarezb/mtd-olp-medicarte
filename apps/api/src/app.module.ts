@@ -26,6 +26,11 @@ import { OperationalExportsController } from './operational-exports/operational-
 import { OperationalExportsService } from './operational-exports/operational-exports.service';
 import { NotificationsAdminController } from './notifications/notifications-admin.controller';
 import { NotificationsAdminService } from './notifications/notifications-admin.service';
+import { AuditsController } from './audits/audits.controller';
+import { AuditsService } from './audits/audits.service';
+import { ConsolidationController } from './consolidation/consolidation.controller';
+import { ConsolidationService } from './consolidation/consolidation.service';
+import { IndicatorsController } from './consolidation/indicators.controller';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
 
 const config = parseApiConfig(process.env);
@@ -70,6 +75,9 @@ new Gauge({
     BulkUpdatesController,
     OperationalExportsController,
     NotificationsAdminController,
+    AuditsController,
+    ConsolidationController,
+    IndicatorsController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -81,6 +89,8 @@ new Gauge({
     BulkUpdatesService,
     OperationalExportsService,
     NotificationsAdminService,
+    AuditsService,
+    ConsolidationService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

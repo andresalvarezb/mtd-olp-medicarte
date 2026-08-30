@@ -430,6 +430,19 @@ pre {
   margin-top: 1rem;
 }
 
+.audit-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.audit-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 @media (max-width: 800px) {
   main {
     grid-template-columns: 1fr;

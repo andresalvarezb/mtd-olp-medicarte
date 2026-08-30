@@ -166,6 +166,16 @@ export const auditStatusSchema = z.enum([
   'APPROVED',
 ]);
 export type AuditStatus = z.infer<typeof auditStatusSchema>;
+
+/** SPEC-002/ADR-009: admisión derivada por reglas de dominio; nunca editable por UI. */
+export const admissionStatusSchema = z.enum([
+  'NOT_READY',
+  'READY',
+  'HANDED_OFF',
+  'COMPLETED',
+  'ERROR',
+]);
+export type AdmissionStatus = z.infer<typeof admissionStatusSchema>;
 export const operationalDateSchema = z.string().date();
 
 /** Fase 4 (SPEC-011/ADR-020): estado de sitio derivado, nunca persistido. */
@@ -291,6 +301,7 @@ export const authorizationItemListQuerySchema = z.object({
   enablementStatus: enablementStatusSchema.optional(),
   directionStatus: directionStatusSchema.optional(),
   operationStatus: operationStatusSchema.optional(),
+  auditStatus: auditStatusSchema.optional(),
   authorizationKey: z.string().trim().min(1).max(300).optional(),
   cursor: z.string().min(1).max(500).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -313,6 +324,7 @@ export const authorizationItemResponseSchema = z.object({
   fechaDispensacion: operationalDateSchema.nullable(),
   fechaAplicacion: operationalDateSchema.nullable(),
   auditStatus: auditStatusSchema,
+  admissionStatus: admissionStatusSchema,
   applicationSiteStatus: applicationSiteStatusSchema,
   operationalVersion: z.number().int().nonnegative(),
   coverageRuleVersion: z.string(),
@@ -329,9 +341,82 @@ export const authorizationItemHistorySchema = z.object({
   createdAt: isoDateTimeSchema,
 });
 
+// ---------------------------------------------------------------------------
+// Fase 6 — Auditoría humana, hallazgos y decisiones (SPEC-006, SPEC-002, ADR-009).
+// ---------------------------------------------------------------------------
+
+export const auditReviewStatusSchema = z.enum(['IN_REVIEW', 'APPROVED', 'REJECTED']);
+export type AuditReviewStatus = z.infer<typeof auditReviewStatusSchema>;
+
+export const auditReviewResponseSchema = z.object({
+  id: z.string().uuid(),
+  authorizationItemId: z.string().uuid(),
+  reviewNumber: z.number().int().positive(),
+  status: auditReviewStatusSchema,
+  observations: z.string().nullable(),
+  decidedBy: z.string().uuid().nullable(),
+  decidedAt: isoDateTimeSchema.nullable(),
+  startedBy: z.string().uuid(),
+  startedAt: isoDateTimeSchema,
+  findings: z.array(
+    z.object({
+      id: z.string().uuid(),
+      code: z.string().min(1).max(80),
+      description: z.string().min(1).max(2000),
+      createdAt: isoDateTimeSchema,
+    }),
+  ),
+});
+export type AuditReviewResponse = z.infer<typeof auditReviewResponseSchema>;
+
+export const startAuditReviewRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+});
+export type StartAuditReviewRequest = z.infer<typeof startAuditReviewRequestSchema>;
+
+export const startAuditReviewResponseSchema = z.object({
+  review: auditReviewResponseSchema,
+  item: authorizationItemResponseSchema,
+});
+export type StartAuditReviewResponse = z.infer<typeof startAuditReviewResponseSchema>;
+
+export const auditFindingRequestSchema = z.object({
+  code: z.string().trim().min(1).max(80),
+  description: z.string().trim().min(1).max(2000),
+});
+export type AuditFindingRequest = z.infer<typeof auditFindingRequestSchema>;
+
+export const auditFindingResponseSchema = z.object({
+  id: z.string().uuid(),
+  auditReviewId: z.string().uuid(),
+  code: z.string().min(1).max(80),
+  description: z.string().min(1).max(2000),
+  createdAt: isoDateTimeSchema,
+});
+export type AuditFindingResponse = z.infer<typeof auditFindingResponseSchema>;
+
+export const rejectAuditReviewRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  observations: z.string().trim().min(1).max(2000),
+});
+export type RejectAuditReviewRequest = z.infer<typeof rejectAuditReviewRequestSchema>;
+
+export const approveAuditReviewRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  observations: z.string().trim().max(2000).optional(),
+});
+export type ApproveAuditReviewRequest = z.infer<typeof approveAuditReviewRequestSchema>;
+
+export const auditDecisionResponseSchema = z.object({
+  review: auditReviewResponseSchema,
+  item: authorizationItemResponseSchema,
+});
+export type AuditDecisionResponse = z.infer<typeof auditDecisionResponseSchema>;
+
 export const authorizationItemDetailResponseSchema = z.object({
   item: authorizationItemResponseSchema,
   importHistory: z.array(authorizationItemHistorySchema),
+  auditReviews: z.array(auditReviewResponseSchema),
 });
 export type AuthorizationItemDetailResponse = z.infer<typeof authorizationItemDetailResponseSchema>;
 
@@ -616,3 +701,38 @@ export const operationalExportQuerySchema = z.object({
   format: operationalExportFormatSchema.default('csv'),
 });
 export type OperationalExportQuery = z.infer<typeof operationalExportQuerySchema>;
+
+// ---------------------------------------------------------------------------
+// Fase 6 — Auditoría humana, hallazgos, consolidación e indicadores.
+// Contratos compartidos web/api (SPEC-006, SPEC-002, ADR-009, ADR-016, ADR-018).
+// ---------------------------------------------------------------------------
+
+export const auditReviewListQuerySchema = z.object({
+  cursor: z.string().min(1).max(500).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export const paginatedAuditReviewsResponseSchema = z.object({
+  items: z.array(auditReviewResponseSchema),
+  nextCursor: z.string().nullable(),
+});
+
+/** Indicadores operativos derivados (lectura); nunca persistidos. */
+export const operationalIndicatorsResponseSchema = z.object({
+  byAuditStatus: z.record(auditStatusSchema, z.number().int().nonnegative()),
+  byOperationStatus: z.record(operationStatusSchema, z.number().int().nonnegative()),
+  byCoverageType: z.record(coverageTypeSchema, z.number().int().nonnegative()),
+  pendingDispensationLocation: z.number().int().nonnegative(),
+  pendingDispensationDate: z.number().int().nonnegative(),
+  pendingApplicationDate: z.number().int().nonnegative(),
+  readyForReview: z.number().int().nonnegative(),
+  approvedForAdmission: z.number().int().nonnegative(),
+});
+export type OperationalIndicatorsResponse = z.infer<typeof operationalIndicatorsResponseSchema>;
+
+/** Consolidado on-demand (ADR-018): solo APPROVED es elegible (SPEC-006). */
+export const consolidatedExportQuerySchema = z.object({
+  format: operationalExportFormatSchema.default('csv'),
+  coverageType: coverageTypeSchema.exclude(['UNCLASSIFIED']).optional(),
+});
+export type ConsolidatedExportQuery = z.infer<typeof consolidatedExportQuerySchema>;

@@ -1,16 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
+  admissionStatusSchema,
+  auditReviewResponseSchema,
   authorizationImportJobSchema,
+  authorizationItemListQuerySchema,
   bulkUpdateOperationContracts,
   bulkUpdateOperationTypeSchema,
   bulkUpdateRowResultCodeSchema,
   confirmImportResponseSchema,
+  consolidatedExportQuerySchema,
   enabledBulkUpdateOperationTypes,
   foundationJobSchema,
   importBatchResponseSchema,
   importRowResultCodeSchema,
   notificationJobSchema,
   notificationRecipientOrganizations,
+  operationalIndicatorsResponseSchema,
+  rejectAuditReviewRequestSchema,
 } from './index';
 
 describe('foundationJobSchema', () => {
@@ -160,5 +166,98 @@ describe('phase four and five contracts', () => {
         idempotencyKey: 'bad-key-1',
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('phase six contracts', () => {
+  const uuid = '10000000-0000-4000-8000-000000000001';
+  const review = {
+    id: uuid,
+    authorizationItemId: uuid,
+    reviewNumber: 1,
+    status: 'IN_REVIEW',
+    observations: null,
+    decidedBy: null,
+    decidedAt: null,
+    startedBy: uuid,
+    startedAt: '2026-08-30T13:00:00.000Z',
+    findings: [],
+  };
+
+  it('valida la revision de auditoria con hallazgos trazables', () => {
+    expect(auditReviewResponseSchema.parse(review).status).toBe('IN_REVIEW');
+    expect(
+      auditReviewResponseSchema.safeParse({
+        ...review,
+        findings: [
+          {
+            id: uuid,
+            code: 'SUPPORT_MISSING',
+            description: 'Falta soporte',
+            createdAt: '2026-08-30T13:05:00.000Z',
+          },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(auditReviewResponseSchema.safeParse({ ...review, reviewNumber: 0 }).success).toBe(false);
+    expect(auditReviewResponseSchema.safeParse({ ...review, status: 'PENDING' }).success).toBe(
+      false,
+    );
+  });
+
+  it('exige observaciones al rechazar y admite aprobacion sin ellas', () => {
+    expect(rejectAuditReviewRequestSchema.safeParse({ expectedVersion: 1 }).success).toBe(false);
+    expect(
+      rejectAuditReviewRequestSchema.safeParse({
+        expectedVersion: 1,
+        observations: 'Soporte incompleto',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('filtra la bandeja por auditStatus y deriva admissionStatus cerrado', () => {
+    expect(authorizationItemListQuerySchema.parse({ auditStatus: 'READY' }).auditStatus).toBe(
+      'READY',
+    );
+    expect(authorizationItemListQuerySchema.safeParse({ auditStatus: 'PENDING' }).success).toBe(
+      false,
+    );
+    expect(admissionStatusSchema.options).toEqual([
+      'NOT_READY',
+      'READY',
+      'HANDED_OFF',
+      'COMPLETED',
+      'ERROR',
+    ]);
+  });
+
+  it('valida indicadores operativos derivados', () => {
+    const indicators = operationalIndicatorsResponseSchema.parse({
+      byAuditStatus: { NOT_STARTED: 1, READY: 2, IN_REVIEW: 0, REJECTED: 0, APPROVED: 3 },
+      byOperationStatus: {
+        BLOCKED: 0,
+        READY_TO_DISPENSE: 1,
+        DISPENSATION_REPORTED: 2,
+        DISPENSED: 3,
+      },
+      byCoverageType: { UNCLASSIFIED: 0, PBS: 4, NO_PBS: 2 },
+      pendingDispensationLocation: 1,
+      pendingDispensationDate: 2,
+      pendingApplicationDate: 3,
+      readyForReview: 2,
+      approvedForAdmission: 3,
+    });
+    expect(indicators.approvedForAdmission).toBe(3);
+    expect(
+      operationalIndicatorsResponseSchema.safeParse({
+        ...indicators,
+        byAuditStatus: { INVALID: 1 },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('restringe el consolidado bajo demanda a formatos cerrados', () => {
+    expect(consolidatedExportQuerySchema.parse({}).format).toBe('csv');
+    expect(consolidatedExportQuerySchema.safeParse({ format: 'pdf' }).success).toBe(false);
   });
 });

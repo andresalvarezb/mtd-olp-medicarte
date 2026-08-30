@@ -28,6 +28,7 @@ import {
 } from '@authorization/domain';
 import { API_CONFIG, DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
+import { AuditsService } from '../audits/audits.service';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -49,6 +50,7 @@ type ItemRow = {
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
   audit_status: AuthorizationItemResponse['auditStatus'];
+  admission_status: string;
   operational_version: number;
   version: number;
   created_at: Date;
@@ -136,6 +138,7 @@ function toItemResponse(row: ItemRow, includeSourceData: boolean): Authorization
     fechaDispensacion: row.fecha_dispensacion,
     fechaAplicacion: row.fecha_aplicacion,
     auditStatus: row.audit_status,
+    admissionStatus: row.admission_status as AuthorizationItemResponse['admissionStatus'],
     applicationSiteStatus: deriveApplicationSiteStatus(row.lugar_dispensacion),
     operationalVersion: row.operational_version,
     coverageRuleVersion: row.coverage_rule_version,
@@ -150,6 +153,7 @@ export class AuthorizationItemsService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     @Inject(API_CONFIG) private readonly config: ApiConfig,
+    private readonly audits: AuditsService,
   ) {}
 
   async list(input: {
@@ -173,6 +177,7 @@ export class AuthorizationItemsService {
       conditions.push(`i.direction_status = ${add(query.directionStatus)}`);
     if (query.operationStatus)
       conditions.push(`i.operation_status = ${add(query.operationStatus)}`);
+    if (query.auditStatus) conditions.push(`i.audit_status = ${add(query.auditStatus)}`);
     if (query.authorizationKey)
       conditions.push(
         `i.authorization_key ilike ${add(`%${escapeLikePattern(query.authorizationKey)}%`)} escape '\\'`,
@@ -189,7 +194,7 @@ export class AuthorizationItemsService {
       `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, null::jsonb as source_data,
               i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-               i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.operational_version, i.version,
+               i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
               i.created_at, i.updated_at
        from authorization_items i
        where ${conditions.join(' and ')}
@@ -223,6 +228,7 @@ export class AuthorizationItemsService {
     if (scope.readSensitive) {
       await this.insertReadAudit(id, scope);
     }
+    const auditReviews = await this.audits.listForItem(id, scope);
     return {
       item: toItemResponse(row, scope.readSensitive),
       importHistory: history.rows.map((entry) => ({
@@ -232,6 +238,7 @@ export class AuthorizationItemsService {
           entry.result_code as AuthorizationItemDetailResponse['importHistory'][number]['resultCode'],
         createdAt: entry.created_at.toISOString(),
       })),
+      auditReviews,
     };
   }
 
@@ -312,7 +319,7 @@ export class AuthorizationItemsService {
         `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                  i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-                 i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.operational_version, i.version,
+                 i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
          where i.id = $1
@@ -431,7 +438,7 @@ export class AuthorizationItemsService {
           returning id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
                    source_status_normalized, source_prescripcion_normalized, no_prescripcion, enablement_status,
                     coverage_type, direction_status, operation_status, coverage_rule_version, lugar_dispensacion,
-                    fecha_dispensacion::text, fecha_aplicacion::text, audit_status,
+                    fecha_dispensacion::text, fecha_aplicacion::text, audit_status, admission_status,
                    operational_version, version, created_at, updated_at`,
         [
           itemId,
@@ -754,7 +761,7 @@ export class AuthorizationItemsService {
                 ${includeSourceData ? 'i.source_data' : 'null::jsonb'} as source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                  i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-                 i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.operational_version, i.version,
+                 i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
          where i.id = $1

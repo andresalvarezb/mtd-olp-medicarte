@@ -162,6 +162,7 @@ export const authorizationItems = pgTable(
     fechaDispensacion: date('fecha_dispensacion'),
     fechaAplicacion: date('fecha_aplicacion'),
     auditStatus: varchar('audit_status', { length: 30 }).notNull().default('NOT_STARTED'),
+    admissionStatus: varchar('admission_status', { length: 20 }).notNull().default('NOT_READY'),
     operationalVersion: integer('operational_version').notNull().default(0),
     createdFromBatchId: uuid('created_from_batch_id')
       .notNull()
@@ -176,6 +177,7 @@ export const authorizationItems = pgTable(
       table.codigoMedicamento,
     ),
     index('authorization_items_coverage_idx').on(table.coverageType, table.enablementStatus),
+    index('authorization_items_audit_status_idx').on(table.auditStatus, table.createdAt, table.id),
     index('authorization_items_created_idx').on(table.createdAt, table.id),
     check(
       'authorization_items_enablement_status_check',
@@ -205,6 +207,14 @@ export const authorizationItems = pgTable(
     check(
       'authorization_items_audit_status_check',
       sql`${table.auditStatus} IN ('NOT_STARTED', 'READY', 'IN_REVIEW', 'REJECTED', 'APPROVED')`,
+    ),
+    check(
+      'authorization_items_admission_status_check',
+      sql`${table.admissionStatus} IN ('NOT_READY', 'READY', 'HANDED_OFF', 'COMPLETED', 'ERROR')`,
+    ),
+    check(
+      'authorization_items_admission_ready_requires_approval_check',
+      sql`${table.admissionStatus} <> 'READY' OR ${table.auditStatus} = 'APPROVED'`,
     ),
     check(
       'authorization_items_dispensed_requires_approval_check',
@@ -703,6 +713,62 @@ export const notifications = pgTable(
       sql`${table.notificationType} IN ('AUTHORIZATION_READY_TO_DISPENSE', 'DISPENSATION_LOCATION_ASSIGNED', 'DISPENSATION_LOCATION_CHANGED', 'EPS_DIRECTION_PENDING', 'DAILY_OPERATIONAL_REPORT')`,
     ),
   ],
+);
+
+export const auditReviews = pgTable(
+  'audit_reviews',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    reviewNumber: integer('review_number').notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('IN_REVIEW'),
+    observations: text('observations'),
+    startedBy: uuid('started_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'restrict' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    correlationId: uuid('correlation_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('audit_reviews_item_number_idx').on(table.authorizationItemId, table.reviewNumber),
+    index('audit_reviews_item_status_idx').on(table.authorizationItemId, table.status),
+    check(
+      'audit_reviews_status_check',
+      sql`${table.status} IN ('IN_REVIEW', 'APPROVED', 'REJECTED')`,
+    ),
+    check('audit_reviews_review_number_check', sql`${table.reviewNumber} > 0`),
+    check(
+      'audit_reviews_decision_requires_fields_check',
+      sql`${table.status} = 'IN_REVIEW' OR (${table.decidedBy} IS NOT NULL AND ${table.decidedAt} IS NOT NULL)`,
+    ),
+    check(
+      'audit_reviews_reject_requires_observations_check',
+      sql`${table.status} <> 'REJECTED' OR ${table.observations} IS NOT NULL`,
+    ),
+  ],
+);
+
+export const auditFindings = pgTable(
+  'audit_findings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    auditReviewId: uuid('audit_review_id')
+      .notNull()
+      .references(() => auditReviews.id, { onDelete: 'restrict' }),
+    code: varchar('code', { length: 80 }).notNull(),
+    description: text('description').notNull(),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    correlationId: uuid('correlation_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('audit_findings_review_idx').on(table.auditReviewId, table.createdAt)],
 );
 
 export const jobResults = pgTable(

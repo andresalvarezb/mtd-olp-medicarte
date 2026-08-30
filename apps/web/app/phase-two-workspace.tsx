@@ -3,14 +3,18 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   authorizationItemDetailResponseSchema,
+  auditDecisionResponseSchema,
+  auditFindingResponseSchema,
   bulkUpdateBatchResponseSchema,
   confirmImportResponseSchema,
   importBatchResponseSchema,
   paginatedAuthorizationItemsResponseSchema,
   paginatedImportRowsResponseSchema,
   paginatedBulkUpdateRowsResponseSchema,
+  startAuditReviewResponseSchema,
   type AuthorizationItemDetailResponse,
   type AuthorizationItemResponse,
+  type AuditReviewResponse,
   type BulkUpdateBatchResponse,
   type BulkUpdateOperationType,
   type BulkUpdateRowResponse,
@@ -90,6 +94,12 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
   const [detailError, setDetailError] = useState('');
   const detailRequest = useRef(0);
   const [coverageFilter, setCoverageFilter] = useState('');
+  const [auditFilter, setAuditFilter] = useState('');
+  const [auditPending, setAuditPending] = useState(false);
+  const [auditError, setAuditError] = useState('');
+  const [findingCode, setFindingCode] = useState('');
+  const [findingDescription, setFindingDescription] = useState('');
+  const [auditObservations, setAuditObservations] = useState('');
   const [message, setMessage] = useState('');
   const [uploadPending, setUploadPending] = useState(false);
   const [confirmPending, setConfirmPending] = useState(false);
@@ -108,7 +118,11 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
   const [bulkError, setBulkError] = useState('');
   const canImport = organization?.permissions.includes('imports.create') ?? false;
   const canConfirm = organization?.permissions.includes('imports.confirm') ?? false;
-  const mutationPending = uploadPending || confirmPending || bulkPending;
+  const canAudit = organization?.permissions.includes('audit.start') ?? false;
+  const canApproveAudit = organization?.permissions.includes('audit.approve') ?? false;
+  const canRejectAudit = organization?.permissions.includes('audit.reject') ?? false;
+  const canExportConsolidated = organization?.permissions.includes('exports.create') ?? false;
+  const mutationPending = uploadPending || confirmPending || bulkPending || auditPending;
 
   async function apiRequest(path: string, init?: RequestInit): Promise<Response> {
     try {
@@ -156,7 +170,11 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
     }
   }
 
-  async function loadItems(cursor?: string, filter = coverageFilter): Promise<void> {
+  async function loadItems(
+    cursor?: string,
+    filter = coverageFilter,
+    statusFilter = auditFilter,
+  ): Promise<void> {
     const requestId = ++itemsRequest.current;
     setItemsLoading(true);
     setItemsError('');
@@ -168,6 +186,7 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
     try {
       const query = new URLSearchParams({ limit: '25' });
       if (filter) query.set('coverageType', filter);
+      if (statusFilter) query.set('auditStatus', statusFilter);
       if (cursor) query.set('cursor', cursor);
       const response = await apiRequest(`/api/v1/authorization-items?${query}`);
       if (!response.ok) throw new Error('No fue posible cargar la bandeja.');
@@ -239,8 +258,8 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
 
   useEffect(() => {
     if (!organization) return;
-    void loadItems(undefined, coverageFilter);
-  }, [organizationId, coverageFilter]);
+    void loadItems(undefined, coverageFilter, auditFilter);
+  }, [organizationId, coverageFilter, auditFilter]);
 
   useEffect(() => {
     if (!batch || terminalBatchStatuses.has(batch.status)) return;
@@ -417,6 +436,117 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
       setBulkError(errorMessage(error));
     } finally {
       setBulkPending(false);
+    }
+  }
+
+  async function auditRequest(path: string, body: unknown): Promise<unknown> {
+    const response = await apiRequest(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': newIdempotencyKey() },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const problem = (await response.json().catch(() => null)) as { message?: string } | null;
+      throw new Error(problem?.message ?? `La operación fue rechazada (${response.status}).`);
+    }
+    return response.json();
+  }
+
+  async function startReview(item: AuthorizationItemResponse): Promise<void> {
+    setAuditPending(true);
+    setAuditError('');
+    try {
+      const result = startAuditReviewResponseSchema.parse(
+        await auditRequest(`/api/v1/authorization-items/${item.id}/audit-reviews`, {
+          expectedVersion: item.version,
+        }),
+      );
+      setAuditObservations('');
+      setFindingCode('');
+      setFindingDescription('');
+      await openItem(item.id);
+      await loadItems(undefined, coverageFilter, auditFilter);
+      setMessage(`Revisión #${result.review.reviewNumber} iniciada.`);
+    } catch (error) {
+      setAuditError(errorMessage(error));
+    } finally {
+      setAuditPending(false);
+    }
+  }
+
+  async function addFinding(review: AuditReviewResponse): Promise<void> {
+    setAuditPending(true);
+    setAuditError('');
+    try {
+      auditFindingResponseSchema.parse(
+        await auditRequest(`/api/v1/audit-reviews/${review.id}/findings`, {
+          code: findingCode.trim(),
+          description: findingDescription.trim(),
+        }),
+      );
+      setFindingCode('');
+      setFindingDescription('');
+      if (selectedItem) await openItem(selectedItem.item.id);
+      setMessage('Hallazgo registrado.');
+    } catch (error) {
+      setAuditError(errorMessage(error));
+    } finally {
+      setAuditPending(false);
+    }
+  }
+
+  async function decideReview(
+    review: AuditReviewResponse,
+    decision: 'approve' | 'reject',
+  ): Promise<void> {
+    if (!selectedItem) return;
+    if (decision === 'reject' && !auditObservations.trim()) {
+      setAuditError('El rechazo requiere observaciones del auditor.');
+      return;
+    }
+    setAuditPending(true);
+    setAuditError('');
+    try {
+      auditDecisionResponseSchema.parse(
+        await auditRequest(`/api/v1/audit-reviews/${review.id}/${decision}`, {
+          expectedVersion: selectedItem.item.version,
+          ...(decision === 'reject' || auditObservations.trim()
+            ? { observations: auditObservations.trim() }
+            : {}),
+        }),
+      );
+      setAuditObservations('');
+      setFindingCode('');
+      setFindingDescription('');
+      await openItem(selectedItem.item.id);
+      await loadItems(undefined, coverageFilter, auditFilter);
+      setMessage(decision === 'approve' ? 'Aprobación registrada.' : 'Rechazo registrado.');
+    } catch (error) {
+      setAuditError(errorMessage(error));
+    } finally {
+      setAuditPending(false);
+    }
+  }
+
+  async function downloadConsolidated(format: 'csv' | 'xlsx'): Promise<void> {
+    setAuditPending(true);
+    setAuditError('');
+    try {
+      const query = new URLSearchParams({ format });
+      if (coverageFilter) query.set('coverageType', coverageFilter);
+      const response = await apiRequest(`/api/v1/exports/authorization-items.${format}?${query}`);
+      if (!response.ok) throw new Error(`La descarga fue rechazada (${response.status}).`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `consolidado-aprobado.${format}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setAuditError(errorMessage(error));
+    } finally {
+      setAuditPending(false);
     }
   }
 
@@ -712,6 +842,18 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
               <option value="PBS">PBS</option>
               <option value="NO_PBS">NO PBS</option>
             </select>
+            <select
+              disabled={mutationPending}
+              aria-label="Filtrar auditoría"
+              value={auditFilter}
+              onChange={(event) => setAuditFilter(event.target.value)}
+            >
+              <option value="">Toda auditoría</option>
+              <option value="READY">Lista para revisión</option>
+              <option value="IN_REVIEW">En revisión</option>
+              <option value="REJECTED">Rechazada</option>
+              <option value="APPROVED">Aprobada</option>
+            </select>
           </div>
           <div className="item-list">
             {itemsError ? (
@@ -743,6 +885,7 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
                 <span className="item-tags">
                   <span>{item.coverageType}</span>
                   <span>{item.enablementStatus}</span>
+                  <span>{item.auditStatus}</span>
                 </span>
               </button>
             ))}
@@ -809,6 +952,10 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
                 <dt>Auditoría</dt>
                 <dd>{selectedItem.item.auditStatus}</dd>
               </div>
+              <div>
+                <dt>Admisión (derivada)</dt>
+                <dd>{selectedItem.item.admissionStatus}</dd>
+              </div>
             </dl>
             <h4>Historial de cargas</h4>
             <ul className="history-list">
@@ -818,6 +965,140 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
                 </li>
               ))}
             </ul>
+            {selectedItem.auditReviews.length > 0 ? (
+              <>
+                <h4>Revisiones de auditoría</h4>
+                <ul className="history-list">
+                  {selectedItem.auditReviews.map((review) => (
+                    <li key={review.id}>
+                      Revisión #{review.reviewNumber} · {review.status}
+                      {review.observations ? ` · ${review.observations}` : ''}
+                      {review.findings.length > 0 ? (
+                        <ul>
+                          {review.findings.map((finding) => (
+                            <li key={finding.id}>
+                              <strong>{finding.code}</strong> {finding.description}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+            {canAudit ? (
+              <div className="audit-actions">
+                {selectedItem.item.auditStatus === 'READY' ||
+                selectedItem.item.auditStatus === 'REJECTED' ? (
+                  <Button
+                    disabled={mutationPending}
+                    className="secondary compact"
+                    onClick={() => void startReview(selectedItem.item)}
+                  >
+                    Iniciar revisión
+                  </Button>
+                ) : null}
+                {selectedItem.item.auditStatus === 'IN_REVIEW'
+                  ? (() => {
+                      const current = selectedItem.auditReviews.find(
+                        (review) => review.status === 'IN_REVIEW',
+                      );
+                      if (!current) return null;
+                      return (
+                        <>
+                          <div className="audit-fields">
+                            <label className="file-label" htmlFor="audit-finding-code">
+                              Código del hallazgo
+                            </label>
+                            <input
+                              id="audit-finding-code"
+                              disabled={mutationPending}
+                              maxLength={80}
+                              value={findingCode}
+                              onChange={(event) => setFindingCode(event.target.value)}
+                            />
+                            <label className="file-label" htmlFor="audit-finding-description">
+                              Descripción del hallazgo
+                            </label>
+                            <input
+                              id="audit-finding-description"
+                              disabled={mutationPending}
+                              maxLength={2000}
+                              value={findingDescription}
+                              onChange={(event) => setFindingDescription(event.target.value)}
+                            />
+                            <Button
+                              disabled={
+                                mutationPending || !findingCode.trim() || !findingDescription.trim()
+                              }
+                              className="secondary compact"
+                              onClick={() => void addFinding(current)}
+                            >
+                              Registrar hallazgo
+                            </Button>
+                          </div>
+                          <label className="file-label" htmlFor="audit-observations">
+                            Observaciones
+                          </label>
+                          <textarea
+                            id="audit-observations"
+                            disabled={mutationPending}
+                            maxLength={2000}
+                            rows={3}
+                            value={auditObservations}
+                            onChange={(event) => setAuditObservations(event.target.value)}
+                          />
+                          {canRejectAudit ? (
+                            <Button
+                              disabled={mutationPending || !auditObservations.trim()}
+                              className="secondary compact"
+                              onClick={() => void decideReview(current, 'reject')}
+                            >
+                              Rechazar
+                            </Button>
+                          ) : null}
+                          {canApproveAudit ? (
+                            <Button
+                              disabled={mutationPending}
+                              className="primary compact"
+                              onClick={() => void decideReview(current, 'approve')}
+                            >
+                              Aprobar
+                            </Button>
+                          ) : null}
+                        </>
+                      );
+                    })()
+                  : null}
+                {auditError ? (
+                  <p className="batch-error" role="alert">
+                    {auditError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {canExportConsolidated ? (
+              <div className="audit-actions">
+                <p className="muted">
+                  El consolidado incluye únicamente registros aprobados y no se conserva copia.
+                </p>
+                <Button
+                  disabled={mutationPending}
+                  className="secondary compact"
+                  onClick={() => void downloadConsolidated('csv')}
+                >
+                  Descargar consolidado CSV
+                </Button>
+                <Button
+                  disabled={mutationPending}
+                  className="secondary compact"
+                  onClick={() => void downloadConsolidated('xlsx')}
+                >
+                  Descargar consolidado XLSX
+                </Button>
+              </div>
+            ) : null}
             {selectedItem.item.sourceData ? (
               <details>
                 <summary>Campos fuente</summary>

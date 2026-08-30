@@ -39,5 +39,11 @@ export {
   normalizeOperationalText,
 } from './operational';
 export type { OperationalFieldTransition } from './operational';
+export {
+  AUDIT_RULE_VERSION,
+  canDecideAuditReview,
+  canStartAuditReview,
+  deriveAdmissionStatus,
+} from './audit';
 export { GmailSendError } from './gmail';
 export type { GmailPort, GmailSendInput, GmailSendResult } from './gmail';
