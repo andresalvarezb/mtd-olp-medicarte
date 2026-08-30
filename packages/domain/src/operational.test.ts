@@ -3,6 +3,9 @@ import {
   deriveApplicationSiteStatus,
   evaluateOperationalFieldTransition,
   isValidOperationalText,
+  isValidOperationalDate,
+  isOperationalUpdateAllowed,
+  deriveOperationalStatuses,
   normalizeOperationalText,
 } from './operational';
 
@@ -19,6 +22,46 @@ describe('normalizeOperationalText', () => {
 
   it('preserva el caso original (texto libre del negocio)', () => {
     expect(normalizeOperationalText('Drogadería Principal')).toBe('Drogadería Principal');
+  });
+});
+
+describe('operational dates', () => {
+  it('acepta únicamente fechas calendario canónicas válidas', () => {
+    expect(isValidOperationalDate('2026-02-28')).toBe(true);
+    expect(isValidOperationalDate('2026-02-29')).toBe(false);
+    expect(isValidOperationalDate('28/02/2026')).toBe(false);
+  });
+
+  it('exige lugar y estados permitidos para cada operación', () => {
+    expect(
+      isOperationalUpdateAllowed({
+        operationType: 'REPORT_DISPENSATION_DATE',
+        operationStatus: 'READY_TO_DISPENSE',
+        auditStatus: 'NOT_STARTED',
+        lugarDispensacion: 'Sede norte',
+      }),
+    ).toBe(true);
+    expect(
+      isOperationalUpdateAllowed({
+        operationType: 'REPORT_APPLICATION_DATE',
+        operationStatus: 'DISPENSATION_REPORTED',
+        auditStatus: 'APPROVED',
+        lugarDispensacion: 'Sede norte',
+      }),
+    ).toBe(false);
+  });
+
+  it('reporta dispensación y habilita revisión con ambas fechas sin dispensar', () => {
+    expect(
+      deriveOperationalStatuses({
+        operationType: 'REPORT_DISPENSATION_DATE',
+        operationStatus: 'READY_TO_DISPENSE',
+        auditStatus: 'NOT_STARTED',
+        fechaDispensacion: null,
+        fechaAplicacion: '2026-08-30',
+        newValue: '2026-08-29',
+      }),
+    ).toEqual({ operationStatus: 'DISPENSATION_REPORTED', auditStatus: 'READY' });
   });
 });
 

@@ -30,8 +30,12 @@ export type {
 export {
   OPERATIONAL_FIELD_LUGAR_DISPENSACION,
   deriveApplicationSiteStatus,
+  deriveOperationalStatuses,
   evaluateOperationalFieldTransition,
+  isOperationalUpdateAllowed,
+  isValidOperationalDate,
   isValidOperationalText,
+  normalizeOperationalDate,
   normalizeOperationalText,
 } from './operational';
 export type { OperationalFieldTransition } from './operational';

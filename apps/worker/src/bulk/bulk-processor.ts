@@ -5,13 +5,19 @@ import {
   bulkUpdateOperationContracts,
   bulkUpdateRowResultMessages,
   type BulkUpdateJob,
+  type BulkUpdateOperationType,
   type BulkUpdateRowResultCode,
+  type AuditStatus,
 } from '@authorization/contracts';
 import {
   buildAuthorizationKey,
   evaluateOperationalFieldTransition,
   normalizeOperationalText,
   isValidOperationalText,
+  normalizeOperationalDate,
+  isValidOperationalDate,
+  isOperationalUpdateAllowed,
+  deriveOperationalStatuses,
 } from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
 import { parseBulkFile, BulkFileError } from './bulk-parser';
@@ -38,6 +44,9 @@ type ItemRow = {
   id: string;
   authorization_key: string;
   lugar_dispensacion: string | null;
+  fecha_dispensacion: string | null;
+  fecha_aplicacion: string | null;
+  audit_status: AuditStatus;
   operational_version: number;
   operation_status: string | null;
 };
@@ -63,9 +72,8 @@ function hasValue(row: Record<string, unknown>, field: string): boolean {
 }
 
 /**
- * Fase 4 (SPEC-013/ADR-022): pipeline genérico de bulk updates. En esta fase
- * el catálogo habilitado contiene únicamente ASSIGN_DISPENSATION_LOCATION
- * (MEDICARTE, columna `lugar_dispensacion`). Cada fila válida actualiza el
+ * Fases 4/5 (SPEC-013/ADR-022): pipeline genérico de bulk updates. El catálogo
+ * cerrado selecciona actor, permiso, columna y efectos de dominio. Cada fila válida actualiza el
  * valor vigente, incrementa la versión operacional, crea historial append-only,
  * auditoría y el evento outbox para OLP dentro de una misma transacción.
  * Reprocesar el lote no duplica el efecto lógico ni la notificación.
@@ -107,7 +115,7 @@ export class BulkUpdateProcessor {
       bulkUpdateOperationContracts[
         source.batch_operation_type as keyof typeof bulkUpdateOperationContracts
       ];
-    if (!contract || source.batch_operation_type !== 'ASSIGN_DISPENSATION_LOCATION') {
+    if (!contract) {
       await this.markFailed(source.batch_id, 'INVALID_FILE_FORMAT');
       return this.emptyFailed();
     }
@@ -162,6 +170,9 @@ export class BulkUpdateProcessor {
           actorId: source.batch_created_by,
           correlationId: job.correlationId,
           row,
+          operationType: source.batch_operation_type as BulkUpdateOperationType,
+          requiredPermission: contract.permission,
+          actorOrganizationCode: contract.actorOrganizationCode,
           mutableField,
           seenKeys,
         });
@@ -175,7 +186,14 @@ export class BulkUpdateProcessor {
          set status = 'COMPLETED', completed_at = now(),
              total_rows = $2, processed_rows = $3, updated_rows = $4, unchanged_rows = $5, rejected_rows = $6
          where id = $1`,
-        [source.batch_id, parsed.rows.length, parsed.rows.length, updatedRows, unchangedRows, rejectedRows],
+        [
+          source.batch_id,
+          parsed.rows.length,
+          parsed.rows.length,
+          updatedRows,
+          unchangedRows,
+          rejectedRows,
+        ],
       );
       await client.query(
         `update bulk_update_source_files set content = null, processed_at = now() where id = $1`,
@@ -211,6 +229,9 @@ export class BulkUpdateProcessor {
       actorId: string;
       correlationId: string;
       row: { rowNumber: number; rawData: Record<string, unknown> };
+      operationType: BulkUpdateOperationType;
+      requiredPermission: string;
+      actorOrganizationCode: string;
       mutableField: string;
       seenKeys: Set<string>;
     },
@@ -219,7 +240,11 @@ export class BulkUpdateProcessor {
     const reject = async (
       code: BulkUpdateRowResultCode,
       itemId: string | null,
-      extras: { fieldName?: string | null; previousValue?: string | null; newValue?: string | null } = {},
+      extras: {
+        fieldName?: string | null;
+        previousValue?: string | null;
+        newValue?: string | null;
+      } = {},
     ): Promise<BulkUpdateRowResultCode> => {
       await client.query(
         `insert into bulk_update_rows
@@ -260,48 +285,94 @@ export class BulkUpdateProcessor {
       return await reject('DUPLICATE_KEY_IN_FILE', null, { fieldName: null, newValue: null });
     }
 
-    const newValue = normalizeOperationalText(input.row.rawData[input.mutableField]);
+    const newValue =
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+        ? normalizeOperationalText(input.row.rawData[input.mutableField])
+        : normalizeOperationalDate(input.row.rawData[input.mutableField]);
     if (!newValue) {
       return await reject('MISSING_VALUE', null, { newValue: null });
     }
-    if (!isValidOperationalText(newValue)) {
+    if (
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+        ? !isValidOperationalText(newValue)
+        : !isValidOperationalDate(newValue)
+    ) {
       return await reject('INVALID_VALUE_FORMAT', null, { newValue });
     }
     // La llave solo se marca como vista cuando la fila alcanzó la validación
     // de valor: una fila inválida no convierte en duplicada a la fila válida.
     input.seenKeys.add(authorizationKey);
 
+    const permission = await client.query(
+      `select 1
+       from users u
+       inner join user_organization_roles uor on uor.user_id = u.id and uor.organization_id = $2
+       inner join organizations o on o.id = uor.organization_id
+       inner join roles r on r.id = uor.role_id
+       inner join role_permissions rp on rp.role_id = r.id
+       inner join permissions p on p.id = rp.permission_id
+       where u.id = $1 and u.active = true and uor.active = true and o.active = true
+         and o.code = $3 and p.code = $4`,
+      [input.actorId, input.organizationId, input.actorOrganizationCode, input.requiredPermission],
+    );
+    if (permission.rowCount === 0) {
+      return await reject('FORBIDDEN_ITEM_SCOPE', null, { newValue });
+    }
     const itemResult = await client.query<ItemRow>(
-      `select id, authorization_key, lugar_dispensacion, operational_version, operation_status
-       from authorization_items where authorization_key = $1`,
-      [authorizationKey],
+      `select i.id, i.authorization_key, i.lugar_dispensacion, i.fecha_dispensacion::text,
+              i.fecha_aplicacion::text, i.audit_status, i.operational_version, i.operation_status
+       from authorization_items i
+       inner join authorization_item_organizations aio
+         on aio.authorization_item_id = i.id and aio.organization_id = $2
+       where i.authorization_key = $1
+       for update of i`,
+      [authorizationKey, input.organizationId],
     );
     const item = itemResult.rows[0];
     if (!item) {
-      return await reject('AUTHORIZATION_ITEM_NOT_FOUND', null, { newValue });
+      const exists = await client.query(
+        `select 1 from authorization_items where authorization_key = $1`,
+        [authorizationKey],
+      );
+      return await reject(
+        exists.rowCount ? 'FORBIDDEN_ITEM_SCOPE' : 'AUTHORIZATION_ITEM_NOT_FOUND',
+        null,
+        { newValue },
+      );
     }
-    const relationship = await client.query(
-      `select 1 from authorization_item_organizations
-       where authorization_item_id = $1 and organization_id = $2`,
-      [item.id, input.organizationId],
-    );
-    if (relationship.rowCount === 0) {
-      return await reject('FORBIDDEN_ITEM_SCOPE', item.id, { newValue });
-    }
-    const allowedStates = ['READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED'];
-    if (!item.operation_status || !allowedStates.includes(item.operation_status)) {
-      return await reject('OPERATION_NOT_ALLOWED', item.id, {
-        previousValue: item.lugar_dispensacion,
+    const previousValue =
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+        ? item.lugar_dispensacion
+        : input.operationType === 'REPORT_DISPENSATION_DATE'
+          ? item.fecha_dispensacion
+          : item.fecha_aplicacion;
+    if (
+      !isOperationalUpdateAllowed({
+        operationType: input.operationType,
+        operationStatus: item.operation_status,
+        auditStatus: item.audit_status,
+        lugarDispensacion: item.lugar_dispensacion,
+      })
+    ) {
+      const code =
+        input.operationType === 'REPORT_APPLICATION_DATE' && item.audit_status === 'APPROVED'
+          ? 'OPERATION_NOT_ALLOWED'
+          : 'INVALID_OPERATION_STATE';
+      return await reject(code, item.id, {
+        previousValue,
         newValue,
       });
     }
 
-    const transition = evaluateOperationalFieldTransition(
-      item.lugar_dispensacion,
-      newValue,
-      item.operational_version,
-    );
-    if (!transition.eventType) {
+    const locationTransition =
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+        ? evaluateOperationalFieldTransition(
+            item.lugar_dispensacion,
+            newValue,
+            item.operational_version,
+          )
+        : null;
+    if (previousValue === newValue) {
       await client.query(
         `insert into bulk_update_rows
            (batch_id, row_number, raw_data, authorization_key, authorization_item_id, field_name,
@@ -314,7 +385,7 @@ export class BulkUpdateProcessor {
           authorizationKey,
           item.id,
           input.mutableField,
-          item.lugar_dispensacion,
+          previousValue,
           newValue,
           item.operational_version,
           bulkUpdateRowResultMessages.UNCHANGED_VALUE,
@@ -323,16 +394,38 @@ export class BulkUpdateProcessor {
       return 'UNCHANGED_VALUE';
     }
 
-    const updated = await client.query<{ id: string }>(
-      `update authorization_items
-       set lugar_dispensacion = $2, operational_version = $3, version = version + 1, updated_at = now()
-       where id = $1 and operational_version = $4
-       returning id`,
-      [item.id, newValue, transition.newVersion, item.operational_version],
-    );
+    const newOperationalVersion = item.operational_version + 1;
+    const statuses = deriveOperationalStatuses({
+      operationType: input.operationType,
+      operationStatus: item.operation_status!,
+      auditStatus: item.audit_status,
+      fechaDispensacion: item.fecha_dispensacion,
+      fechaAplicacion: item.fecha_aplicacion,
+      newValue,
+    });
+    const updateSql =
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+        ? `update authorization_items set lugar_dispensacion = $2, operation_status = $3, audit_status = $4,
+             operational_version = $5, version = version + 1, updated_at = now()
+           where id = $1 and operational_version = $6 returning id`
+        : input.operationType === 'REPORT_DISPENSATION_DATE'
+          ? `update authorization_items set fecha_dispensacion = $2::date, operation_status = $3, audit_status = $4,
+               operational_version = $5, version = version + 1, updated_at = now()
+             where id = $1 and operational_version = $6 returning id`
+          : `update authorization_items set fecha_aplicacion = $2::date, operation_status = $3, audit_status = $4,
+               operational_version = $5, version = version + 1, updated_at = now()
+             where id = $1 and operational_version = $6 returning id`;
+    const updated = await client.query<{ id: string }>(updateSql, [
+      item.id,
+      newValue,
+      statuses.operationStatus,
+      statuses.auditStatus,
+      newOperationalVersion,
+      item.operational_version,
+    ]);
     if (updated.rowCount === 0) {
       return await reject('VERSION_CONFLICT', item.id, {
-        previousValue: item.lugar_dispensacion,
+        previousValue,
         newValue,
       });
     }
@@ -350,9 +443,9 @@ export class BulkUpdateProcessor {
         authorizationKey,
         item.id,
         input.mutableField,
-        item.lugar_dispensacion,
+        previousValue,
         newValue,
-        transition.newVersion,
+        newOperationalVersion,
         bulkUpdateRowResultMessages.ROW_UPDATED,
       ],
     );
@@ -362,24 +455,32 @@ export class BulkUpdateProcessor {
       `insert into operational_field_changes
          (authorization_item_id, field_name, previous_value, new_value,
           previous_operational_version, new_operational_version, operation_type,
-          bulk_update_batch_id, bulk_update_row_id, actor_type, actor_id, organization_id, correlation_id)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'USER', $10, $11, $12)`,
+           bulk_update_batch_id, bulk_update_row_id, actor_type, actor_id, organization_id, correlation_id,
+           idempotency_key)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'USER', $10, $11, $12, $13)`,
       [
         item.id,
         input.mutableField,
-        item.lugar_dispensacion,
+        previousValue,
         newValue,
-        transition.previousVersion,
-        transition.newVersion,
-        'ASSIGN_DISPENSATION_LOCATION',
+        item.operational_version,
+        newOperationalVersion,
+        input.operationType,
         input.batchId,
         bulkUpdateRowId,
         input.actorId,
         input.organizationId,
         input.correlationId,
+        `${input.batchId}:${input.row.rowNumber}:${newOperationalVersion}`,
       ],
     );
 
+    const auditAction =
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+        ? locationTransition!.eventType!
+        : input.operationType === 'REPORT_DISPENSATION_DATE'
+          ? 'DISPENSATION_DATE_REPORTED'
+          : 'APPLICATION_DATE_REPORTED';
     await client.query(
       `insert into audit_events
          (actor_type, actor_id, organization_id, action, resource_type, resource_id, before, after, correlation_id, request_id, result)
@@ -387,15 +488,21 @@ export class BulkUpdateProcessor {
       [
         input.actorId,
         input.organizationId,
-        transition.eventType,
+        auditAction,
         item.id,
         JSON.stringify({
-          lugarDispensacion: item.lugar_dispensacion,
+          field: input.mutableField,
+          value: previousValue,
           operationalVersion: item.operational_version,
+          operationStatus: item.operation_status,
+          auditStatus: item.audit_status,
         }),
         JSON.stringify({
-          lugarDispensacion: newValue,
-          operationalVersion: transition.newVersion,
+          field: input.mutableField,
+          value: newValue,
+          operationalVersion: newOperationalVersion,
+          operationStatus: statuses.operationStatus,
+          auditStatus: statuses.auditStatus,
           batchId: input.batchId,
           rowNumber: input.row.rowNumber,
         }),
@@ -404,27 +511,27 @@ export class BulkUpdateProcessor {
       ],
     );
 
-    const eventId = randomUUID();
-    const notificationKey = `${transition.eventType}:${item.id}:${transition.newVersion}:OLP`.slice(
-      0,
-      200,
-    );
-    const payload = {
-      eventId,
-      notificationType: transition.eventType,
-      itemId: item.id,
-      recipientOrganizationId: null,
-      period: null,
-      correlationId: input.correlationId,
-      idempotencyKey: notificationKey,
-    };
-    await client.query(
-      `insert into outbox_events
-         (id, event_type, version, payload, correlation_id, idempotency_key)
-       values ($1, 'notification.email', 1, $2::jsonb, $3, $4)
-       on conflict (idempotency_key) do nothing`,
-      [eventId, JSON.stringify(payload), input.correlationId, notificationKey],
-    );
+    if (locationTransition?.eventType) {
+      const eventId = randomUUID();
+      const notificationKey =
+        `${locationTransition.eventType}:${item.id}:${newOperationalVersion}:OLP`.slice(0, 200);
+      const payload = {
+        eventId,
+        notificationType: locationTransition.eventType,
+        itemId: item.id,
+        recipientOrganizationId: null,
+        period: null,
+        correlationId: input.correlationId,
+        idempotencyKey: notificationKey,
+      };
+      await client.query(
+        `insert into outbox_events
+           (id, event_type, version, payload, correlation_id, idempotency_key)
+         values ($1, 'notification.email', 1, $2::jsonb, $3, $4)
+         on conflict (idempotency_key) do nothing`,
+        [eventId, JSON.stringify(payload), input.correlationId, notificationKey],
+      );
+    }
     return 'ROW_UPDATED';
   }
 

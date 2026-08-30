@@ -20,6 +20,7 @@ import {
   type BulkUpdateRowResponse,
 } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
+import * as XLSX from 'xlsx';
 import { DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
 
@@ -120,9 +121,14 @@ function decodeRowCursor(cursor: string | undefined): number | undefined {
 
 function csvValue(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return '';
-  const text = `${value}`;
+  const text = safeSpreadsheetValue(value);
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
+}
+
+function safeSpreadsheetValue(value: string | number | boolean): string {
+  const text = `${value}`;
+  return /^[=+\-@]/.test(text.trimStart()) ? `'${text}` : text;
 }
 
 @Injectable()
@@ -177,7 +183,9 @@ export class BulkUpdatesService {
       .digest('hex');
     const idempotencyScope = `bulk-updates.create:${input.scope.organizationId}`;
     const outboxIdempotencyKey = createHash('sha256')
-      .update(`${operationType}:${input.scope.organizationId}:${contentHash}:${BULK_UPDATE_CONTRACT_VERSION}`)
+      .update(
+        `${operationType}:${input.scope.organizationId}:${contentHash}:${BULK_UPDATE_CONTRACT_VERSION}`,
+      )
       .digest('hex');
     const client = await this.database.pool.connect();
     try {
@@ -185,14 +193,20 @@ export class BulkUpdatesService {
       await client.query('select pg_advisory_xact_lock(hashtext($1))', [
         `${idempotencyScope}:${input.idempotencyKey}`,
       ]);
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [
+        `${operationType}:${input.scope.organizationId}:${contentHash}:${BULK_UPDATE_CONTRACT_VERSION}`,
+      ]);
       await client.query(
         'delete from idempotency_records where scope = $1 and key = $2 and expires_at <= now()',
         [idempotencyScope, input.idempotencyKey],
       );
-      const existing = await client.query<{ request_hash: string; response: BulkUpdateBatchResponse }>(
-        'select request_hash, response from idempotency_records where scope = $1 and key = $2',
-        [idempotencyScope, input.idempotencyKey],
-      );
+      const existing = await client.query<{
+        request_hash: string;
+        response: BulkUpdateBatchResponse;
+      }>('select request_hash, response from idempotency_records where scope = $1 and key = $2', [
+        idempotencyScope,
+        input.idempotencyKey,
+      ]);
       const previous = existing.rows[0];
       if (previous) {
         if (previous.request_hash !== requestHash) {
@@ -214,12 +228,7 @@ export class BulkUpdatesService {
                 rejected_rows, last_error_code, created_at, completed_at
          from bulk_update_batches
          where organization_id = $1 and operation_type = $2 and sha256 = $3 and contract_version = $4`,
-        [
-          input.scope.organizationId,
-          operationType,
-          contentHash,
-          BULK_UPDATE_CONTRACT_VERSION,
-        ],
+        [input.scope.organizationId, operationType, contentHash, BULK_UPDATE_CONTRACT_VERSION],
       );
       const replayed = replay.rows[0];
       if (replayed) {
@@ -391,8 +400,9 @@ export class BulkUpdatesService {
 
   async getReport(input: {
     batchId: string;
+    format: 'csv' | 'xlsx';
     scope: Scope;
-  }): Promise<{ filename: string; content: string; rowCount: number }> {
+  }): Promise<{ filename: string; content: Buffer; contentType: string; rowCount: number }> {
     const batchId = parseUuid(input.batchId, 'batchId');
     const batch = await this.findBatch(batchId, input.scope);
     if (!batch) {
@@ -434,9 +444,33 @@ export class BulkUpdatesService {
         ].join(','),
       );
     }
+    if (input.format === 'xlsx') {
+      const data = rows.rows.map((row) => ({
+        row_number: row.row_number,
+        authorization_key: row.authorization_key
+          ? safeSpreadsheetValue(row.authorization_key)
+          : null,
+        result_code: safeSpreadsheetValue(row.result_code),
+        result_message: safeSpreadsheetValue(row.result_message),
+        field_name: row.field_name ? safeSpreadsheetValue(row.field_name) : null,
+        previous_value: row.previous_value ? safeSpreadsheetValue(row.previous_value) : null,
+        new_value: row.new_value ? safeSpreadsheetValue(row.new_value) : null,
+        field_version: row.field_version,
+      }));
+      const sheet = XLSX.utils.json_to_sheet(data, { header });
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, sheet, 'bulk-update-results');
+      return {
+        filename: `bulk-update-${batchId}-report.xlsx`,
+        content: Buffer.from(XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as ArrayBuffer),
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        rowCount: rows.rows.length,
+      };
+    }
     return {
       filename: `bulk-update-${batchId}-report.csv`,
-      content: `${lines.join('\n')}\n`,
+      content: Buffer.from(`${lines.join('\n')}\n`, 'utf8'),
+      contentType: 'text/csv; charset=utf-8',
       rowCount: rows.rows.length,
     };
   }
@@ -447,10 +481,21 @@ export class BulkUpdatesService {
               b.mime_type, b.size_bytes, b.sha256, b.status, b.total_rows, b.processed_rows,
               b.updated_rows, b.unchanged_rows, b.rejected_rows, b.last_error_code, b.created_at, b.completed_at
        from bulk_update_batches b
-       where b.id = $1
-         and ($2::boolean = true or b.organization_id = $3)`,
-      [batchId, scope.organizationCode === 'MTD', scope.organizationId],
+        where b.id = $1 and b.organization_id = $2`,
+      [batchId, scope.organizationId],
     );
-    return result.rows[0];
+    const row = result.rows[0];
+    if (!row) return undefined;
+    const contract = bulkUpdateOperationContracts[row.operation_type as BulkUpdateOperationType];
+    if (!contract || scope.organizationCode !== contract.actorOrganizationCode) return undefined;
+    const permission = await this.database.pool.query(
+      `select 1
+       from user_organization_roles uor
+       inner join role_permissions rp on rp.role_id = uor.role_id
+       inner join permissions p on p.id = rp.permission_id
+       where uor.user_id = $1 and uor.organization_id = $2 and uor.active = true and p.code = $3`,
+      [scope.userId, scope.organizationId, contract.permission],
+    );
+    return permission.rowCount ? row : undefined;
   }
 }

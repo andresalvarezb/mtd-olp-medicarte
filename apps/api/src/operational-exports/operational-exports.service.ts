@@ -22,6 +22,9 @@ type ExportRow = {
   direction_status: string;
   operation_status: string | null;
   lugar_dispensacion: string | null;
+  fecha_dispensacion: string | null;
+  fecha_aplicacion: string | null;
+  audit_status: string;
   operational_version: number;
   version: number;
   created_at: Date;
@@ -40,6 +43,9 @@ const baseColumns = [
   'direction_status',
   'operation_status',
   'lugar_dispensacion',
+  'fecha_dispensacion',
+  'fecha_aplicacion',
+  'audit_status',
   'application_site_status',
   'operational_version',
   'version',
@@ -51,9 +57,14 @@ const sensitiveColumns = ['nombre_paciente', 'numero_documento'] as const;
 
 function csvValue(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return '';
-  const text = `${value}`;
+  const text = safeSpreadsheetValue(value);
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
+}
+
+function safeSpreadsheetValue(value: string | number | boolean): string {
+  const text = `${value}`;
+  return /^[=+\-@]/.test(text.trimStart()) ? `'${text}` : text;
 }
 
 /**
@@ -72,15 +83,17 @@ export class OperationalExportsService {
     const operationType: BulkUpdateOperationType = input.query.operationType;
     const contract = bulkUpdateOperationContracts[operationType];
     const readSensitive = input.scope.readSensitive;
-    // Fase 4: el actor habilitado es MEDICARTE; MTD conserva supervisión.
-    const allowedActors = new Set([contract.actorOrganizationCode, 'MTD']);
-    if (!allowedActors.has(input.scope.organizationCode)) {
+    if (
+      input.scope.organizationCode !== contract.actorOrganizationCode &&
+      input.scope.organizationCode !== 'MTD'
+    ) {
       throw new ForbiddenExportError(contract.actorOrganizationCode);
     }
     const result = await this.database.pool.query<ExportRow>(
       `select i.id, i.authorization_key, i.numero_autorizacion, i.codigo_medicamento,
               i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
-              i.lugar_dispensacion, i.operational_version, i.version, i.created_at, i.updated_at,
+               i.lugar_dispensacion, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
+               i.audit_status, i.operational_version, i.version, i.created_at, i.updated_at,
               ${readSensitive ? "i.source_data->>'NOMBRE_PACIENTE'" : 'null::text'} as nombre_paciente,
               ${readSensitive ? "i.source_data->>'NUM_DOCUMENTO'" : 'null::text'} as numero_documento
        from authorization_items i
@@ -91,10 +104,7 @@ export class OperationalExportsService {
        order by i.created_at asc, i.id asc`,
       [input.scope.organizationCode === 'MTD', input.scope.organizationId],
     );
-    const columns = [
-      ...baseColumns,
-      ...(readSensitive ? sensitiveColumns : []),
-    ];
+    const columns = [...baseColumns, ...(readSensitive ? sensitiveColumns : [])];
     const rows: Array<Record<string, string | number | null>> = result.rows.map((row) => ({
       id: row.id,
       authorization_key: row.authorization_key,
@@ -105,6 +115,9 @@ export class OperationalExportsService {
       direction_status: row.direction_status,
       operation_status: row.operation_status,
       lugar_dispensacion: row.lugar_dispensacion,
+      fecha_dispensacion: row.fecha_dispensacion,
+      fecha_aplicacion: row.fecha_aplicacion,
+      audit_status: row.audit_status,
       application_site_status: deriveApplicationSiteStatus(row.lugar_dispensacion),
       operational_version: row.operational_version,
       version: row.version,
@@ -115,7 +128,15 @@ export class OperationalExportsService {
     }));
     const filename = `authorization-items-${operationType.toLowerCase()}`;
     if (input.query.format === 'xlsx') {
-      const sheet = XLSX.utils.json_to_sheet(rows, { header: [...columns] });
+      const safeRows = rows.map((row) =>
+        Object.fromEntries(
+          Object.entries(row).map(([key, value]) => [
+            key,
+            typeof value === 'string' ? safeSpreadsheetValue(value) : value,
+          ]),
+        ),
+      );
+      const sheet = XLSX.utils.json_to_sheet(safeRows, { header: [...columns] });
       const book = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(book, sheet, 'authorization-items');
       const content = Buffer.from(
@@ -141,12 +162,12 @@ export class OperationalExportsService {
     format: string;
     rowCount: number;
     columns: readonly string[];
-    result: 'SUCCESS';
+    result: 'SUCCESS' | 'DENIED' | 'FAILED';
   }): Promise<void> {
     await this.database.pool.query(
       `insert into audit_events
          (actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
-       values ('USER', $1, $2, 'OPERATIONAL_EXPORT_CREATED', 'operational_export', $3, $4::jsonb, $5, $6, 'SUCCESS')`,
+       values ('USER', $1, $2, 'OPERATIONAL_EXPORT_CREATED', 'operational_export', $3, $4::jsonb, $5, $6, $7)`,
       [
         input.scope.userId,
         input.scope.organizationId,
@@ -156,9 +177,11 @@ export class OperationalExportsService {
           format: input.format,
           rowCount: input.rowCount,
           columns: input.columns,
+          result: input.result,
         }),
         input.scope.correlationId,
         input.scope.correlationId,
+        input.result,
       ],
     );
   }

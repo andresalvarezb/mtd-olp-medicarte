@@ -1,4 +1,8 @@
-import type { ApplicationSiteStatus } from '@authorization/contracts';
+import type {
+  ApplicationSiteStatus,
+  AuditStatus,
+  BulkUpdateOperationType,
+} from '@authorization/contracts';
 
 /**
  * Fase 4 (SPEC-011/ADR-020): `lugar_dispensacion` es texto libre decidido por
@@ -22,14 +26,72 @@ export function isValidOperationalText(value: string): boolean {
   return value.trim().length > 0 && value.length <= MAX_OPERATIONAL_TEXT_LENGTH;
 }
 
+export function normalizeOperationalDate(value: unknown): string {
+  return normalizeOperationalText(value);
+}
+
+export function isValidOperationalDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+export function isOperationalUpdateAllowed(
+  input: Readonly<{
+    operationType: BulkUpdateOperationType;
+    operationStatus: string | null;
+    auditStatus: AuditStatus;
+    lugarDispensacion: string | null;
+  }>,
+): boolean {
+  if (input.operationStatus === null || input.operationStatus === 'BLOCKED') return false;
+  if (input.operationType === 'ASSIGN_DISPENSATION_LOCATION') {
+    return ['READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED'].includes(
+      input.operationStatus,
+    );
+  }
+  if (!input.lugarDispensacion) return false;
+  if (input.operationType === 'REPORT_DISPENSATION_DATE') {
+    return ['READY_TO_DISPENSE', 'DISPENSATION_REPORTED'].includes(input.operationStatus);
+  }
+  return input.auditStatus !== 'APPROVED' && input.operationStatus !== 'DISPENSED';
+}
+
+export function deriveOperationalStatuses(
+  input: Readonly<{
+    operationType: BulkUpdateOperationType;
+    operationStatus: string;
+    auditStatus: AuditStatus;
+    fechaDispensacion: string | null;
+    fechaAplicacion: string | null;
+    newValue: string;
+  }>,
+): { operationStatus: string; auditStatus: AuditStatus } {
+  const fechaDispensacion =
+    input.operationType === 'REPORT_DISPENSATION_DATE' ? input.newValue : input.fechaDispensacion;
+  const fechaAplicacion =
+    input.operationType === 'REPORT_APPLICATION_DATE' ? input.newValue : input.fechaAplicacion;
+  return {
+    operationStatus:
+      input.operationType === 'REPORT_DISPENSATION_DATE' &&
+      input.operationStatus === 'READY_TO_DISPENSE'
+        ? 'DISPENSATION_REPORTED'
+        : input.operationStatus,
+    auditStatus:
+      input.auditStatus === 'NOT_STARTED' && fechaDispensacion && fechaAplicacion
+        ? 'READY'
+        : input.auditStatus,
+  };
+}
+
 /**
  * ADR-009/ADR-020/ADR-022: `application_site_status` no se persiste; se
  * deriva de la nulabilidad del lugar de dispensación.
  */
-export function deriveApplicationSiteStatus(lugarDispensacion: string | null): ApplicationSiteStatus {
-  return lugarDispensacion === null || lugarDispensacion === ''
-    ? 'PENDING_ASSIGNMENT'
-    : 'ASSIGNED';
+export function deriveApplicationSiteStatus(
+  lugarDispensacion: string | null,
+): ApplicationSiteStatus {
+  return lugarDispensacion === null || lugarDispensacion === '' ? 'PENDING_ASSIGNMENT' : 'ASSIGNED';
 }
 
 export const OPERATIONAL_FIELD_LUGAR_DISPENSACION = 'lugar_dispensacion' as const;

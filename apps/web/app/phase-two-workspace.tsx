@@ -3,12 +3,17 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   authorizationItemDetailResponseSchema,
+  bulkUpdateBatchResponseSchema,
   confirmImportResponseSchema,
   importBatchResponseSchema,
   paginatedAuthorizationItemsResponseSchema,
   paginatedImportRowsResponseSchema,
+  paginatedBulkUpdateRowsResponseSchema,
   type AuthorizationItemDetailResponse,
   type AuthorizationItemResponse,
+  type BulkUpdateBatchResponse,
+  type BulkUpdateOperationType,
+  type BulkUpdateRowResponse,
   type ImportBatchResponse,
   type ImportBatchStatus,
   type ImportRowResponse,
@@ -29,6 +34,22 @@ const terminalBatchStatuses = new Set<ImportBatchStatus>([
   'FAILED',
   'CANCELLED',
 ]);
+const terminalBulkStatuses = new Set(['COMPLETED', 'FAILED']);
+
+const bulkOperationOptions = [
+  {
+    type: 'REPORT_DISPENSATION_DATE',
+    permission: 'bulk_updates.dispensation_date',
+    label: 'Reportar fecha de dispensación',
+    field: 'fecha_dispensacion',
+  },
+  {
+    type: 'REPORT_APPLICATION_DATE',
+    permission: 'bulk_updates.application_date',
+    label: 'Reportar fecha de aplicación',
+    field: 'fecha_aplicacion',
+  },
+] as const;
 
 function newIdempotencyKey(): string {
   return globalThis.crypto.randomUUID();
@@ -72,9 +93,22 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
   const [message, setMessage] = useState('');
   const [uploadPending, setUploadPending] = useState(false);
   const [confirmPending, setConfirmPending] = useState(false);
+  const availableBulkOperations = bulkOperationOptions.filter((option) =>
+    organization?.permissions.includes(option.permission),
+  );
+  const [bulkOperationType, setBulkOperationType] = useState<BulkUpdateOperationType>();
+  const [bulkFile, setBulkFile] = useState<File>();
+  const bulkFileInput = useRef<HTMLInputElement>(null);
+  const bulkAttempt = useRef<
+    { file: File; operationType: BulkUpdateOperationType; key: string } | undefined
+  >(undefined);
+  const [bulkBatch, setBulkBatch] = useState<BulkUpdateBatchResponse>();
+  const [bulkRows, setBulkRows] = useState<BulkUpdateRowResponse[]>([]);
+  const [bulkPending, setBulkPending] = useState(false);
+  const [bulkError, setBulkError] = useState('');
   const canImport = organization?.permissions.includes('imports.create') ?? false;
   const canConfirm = organization?.permissions.includes('imports.confirm') ?? false;
-  const mutationPending = uploadPending || confirmPending;
+  const mutationPending = uploadPending || confirmPending || bulkPending;
 
   async function apiRequest(path: string, init?: RequestInit): Promise<Response> {
     try {
@@ -164,7 +198,44 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
     setSelectedItem(undefined);
     setDetailError('');
     confirmAttempt.current = undefined;
+    setBulkOperationType(undefined);
+    setBulkFile(undefined);
+    setBulkBatch(undefined);
+    setBulkRows([]);
+    setBulkError('');
+    bulkAttempt.current = undefined;
   }, [organizationId]);
+
+  useEffect(() => {
+    if (!bulkBatch || terminalBulkStatuses.has(bulkBatch.status)) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function poll(): Promise<void> {
+      try {
+        const response = await apiRequest(`/api/v1/bulk-updates/${bulkBatch!.id}`);
+        if (!response.ok) throw new Error('No fue posible consultar el lote operativo.');
+        const result = bulkUpdateBatchResponseSchema.parse(await response.json());
+        if (cancelled) return;
+        setBulkBatch(result);
+        if (terminalBulkStatuses.has(result.status)) {
+          const rowsResponse = await apiRequest(`/api/v1/bulk-updates/${result.id}/rows?limit=100`);
+          if (rowsResponse.ok) {
+            const report = paginatedBulkUpdateRowsResponseSchema.parse(await rowsResponse.json());
+            setBulkRows(report.items);
+          }
+          return;
+        }
+      } catch (error) {
+        if (!cancelled) setBulkError(errorMessage(error));
+      }
+      if (!cancelled) timer = setTimeout(() => void poll(), 800);
+    }
+    timer = setTimeout(() => void poll(), 300);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [bulkBatch?.id, bulkBatch?.status]);
 
   useEffect(() => {
     if (!organization) return;
@@ -295,6 +366,60 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
     }
   }
 
+  async function downloadOperationalBase(): Promise<void> {
+    if (!bulkOperationType) return;
+    setBulkPending(true);
+    setBulkError('');
+    try {
+      const query = new URLSearchParams({ operationType: bulkOperationType, format: 'xlsx' });
+      const response = await apiRequest(`/api/v1/operational-exports/authorization-items?${query}`);
+      if (!response.ok) throw new Error(`La descarga fue rechazada (${response.status}).`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `base-operativa-${bulkOperationType.toLowerCase()}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setBulkError(errorMessage(error));
+    } finally {
+      setBulkPending(false);
+    }
+  }
+
+  async function uploadBulk(): Promise<void> {
+    if (!bulkFile || !bulkOperationType) return;
+    const attempt =
+      bulkAttempt.current?.file === bulkFile &&
+      bulkAttempt.current.operationType === bulkOperationType
+        ? bulkAttempt.current
+        : { file: bulkFile, operationType: bulkOperationType, key: newIdempotencyKey() };
+    bulkAttempt.current = attempt;
+    setBulkPending(true);
+    setBulkError('');
+    try {
+      const body = new FormData();
+      body.set('operationType', attempt.operationType);
+      body.set('file', attempt.file);
+      const response = await apiRequest('/api/v1/bulk-updates', {
+        method: 'POST',
+        body,
+        headers: { 'idempotency-key': attempt.key },
+      });
+      if (!response.ok) throw new Error(`La carga operativa fue rechazada (${response.status}).`);
+      setBulkBatch(bulkUpdateBatchResponseSchema.parse(await response.json()));
+      setBulkRows([]);
+      setBulkFile(undefined);
+      bulkAttempt.current = undefined;
+      if (bulkFileInput.current) bulkFileInput.current.value = '';
+    } catch (error) {
+      setBulkError(errorMessage(error));
+    } finally {
+      setBulkPending(false);
+    }
+  }
+
   return (
     <section className="workspace" aria-label="Operación de Fase 2">
       <div className="workspace-header">
@@ -385,6 +510,114 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
                   {confirmPending ? 'Confirmando…' : 'Confirmar válidas'}
                 </Button>
               ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {availableBulkOperations.length > 0 ? (
+        <div className="import-card" aria-busy={bulkPending}>
+          <div>
+            <p className="eyebrow">Fase 5 / operación masiva</p>
+            <h3>Dispensación y aplicación con contrato reducido.</h3>
+            <p className="muted">
+              Descarga la base completa permitida. La carga acepta únicamente la llave de negocio y
+              el campo seleccionado; los soportes permanecen fuera de la plataforma.
+            </p>
+          </div>
+          <div className="upload-controls">
+            <label className="file-label" htmlFor="operational-bulk-type">
+              Tipo de operación
+            </label>
+            <select
+              id="operational-bulk-type"
+              value={bulkOperationType ?? ''}
+              disabled={mutationPending}
+              onChange={(event) => {
+                setBulkOperationType(event.target.value as BulkUpdateOperationType);
+                setBulkFile(undefined);
+                setBulkBatch(undefined);
+                setBulkRows([]);
+                bulkAttempt.current = undefined;
+              }}
+            >
+              <option value="">Selecciona una operación</option>
+              {availableBulkOperations.map((option) => (
+                <option key={option.type} value={option.type}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <Button
+              disabled={mutationPending || !bulkOperationType}
+              className="secondary compact"
+              onClick={() => void downloadOperationalBase()}
+            >
+              Descargar base XLSX
+            </Button>
+            <label className="file-label" htmlFor="operational-bulk-file">
+              CSV o XLSX con llave + campo
+            </label>
+            <input
+              ref={bulkFileInput}
+              id="operational-bulk-file"
+              type="file"
+              disabled={mutationPending || !bulkOperationType}
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={(event) => {
+                setBulkFile(event.target.files?.[0]);
+                bulkAttempt.current = undefined;
+              }}
+            />
+            <Button
+              disabled={mutationPending || !bulkOperationType || !bulkFile}
+              className="primary compact"
+              onClick={() => void uploadBulk()}
+            >
+              {bulkPending ? 'Procesando…' : 'Cargar actualización'}
+            </Button>
+          </div>
+          {bulkBatch ? (
+            <div className="batch-status" aria-live="polite">
+              <strong>{bulkBatch.operationType}</strong>
+              <span className={`status-pill status-${bulkBatch.status.toLowerCase()}`}>
+                {bulkBatch.status}
+              </span>
+              <span>
+                {bulkBatch.processedRows} procesadas · {bulkBatch.updatedRows} actualizadas ·{' '}
+                {bulkBatch.unchangedRows} sin cambio · {bulkBatch.rejectedRows} rechazadas
+              </span>
+            </div>
+          ) : null}
+          {bulkError ? (
+            <p className="batch-error" role="alert">
+              {bulkError}
+            </p>
+          ) : null}
+          {bulkRows.length > 0 ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fila</th>
+                    <th>Resultado</th>
+                    <th>Llave</th>
+                    <th>Campo</th>
+                    <th>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.rowNumber}</td>
+                      <td>{row.resultCode}</td>
+                      <td>{row.authorizationKey ?? 'Sin llave'}</td>
+                      <td>{row.fieldName ?? 'N/A'}</td>
+                      <td>{row.newValue ?? 'N/A'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : null}
         </div>
@@ -559,6 +792,22 @@ export function PhaseTwoWorkspace({ apiUrl, keycloak, profile }: Props) {
               <div>
                 <dt>Operación</dt>
                 <dd>{selectedItem.item.operationStatus ?? 'Pendiente de Fase 4'}</dd>
+              </div>
+              <div>
+                <dt>Lugar</dt>
+                <dd>{selectedItem.item.lugarDispensacion ?? 'Pendiente'}</dd>
+              </div>
+              <div>
+                <dt>Fecha dispensación</dt>
+                <dd>{selectedItem.item.fechaDispensacion ?? 'Pendiente'}</dd>
+              </div>
+              <div>
+                <dt>Fecha aplicación</dt>
+                <dd>{selectedItem.item.fechaAplicacion ?? 'Pendiente'}</dd>
+              </div>
+              <div>
+                <dt>Auditoría</dt>
+                <dd>{selectedItem.item.auditStatus}</dd>
               </div>
             </dl>
             <h4>Historial de cargas</h4>

@@ -158,6 +158,15 @@ export const operationStatusSchema = z.enum([
   'DISPENSATION_REPORTED',
   'DISPENSED',
 ]);
+export const auditStatusSchema = z.enum([
+  'NOT_STARTED',
+  'READY',
+  'IN_REVIEW',
+  'REJECTED',
+  'APPROVED',
+]);
+export type AuditStatus = z.infer<typeof auditStatusSchema>;
+export const operationalDateSchema = z.string().date();
 
 /** Fase 4 (SPEC-011/ADR-020): estado de sitio derivado, nunca persistido. */
 export const applicationSiteStatusSchema = z.enum(['PENDING_ASSIGNMENT', 'ASSIGNED']);
@@ -301,6 +310,9 @@ export const authorizationItemResponseSchema = z.object({
   sourcePrescripcionNormalized: z.string(),
   noPrescripcion: z.string(),
   lugarDispensacion: z.string().nullable(),
+  fechaDispensacion: operationalDateSchema.nullable(),
+  fechaAplicacion: operationalDateSchema.nullable(),
+  auditStatus: auditStatusSchema,
   applicationSiteStatus: applicationSiteStatusSchema,
   operationalVersion: z.number().int().nonnegative(),
   coverageRuleVersion: z.string(),
@@ -361,13 +373,13 @@ export const bulkUpdateOperationContracts = {
   },
   REPORT_DISPENSATION_DATE: {
     actorOrganizationCode: 'OLP',
-    permission: 'dispensing.register',
+    permission: 'bulk_updates.dispensation_date',
     mutableField: 'fecha_dispensacion',
     requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'fecha_dispensacion'],
   },
   REPORT_APPLICATION_DATE: {
     actorOrganizationCode: 'MEDICARTE',
-    permission: 'dispensing.register',
+    permission: 'bulk_updates.application_date',
     mutableField: 'fecha_aplicacion',
     requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'fecha_aplicacion'],
   },
@@ -381,9 +393,9 @@ export const bulkUpdateOperationContracts = {
   }
 >;
 
-/** Tipos habilitados en la Fase 4; los demás quedan para fases posteriores. */
-export const enabledBulkUpdateOperationTypes = ['ASSIGN_DISPENSATION_LOCATION'] as const;
-export const enabledBulkUpdateOperationTypeSchema = z.enum(['ASSIGN_DISPENSATION_LOCATION']);
+/** Tipos habilitados al completar la Fase 5. */
+export const enabledBulkUpdateOperationTypes = bulkUpdateOperationTypeSchema.options;
+export const enabledBulkUpdateOperationTypeSchema = bulkUpdateOperationTypeSchema;
 
 export const bulkUpdateBatchStatusSchema = z.enum([
   'UPLOADED',
@@ -535,7 +547,10 @@ export const notificationJobPayloadSchema = z.object({
   itemId: z.string().uuid().nullable(),
   recipientOrganizationId: z.string().uuid().nullable(),
   /** Fecha calendario America/Bogota de la ventana consolidada. */
-  period: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  period: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
   correlationId: correlationIdSchema,
   idempotencyKey: idempotencyKeySchema,
 });

@@ -159,6 +159,9 @@ export const authorizationItems = pgTable(
     operationStatus: varchar('operation_status', { length: 40 }),
     coverageRuleVersion: varchar('coverage_rule_version', { length: 40 }).notNull(),
     lugarDispensacion: text('lugar_dispensacion'),
+    fechaDispensacion: date('fecha_dispensacion'),
+    fechaAplicacion: date('fecha_aplicacion'),
+    auditStatus: varchar('audit_status', { length: 30 }).notNull().default('NOT_STARTED'),
     operationalVersion: integer('operational_version').notNull().default(0),
     createdFromBatchId: uuid('created_from_batch_id')
       .notNull()
@@ -198,6 +201,18 @@ export const authorizationItems = pgTable(
           (${table.coverageType} = 'NO_PBS' AND ${table.directionStatus} = 'CONFIRMED')
         )
       )`,
+    ),
+    check(
+      'authorization_items_audit_status_check',
+      sql`${table.auditStatus} IN ('NOT_STARTED', 'READY', 'IN_REVIEW', 'REJECTED', 'APPROVED')`,
+    ),
+    check(
+      'authorization_items_dispensed_requires_approval_check',
+      sql`${table.operationStatus} <> 'DISPENSED' OR ${table.auditStatus} = 'APPROVED'`,
+    ),
+    check(
+      'authorization_items_approval_requires_dispensed_check',
+      sql`${table.auditStatus} <> 'APPROVED' OR ${table.operationStatus} = 'DISPENSED'`,
     ),
     check('authorization_items_version_check', sql`${table.version} > 0`),
   ],
@@ -480,6 +495,7 @@ export const operationalFieldChanges = pgTable(
       onDelete: 'restrict',
     }),
     correlationId: uuid('correlation_id').notNull(),
+    idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -523,6 +539,12 @@ export const bulkUpdateBatches = pgTable(
   (table) => [
     index('bulk_update_batches_org_idx').on(table.organizationId, table.createdAt),
     index('bulk_update_batches_hash_idx').on(table.sha256),
+    uniqueIndex('bulk_update_batches_logical_key_idx').on(
+      table.organizationId,
+      table.operationType,
+      table.sha256,
+      table.contractVersion,
+    ),
     check(
       'bulk_update_batches_size_bytes_check',
       sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 20971520`,

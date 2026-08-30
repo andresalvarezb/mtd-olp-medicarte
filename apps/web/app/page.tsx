@@ -7,11 +7,11 @@ export default function Home() {
         <p className="eyebrow">MTD / Plataforma segura</p>
         <h1>Autorizaciones con trazabilidad desde el primer evento.</h1>
         <p className="lede">
-          Fase 2 activa: ingesta con staging, clasificación reproducible y trazabilidad por fila.
+          Operación activa: ingesta, disponibilidad y actualizaciones masivas trazables por fila.
         </p>
       </section>
       <IdentityPanel />
-      <footer>Fase 2 · La autorización backend decide cada alcance</footer>
+      <footer>Fase 5 · La autorización backend decide cada alcance</footer>
     </main>
   );
 }

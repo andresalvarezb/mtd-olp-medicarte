@@ -14,6 +14,7 @@ import {
   ApiForbiddenResponse,
   ApiHeader,
   ApiOkResponse,
+  ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
   ApiTooManyRequestsResponse,
@@ -53,7 +54,20 @@ export class OperationalExportsController {
 
   @Get('authorization-items')
   @Header('Cache-Control', 'no-store')
-  @ApiOkResponse({ description: 'On-demand full export; not persisted' })
+  @ApiOkResponse({
+    description: 'On-demand full export; not persisted',
+    content: {
+      'text/csv': { schema: { type: 'string', format: 'binary' } },
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+        schema: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiQuery({
+    name: 'operationType',
+    enum: ['ASSIGN_DISPENSATION_LOCATION', 'REPORT_DISPENSATION_DATE', 'REPORT_APPLICATION_DATE'],
+  })
+  @ApiQuery({ name: 'format', enum: ['csv', 'xlsx'], required: false })
   @ApiForbiddenResponse({ schema: errorSchema })
   async authorizationItems(
     @Headers('x-organization-id') organizationId: string | undefined,
@@ -65,18 +79,31 @@ export class OperationalExportsController {
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'exports.create',
+      'operational_exports.create',
     );
     const scope = scopeFromProfile(profile, organization, request);
-    const result = await this.exports.authorizationItems({ query, scope }).catch((error) => {
+    let result: Awaited<ReturnType<OperationalExportsService['authorizationItems']>>;
+    try {
+      result = await this.exports.authorizationItems({ query, scope });
+    } catch (error) {
+      await this.exports
+        .auditExport({
+          scope,
+          operationType: query.operationType,
+          format: query.format,
+          rowCount: 0,
+          columns: [],
+          result: error instanceof ForbiddenExportError ? 'DENIED' : 'FAILED',
+        })
+        .catch(() => undefined);
       if (error instanceof ForbiddenExportError) {
         throw new ForbiddenException({
           code: 'ACTOR_NOT_ALLOWED',
-          message: `Solo ${error.requiredActor} puede descargar la base para este tipo de operación.`,
+          message: `Solo ${error.requiredActor} o MTD con permiso explícito puede descargar esta base.`,
         });
       }
       throw error;
-    });
+    }
     await this.exports.auditExport({
       scope,
       operationType: query.operationType,
@@ -91,10 +118,7 @@ export class OperationalExportsController {
         ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         : 'text/csv; charset=utf-8',
     );
-    response.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${result.filename}"`,
-    );
+    response.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     response.setHeader('Content-Length', String(result.content.length));
     response.end(result.content);
   }

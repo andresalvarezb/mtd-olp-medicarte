@@ -22,7 +22,11 @@ export class BulkFileError extends Error {
 
 function cellToJsonValue(value: unknown): unknown {
   if (value === null || value === undefined) return null;
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) {
+    // SheetJS can materialize an Excel calendar date one millisecond before
+    // UTC midnight. Rounding that boundary preserves the displayed date.
+    return new Date(value.getTime() + 1).toISOString().slice(0, 10);
+  }
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
     return value;
   return JSON.stringify(value) ?? '';
@@ -76,9 +80,11 @@ export function parseBulkFile(
   }
 
   const sheetName = workbook.SheetNames[0];
-  if (!sheetName) throw new BulkFileError('INVALID_FILE_FORMAT', 'El archivo no contiene una hoja de datos.');
+  if (!sheetName)
+    throw new BulkFileError('INVALID_FILE_FORMAT', 'El archivo no contiene una hoja de datos.');
   const sheet = workbook.Sheets[sheetName];
-  if (!sheet) throw new BulkFileError('INVALID_FILE_FORMAT', 'No fue posible leer la hoja de datos.');
+  if (!sheet)
+    throw new BulkFileError('INVALID_FILE_FORMAT', 'No fue posible leer la hoja de datos.');
 
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
@@ -112,6 +118,12 @@ export function parseBulkFile(
   for (let index = 1; index < matrix.length; index += 1) {
     const values = matrix[index] ?? [];
     if (values.every(isBlank)) continue;
+    if (values.slice(headers.length).some((value) => !isBlank(value))) {
+      throw new BulkFileError(
+        'INVALID_HEADERS',
+        'Las filas no pueden contener celdas por fuera de las columnas declaradas.',
+      );
+    }
     const rawData: Record<string, unknown> = {};
     for (let columnIndex = 0; columnIndex < headers.length; columnIndex += 1) {
       const header = headers[columnIndex];

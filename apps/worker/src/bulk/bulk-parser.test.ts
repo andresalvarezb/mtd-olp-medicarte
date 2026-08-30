@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as XLSX from 'xlsx';
 import { parseBulkFile, BulkFileError } from './bulk-parser';
 
 const requiredColumns = ['numero_autorizacion', 'codigo_medicamento', 'lugar_dispensacion'];
@@ -52,6 +53,17 @@ describe('parseBulkFile', () => {
     ).toThrow(BulkFileError);
   });
 
+  it('rechaza celdas adicionales aunque no tengan encabezado', () => {
+    expect(() =>
+      parseBulkFile(
+        csv('numero_autorizacion,codigo_medicamento,lugar_dispensacion\nA,M,C,oculta\n'),
+        'bulk.csv',
+        'text/csv',
+        requiredColumns,
+      ),
+    ).toThrow(BulkFileError);
+  });
+
   it('rechaza encabezados duplicados', () => {
     expect(() =>
       parseBulkFile(
@@ -71,5 +83,24 @@ describe('parseBulkFile', () => {
       requiredColumns,
     );
     expect(parsed.rows).toHaveLength(1);
+  });
+
+  it('normaliza una fecha calendario nativa de XLSX sin convertirla en timestamp', () => {
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['numero_autorizacion', 'codigo_medicamento', 'fecha_dispensacion'],
+      ['A', 'M', new Date(2026, 7, 30)],
+    ]);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, 'actualizacion');
+    const content = Buffer.from(
+      XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as ArrayBuffer,
+    );
+    const parsed = parseBulkFile(
+      content,
+      'bulk.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ['numero_autorizacion', 'codigo_medicamento', 'fecha_dispensacion'],
+    );
+    expect(parsed.rows[0]?.rawData['fecha_dispensacion']).toBe('2026-08-30');
   });
 });

@@ -83,7 +83,7 @@ describe('phase two contracts', () => {
   });
 });
 
-describe('phase four contracts', () => {
+describe('phase four and five contracts', () => {
   it('mantiene el catálogo cerrado de ADR-022 con actor y columna por tipo', () => {
     expect(bulkUpdateOperationTypeSchema.options).toEqual([
       'ASSIGN_DISPENSATION_LOCATION',
@@ -100,8 +100,14 @@ describe('phase four contracts', () => {
     });
   });
 
-  it('en Fase 4 solo ASSIGN_DISPENSATION_LOCATION está habilitado', () => {
-    expect(enabledBulkUpdateOperationTypes).toEqual(['ASSIGN_DISPENSATION_LOCATION']);
+  it('en Fase 5 habilita los tres tipos cerrados', () => {
+    expect(enabledBulkUpdateOperationTypes).toEqual(bulkUpdateOperationTypeSchema.options);
+    expect(bulkUpdateOperationContracts.REPORT_DISPENSATION_DATE.permission).toBe(
+      'bulk_updates.dispensation_date',
+    );
+    expect(bulkUpdateOperationContracts.REPORT_APPLICATION_DATE.permission).toBe(
+      'bulk_updates.application_date',
+    );
   });
 
   it('conserva las causales estables de SPEC-013', () => {

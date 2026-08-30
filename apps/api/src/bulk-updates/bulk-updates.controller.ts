@@ -9,11 +9,12 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
-  Header,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -27,6 +28,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
   ApiBadRequestResponse,
+  ApiAcceptedResponse,
   ApiConflictResponse,
   ApiQuery,
   ApiTooManyRequestsResponse,
@@ -34,7 +36,11 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle } from '@nestjs/throttler';
 import { z } from 'zod';
-import { idempotencyKeySchema, bulkUpdateOperationTypeSchema } from '@authorization/contracts';
+import {
+  idempotencyKeySchema,
+  bulkUpdateOperationContracts,
+  bulkUpdateOperationTypeSchema,
+} from '@authorization/contracts';
 import { AuthGuard } from '../common/auth.guard';
 import { scopeFromProfile } from '../common/request-scope';
 import { AccessService } from '../identity/access.service';
@@ -46,7 +52,7 @@ const rowsQuerySchema = z.object({
   cursor: z.string().min(1).max(500).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
-const reportQuerySchema = z.object({ format: z.literal('csv').default('csv') });
+const reportQuerySchema = z.object({ format: z.enum(['csv', 'xlsx']).default('csv') });
 
 type UploadedBulkFile = Readonly<{
   originalname: string;
@@ -156,7 +162,7 @@ export class BulkUpdatesController {
       type: 'object',
       required: ['operationType', 'file'],
       properties: {
-        operationType: { type: 'string', enum: ['ASSIGN_DISPENSATION_LOCATION'] },
+        operationType: { type: 'string', enum: bulkUpdateOperationTypeSchema.options },
         file: { type: 'string', format: 'binary' },
       },
     },
@@ -165,6 +171,7 @@ export class BulkUpdatesController {
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiConflictResponse({ schema: errorSchema })
   @ApiPayloadTooLargeResponse({ schema: errorSchema })
+  @ApiAcceptedResponse({ schema: bulkBatchResponseSchema })
   async create(
     @NestBody('operationType') rawOperationType: string | undefined,
     @UploadedFile() file: UploadedBulkFile | undefined,
@@ -183,9 +190,7 @@ export class BulkUpdatesController {
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      operationType === 'ASSIGN_DISPENSATION_LOCATION'
-        ? 'bulk_updates.dispensation_location'
-        : 'dispensing.register',
+      bulkUpdateOperationContracts[operationType].permission,
     );
     return this.bulkUpdates.create({
       operationType,
@@ -251,9 +256,16 @@ export class BulkUpdatesController {
   @Get(':batchId/report')
   @ApiParam({ name: 'batchId', format: 'uuid' })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiQuery({ name: 'format', enum: ['csv'], required: false })
-  @Header('Content-Type', 'text/csv; charset=utf-8')
-  @ApiOkResponse({ schema: { type: 'string' } })
+  @ApiQuery({ name: 'format', enum: ['csv', 'xlsx'], required: false })
+  @ApiOkResponse({
+    description: 'On-demand CSV/XLSX processing report; not persisted',
+    content: {
+      'text/csv': { schema: { type: 'string', format: 'binary' } },
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+        schema: { type: 'string', format: 'binary' },
+      },
+    },
+  })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiNotFoundResponse({ schema: errorSchema })
@@ -262,8 +274,9 @@ export class BulkUpdatesController {
     @Query() rawQuery: unknown,
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
+    @Res() response: Response,
   ) {
-    reportQuerySchema.parse(rawQuery);
+    const query = reportQuerySchema.parse(rawQuery);
     const batchId = uuidSchema.parse(rawBatchId);
     const organization = uuidSchema.parse(organizationId);
     const profile = await this.access.requirePermission(
@@ -273,8 +286,12 @@ export class BulkUpdatesController {
     );
     const report = await this.bulkUpdates.getReport({
       batchId,
+      format: query.format,
       scope: scopeFromProfile(profile, organization, request),
     });
-    return report.content;
+    response.setHeader('Content-Type', report.contentType);
+    response.setHeader('Content-Disposition', `attachment; filename="${report.filename}"`);
+    response.setHeader('Content-Length', String(report.content.length));
+    response.end(report.content);
   }
 }
