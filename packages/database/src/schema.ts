@@ -210,7 +210,7 @@ export const authorizationItems = pgTable(
     ),
     check(
       'authorization_items_admission_status_check',
-      sql`${table.admissionStatus} IN ('NOT_READY', 'READY', 'HANDED_OFF', 'COMPLETED', 'ERROR')`,
+      sql`${table.admissionStatus} IN ('NOT_READY', 'READY')`,
     ),
     check(
       'authorization_items_admission_ready_requires_approval_check',

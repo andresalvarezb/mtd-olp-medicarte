@@ -1,6 +1,6 @@
 # Arquitectura de la Plataforma de Autorizaciones y Dispensación
 
-**Alcance:** Ingesta de autorizaciones, clasificación PBS/NO PBS, validación MIPRES, coordinación de dispensación/aplicación, auditoría humana de soportes externos, notificaciones y consolidación. El proceso de admisión por scraping queda desacoplado.
+**Alcance:** Ingesta de autorizaciones, clasificación PBS/NO PBS, validación MIPRES, coordinación de dispensación/aplicación, auditoría humana de soportes externos, notificaciones y consolidación. El proceso de admisión es externo a la plataforma: comienza con la descarga de la base de registros con auditoría aprobada y `admission_status = READY`.
 
 ---
 
@@ -41,7 +41,7 @@ Acceso centralizado para MTD, Compensar, OLP y Medicarte; despliegue único; ade
 3. **Idempotencia:** repetir una carga, correo, consulta MIPRES o trabajo no debe duplicar efectos.
 4. **Trazabilidad por diseño:** cada transición genera un evento de auditoría inmutable.
 5. **Separación de estados:** cobertura, habilitación, direccionamiento, operación y auditoría son dimensiones diferentes; los indicadores derivables no se persisten.
-6. **Integraciones desacopladas:** Gmail, MIPRES y el futuro scraper se consumen mediante adaptadores y colas; Drive permanece fuera del flujo de archivos.
+6. **Integraciones desacopladas:** Gmail y MIPRES se consumen mediante adaptadores y colas; Drive permanece fuera del flujo de archivos.
 7. **Permiso denegado por defecto:** toda acción y consulta exige rol, empresa y alcance explícito.
 8. **No sobrescribir evidencia:** las correcciones operativas generan historial append-only.
 9. **Contratos antes que pantallas:** el backend publica una API documentada; ninguna regla crítica vive solo en el frontend.
@@ -62,9 +62,8 @@ flowchart TB
     K --> P
     K --> M["API MIPRES"]
     K --> G["Gmail API"]
-    D["Drive corporativo externo"] -. operación directa .-> U
     S["Scheduler"] --> R
-    X["Scraper de admisiones separado"] --> A
+    D["Drive corporativo externo"] -. operación directa .-> U
 ```
 
 ### Contenedores lógicos
@@ -80,7 +79,6 @@ flowchart TB
 | Proveedor de identidad | Inicio de sesión, recuperación de cuenta y MFA.                                                                        |
 | Google Workspace       | Gmail para envío; Drive corporativo externo administrado directamente por MEDICARTE.                                   |
 | MIPRES                 | Fuente externa de direccionamientos y catálogos aplicables.                                                            |
-| Scraper de admisiones  | Proceso independiente que consume registros `READY_FOR_ADMISSION`.                                                     |
 
 ---
 
@@ -163,7 +161,6 @@ authorization-platform/
 | `audit-reviews`         | Revisión, hallazgos, rechazo, corrección y aprobación.                                           |
 | `notifications`         | Plantillas, destinatarios, agrupación, envío y deduplicación.                                    |
 | `exports`               | Consolidaciones y reportes descargables.                                                         |
-| `admission-handoff`     | Cola/API para el scraper externo.                                                                |
 | `audit-log`             | Eventos inmutables y consultas de historial.                                                     |
 | `admin`                 | Catálogos, usuarios, permisos y parámetros operativos.                                           |
 
@@ -206,7 +203,6 @@ Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar 
 | `operational_field_changes`        | Historial append-only de cambios en lugar/fechas, con antes/después, actor, organización, lote, fila y versión.        |
 | `audit_reviews`                    | Auditoría iniciada/finalizada, decisión y auditor.                                                                     |
 | `audit_findings`                   | Hallazgos tipificados y estado de subsanación.                                                                         |
-| `admission_jobs`                   | Entrega controlada al scraper y su resultado independiente.                                                            |
 
 ### Comunicación y trazabilidad
 
@@ -224,7 +220,7 @@ Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar 
 2. `import_batches.file_hash` permite reconocer el mismo archivo, pero no reemplaza la detección de duplicados por fila.
 3. Un solo direccionamiento externo puede necesitar historial; no se sobrescribe la respuesta anterior.
 4. Los eventos de auditoría y el historial operativo no admiten actualización ni borrado desde la aplicación.
-5. La aprobación para admisión se deriva de reglas; no debe escribirse libremente desde la interfaz.
+5. El estado `admission_status = READY` se deriva de reglas de dominio; no debe escribirse libremente desde la interfaz.
 6. `authorization_items` guarda los valores vigentes `lugar_dispensacion`, `fecha_dispensacion` y `fecha_aplicacion`; cada cambio crea historial para evitar sobrescrituras silenciosas.
 7. Una autorización es un registro global único. MTD puede leer globalmente con permiso; Compensar, OLP y Medicarte requieren relación explícita y permiso vigente.
 8. Una actualización explícita F2 iniciada desde `READY_TO_DISPENSE` reemplaza la evidencia y reevalúa las cuatro columnas de negocio (`NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `ESTADO_AUTORIZACION`, `No.PRESCRIPCION`); no es un bulk update operativo.
@@ -247,7 +243,7 @@ No habrá una columna mágica que intente representar todo. El ítem tendrá dim
 | `direction_status`  | `NOT_APPLICABLE`, `PENDING`, `CONFIRMED`, `QUERY_ERROR`              |
 | `operation_status`  | `BLOCKED`, `READY_TO_DISPENSE`, `DISPENSATION_REPORTED`, `DISPENSED` |
 | `audit_status`      | `NOT_STARTED`, `READY`, `IN_REVIEW`, `REJECTED`, `APPROVED`          |
-| `admission_status`  | `NOT_READY`, `READY`, `HANDED_OFF`, `COMPLETED`, `ERROR`             |
+| `admission_status`  | `NOT_READY`, `READY`                                                 |
 
 Para la interfaz se calculará un `process_summary`, por ejemplo:
 
@@ -617,7 +613,7 @@ Cada evento debe guardar:
 
 Eventos iniciales:
 
-`IMPORT_CREATED`, `IMPORT_ROW_REJECTED`, `AUTHORIZATION_ITEM_CREATED`, `AUTHORIZATION_ITEM_UPDATED`, `SOURCE_STATUS_BLOCKED`, `COVERAGE_CLASSIFIED`, `MIPRES_CHECK_COMPLETED`, `DIRECTION_NOT_FOUND`, `DIRECTION_CONFIRMED`, `AUTHORIZATION_READY_TO_DISPENSE`, `BULK_UPDATE_CREATED`, `BULK_UPDATE_ROW_REJECTED`, `DISPENSATION_LOCATION_ASSIGNED`, `DISPENSATION_LOCATION_CHANGED`, `DISPENSATION_DATE_REPORTED`, `APPLICATION_DATE_REPORTED`, `EPS_NOTIFICATION_SENT`, `OLP_NOTIFICATION_SENT`, `MEDICARTE_NOTIFICATION_SENT`, `AUDIT_REJECTED`, `AUDIT_APPROVED`, `ADMISSION_HANDOFF_CREATED`.
+`IMPORT_CREATED`, `IMPORT_ROW_REJECTED`, `AUTHORIZATION_ITEM_CREATED`, `AUTHORIZATION_ITEM_UPDATED`, `SOURCE_STATUS_BLOCKED`, `COVERAGE_CLASSIFIED`, `MIPRES_CHECK_COMPLETED`, `DIRECTION_NOT_FOUND`, `DIRECTION_CONFIRMED`, `AUTHORIZATION_READY_TO_DISPENSE`, `BULK_UPDATE_CREATED`, `BULK_UPDATE_ROW_REJECTED`, `DISPENSATION_LOCATION_ASSIGNED`, `DISPENSATION_LOCATION_CHANGED`, `DISPENSATION_DATE_REPORTED`, `APPLICATION_DATE_REPORTED`, `EPS_NOTIFICATION_SENT`, `OLP_NOTIFICATION_SENT`, `MEDICARTE_NOTIFICATION_SENT`, `AUDIT_REJECTED`, `AUDIT_APPROVED`.
 
 La tabla de eventos de auditoría no sustituye las tablas de negocio ni pretende ser event sourcing. Es un historial inmutable complementario.
 
@@ -648,7 +644,6 @@ El worker publica/procesa después el evento. Así no existe el caso “se guard
 | Notificar disponibilidad Medicarte | `authorization_item_id + readiness_version + MEDICARTE`        |
 | Notificar lugar a OLP              | `authorization_item_id + operational_field_version + OLP`      |
 | Procesar bulk update               | `operation_type + organization + file_hash + contract_version` |
-| Crear admisión                     | `authorization_item_id + admission_contract_version`           |
 
 Los jobs deben poder ejecutarse más de una vez. La cola entrega trabajo; la base de datos decide si el efecto ya ocurrió.
 
@@ -704,7 +699,7 @@ Este producto procesa información de pacientes y documentos clínico-operativos
 - Registros disponibles para revisión humana y antigüedad desde ambas fechas operativas.
 - Auditorías aprobadas/rechazadas y causales.
 - Tiempo total del proceso por empresa y etapa.
-- Registros listos y entregados a admisión.
+- Registros listos para admisión (`admission_status = READY`).
 
 Debe existir una bandeja administrativa de fallos recuperables. Obligar al equipo técnico a buscar en logs para reintentar un correo o una consulta sería un defecto de producto.
 
@@ -735,14 +730,14 @@ Debe existir una bandeja administrativa de fallos recuperables. Obligar al equip
 9. OLP intenta modificar lugar/fecha de aplicación o agrega columnas extra.
 10. El worker procesa dos veces el mismo job.
 11. El exportador bajo demanda maneja el volumen esperado sin persistir una copia del archivo ni agotar memoria de forma insegura.
-12. El scraper repite una solicitud de admisión.
-13. `READY_TO_DISPENSE` genera una notificación a OLP y otra a Medicarte sin duplicados.
-14. MEDICARTE carga lugar y OLP recibe la dirección después del commit.
-15. MEDICARTE modifica el lugar y OLP recibe una nueva versión, conservando historial.
-16. OLP carga fecha de dispensación y MEDICARTE carga fecha de aplicación sin poder modificar otros campos.
-17. Gmail falla al notificar el lugar: el valor permanece guardado y el job es reintentable.
-18. Las descargas completas aplican alcance y redacción de campos sensibles.
-19. La plataforma no determina completitud documental ni crea attachments.
+12. `READY_TO_DISPENSE` genera una notificación a OLP y otra a Medicarte sin duplicados.
+13. MEDICARTE carga lugar y OLP recibe la dirección después del commit.
+14. MEDICARTE modifica el lugar y OLP recibe una nueva versión, conservando historial.
+15. OLP carga fecha de dispensación y MEDICARTE carga fecha de aplicación sin poder modificar otros campos.
+16. Gmail falla al notificar el lugar: el valor permanece guardado y el job es reintentable.
+17. Las descargas completas aplican alcance y redacción de campos sensibles.
+18. La plataforma no determina completitud documental ni crea attachments.
+19. La descarga de la base para admisiones incluye solo registros con `audit_status = APPROVED` y `admission_status = READY`.
 
 ---
 
@@ -878,22 +873,10 @@ El patrón outbox **no nace en esta fase**; debe existir desde Fase 1. Aquí se 
 - Exportaciones/consolidados CSV/XLSX bajo demanda con filtros y permisos, sin conservar copia persistente; auditar la operación.
 - Indicadores operativos.
 - Solo `audit_status = APPROVED` es elegible para consolidación.
-- Derivación de `admission_status = READY`/`READY_FOR_ADMISSION` únicamente desde reglas de dominio; nunca por edición libre de UI.
+- Derivación de `admission_status = READY` únicamente desde reglas de dominio; nunca por edición libre de UI.
+- El alcance de la aplicación termina aquí: la descarga de la base de registros con auditoría aprobada y `admission_status = READY` inicia el proceso de admisión, que se ejecuta fuera de la plataforma.
 
 **Gate F6:** ambas fechas habilitan revisión; solo una persona autorizada aprueba/rechaza y registra actor, fecha, observaciones y hallazgos; ningún proceso automático aprueba; exportaciones no bloquean la API.
-
-### Fase 7 — Handoff al scraper de admisiones
-
-**Objetivo:** integrar el proceso externo sin acoplarlo al núcleo.
-
-- Contrato versionado de API/cola de `READY_FOR_ADMISSION`.
-- `admission_jobs` y estados independientes.
-- Claim/lease con expiración para evitar doble procesamiento.
-- Idempotencia de creación de admisión.
-- Resultado, reintentos, errores y conciliación.
-- El scraper mantiene sus propios estados internos y reporta el resultado al núcleo.
-
-**Gate F7:** consumir dos veces el mismo trabajo no crea dos admisiones; un lease abandonado puede recuperarse; los fallos del scraper no alteran la aprobación ya registrada.
 
 ### Orden obligatorio de dependencias
 
@@ -911,8 +894,6 @@ F4
 F5
  ↓
 F6
- ↓
-F7
 ```
 
 Dentro de una fase se permite paralelizar frontend, backend, pruebas e infraestructura solo cuando existe un contrato compartido aprobado. No se permite que distintos agentes creen DTO, enums o reglas equivalentes de forma independiente.
@@ -988,13 +969,6 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 **Decisión:** Persistir dimensiones independientes solo cuando aportan estado; derivar `application_site_status`, eliminar `support_status` y calcular resumen de UI.
 **Consecuencias:** Evita combinaciones imposibles; las transiciones deben estar centralizadas en servicios de dominio.
 
-### ADR-010 — Scraper de admisiones desacoplado
-
-**Estado:** Aceptado por alcance.  
-**Contexto:** La admisión depende de navegación automatizada en un sistema externo y puede fallar independientemente.  
-**Decisión:** El núcleo expone una API/cola de `READY_FOR_ADMISSION`; el scraper reclama trabajos y reporta resultados.  
-**Consecuencias:** Una caída del scraper no bloquea el proceso principal. Se requiere idempotencia, lease y conciliación.
-
 ### ADR-011 — Monorepo TypeScript
 
 **Estado:** Aceptado propuesto.  
@@ -1005,7 +979,7 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 ### ADR-012 — API REST versionada
 
 **Estado:** Aceptado propuesto.  
-**Contexto:** La web y el scraper necesitan contratos claros; el dominio es principalmente transaccional.  
+**Contexto:** La web necesita contratos claros; el dominio es principalmente transaccional.
 **Decisión:** REST `/api/v1` con OpenAPI. No introducir GraphQL en el MVP.  
 **Consecuencias:** Contratos simples y fáciles de integrar; algunos listados requerirán filtros y proyecciones específicas.
 
@@ -1138,12 +1112,12 @@ El MVP está listo solo cuando:
 12. Todo cambio y descarga sensible queda auditado.
 13. Un usuario de una empresa no puede ejecutar acciones ni ver campos fuera de su alcance.
 14. Backups, restauración, secretos, alertas y trabajos fallidos han sido probados.
-15. El scraper puede consumir un registro aprobado dos veces sin crear dos admisiones.
-16. Cada transición a `READY_TO_DISPENSE` genera las notificaciones lógicas a OLP y Medicarte sin duplicados.
-17. MEDICARTE puede asignar/modificar `lugar_dispensacion` y cada versión queda auditada.
-18. OLP recibe el lugar vigente por notificación y en su descarga completa.
-19. OLP carga `fecha_dispensacion`, MEDICARTE carga `fecha_aplicacion` y ninguna carga modifica otra columna.
-20. La plataforma no carga soportes, no crea attachments y ningún automatismo produce `APPROVED`.
+15. Cada transición a `READY_TO_DISPENSE` genera las notificaciones lógicas a OLP y Medicarte sin duplicados.
+16. MEDICARTE puede asignar/modificar `lugar_dispensacion` y cada versión queda auditada.
+17. OLP recibe el lugar vigente por notificación y en su descarga completa.
+18. OLP carga `fecha_dispensacion`, MEDICARTE carga `fecha_aplicacion` y ninguna carga modifica otra columna.
+19. La plataforma no carga soportes, no crea attachments y ningún automatismo produce `APPROVED`.
+20. La base para admisiones se descarga con auditoría aprobada y `admission_status = READY`; el proceso de admisión posterior vive fuera de la plataforma.
 
 ---
 

@@ -18,10 +18,10 @@ export function canDecideAuditReview(reviewStatus: 'IN_REVIEW' | 'APPROVED' | 'R
 }
 
 /**
- * DEC-003/DEC-006/SPEC-006: la aprobación humana produce DISPENSED y habilita
- * la derivación de admisión. admission_status solo avanza a READY aquí; los
- * estados HANDED_OFF/COMPLETED/ERROR pertenecen al handoff de Fase 7 y nunca
- * retroceden por una reevaluación local.
+ * DEC-003/DEC-006/SPEC-006: la aprobación humana produce DISPENSED y deriva
+ * admission_status = READY ("listo para admisión"), que habilita la descarga
+ * de la base para el proceso externo de admisiones. No existen estados de
+ * handoff en el núcleo: el alcance de Fase 6 cierra la plataforma.
  */
 export function deriveAdmissionStatus(
   input: Readonly<{
@@ -29,12 +29,5 @@ export function deriveAdmissionStatus(
     currentAdmissionStatus: AdmissionStatus;
   }>,
 ): AdmissionStatus {
-  if (
-    input.currentAdmissionStatus === 'HANDED_OFF' ||
-    input.currentAdmissionStatus === 'COMPLETED' ||
-    input.currentAdmissionStatus === 'ERROR'
-  ) {
-    return input.currentAdmissionStatus;
-  }
   return input.auditStatus === 'APPROVED' ? 'READY' : 'NOT_READY';
 }

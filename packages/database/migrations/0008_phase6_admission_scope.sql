@@ -1,0 +1,2 @@
+ALTER TABLE "authorization_items" DROP CONSTRAINT "authorization_items_admission_status_check";--> statement-breakpoint
+ALTER TABLE "authorization_items" ADD CONSTRAINT "authorization_items_admission_status_check" CHECK ("authorization_items"."admission_status" IN ('NOT_READY', 'READY'));

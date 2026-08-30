@@ -133,22 +133,13 @@ El patrón outbox **no nace en esta fase**; debe existir desde Fase 1. Aquí se 
 - Exportaciones CSV/XLSX bajo demanda con filtros y permisos, sin conservar copia persistente; auditar la operación.
 - Indicadores operativos.
 - Solo registros con `audit_status = APPROVED` pueden entrar al consolidado.
-- Derivación de `admission_status = READY`/`READY_FOR_ADMISSION` únicamente desde reglas de dominio; nunca por edición libre de UI.
+- Derivación de `admission_status = READY` únicamente desde reglas de dominio; nunca por edición libre de UI.
 
 **Gate F6:** ambas fechas habilitan revisión; solo un auditor puede decidir y ningún proceso automático aprueba; actor, fecha, observaciones y hallazgos quedan trazables; exportaciones no bloquean la API y lecturas/descargas sensibles quedan auditadas.
 
-### Fase 7 — Handoff al scraper de admisiones
+### Fase 6 — límite del alcance de la plataforma
 
-**Objetivo:** integrar el proceso externo sin acoplarlo al núcleo.
-
-- Contrato versionado de API/cola de `READY_FOR_ADMISSION`.
-- `admission_jobs` y estados independientes.
-- Claim/lease con expiración para evitar doble procesamiento.
-- Idempotencia de creación de admisión.
-- Resultado, reintentos, errores y conciliación.
-- El scraper mantiene sus propios estados internos y reporta el resultado al núcleo.
-
-**Gate F7:** consumir dos veces el mismo trabajo no crea dos admisiones; un lease abandonado puede recuperarse; los fallos del scraper no alteran la aprobación ya registrada.
+Fase 6 cierra el alcance funcional de la aplicación. La plataforma deriva `admission_status = READY` ("listo para admisión") para registros con `audit_status = APPROVED`; el proceso de admisión comienza cuando MTD descarga la base de esos registros y continúa fuera de este aplicativo. No existe handoff, cola, contrato de entrega ni estados posteriores (`HANDED_OFF`, `COMPLETED`, `ERROR`); toda integración con admisiones es responsabilidad de un proceso externo.
 
 ### Orden obligatorio de dependencias
 
@@ -166,8 +157,6 @@ F4
 F5
  ↓
 F6
- ↓
-F7
 ```
 
 Dentro de una fase se permite paralelizar frontend, backend, pruebas e infraestructura solo cuando existe un contrato compartido aprobado. No se permite que distintos agentes creen DTO, enums o reglas equivalentes de forma independiente.

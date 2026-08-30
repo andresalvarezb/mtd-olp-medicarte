@@ -85,7 +85,7 @@ services:
       OIDC_JWKS_URL: http://keycloak:8080/realms/authorization/protocol/openid-connect/certs
       OIDC_AUDIENCE: authorization-api
       API_PUBLIC_URL: http://localhost:3001
-      WEB_ORIGIN: http://localhost:3000
+      WEB_ORIGIN: http://localhost:3002
       API_PORT: 3001
       IMPORT_MAX_FILE_BYTES: 20971520
       IMPORT_PROCESSOR_VERSION: 2
@@ -145,7 +145,7 @@ services:
       context: .
       dockerfile: infra/docker/web.Dockerfile
     ports:
-      - '127.0.0.1:3000:3000'
+      - '127.0.0.1:3002:3000'
     healthcheck:
       test:
         [

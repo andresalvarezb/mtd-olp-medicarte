@@ -110,7 +110,7 @@ const authorizationItemSummarySchema = {
     },
     admissionStatus: {
       type: 'string',
-      enum: ['NOT_READY', 'READY', 'HANDED_OFF', 'COMPLETED', 'ERROR'],
+      enum: ['NOT_READY', 'READY'],
     },
     operationStatus: { type: 'string', nullable: true },
     version: { type: 'integer' },

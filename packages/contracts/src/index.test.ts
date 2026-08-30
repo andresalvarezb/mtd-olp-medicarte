@@ -222,13 +222,7 @@ describe('phase six contracts', () => {
     expect(authorizationItemListQuerySchema.safeParse({ auditStatus: 'PENDING' }).success).toBe(
       false,
     );
-    expect(admissionStatusSchema.options).toEqual([
-      'NOT_READY',
-      'READY',
-      'HANDED_OFF',
-      'COMPLETED',
-      'ERROR',
-    ]);
+    expect(admissionStatusSchema.options).toEqual(['NOT_READY', 'READY']);
   });
 
   it('valida indicadores operativos derivados', () => {

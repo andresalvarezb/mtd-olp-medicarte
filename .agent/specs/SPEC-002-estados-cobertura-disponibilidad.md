@@ -11,7 +11,7 @@
 - `audit_status`
 - `admission_status`
 
-`lugar_dispensacion`, `fecha_dispensacion` y `fecha_aplicacion` son datos operativos versionados, no dimensiones de estado independientes. `process_summary` y `application_site_status` son proyecciones de lectura. `support_status` no existe.
+`lugar_dispensacion`, `fecha_dispensacion` y `fecha_aplicacion` son datos operativos versionados, no dimensiones de estado independientes. `process_summary` y `application_site_status` son proyecciones de lectura. `support_status` no existe. `admission_status` solo toma `NOT_READY` y `READY`; `READY` ("listo para admisión") habilita la descarga de la base para el proceso externo de admisiones y no existen estados de handoff en el núcleo.
 
 ## Cobertura y habilitación
 

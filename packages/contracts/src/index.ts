@@ -167,14 +167,10 @@ export const auditStatusSchema = z.enum([
 ]);
 export type AuditStatus = z.infer<typeof auditStatusSchema>;
 
-/** SPEC-002/ADR-009: admisión derivada por reglas de dominio; nunca editable por UI. */
-export const admissionStatusSchema = z.enum([
-  'NOT_READY',
-  'READY',
-  'HANDED_OFF',
-  'COMPLETED',
-  'ERROR',
-]);
+/** SPEC-002/ADR-009: admisión derivada por reglas de dominio; nunca editable por UI.
+ * READY habilita la descarga de la base para el proceso externo de admisiones;
+ * no existen estados de handoff en el núcleo (el alcance de Fase 6 cierra la plataforma). */
+export const admissionStatusSchema = z.enum(['NOT_READY', 'READY']);
 export type AdmissionStatus = z.infer<typeof admissionStatusSchema>;
 export const operationalDateSchema = z.string().date();
 

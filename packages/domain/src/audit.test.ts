@@ -40,15 +40,9 @@ describe('deriveAdmissionStatus', () => {
     ).toBe('NOT_READY');
   });
 
-  it('no retrocede estados del handoff de Fase 7', () => {
+  it('READY solo expresa "listo para admisión"; no existen estados de handoff en el núcleo', () => {
     expect(
-      deriveAdmissionStatus({ auditStatus: 'REJECTED', currentAdmissionStatus: 'HANDED_OFF' }),
-    ).toBe('HANDED_OFF');
-    expect(
-      deriveAdmissionStatus({ auditStatus: 'APPROVED', currentAdmissionStatus: 'COMPLETED' }),
-    ).toBe('COMPLETED');
-    expect(
-      deriveAdmissionStatus({ auditStatus: 'APPROVED', currentAdmissionStatus: 'ERROR' }),
-    ).toBe('ERROR');
+      deriveAdmissionStatus({ auditStatus: 'APPROVED', currentAdmissionStatus: 'READY' }),
+    ).toBe('READY');
   });
 });

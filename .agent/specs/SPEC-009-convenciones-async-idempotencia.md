@@ -25,8 +25,7 @@ Se escribe en la misma transacción del cambio de negocio. El dispatcher puede e
 - import: `batch + file_hash + processor_version`;
 - MIPRES: `item + query_type + time_window`;
 - email: `notification_type + recipient_group + period + item_set_hash`;
-- bulk update: `operation_type + organization + file_hash + contract_version`;
-- admission: `item + contract_version`.
+- bulk update: `operation_type + organization + file_hash + contract_version`.
 
 ## Aceptación
 

@@ -4,7 +4,7 @@
 
 ## Decisión
 
-Persistir por separado habilitación, cobertura, direccionamiento, operación, auditoría y admisión. Los datos logísticos se persisten como campos versionados, pero sus indicadores se derivan; `process_summary` es solo una proyección de lectura.
+Persistir por separado habilitación, cobertura, direccionamiento, operación, auditoría y admisión. `admission_status` solo toma `NOT_READY` y `READY`: `READY` ("listo para admisión") habilita la descarga de la base para el proceso externo de admisiones; no existen estados de handoff en el núcleo. Los datos logísticos se persisten como campos versionados, pero sus indicadores se derivan; `process_summary` es solo una proyección de lectura.
 
 ## Consecuencia
 

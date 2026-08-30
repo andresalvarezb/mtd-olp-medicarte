@@ -137,7 +137,7 @@ audit_status = APPROVED
 - La aprobación habilita:
   - `operation_status = DISPENSED`;
   - inclusión en consolidado;
-  - derivación posterior de `READY_FOR_ADMISSION` cuando apliquen las demás reglas.
+  - derivación de `admission_status = READY`, que habilita la descarga de la base para el proceso de admisión externo.
 - Deben conservarse actor, fecha y decisión.
 - La aplicación no determina completitud documental. La existencia de ambas fechas habilita la revisión, pero solo la decisión humana produce aprobación.
 

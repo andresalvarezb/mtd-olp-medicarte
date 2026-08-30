@@ -18,10 +18,10 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "redirectUris": [
-        "http://localhost:3000/*"
+        "http://localhost:3002/*"
       ],
       "webOrigins": [
-        "http://localhost:3000"
+        "http://localhost:3002"
       ],
       "protocol": "openid-connect",
       "protocolMappers": [

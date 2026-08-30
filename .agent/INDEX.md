@@ -9,7 +9,6 @@
 | F4   | SPEC-002,004,009,011,013                                         | 006,009,014,020,021,022                         | Backend, Integrations, Frontend, QA, Security |
 | F5   | SPEC-002,005,008,009,013                                         | 005,007,009,016,018,022                         | Backend, Frontend, QA, Security               |
 | F6   | SPEC-002,006,008,010                                             | 003,007,009,016                                 | Backend, Frontend, QA, Security               |
-| F7   | SPEC-007,009                                                     | 004,010,014                                     | Backend, Integrations, QA                     |
 
 ## Regla
 

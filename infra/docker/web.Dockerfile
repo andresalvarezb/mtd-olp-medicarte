@@ -15,9 +15,12 @@ RUN pnpm --filter @authorization/web... build
 
 FROM node:22-bookworm-slim AS runner
 ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 RUN corepack enable
 WORKDIR /workspace
-COPY --from=builder /workspace /workspace
+COPY --from=builder /workspace/apps/web/.next/standalone /workspace
+COPY --from=builder /workspace/apps/web/.next/static /workspace/apps/web/.next/static
 USER node
 EXPOSE 3000
-CMD ["pnpm", "--filter", "@authorization/web", "start"]
+CMD ["node", "apps/web/server.js"]
