@@ -1,15 +1,21 @@
 import type { Metadata } from 'next';
-import './styles.css';
+import { RoleProvider } from '@/components/layout/role-context';
+import { AppShell } from '@/components/layout/app-shell';
+import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Authorization Platform',
-  description: 'Secure authorization operations platform',
+  title: 'Plataforma de Autorizaciones y Dispensación',
+  description: 'Plataforma de autorizaciones y dispensación de alto costo — OLP / MEDICARTE',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>
+        <RoleProvider>
+          <AppShell>{children}</AppShell>
+        </RoleProvider>
+      </body>
     </html>
   );
 }

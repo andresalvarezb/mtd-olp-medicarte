@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plataforma de Autorizaciones y Dispensación — Prototipo</title>
+  <style>
+    :root{
+      --bg:#f5f7fb;
+      --surface:#ffffff;
+      --surface-2:#f9fafb;
+      --text:#172033;
+      --muted:#667085;
+      --border:#e4e7ec;
+      --primary:#2156d8;
+      --primary-2:#173ea3;
+      --primary-soft:#eef4ff;
+      --success:#16835d;
+      --success-soft:#eaf8f2;
+      --warning:#b54708;
+      --warning-soft:#fff4e5;
+      --danger:#b42318;
+      --danger-soft:#fff0ee;
+      --purple:#6941c6;
+      --purple-soft:#f3f0ff;
+      --cyan:#087e8b;
+      --cyan-soft:#ecfbfc;
+      --shadow:0 2px 10px rgba(16,24,40,.06);
+      --shadow-lg:0 16px 40px rgba(16,24,40,.12);
+      --radius:14px;
+      --sidebar:272px;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+    button,input,select{font:inherit}
+    button{cursor:pointer}
+    .app{min-height:100vh;display:grid;grid-template-columns:var(--sidebar) 1fr}
+    .sidebar{
+      position:sticky;top:0;height:100vh;background:#10244f;color:#fff;padding:22px 16px 18px;display:flex;flex-direction:column;gap:18px;z-index:20
+    }
+    .brand{display:flex;align-items:center;gap:12px;padding:0 8px 14px;border-bottom:1px solid rgba(255,255,255,.12)}
+    .brand-mark{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#7ca7ff,#fff);display:grid;place-items:center;color:#10244f;font-weight:900;letter-spacing:-.5px}
+    .brand h1{font-size:14px;line-height:1.2;margin:0;font-weight:750}
+    .brand p{font-size:11px;color:#b9c7e8;margin:4px 0 0}
+    .role-preview{background:rgba(255,255,255,.08);padding:12px;border-radius:12px}
+    .role-preview label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#aebde0;display:block;margin-bottom:7px}
+    .role-preview select{width:100%;background:#173569;color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:9px;padding:9px 10px;outline:none}
+    .nav{overflow:auto;padding-right:3px}
+    .nav-section{font-size:10px;color:#89a1d4;text-transform:uppercase;letter-spacing:.1em;padding:10px 10px 7px}
+    .nav-item{
+      width:100%;border:0;background:transparent;color:#d9e2f6;padding:10px 11px;border-radius:10px;display:flex;align-items:center;gap:11px;text-align:left;margin:2px 0;font-size:13px
+    }
+    .nav-item:hover{background:rgba(255,255,255,.08)}
+    .nav-item.active{background:#fff;color:#173569;font-weight:700}
+    .nav-icon{width:24px;height:24px;border-radius:8px;background:rgba(255,255,255,.1);display:grid;place-items:center;font-size:11px;font-weight:800}
+    .nav-item.active .nav-icon{background:var(--primary-soft);color:var(--primary)}
+    .sidebar-foot{margin-top:auto;padding:12px;background:rgba(255,255,255,.06);border-radius:12px;font-size:11px;color:#b9c7e8;line-height:1.45}
+    .content{min-width:0}
+    .topbar{
+      height:72px;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 26px;position:sticky;top:0;z-index:15
+    }
+    .top-left{display:flex;align-items:center;gap:14px}
+    .mobile-menu{display:none;border:1px solid var(--border);background:#fff;border-radius:10px;padding:8px 10px}
+    .crumbs{font-size:12px;color:var(--muted)}
+    .page-name{font-size:16px;font-weight:750;margin-top:2px}
+    .top-actions{display:flex;align-items:center;gap:10px}
+    .env-badge{font-size:11px;background:var(--warning-soft);color:var(--warning);padding:7px 9px;border-radius:999px;font-weight:700}
+    .user-chip{display:flex;align-items:center;gap:9px;border:1px solid var(--border);padding:6px 9px 6px 7px;border-radius:999px;background:#fff}
+    .avatar{width:28px;height:28px;border-radius:50%;background:#dfe7ff;color:#2b4db8;display:grid;place-items:center;font-size:11px;font-weight:800}
+    .user-meta{line-height:1.1}
+    .user-meta strong{display:block;font-size:11px}
+    .user-meta span{font-size:10px;color:var(--muted)}
+    .main{padding:26px;max-width:1680px;margin:0 auto}
+    .view{display:none}
+    .view.active{display:block}
+    .page-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:20px}
+    .page-head h2{font-size:24px;margin:0;letter-spacing:-.4px}
+    .page-head p{margin:6px 0 0;color:var(--muted);font-size:13px;max-width:760px}
+    .actions{display:flex;gap:9px;flex-wrap:wrap}
+    .btn{border:1px solid var(--border);background:#fff;color:#344054;border-radius:10px;padding:9px 13px;font-size:12px;font-weight:700;box-shadow:0 1px 2px rgba(16,24,40,.02)}
+    .btn:hover{background:#f8fafc}
+    .btn.primary{background:var(--primary);border-color:var(--primary);color:white}
+    .btn.primary:hover{background:var(--primary-2)}
+    .btn.soft{background:var(--primary-soft);border-color:#d7e3ff;color:var(--primary)}
+    .btn:disabled{opacity:.45;cursor:not-allowed}
+    .grid{display:grid;gap:16px}
+    .grid.kpis{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:16px}
+    .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:17px;box-shadow:var(--shadow)}
+    .kpi-top{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:11px}
+    .kpi-icon{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:800}
+    .kpi-value{font-size:28px;font-weight:800;letter-spacing:-1px;margin:12px 0 5px}
+    .kpi-foot{font-size:11px;color:var(--muted)}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+    .card-head{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .card-head h3{margin:0;font-size:14px}
+    .card-head p{margin:4px 0 0;font-size:11px;color:var(--muted)}
+    .card-body{padding:18px}
+    .two-col{grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr)}
+    .three-col{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .flow{display:grid;grid-template-columns:repeat(6,minmax(135px,1fr));gap:10px;align-items:stretch}
+    .flow-step{border:1px solid var(--border);border-radius:12px;padding:13px;background:#fff;position:relative}
+    .flow-step:after{content:"→";position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:#98a2b3;font-weight:800}
+    .flow-step:last-child:after{display:none}
+    .flow-step .num{width:26px;height:26px;border-radius:8px;background:#eef2ff;color:#3446a8;display:grid;place-items:center;font-size:11px;font-weight:800;margin-bottom:9px}
+    .flow-step strong{font-size:12px;display:block}
+    .flow-step span{font-size:10px;color:var(--muted);display:block;margin-top:4px;line-height:1.35}
+    .flow-step.highlight{border-color:#b8cdfd;background:#f7f9ff}
+    .flow-step.logistics{border-color:#a7e6dc;background:#f2fcf9}
+    .table-wrap{overflow:auto}
+    table{width:100%;border-collapse:separate;border-spacing:0;min-width:980px}
+    th{background:#f8fafc;color:#667085;font-size:10px;text-transform:uppercase;letter-spacing:.045em;text-align:left;padding:11px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+    td{padding:12px;border-bottom:1px solid var(--border);font-size:12px;color:#344054}
+    .empty-row td{padding:0}
+    .empty-state{min-height:240px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:36px;color:var(--muted)}
+    .empty-icon{width:54px;height:54px;border-radius:16px;background:#f1f4f9;border:1px solid var(--border);display:grid;place-items:center;color:#8090ab;font-size:18px;font-weight:900;margin-bottom:13px}
+    .empty-state strong{color:#344054;font-size:13px}
+    .empty-state p{font-size:11px;max-width:390px;line-height:1.5;margin:6px auto 0}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid var(--border);background:#fff}
+    .field{min-width:165px;flex:1}
+    .field label{display:block;font-size:10px;color:#667085;margin:0 0 5px}
+    .control{width:100%;border:1px solid var(--border);background:#fff;border-radius:9px;padding:8px 10px;font-size:12px;color:#344054;outline:none}
+    .control:focus{border-color:#9db6f6;box-shadow:0 0 0 3px #edf3ff}
+    .tabs{display:flex;gap:6px;padding:0 16px 12px}
+    .tab{border:0;background:#f2f4f7;color:#667085;border-radius:999px;padding:7px 10px;font-size:11px;font-weight:700}
+    .tab.active{background:#e8efff;color:#2853bd}
+    .pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:5px 8px;font-size:10px;font-weight:750}
+    .pill.gray{background:#f2f4f7;color:#667085}
+    .pill.blue{background:#eaf0ff;color:#2853bd}
+    .pill.green{background:var(--success-soft);color:var(--success)}
+    .pill.orange{background:var(--warning-soft);color:var(--warning)}
+    .pill.red{background:var(--danger-soft);color:var(--danger)}
+    .pill.purple{background:var(--purple-soft);color:var(--purple)}
+    .upload-box{border:1.5px dashed #b9c4d8;border-radius:14px;background:#fbfcfe;padding:30px;text-align:center}
+    .upload-box .upload-icon{width:50px;height:50px;border-radius:15px;background:#eaf0ff;color:#2d59c7;display:grid;place-items:center;margin:0 auto 12px;font-weight:900}
+    .upload-box h4{margin:0;font-size:13px}
+    .upload-box p{margin:5px 0 14px;color:var(--muted);font-size:11px}
+    .timeline{display:flex;flex-direction:column;gap:0}
+    .tl-item{display:grid;grid-template-columns:28px 1fr;gap:10px;position:relative}
+    .tl-dot{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#eef2f6;color:#667085;font-size:10px;font-weight:800;z-index:1}
+    .tl-item:not(:last-child) .tl-dot:after{content:"";position:absolute;width:1px;background:#dfe3eb;top:26px;bottom:-8px;left:13px}
+    .tl-copy{padding:2px 0 16px}
+    .tl-copy strong{font-size:11px}
+    .tl-copy span{display:block;font-size:10px;color:var(--muted);margin-top:3px}
+    .config-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+    .config-block{border:1px solid var(--border);border-radius:12px;padding:15px}
+    .config-block h4{font-size:12px;margin:0 0 4px}
+    .config-block p{font-size:10px;color:var(--muted);margin:0 0 12px;line-height:1.45}
+    .note{border-left:3px solid #8fb0ff;background:#f5f8ff;padding:11px 13px;border-radius:8px;font-size:11px;color:#475467;line-height:1.5}
+    .metric-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .metric-mini{border:1px solid var(--border);border-radius:11px;padding:12px;background:#fff}
+    .metric-mini span{font-size:10px;color:var(--muted)}
+    .metric-mini strong{display:block;font-size:18px;margin-top:4px}
+    .role-note{margin-bottom:16px;padding:11px 13px;border:1px solid #dfe7fb;background:#f7f9ff;border-radius:11px;font-size:11px;color:#415783}
+    .hidden-by-role{display:none!important}
+    .split-status{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .status-box{border:1px solid var(--border);border-radius:12px;padding:14px}
+    .status-box h4{font-size:11px;margin:0 0 6px}
+    .status-box p{font-size:10px;color:var(--muted);margin:0}
+    .footer-note{padding:20px 0 4px;color:#98a2b3;font-size:10px;text-align:center}
+    .mobile-backdrop{display:none}
+    @media(max-width:1180px){
+      .grid.kpis{grid-template-columns:repeat(2,1fr)}
+      .two-col{grid-template-columns:1fr}
+      .flow{grid-template-columns:repeat(3,1fr)}
+      .flow-step:nth-child(3):after,.flow-step:last-child:after{display:none}
+    }
+    @media(max-width:840px){
+      .app{grid-template-columns:1fr}
+      .sidebar{position:fixed;left:-290px;transition:left .25s ease;width:272px;box-shadow:var(--shadow-lg)}
+      .sidebar.open{left:0}
+      .mobile-backdrop{position:fixed;inset:0;background:rgba(16,24,40,.36);z-index:18}
+      .mobile-backdrop.show{display:block}
+      .mobile-menu{display:block}
+      .topbar{padding:0 15px}
+      .main{padding:18px 14px}
+      .user-meta{display:none}
+      .page-head{flex-direction:column}
+      .grid.kpis,.three-col,.config-grid{grid-template-columns:1fr}
+      .flow{grid-template-columns:1fr}
+      .flow-step:after{content:"↓";right:auto;left:50%;top:auto;bottom:-14px;transform:translateX(-50%)}
+      .flow-step:nth-child(3):after{display:block}
+    }
+  </style>
+</head>
+<body>
+<div class="mobile-backdrop" id="backdrop"></div>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">MTD</div>
+      <div>
+        <h1>OLP - MEDICARTE</h1>
+        <p>Plataforma de alto costo</p>
+      </div>
+    </div>
+
+    <div class="role-preview">
+      <label>Vista de demostración</label>
+      <select id="roleSelect">
+        <option value="MTD">MTD — Administrador / Operación</option>
+        <option value="COMPENSAR">Compensar — Consulta</option>
+        <option value="OLP">OLP — Logística</option>
+        <option value="MEDICARTE">Medicarte — Aplicación</option>
+      </select>
+    </div>
+
+    <nav class="nav" id="nav">
+      <div class="nav-section">Principal</div>
+      <button class="nav-item active" data-view="dashboard" data-roles="MTD,COMPENSAR,OLP,MEDICARTE"><span class="nav-icon">01</span>Resumen ejecutivo</button>
+      <button class="nav-item" data-view="authorizations" data-roles="MTD,COMPENSAR,OLP,MEDICARTE"><span class="nav-icon">02</span>Autorizaciones</button>
+
+      <div class="nav-section" data-section="operation">Operación</div>
+      <button class="nav-item" data-view="imports" data-roles="MTD"><span class="nav-icon">03</span>Cargas</button>
+      <button class="nav-item" data-view="mipres" data-roles="MTD"><span class="nav-icon">04</span>Direccionamientos MIPRES</button>
+      <button class="nav-item" data-view="available" data-roles="MTD,OLP,MEDICARTE"><span class="nav-icon">05</span>Listos para dispensar</button>
+      <button class="nav-item" data-view="application" data-roles="MTD,MEDICARTE"><span class="nav-icon">06</span>Puntos de aplicación</button>
+      <button class="nav-item" data-view="logistics" data-roles="MTD,OLP"><span class="nav-icon">07</span>Logística OLP</button>
+      <button class="nav-item" data-view="supports" data-roles="MTD,MEDICARTE"><span class="nav-icon">08</span>Soportes</button>
+      <button class="nav-item" data-view="audit" data-roles="MTD"><span class="nav-icon">09</span>Auditoría</button>
+
+      <div class="nav-section">Control</div>
+      <button class="nav-item" data-view="notifications" data-roles="MTD"><span class="nav-icon">10</span>Notificaciones</button>
+      <button class="nav-item" data-view="exports" data-roles="MTD,COMPENSAR,OLP,MEDICARTE"><span class="nav-icon">11</span>Consolidado</button>
+      <button class="nav-item" data-view="failures" data-roles="MTD"><span class="nav-icon">12</span>Fallos recuperables</button>
+      <button class="nav-item" data-view="admin" data-roles="MTD"><span class="nav-icon">13</span>Administración</button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <strong>Prototipo</strong><br>
+      Todas las bandejas se muestran vacías para representar el estado inicial del producto.
+    </div>
+  </aside>
+
+  <section class="content">
+    <header class="topbar">
+      <div class="top-left">
+        <button class="mobile-menu" id="mobileMenu">☰</button>
+        <div>
+          <div class="crumbs">Plataforma / <span id="crumbRole">MTD</span></div>
+          <div class="page-name" id="headerTitle">Resumen ejecutivo</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span class="env-badge">PROTOTIPO</span>
+        <div class="user-chip">
+          <div class="avatar">DR</div>
+          <div class="user-meta"><strong>Usuario demostración</strong><span id="headerRole">MTD Admin</span></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+
+      <!-- DASHBOARD -->
+      <section class="view active" id="view-dashboard">
+        <div class="page-head">
+          <div>
+            <h2>Resumen ejecutivo</h2>
+            <p>Vista gerencial del proceso completo: ingreso de autorizaciones, clasificación PBS/NO PBS, direccionamiento, logística, aplicación, soportes y auditoría.</p>
+          </div>
+          <div class="actions">
+            <button class="btn">Últimos 30 días ▾</button>
+            <button class="btn primary">Exportar resumen</button>
+          </div>
+        </div>
+
+        <div class="role-note" id="roleNote">Vista MTD: acceso integral a operación, auditoría, integraciones y administración.</div>
+
+        <div class="grid kpis">
+          <div class="kpi">
+            <div class="kpi-top"><span>Autorizaciones recibidas</span><div class="kpi-icon" style="background:#eef4ff;color:#2456c7">AU</div></div>
+            <div class="kpi-value">0</div><div class="kpi-foot">Sin registros cargados</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-top"><span>Listas para dispensar</span><div class="kpi-icon" style="background:#eaf8f2;color:#16835d">RD</div></div>
+            <div class="kpi-value">0</div><div class="kpi-foot">PBS + NO PBS habilitados</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-top"><span>Pendientes punto aplicación</span><div class="kpi-icon" style="background:#fff4e5;color:#b54708">PA</div></div>
+            <div class="kpi-value">0</div><div class="kpi-foot">Pendientes de definición por Medicarte</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-top"><span>Auditorías aprobadas</span><div class="kpi-icon" style="background:#f3f0ff;color:#6941c6">OK</div></div>
+            <div class="kpi-value">0</div><div class="kpi-foot">Dispensaciones confirmadas</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-head">
+            <div><h3>Flujo operacional del medicamento</h3><p>La dirección de aplicación es una etapa logística independiente y auditable.</p></div>
+            <span class="pill blue">Flujo aprobado</span>
+          </div>
+          <div class="card-body">
+            <div class="flow">
+              <div class="flow-step"><div class="num">1</div><strong>Ingesta</strong><span>Archivo CSV/XLSX, staging y validación.</span></div>
+              <div class="flow-step"><div class="num">2</div><strong>PBS / NO PBS</strong><span>Clasificación y estado de origen.</span></div>
+              <div class="flow-step highlight"><div class="num">3</div><strong>MIPRES</strong><span>Solo NO PBS habilitado. Vigencia por fecha máxima.</span></div>
+              <div class="flow-step logistics"><div class="num">4</div><strong>Listo para dispensar</strong><span>Notifica a OLP y Medicarte.</span></div>
+              <div class="flow-step logistics"><div class="num">5</div><strong>Punto de aplicación</strong><span>Medicarte define dirección y se notifica a OLP.</span></div>
+              <div class="flow-step"><div class="num">6</div><strong>Aplicación & auditoría</strong><span>Soportes → auditoría humana → DISPENSED.</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid two-col">
+          <div class="card">
+            <div class="card-head"><div><h3>Estado actual de la operación</h3><p>Distribución por etapa.</p></div><button class="btn">Ver detalle</button></div>
+            <div class="card-body">
+              <div class="metric-list">
+                <div class="metric-mini"><span>Pendiente direccionamiento</span><strong>0</strong></div>
+                <div class="metric-mini"><span>Pendiente punto aplicación</span><strong>0</strong></div>
+                <div class="metric-mini"><span>Dispensación reportada</span><strong>0</strong></div>
+                <div class="metric-mini"><span>Pendiente auditoría</span><strong>0</strong></div>
+              </div>
+              <div class="empty-state" style="min-height:170px;padding-bottom:10px">
+                <div class="empty-icon">—</div>
+                <strong>Aún no hay actividad</strong>
+                <p>Los indicadores se actualizarán cuando se cargue el primer lote de autorizaciones.</p>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h3>Eventos logísticos</h3><p>Notificaciones críticas del flujo.</p></div><span class="pill green">Event-driven</span></div>
+            <div class="card-body">
+              <div class="timeline">
+                <div class="tl-item"><div class="tl-dot">1</div><div class="tl-copy"><strong>READY_TO_DISPENSE</strong><span>Se notifica inmediatamente a OLP y Medicarte.</span></div></div>
+                <div class="tl-item"><div class="tl-dot">2</div><div class="tl-copy"><strong>APPLICATION_SITE_ASSIGNED</strong><span>Medicarte define el punto de aplicación.</span></div></div>
+                <div class="tl-item"><div class="tl-dot">3</div><div class="tl-copy"><strong>Notificación logística OLP</strong><span>OLP recibe la dirección vigente para coordinar el envío.</span></div></div>
+                <div class="tl-item"><div class="tl-dot">4</div><div class="tl-copy"><strong>Reporte diario 08:00</strong><span>Resumen del día anterior; no reemplaza eventos operativos.</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- AUTHORIZATIONS -->
+      <section class="view" id="view-authorizations">
+        <div class="page-head">
+          <div><h2>Autorizaciones</h2><p>Bandeja maestra de ítems de autorización. La llave es número de autorización + COD_COMERCIAL.</p></div>
+          <div class="actions"><button class="btn">Exportar</button><button class="btn primary" data-role-action="MTD">Cargar autorizaciones</button></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="field"><label>Buscar</label><input class="control" placeholder="Autorización, paciente o medicamento"></div>
+            <div class="field"><label>Cobertura</label><select class="control"><option>Todos</option><option>PBS</option><option>NO PBS</option></select></div>
+            <div class="field"><label>Estado proceso</label><select class="control"><option>Todos</option><option>Listo para dispensar</option><option>Pendiente punto aplicación</option><option>Pendiente auditoría</option></select></div>
+            <div class="field"><label>Organización</label><select class="control"><option>Todas</option><option>MTD</option><option>OLP</option><option>Medicarte</option></select></div>
+            <div style="align-self:end"><button class="btn soft">Filtrar</button></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Autorización</th><th>Paciente</th><th>COD_COMERCIAL</th><th>Cobertura</th><th>Direccionamiento</th><th>Punto aplicación</th><th>Operación</th><th>Auditoría</th><th>Acciones</th></tr></thead>
+              <tbody><tr class="empty-row"><td colspan="9"><div class="empty-state"><div class="empty-icon">AU</div><strong>No hay autorizaciones para mostrar</strong><p>Cuando se confirme una carga válida, cada medicamento aparecerá como un ítem independiente en esta bandeja.</p></div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- IMPORTS -->
+      <section class="view" id="view-imports">
+        <div class="page-head">
+          <div><h2>Carga de autorizaciones</h2><p>Los archivos pasan por staging, validación por fila y confirmación antes de afectar el proceso.</p></div>
+          <div class="actions"><button class="btn">Descargar plantilla</button></div>
+        </div>
+        <div class="grid two-col">
+          <div class="card">
+            <div class="card-head"><div><h3>Nueva carga</h3><p>CSV o Excel. Máximo 20 MB por archivo.</p></div></div>
+            <div class="card-body">
+              <div class="upload-box">
+                <div class="upload-icon">↑</div>
+                <h4>Arrastra el archivo aquí</h4>
+                <p>o selecciónalo desde tu equipo. El archivo no se aplicará directamente a producción.</p>
+                <button class="btn primary">Seleccionar archivo</button>
+              </div>
+              <div class="note" style="margin-top:14px">Las llaves ya existentes se reportan para revisión humana. Solo pueden actualizarse si están en <strong>READY_TO_DISPENSE</strong> y no han avanzado a dispensación reportada.</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h3>Validaciones principales</h3><p>Controles previos a la confirmación.</p></div></div>
+            <div class="card-body">
+              <div class="timeline">
+                <div class="tl-item"><div class="tl-dot">1</div><div class="tl-copy"><strong>Formato y campos obligatorios</strong><span>Incluye NUMERO_AUTORIZACION, COD_COMERCIAL y campos de negocio requeridos.</span></div></div>
+                <div class="tl-item"><div class="tl-dot">2</div><div class="tl-copy"><strong>Duplicados</strong><span>Dentro del archivo y contra la base de datos.</span></div></div>
+                <div class="tl-item"><div class="tl-dot">3</div><div class="tl-copy"><strong>Clasificación</strong><span>CUPS_PRINCIPAL determina PBS / NO PBS.</span></div></div>
+                <div class="tl-item"><div class="tl-dot">4</div><div class="tl-copy"><strong>Confirmación</strong><span>Resultado por fila y causal estable.</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-head"><div><h3>Historial de cargas</h3><p>Lotes recibidos y su resultado.</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Lote</th><th>Archivo</th><th>Fecha</th><th>Usuario</th><th>Filas</th><th>Aceptadas</th><th>Rechazadas</th><th>Estado</th><th>Acciones</th></tr></thead><tbody><tr class="empty-row"><td colspan="9"><div class="empty-state"><div class="empty-icon">↑</div><strong>No se han realizado cargas</strong><p>Los lotes procesados aparecerán aquí con sus totales y el reporte de resultados.</p></div></td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- MIPRES -->
+      <section class="view" id="view-mipres">
+        <div class="page-head">
+          <div><h2>Direccionamientos MIPRES</h2><p>Solo se consulta para registros NO PBS habilitados. Un direccionamiento es vigente cuando la fecha actual es inferior a la fecha máxima.</p></div>
+          <div class="actions"><button class="btn">Revalidar pendientes</button></div>
+        </div>
+        <div class="grid kpis">
+          <div class="kpi"><div class="kpi-top"><span>Pendientes</span><div class="kpi-icon" style="background:#fff4e5;color:#b54708">P</div></div><div class="kpi-value">0</div><div class="kpi-foot">Esperando direccionamiento</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Confirmados</span><div class="kpi-icon" style="background:#eaf8f2;color:#16835d">C</div></div><div class="kpi-value">0</div><div class="kpi-foot">Fecha máxima vigente</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Errores consulta</span><div class="kpi-icon" style="background:#fff0ee;color:#b42318">E</div></div><div class="kpi-value">0</div><div class="kpi-foot">Separados de “sin direccionamiento”</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Reintentos</span><div class="kpi-icon" style="background:#f3f0ff;color:#6941c6">R</div></div><div class="kpi-value">0</div><div class="kpi-foot">Jobs recuperables</div></div>
+        </div>
+        <div class="card">
+          <div class="tabs"><button class="tab active">Pendientes</button><button class="tab">Confirmados</button><button class="tab">Errores de consulta</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Autorización</th><th>Paciente</th><th>Medicamento</th><th>Prescripción</th><th>Última consulta</th><th>Fecha máxima</th><th>Estado</th><th>Próximo intento</th><th>Acciones</th></tr></thead><tbody><tr class="empty-row"><td colspan="9"><div class="empty-state"><div class="empty-icon">MI</div><strong>No hay direccionamientos pendientes</strong><p>Los registros NO PBS que requieran validación aparecerán automáticamente en esta bandeja.</p></div></td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- AVAILABLE -->
+      <section class="view" id="view-available">
+        <div class="page-head">
+          <div><h2>Listos para dispensar</h2><p>Registros que ya superaron las reglas previas. Al entrar aquí se notifica de forma operativa a OLP y Medicarte.</p></div>
+          <div class="actions"><button class="btn">Exportar vista</button></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="field"><label>Buscar</label><input class="control" placeholder="Autorización, paciente, medicamento"></div>
+            <div class="field"><label>Cobertura</label><select class="control"><option>Todos</option><option>PBS</option><option>NO PBS</option></select></div>
+            <div class="field"><label>Punto de aplicación</label><select class="control"><option>Todos</option><option>Pendiente</option><option>Asignado</option></select></div>
+            <div class="field"><label>Notificación</label><select class="control"><option>Todos</option><option>OLP enviado</option><option>Medicarte enviado</option><option>Fallido</option></select></div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Autorización</th><th>Paciente</th><th>Medicamento</th><th>PBS / NO PBS</th><th>Listo desde</th><th>Notificación OLP</th><th>Notificación Medicarte</th><th>Punto aplicación</th><th>Acciones</th></tr></thead><tbody><tr class="empty-row"><td colspan="9"><div class="empty-state"><div class="empty-icon">RD</div><strong>No hay registros listos para dispensar</strong><p>Cuando un registro alcance READY_TO_DISPENSE aparecerá aquí y se generarán las notificaciones operativas correspondientes.</p></div></td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- APPLICATION SITE -->
+      <section class="view" id="view-application">
+        <div class="page-head">
+          <div><h2>Puntos de aplicación</h2><p>Medicarte define la sede o dirección donde realizará la aplicación. Cada cambio genera una nueva versión y notifica a OLP.</p></div>
+          <div class="actions"><button class="btn primary">Asignar punto</button></div>
+        </div>
+        <div class="grid kpis">
+          <div class="kpi"><div class="kpi-top"><span>Pendientes de asignar</span><div class="kpi-icon" style="background:#fff4e5;color:#b54708">PA</div></div><div class="kpi-value">0</div><div class="kpi-foot">Requieren acción de Medicarte</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Asignados hoy</span><div class="kpi-icon" style="background:#eaf8f2;color:#16835d">AS</div></div><div class="kpi-value">0</div><div class="kpi-foot">Direcciones confirmadas</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Modificados</span><div class="kpi-icon" style="background:#eef4ff;color:#2456c7">MV</div></div><div class="kpi-value">0</div><div class="kpi-foot">Nuevas versiones generadas</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Notificaciones a OLP</span><div class="kpi-icon" style="background:#f3f0ff;color:#6941c6">OL</div></div><div class="kpi-value">0</div><div class="kpi-foot">Por asignación/modificación</div></div>
+        </div>
+        <div class="card">
+          <div class="tabs"><button class="tab active">Pendientes</button><button class="tab">Asignados</button><button class="tab">Historial de cambios</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Autorización</th><th>Paciente</th><th>Medicamento</th><th>Municipio paciente</th><th>Punto / sede</th><th>Dirección</th><th>Versión</th><th>Última actualización</th><th>Acciones</th></tr></thead><tbody><tr class="empty-row"><td colspan="9"><div class="empty-state"><div class="empty-icon">PA</div><strong>No hay puntos pendientes</strong><p>Los registros READY_TO_DISPENSE aparecerán aquí para que Medicarte defina la ubicación de aplicación.</p></div></td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- OLP LOGISTICS -->
+      <section class="view" id="view-logistics">
+        <div class="page-head">
+          <div><h2>Logística OLP</h2><p>Bandeja para coordinar el envío del medicamento una vez Medicarte haya definido el punto de aplicación.</p></div>
+          <div class="actions"><button class="btn">Exportar pendientes</button></div>
+        </div>
+        <div class="grid three-col" style="margin-bottom:16px">
+          <div class="kpi"><div class="kpi-top"><span>Esperando dirección</span><div class="kpi-icon" style="background:#fff4e5;color:#b54708">ED</div></div><div class="kpi-value">0</div><div class="kpi-foot">Listos, aún sin ubicación</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Dirección recibida</span><div class="kpi-icon" style="background:#eef4ff;color:#2456c7">DR</div></div><div class="kpi-value">0</div><div class="kpi-foot">Pendientes de coordinar envío</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Actualizaciones de dirección</span><div class="kpi-icon" style="background:#f3f0ff;color:#6941c6">AD</div></div><div class="kpi-value">0</div><div class="kpi-foot">Cambios informados por Medicarte</div></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="field"><label>Estado logístico</label><select class="control"><option>Todos</option><option>Esperando dirección</option><option>Dirección recibida</option></select></div>
+            <div class="field"><label>Departamento</label><select class="control"><option>Todos</option></select></div>
+            <div class="field"><label>Municipio</label><select class="control"><option>Todos</option></select></div>
+            <div class="field"><label>Buscar</label><input class="control" placeholder="Autorización o paciente"></div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Autorización</th><th>Paciente</th><th>Medicamento</th><th>Estado punto</th><th>Sede</th><th>Dirección aplicación</th><th>Versión</th><th>Recibida</th><th>Acciones</th></tr></thead><tbody><tr class="empty-row"><td colspan="9"><div class="empty-state"><div class="empty-icon">OL</div><strong>No hay envíos por coordinar</strong><p>Cuando Medicarte asigne una dirección, OLP recibirá la notificación y el registro aparecerá en esta bandeja.</p></div></td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- SUPPORTS -->
+      <section class="view" id="view-supports">
+        <div class="page-head">
+          <div><h2>Soportes de aplicación</h2><p>Fórmula y soporte de aplicación en Drive corporativo. La carga registra la dispensación reportada y conserva versiones.</p></div>
+          <div class="actions"><button class="btn primary">Cargar soporte</button></div>
+        </div>
+        <div class="card">
+          <div class="tabs"><button class="tab active">Pendientes</button><button class="tab">Completos</button><button class="tab">Corrección requerida</button><button class="tab">Historial</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Autorización</th><th>Paciente</th><th>Punto aplicación</th><th>Fórmula</th><th>Soporte aplicación</th><th>Estado</th><th>Última carga</th><th>Versión</th><th>Acciones</th></tr></thead><tbody><tr class="empty-row"><td colspan="9"><div class="empty-state"><div class="empty-icon">PDF</div><strong>No hay soportes pendientes</strong><p>Los registros aplicados aparecerán aquí para cargar o corregir documentos. Cada archivo puede pesar hasta 20 MB.</p></div></td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- AUDIT -->
+      <section class="view" id="view-audit">
+        <div class="page-head">
+          <div><h2>Auditoría de soportes</h2><p>Revisión exclusivamente humana y visual. La aprobación explícita confirma la dispensación y habilita el consolidado.</p></div>
+          <div class="actions"><button class="btn">Mis auditorías</button></div>
+        </div>
+        <div class="grid kpis">
+          <div class="kpi"><div class="kpi-top"><span>Listos para auditar</span><div class="kpi-icon" style="background:#eef4ff;color:#2456c7">LA</div></div><div class="kpi-value">0</div><div class="kpi-foot">Soportes completos</div></div>
+          <div class="kpi"><div class="kpi-top"><span>En revisión</span><div class="kpi-icon" style="background:#fff4e5;color:#b54708">ER</div></div><div class="kpi-value">0</div><div class="kpi-foot">Auditoría iniciada</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Rechazados</span><div class="kpi-icon" style="background:#fff0ee;color:#b42318">RJ</div></div><div class="kpi-value">0</div><div class="kpi-foot">Requieren corrección</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Aprobados</span><div class="kpi-icon" style="background:#eaf8f2;color:#16835d">AP</div></div><div class="kpi-value">0</div><div class="kpi-foot">DISPENSED</div></div>
+        </div>
+        <div class="card">
+          <div class="tabs"><button class="tab active">Por revisar</button><button class="tab">En revisión</button><button class="tab">Rechazados</button><button class="tab">Aprobados</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Autorización</th><th>Paciente</th><th>Aplicado por</th><th>Punto aplicación</th><th>Fórmula</th><th>Soporte</th><th>Fecha aplicación</th><th>Auditor</th><th>Acciones</th></tr></thead><tbody><tr class="empty-row"><td colspan="9"><div class="empty-state"><div class="empty-icon">✓</div><strong>No hay registros para auditar</strong><p>Cuando Medicarte complete los soportes, los registros quedarán disponibles para revisión humana.</p></div></td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- NOTIFICATIONS -->
+      <section class="view" id="view-notifications">
+        <div class="page-head">
+          <div><h2>Notificaciones</h2><p>Monitoreo de correos operativos event-driven y reporte diario consolidado.</p></div>
+          <div class="actions"><button class="btn">Reintentar fallidos</button></div>
+        </div>
+        <div class="grid three-col" style="margin-bottom:16px">
+          <div class="kpi"><div class="kpi-top"><span>Operativas enviadas</span><div class="kpi-icon" style="background:#eaf8f2;color:#16835d">EV</div></div><div class="kpi-value">0</div><div class="kpi-foot">READY + punto aplicación</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Reportes diarios</span><div class="kpi-icon" style="background:#eef4ff;color:#2456c7">08</div></div><div class="kpi-value">0</div><div class="kpi-foot">Ejecución 08:00</div></div>
+          <div class="kpi"><div class="kpi-top"><span>Fallidas</span><div class="kpi-icon" style="background:#fff0ee;color:#b42318">!</div></div><div class="kpi-value">0</div><div class="kpi-foot">Reintentables</div></div>
+        </div>
+        <div class="card">
+          <div class="tabs"><button class="tab active">Todas</button><button class="tab">OLP</button><button class="tab">Medicarte</button><button class="tab">EPS</button><button class="tab">Reporte 08:00</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Evento</th><th>Entidad</th><th>Destinatarios</th><th>Autorización</th><th>Plantilla</th><th>Estado</th><th>Intentos</th><th>Acciones</th></tr></thead><tbody><tr class="empty-row"><td colspan="9"><div class="empty-state"><div class="empty-icon">@</div><strong>No se han generado notificaciones</strong><p>Los envíos y reintentos quedarán trazados con su Gmail message ID e idempotency key.</p></div></td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- EXPORTS -->
+      <section class="view" id="view-exports">
+        <div class="page-head">
+          <div><h2>Consolidado</h2><p>Consulta y exportación bajo demanda. El archivo generado se entrega al usuario y no queda almacenado como copia permanente.</p></div>
+          <div class="actions"><button class="btn">Exportar CSV</button><button class="btn primary">Exportar Excel</button></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="field"><label>Fecha desde</label><input class="control" type="date"></div>
+            <div class="field"><label>Fecha hasta</label><input class="control" type="date"></div>
+            <div class="field"><label>Estado auditoría</label><select class="control"><option>Aprobados</option><option>Todos permitidos</option></select></div>
+            <div class="field"><label>Organización</label><select class="control"><option>Según mi alcance</option></select></div>
+            <div style="align-self:end"><button class="btn soft">Aplicar filtros</button></div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Autorización</th><th>Paciente</th><th>Medicamento</th><th>Cobertura</th><th>Punto aplicación</th><th>Fecha aplicación</th><th>Auditoría</th><th>Fecha aprobación</th></tr></thead><tbody><tr class="empty-row"><td colspan="8"><div class="empty-state"><div class="empty-icon">CSV</div><strong>No hay registros para consolidar</strong><p>El consolidado definitivo incluirá únicamente registros aprobados dentro del alcance del usuario.</p></div></td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- FAILURES -->
+      <section class="view" id="view-failures">
+        <div class="page-head">
+          <div><h2>Fallos recuperables</h2><p>Bandeja operativa para jobs que agotaron reintentos en MIPRES, Gmail, Drive u otros adaptadores.</p></div>
+          <div class="actions"><button class="btn">Reintentar seleccionados</button></div>
+        </div>
+        <div class="card">
+          <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Servicio</th><th>Job</th><th>Recurso</th><th>Error</th><th>Intentos</th><th>Próximo paso</th><th>Acciones</th></tr></thead><tbody><tr class="empty-row"><td colspan="8"><div class="empty-state"><div class="empty-icon">!</div><strong>No hay fallos pendientes</strong><p>Los errores recuperables aparecerán aquí sin obligar al equipo operativo a revisar logs técnicos.</p></div></td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- ADMIN -->
+      <section class="view" id="view-admin">
+        <div class="page-head">
+          <div><h2>Administración</h2><p>Configuración operativa del producto. Los cambios sensibles quedan auditados.</p></div>
+          <div class="actions"><button class="btn primary">Guardar cambios</button></div>
+        </div>
+        <div class="config-grid">
+          <div class="card">
+            <div class="card-head"><div><h3>Destinatarios de notificaciones</h3><p>Agregar o retirar correos sin cambiar código.</p></div></div>
+            <div class="card-body">
+              <div class="config-block"><h4>OLP — Disponibilidad</h4><p>AUTHORIZATION_READY_TO_DISPENSE</p><input class="control" placeholder="correo1@empresa.com, correo2@empresa.com"></div>
+              <div class="config-block" style="margin-top:10px"><h4>OLP — Punto de aplicación</h4><p>APPLICATION_SITE_ASSIGNED / CHANGED</p><input class="control" placeholder="logistica@empresa.com"></div>
+              <div class="config-block" style="margin-top:10px"><h4>Medicarte — Disponibilidad</h4><p>Registros que requieren definición del punto de aplicación.</p><input class="control" placeholder="operacion@medicarte.com"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h3>Google Drive corporativo</h3><p>Destino para nuevas cargas de soportes.</p></div></div>
+            <div class="card-body">
+              <div class="field"><label>ID del Drive / carpeta</label><input class="control" placeholder="1AbC..."></div>
+              <div class="note" style="margin-top:12px">Cambiar este ID solo afecta nuevas cargas. Las referencias históricas conservan el identificador del destino usado originalmente.</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h3>Reporte diario</h3><p>Resumen del día anterior.</p></div></div>
+            <div class="card-body">
+              <div class="split-status">
+                <div class="status-box"><h4>Hora de ejecución</h4><p><strong style="font-size:18px;color:#172033">08:00</strong><br>America/Bogota</p></div>
+                <div class="status-box"><h4>Ventana</h4><p>Día calendario inmediatamente anterior.</p></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h3>Integraciones</h3><p>Estado esperado de servicios externos.</p></div></div>
+            <div class="card-body">
+              <div class="split-status">
+                <div class="status-box"><h4>MIPRES</h4><p><span class="pill gray">Sin configurar</span></p></div>
+                <div class="status-box"><h4>Google Workspace</h4><p><span class="pill gray">Sin configurar</span></p></div>
+              </div>
+              <div class="split-status" style="margin-top:10px">
+                <div class="status-box"><h4>PostgreSQL</h4><p><span class="pill gray">Prototipo</span></p></div>
+                <div class="status-box"><h4>Redis / BullMQ</h4><p><span class="pill gray">Prototipo</span></p></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="footer-note">Prototipo visual — no procesa información real ni contiene datos de pacientes.</div>
+    </main>
+  </section>
+</div>
+
+<script>
+const views = {
+  dashboard:"Resumen ejecutivo",
+  authorizations:"Autorizaciones",
+  imports:"Carga de autorizaciones",
+  mipres:"Direccionamientos MIPRES",
+  available:"Listos para dispensar",
+  application:"Puntos de aplicación",
+  logistics:"Logística OLP",
+  supports:"Soportes de aplicación",
+  audit:"Auditoría de soportes",
+  notifications:"Notificaciones",
+  exports:"Consolidado",
+  failures:"Fallos recuperables",
+  admin:"Administración"
+};
+
+const roleMeta = {
+  MTD:{label:"MTD Admin", note:"Vista MTD: acceso integral a operación, auditoría, integraciones y administración."},
+  COMPENSAR:{label:"Compensar Viewer", note:"Vista Compensar: consulta de autorizaciones y consolidado únicamente según permisos asignados."},
+  OLP:{label:"OLP Operator", note:"Vista OLP: consulta de autorizaciones disponibles, recepción de puntos de aplicación y coordinación logística."},
+  MEDICARTE:{label:"Medicarte Operator", note:"Vista Medicarte: disponibles, definición del punto de aplicación, registro de aplicación y carga de soportes."}
+};
+
+function showView(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.view===name));
+  document.getElementById('headerTitle').textContent=views[name]||name;
+  closeMobile();
+}
+
+function applyRole(role){
+  document.querySelectorAll('.nav-item[data-roles]').forEach(el=>{
+    const allowed=el.dataset.roles.split(',');
+    el.classList.toggle('hidden-by-role', !allowed.includes(role));
+  });
+  document.querySelectorAll('[data-role-action]').forEach(el=>{
+    el.style.display = el.dataset.roleAction===role ? '' : 'none';
+  });
+  document.getElementById('crumbRole').textContent=role;
+  document.getElementById('headerRole').textContent=roleMeta[role].label;
+  document.getElementById('roleNote').textContent=roleMeta[role].note;
+
+  const active=document.querySelector('.nav-item.active');
+  if(active && active.classList.contains('hidden-by-role')){
+    showView('dashboard');
+  }
+}
+
+document.querySelectorAll('.nav-item').forEach(btn=>btn.addEventListener('click',()=>showView(btn.dataset.view)));
+document.getElementById('roleSelect').addEventListener('change',e=>applyRole(e.target.value));
+
+const sidebar=document.getElementById('sidebar');
+const backdrop=document.getElementById('backdrop');
+function closeMobile(){sidebar.classList.remove('open');backdrop.classList.remove('show')}
+document.getElementById('mobileMenu').addEventListener('click',()=>{sidebar.classList.toggle('open');backdrop.classList.toggle('show')});
+backdrop.addEventListener('click',closeMobile);
+
+applyRole('MTD');
+</script>
+</body>
+</html>
