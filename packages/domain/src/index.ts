@@ -19,3 +19,11 @@ export type {
   DerivedPrescripcion,
   OperationStatusInput,
 } from './authorization-classification';
+export { MIPRES_VIGENCIA_RULE_VERSION, currentBogotaDate, evaluateMipresVigencia } from './mipres';
+export type {
+  MipresDirection,
+  MipresPort,
+  MipresQueryOutcome,
+  MipresQueryResult,
+  MipresVigenciaEvaluation,
+} from './mipres';

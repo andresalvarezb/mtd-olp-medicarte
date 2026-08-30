@@ -15,6 +15,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiHeader,
   ApiOkResponse,
@@ -111,6 +112,17 @@ const sourceUpdateResponseSchema = {
     item: authorizationItemResponseSchema,
     rowId: { type: 'string', format: 'uuid' },
     resultCode: { type: 'string', enum: ['ITEM_UPDATED'] },
+  },
+};
+
+const mipresRecheckResponseSchema = {
+  type: 'object',
+  required: ['itemId', 'status', 'queryType', 'correlationId'],
+  properties: {
+    itemId: { type: 'string', format: 'uuid' },
+    status: { type: 'string', enum: ['QUEUED'] },
+    queryType: { type: 'string', enum: ['AUTO', 'MANUAL'] },
+    correlationId: { type: 'string', format: 'uuid' },
   },
 };
 
@@ -218,5 +230,37 @@ export class AuthorizationItemsController {
     );
     const scope = scopeFromProfile(profile, organization, request);
     return this.authorizationItems.updateFromImport({ itemId: id, ...body, idempotencyKey, scope });
+  }
+
+  @Post(':id/mipres-rechecks')
+  @HttpCode(202)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiHeader({ name: 'Idempotency-Key', required: true })
+  @ApiHeader({ name: 'X-Organization-Id', required: true })
+  @ApiCreatedResponse({
+    description: 'MIPRES recheck queued for asynchronous processing',
+    schema: mipresRecheckResponseSchema,
+  })
+  @ApiBadRequestResponse({ schema: errorSchema })
+  @ApiForbiddenResponse({ schema: errorSchema })
+  @ApiConflictResponse({ schema: errorSchema })
+  @ApiNotFoundResponse({ schema: errorSchema })
+  @ApiTooManyRequestsResponse({ schema: errorSchema })
+  async requestMipresRecheck(
+    @Param('id') rawId: string,
+    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const id = uuidSchema.parse(rawId);
+    const idempotencyKey = idempotencyKeySchema.parse(rawIdempotencyKey);
+    const organization = uuidSchema.parse(organizationId);
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'mipres.recheck',
+    );
+    const scope = scopeFromProfile(profile, organization, request);
+    return this.authorizationItems.requestMipresRecheck({ itemId: id, idempotencyKey, scope });
   }
 }

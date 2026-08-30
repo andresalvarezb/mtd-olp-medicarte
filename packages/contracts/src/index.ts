@@ -66,6 +66,47 @@ export const IMPORT_JOB_OPTIONS = {
   removeOnFail: false,
 };
 
+export const MIPRES_QUEUE = 'mipres';
+export const MIPRES_DEAD_LETTER_QUEUE = 'mipres.dead-letter';
+export const MIPRES_JOB_NAME = 'authorization.mipres.v1';
+export const MIPRES_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 1000 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail: false,
+};
+
+export const mipresQueryTypeSchema = z.enum(['AUTO', 'MANUAL']);
+export type MipresQueryType = z.infer<typeof mipresQueryTypeSchema>;
+
+export const mipresRecheckPayloadSchema = z.object({
+  eventId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  prescriptionNumber: z.string().min(1).max(255),
+  queryType: mipresQueryTypeSchema,
+  requestedBy: z.string().uuid().nullable(),
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type MipresRecheckPayload = z.infer<typeof mipresRecheckPayloadSchema>;
+
+export const mipresRecheckJobSchema = z.object({
+  name: z.literal('authorization.mipres-recheck'),
+  version: z.literal(1),
+  payload: mipresRecheckPayloadSchema,
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type MipresRecheckJob = z.infer<typeof mipresRecheckJobSchema>;
+
+export const mipresRecheckRequestResponseSchema = z.object({
+  itemId: z.string().uuid(),
+  status: z.literal('QUEUED'),
+  queryType: mipresQueryTypeSchema,
+  correlationId: correlationIdSchema,
+});
+export type MipresRecheckRequestResponse = z.infer<typeof mipresRecheckRequestResponseSchema>;
+
 export const importBatchStatusSchema = z.enum([
   'UPLOADED',
   'VALIDATING',

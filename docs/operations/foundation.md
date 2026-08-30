@@ -12,12 +12,16 @@
 
 ```bash
 pnpm install
-docker compose up -d --wait postgres redis keycloak
+docker compose up -d --wait postgres redis keycloak mipres-mock
 DATABASE_URL=postgresql://authorization:authorization@localhost:15432/authorization pnpm db:migrate
 docker compose up -d --build api worker web
 ```
 
 Usuario técnico local de verificación: `foundation-admin`. La credencial del realm importado es exclusivamente local y debe sustituirse fuera de desarrollo.
+
+## Mock de MIPRES (Fase 3)
+
+`infra/mipres-mock/server.mjs` emula `GenerarToken` y `DireccionamientoXPrescripcion` para desarrollo y pruebas E2E. El comportamiento se selecciona por el último dígito del número de prescripción: `0` vigente, `1` sin direccionamientos, `2` anulados, `3` vencido, `4` igualdad con hoy Bogotá, `5` HTTP 500, `6` HTTP 401, `7` respuesta no interpretable. En producción `MIPRES_BASE_URL` apunta al servicio real y el mock no participa.
 
 ## Convenciones asíncronas
 

@@ -1,23 +1,28 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
+  HttpException,
+  HttpStatus,
   NotFoundException,
 } from '@nestjs/common';
 import {
   authorizationClassificationSchema,
   authorizationItemListQuerySchema,
   importRowResultMessages,
+  mipresRecheckRequestResponseSchema,
   type AuthorizationItemDetailResponse,
   type AuthorizationItemResponse,
   type AuthorizationItemListQuery,
+  type MipresRecheckRequestResponse,
 } from '@authorization/contracts';
+import type { ApiConfig } from '@authorization/config';
 import type { createDatabase } from '@authorization/database';
-import { deriveOperationStatus } from '@authorization/domain';
-import { DATABASE } from '../tokens';
+import { currentBogotaDate, deriveOperationStatus } from '@authorization/domain';
+import { API_CONFIG, DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -127,7 +132,10 @@ function toItemResponse(row: ItemRow, includeSourceData: boolean): Authorization
 
 @Injectable()
 export class AuthorizationItemsService {
-  constructor(@Inject(DATABASE) private readonly database: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly database: Database,
+    @Inject(API_CONFIG) private readonly config: ApiConfig,
+  ) {}
 
   async list(input: {
     query: AuthorizationItemListQuery;
@@ -513,6 +521,201 @@ export class AuthorizationItemsService {
           sourceData: currentReadSensitive ? sourceDataRecord(changed.source_data) : null,
         },
       };
+      await client.query('commit');
+      return response;
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async requestMipresRecheck(input: {
+    itemId: string;
+    idempotencyKey: string;
+    scope: Scope;
+  }): Promise<MipresRecheckRequestResponse> {
+    const itemId = parseUuid(input.itemId);
+    const idempotencyScope = `mipres.recheck:${input.scope.organizationId}:${itemId}`;
+    const requestHash = createHash('sha256').update(itemId).digest('hex');
+    const client = await this.database.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [
+        `${idempotencyScope}:${input.idempotencyKey}`,
+      ]);
+      const access = await client.query<{ organization_code: string; role_id: string }>(
+        `select o.code as organization_code, uor.role_id
+         from users u
+         inner join user_organization_roles uor on uor.user_id = u.id
+         inner join organizations o on o.id = uor.organization_id
+         where u.id = $1 and u.active = true and uor.organization_id = $2
+           and uor.active = true and o.active = true
+         for share of u, uor, o`,
+        [input.scope.userId, input.scope.organizationId],
+      );
+      if (access.rows.length === 0) {
+        throw new ForbiddenException({
+          code: 'PERMISSION_DENIED',
+          message: 'Permission denied for organization',
+        });
+      }
+      const permissions = await client.query<{ code: string }>(
+        `select p.code
+         from role_permissions rp
+         inner join permissions p on p.id = rp.permission_id
+         where rp.role_id = any($1::uuid[]) and p.code in ('mipres.recheck')
+         for share of rp, p`,
+        [[...new Set(access.rows.map((row) => row.role_id))]],
+      );
+      if (permissions.rows.length === 0) {
+        throw new ForbiddenException({
+          code: 'PERMISSION_DENIED',
+          message: 'Permission denied for organization',
+        });
+      }
+      const organizationCode = access.rows[0]?.organization_code;
+      if (organizationCode !== 'MTD') {
+        const relationship = await client.query(
+          `select authorization_item_id
+           from authorization_item_organizations
+           where authorization_item_id = $1 and organization_id = $2
+           for share`,
+          [itemId, input.scope.organizationId],
+        );
+        if (relationship.rows.length === 0) {
+          throw new NotFoundException({
+            code: 'AUTHORIZATION_ITEM_NOT_FOUND',
+            message: 'Authorization item not found',
+          });
+        }
+      }
+      await client.query(
+        'delete from idempotency_records where scope = $1 and key = $2 and expires_at <= now()',
+        [idempotencyScope, input.idempotencyKey],
+      );
+      const existingIdempotency = await client.query<{
+        request_hash: string;
+        response: MipresRecheckRequestResponse;
+      }>('select request_hash, response from idempotency_records where scope = $1 and key = $2', [
+        idempotencyScope,
+        input.idempotencyKey,
+      ]);
+      const previous = existingIdempotency.rows[0];
+      if (previous) {
+        if (previous.request_hash !== requestHash) {
+          throw new ConflictException({
+            code: 'IDEMPOTENCY_CONFLICT',
+            message: 'Idempotency key reused with another payload',
+          });
+        }
+        await client.query('commit');
+        return previous.response;
+      }
+
+      const item = await client.query<{
+        id: string;
+        no_prescripcion: string;
+        enablement_status: string;
+        coverage_type: string;
+      }>(
+        `select id, no_prescripcion, enablement_status, coverage_type
+         from authorization_items where id = $1 for update`,
+        [itemId],
+      );
+      const row = item.rows[0];
+      if (!row) {
+        throw new NotFoundException({
+          code: 'AUTHORIZATION_ITEM_NOT_FOUND',
+          message: 'Authorization item not found',
+        });
+      }
+      if (row.coverage_type !== 'NO_PBS' || row.enablement_status !== 'ENABLED') {
+        throw new ConflictException({
+          code: 'MIPRES_RECHECK_NOT_APPLICABLE',
+          message: 'Only enabled NO_PBS items can request a MIPRES recheck',
+        });
+      }
+      if (!row.no_prescripcion) {
+        throw new ConflictException({
+          code: 'MIPRES_RECHECK_NOT_APPLICABLE',
+          message: 'The authorization item has no prescription number',
+        });
+      }
+      const checkDate = currentBogotaDate();
+      const manualChecks = await client.query<{ count: string }>(
+        `select count(*)::text as count
+         from mipres_checks
+         where authorization_item_id = $1 and query_type = 'MANUAL' and check_date = $2`,
+        [itemId, checkDate],
+      );
+      if (
+        Number.parseInt(manualChecks.rows[0]?.count ?? '0', 10) >=
+        this.config.MIPRES_MANUAL_RECHECK_DAILY_LIMIT
+      ) {
+        throw new HttpException(
+          {
+            code: 'MIPRES_RECHECK_RATE_LIMITED',
+            message: 'Manual MIPRES recheck daily limit reached for this item',
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      const eventId = randomUUID();
+      const idempotencyKeyHash = createHash('sha256').update(input.idempotencyKey).digest('hex');
+      const idempotencyKey =
+        `mipres:manual:${itemId}:${input.scope.userId}:${idempotencyKeyHash}`.slice(0, 200);
+      const payload = {
+        eventId,
+        itemId,
+        prescriptionNumber: row.no_prescripcion,
+        queryType: 'MANUAL',
+        requestedBy: input.scope.userId,
+        correlationId: input.scope.correlationId,
+        idempotencyKey,
+      };
+      await client.query(
+        `insert into outbox_events
+           (id, event_type, version, payload, correlation_id, organization_id, idempotency_key)
+         values ($1, 'authorization.mipres-recheck', 1, $2::jsonb, $3, $4, $5)`,
+        [
+          eventId,
+          JSON.stringify(payload),
+          input.scope.correlationId,
+          input.scope.organizationId,
+          idempotencyKey,
+        ],
+      );
+      await client.query(
+        `insert into audit_events
+           (actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
+         values ('USER', $1, $2, 'MIPRES_RECHECK_REQUESTED', 'authorization_item', $3, $4::jsonb, $5, $6, 'SUCCESS')`,
+        [
+          input.scope.userId,
+          input.scope.organizationId,
+          itemId,
+          JSON.stringify({
+            prescriptionNumber: row.no_prescripcion,
+            queryType: 'MANUAL',
+            outboxEventId: eventId,
+          }),
+          input.scope.correlationId,
+          input.scope.correlationId,
+        ],
+      );
+      const response = mipresRecheckRequestResponseSchema.parse({
+        itemId,
+        status: 'QUEUED',
+        queryType: 'MANUAL',
+        correlationId: input.scope.correlationId,
+      });
+      await client.query(
+        `insert into idempotency_records (scope, key, request_hash, status_code, response, expires_at)
+         values ($1, $2, $3, 202, $4::jsonb, now() + interval '24 hours')`,
+        [idempotencyScope, input.idempotencyKey, requestHash, JSON.stringify(response)],
+      );
       await client.query('commit');
       return response;
     } catch (error) {

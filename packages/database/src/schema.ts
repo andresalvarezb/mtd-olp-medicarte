@@ -3,6 +3,7 @@ import {
   boolean,
   check,
   customType,
+  date,
   index,
   integer,
   jsonb,
@@ -222,6 +223,69 @@ export const coverageEvaluations = pgTable(
       'coverage_evaluations_coverage_type_check',
       sql`${table.coverageType} IN ('PBS', 'NO_PBS')`,
     ),
+  ],
+);
+
+export const mipresChecks = pgTable(
+  'mipres_checks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    prescriptionNumber: varchar('prescription_number', { length: 255 }).notNull(),
+    queryType: varchar('query_type', { length: 10 }).notNull(),
+    outcome: varchar('outcome', { length: 20 }).notNull(),
+    httpStatus: integer('http_status'),
+    directionCount: integer('direction_count').notNull().default(0),
+    hasCurrentDirection: boolean('has_current_direction'),
+    ruleVersion: varchar('rule_version', { length: 40 }).notNull(),
+    checkDate: date('check_date').notNull(),
+    responsePayload: jsonb('response_payload'),
+    correlationId: uuid('correlation_id').notNull(),
+    idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
+    queriedAt: timestamp('queried_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('mipres_checks_item_idx').on(table.authorizationItemId, table.queriedAt),
+    index('mipres_checks_item_day_idx').on(
+      table.authorizationItemId,
+      table.queryType,
+      table.checkDate,
+    ),
+    check('mipres_checks_query_type_check', sql`${table.queryType} IN ('AUTO', 'MANUAL')`),
+    check(
+      'mipres_checks_outcome_check',
+      sql`${table.outcome} IN ('PENDING', 'CONFIRMED', 'QUERY_ERROR')`,
+    ),
+    check('mipres_checks_direction_count_check', sql`${table.directionCount} >= 0`),
+  ],
+);
+
+export const mipresDirections = pgTable(
+  'mipres_directions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    mipresCheckId: uuid('mipres_check_id')
+      .notNull()
+      .references(() => mipresChecks.id, { onDelete: 'restrict' }),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    externalId: varchar('external_id', { length: 120 }).notNull(),
+    directionId: varchar('direction_id', { length: 120 }).notNull(),
+    prescriptionNumber: varchar('prescription_number', { length: 255 }).notNull(),
+    technologyType: varchar('technology_type', { length: 40 }).notNull(),
+    technologyConsecutive: varchar('technology_consecutive', { length: 40 }).notNull(),
+    maximumDeliveryDate: date('maximum_delivery_date').notNull(),
+    externalStatus: varchar('external_status', { length: 80 }).notNull(),
+    annulled: boolean('annulled').notNull(),
+    current: boolean('current').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('mipres_directions_check_idx').on(table.mipresCheckId),
+    index('mipres_directions_item_idx').on(table.authorizationItemId, table.createdAt),
   ],
 );
 

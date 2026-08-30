@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import * as Sentry from '@sentry/node';
 import { Inject, Injectable, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import type { WorkerConfig } from '@authorization/config';
@@ -13,9 +13,16 @@ import {
   IMPORT_JOB_NAME,
   IMPORT_JOB_OPTIONS,
   IMPORT_QUEUE,
+  MIPRES_DEAD_LETTER_QUEUE,
+  MIPRES_JOB_NAME,
+  MIPRES_JOB_OPTIONS,
+  MIPRES_QUEUE,
+  mipresRecheckJobSchema,
   type AuthorizationImportJob,
   type FoundationJob,
+  type MipresRecheckJob,
 } from '@authorization/contracts';
+import { currentBogotaDate, type MipresPort } from '@authorization/domain';
 import { jobResults, outboxEvents } from '@authorization/database';
 import type { createDatabase } from '@authorization/database';
 import { Queue, QueueEvents, Worker, type Job } from 'bullmq';
@@ -26,10 +33,17 @@ import { DATABASE, WORKER_CONFIG } from './tokens';
 import { classifyTerminalImportError, NonRetryableImportError } from './imports/import-errors';
 import { ImportProcessor, type ImportProcessingResult } from './imports/import-processor';
 import { persistTerminalImportFailure } from './imports/import-terminal-failure';
+import {
+  mipresAutoIdempotencyKey,
+  MipresProcessor,
+  type MipresProcessingResult,
+} from './mipres/mipres-processor';
+import { MipresHttpAdapter } from './mipres/mipres-http-adapter';
+import { MipresNotConfiguredPort, MipresTokenProvider } from './mipres/mipres-token-provider';
 
 type Database = ReturnType<typeof createDatabase>;
-type WorkerJob = FoundationJob | AuthorizationImportJob;
-type QueueJob = FoundationJob | AuthorizationImportJob;
+type WorkerJob = FoundationJob | AuthorizationImportJob | MipresRecheckJob;
+type QueueJob = FoundationJob | AuthorizationImportJob | MipresRecheckJob;
 type OutboxRow = {
   id: string;
   event_type: string;
@@ -53,14 +67,21 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private readonly connection: IORedis;
   private readonly foundationQueue: Queue<FoundationJob>;
   private readonly importQueue: Queue<AuthorizationImportJob>;
+  private readonly mipresQueue: Queue<MipresRecheckJob>;
   private readonly foundationDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly importDeadLetterQueue: Queue<DeadLetterJob>;
+  private readonly mipresDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly foundationQueueEvents: QueueEvents;
   private readonly importQueueEvents: QueueEvents;
+  private readonly mipresQueueEvents: QueueEvents;
   private readonly foundationWorker: Worker<FoundationJob>;
   private readonly importWorker: Worker<AuthorizationImportJob>;
+  private readonly mipresWorker: Worker<MipresRecheckJob>;
   private readonly importProcessor: ImportProcessor;
+  private readonly mipresProcessor: MipresProcessor;
   private timer?: NodeJS.Timeout;
+  private autoRevalidationTimer?: NodeJS.Timeout;
+  private autoRevalidating = false;
   private dispatching = false;
   private lastIdempotencyCleanupAt = 0;
 
@@ -80,15 +101,28 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     this.importQueue = new Queue<AuthorizationImportJob>(IMPORT_QUEUE, {
       connection: this.connection,
     });
+    this.mipresQueue = new Queue<MipresRecheckJob>(MIPRES_QUEUE, {
+      connection: this.connection,
+    });
     this.foundationDeadLetterQueue = new Queue<DeadLetterJob>(FOUNDATION_DEAD_LETTER_QUEUE, {
       connection: this.connection,
     });
     this.importDeadLetterQueue = new Queue<DeadLetterJob>(IMPORT_DEAD_LETTER_QUEUE, {
       connection: this.connection,
     });
+    this.mipresDeadLetterQueue = new Queue<DeadLetterJob>(MIPRES_DEAD_LETTER_QUEUE, {
+      connection: this.connection,
+    });
     this.foundationQueueEvents = new QueueEvents(FOUNDATION_QUEUE, { connection: this.connection });
     this.importQueueEvents = new QueueEvents(IMPORT_QUEUE, { connection: this.connection });
+    this.mipresQueueEvents = new QueueEvents(MIPRES_QUEUE, { connection: this.connection });
     this.importProcessor = new ImportProcessor(database, config);
+    const mipresTokenProvider = new MipresTokenProvider(config);
+    const mipresPort: MipresPort =
+      config.MIPRES_BASE_URL && config.MIPRES_NIT && config.MIPRES_INITIAL_TOKEN
+        ? new MipresHttpAdapter(config, mipresTokenProvider)
+        : new MipresNotConfiguredPort();
+    this.mipresProcessor = new MipresProcessor(database, mipresPort);
     this.foundationWorker = new Worker<FoundationJob>(
       FOUNDATION_QUEUE,
       (job) => this.processFoundation(job),
@@ -103,6 +137,14 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       {
         connection: this.connection,
         concurrency: config.IMPORT_QUEUE_CONCURRENCY,
+      },
+    );
+    this.mipresWorker = new Worker<MipresRecheckJob>(
+      MIPRES_QUEUE,
+      (job) => this.processMipres(job),
+      {
+        connection: this.connection,
+        concurrency: config.MIPRES_QUEUE_CONCURRENCY,
       },
     );
   }
@@ -120,8 +162,15 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         'job completed',
       );
     });
+    this.mipresWorker.on('completed', (job) => {
+      this.logger.info(
+        { jobId: job.id, correlationId: job.data?.correlationId, queue: MIPRES_QUEUE },
+        'job completed',
+      );
+    });
     this.foundationWorker.on('error', (error) => this.handleWorkerError(error));
     this.importWorker.on('error', (error) => this.handleWorkerError(error));
+    this.mipresWorker.on('error', (error) => this.handleWorkerError(error));
     this.foundationQueueEvents.on('failed', ({ jobId, failedReason }) => {
       void this.moveToDeadLetterWhenExhausted(
         this.foundationQueue,
@@ -140,12 +189,28 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         failedReason,
       );
     });
+    this.mipresQueueEvents.on('failed', ({ jobId, failedReason }) => {
+      void this.moveToDeadLetterWhenExhausted(
+        this.mipresQueue,
+        this.mipresDeadLetterQueue,
+        MIPRES_QUEUE,
+        jobId,
+        failedReason,
+      );
+    });
     if (this.config.SCHEDULER_ENABLED) {
       this.timer = setInterval(
         () => void this.dispatchOutbox(),
         this.config.OUTBOX_POLL_INTERVAL_MS,
       );
       void this.dispatchOutbox();
+      if (this.config.MIPRES_AUTO_REVALIDATION_INTERVAL_MS > 0) {
+        this.autoRevalidationTimer = setInterval(
+          () => void this.runAutoRevalidation(),
+          this.config.MIPRES_AUTO_REVALIDATION_INTERVAL_MS,
+        );
+        void this.runAutoRevalidation();
+      }
     }
   }
 
@@ -236,6 +301,19 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
           this.importQueue,
           authorizationImport.data,
           IMPORT_JOB_OPTIONS,
+        );
+        return true;
+      }
+      const mipresRecheck = mipresRecheckJobSchema.safeParse(sharedInput);
+      if (mipresRecheck.success) {
+        await this.enqueueOutboxJob(
+          client,
+          event,
+          MIPRES_QUEUE,
+          MIPRES_JOB_NAME,
+          this.mipresQueue,
+          mipresRecheck.data,
+          MIPRES_JOB_OPTIONS,
         );
         return true;
       }
@@ -386,6 +464,97 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     return { processed: true };
   }
 
+  private async processMipres(rawJob: Job<MipresRecheckJob>): Promise<{ processed: true }> {
+    const job = mipresRecheckJobSchema.parse(rawJob.data);
+    const result: MipresProcessingResult = await this.mipresProcessor.process(job);
+    const inserted = await this.database.db
+      .insert(jobResults)
+      .values({
+        queue: MIPRES_QUEUE,
+        jobName: MIPRES_JOB_NAME,
+        idempotencyKey: job.idempotencyKey,
+        result,
+        correlationId: job.correlationId,
+      })
+      .onConflictDoNothing()
+      .returning({ id: jobResults.id });
+    await this.database.db
+      .update(outboxEvents)
+      .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
+      .where(eq(outboxEvents.id, job.payload.eventId));
+    this.logger.info(
+      {
+        jobId: rawJob.id,
+        correlationId: job.correlationId,
+        duplicate: inserted.length === 0,
+        queue: MIPRES_QUEUE,
+        itemId: job.payload.itemId,
+        outcome: result.outcome,
+        queryType: job.payload.queryType,
+      },
+      'mipres recheck processed',
+    );
+    return { processed: true };
+  }
+
+  private async runAutoRevalidation(): Promise<void> {
+    if (this.autoRevalidating) return;
+    this.autoRevalidating = true;
+    try {
+      const client = await this.database.pool.connect();
+      try {
+        await client.query('begin');
+        const checkDate = currentBogotaDate();
+        const items = await client.query<{ id: string; no_prescripcion: string }>(
+          `select i.id, i.no_prescripcion
+           from authorization_items i
+           where i.coverage_type = 'NO_PBS'
+             and i.enablement_status = 'ENABLED'
+             and i.direction_status = 'PENDING'
+             and i.no_prescripcion <> ''
+           order by i.updated_at
+           limit $1`,
+          [this.config.MIPRES_AUTO_REVALIDATION_BATCH],
+        );
+        let enqueued = 0;
+        for (const item of items.rows) {
+          const idempotencyKey = mipresAutoIdempotencyKey(item.id, checkDate);
+          const eventId = randomUUID();
+          const payload = {
+            eventId,
+            itemId: item.id,
+            prescriptionNumber: item.no_prescripcion,
+            queryType: 'AUTO',
+            requestedBy: null,
+            correlationId: eventId,
+            idempotencyKey,
+          };
+          const inserted = await client.query(
+            `insert into outbox_events (id, event_type, version, payload, correlation_id, idempotency_key)
+             values ($1, 'authorization.mipres-recheck', 1, $2::jsonb, $3, $4)
+             on conflict (idempotency_key) do nothing`,
+            [eventId, JSON.stringify(payload), eventId, idempotencyKey],
+          );
+          if (inserted.rowCount) enqueued += 1;
+        }
+        await client.query('commit');
+        if (enqueued > 0) {
+          this.logger.info({ enqueued, checkDate }, 'mipres auto revalidation scheduled');
+        }
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      this.logger.error({ error }, 'mipres auto revalidation failed');
+      Sentry.captureException(error);
+    } finally {
+      this.autoRevalidating = false;
+    }
+  }
+
   private async moveToDeadLetterWhenExhausted<T extends QueueJob>(
     queue: Queue<T>,
     deadLetterQueue: Queue<DeadLetterJob>,
@@ -433,13 +602,24 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
 
   async onApplicationShutdown(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
-    await Promise.all([this.foundationWorker.close(), this.importWorker.close()]);
-    await Promise.all([this.foundationQueueEvents.close(), this.importQueueEvents.close()]);
+    if (this.autoRevalidationTimer) clearInterval(this.autoRevalidationTimer);
+    await Promise.all([
+      this.foundationWorker.close(),
+      this.importWorker.close(),
+      this.mipresWorker.close(),
+    ]);
+    await Promise.all([
+      this.foundationQueueEvents.close(),
+      this.importQueueEvents.close(),
+      this.mipresQueueEvents.close(),
+    ]);
     await Promise.all([
       this.foundationQueue.close(),
       this.importQueue.close(),
+      this.mipresQueue.close(),
       this.foundationDeadLetterQueue.close(),
       this.importDeadLetterQueue.close(),
+      this.mipresDeadLetterQueue.close(),
     ]);
     await this.connection.quit();
     await this.database.pool.end();

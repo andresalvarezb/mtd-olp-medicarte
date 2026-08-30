@@ -29,6 +29,13 @@
       "when": 1788124020663,
       "tag": "0003_no_prescripcion_coverage",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788210420663,
+      "tag": "0004_mipres",
+      "breakpoints": true
     }
   ]
 }

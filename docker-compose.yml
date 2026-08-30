@@ -60,6 +60,17 @@ services:
       postgres:
         condition: service_healthy
 
+  mipres-mock:
+    image: node:22-alpine
+    working_dir: /mock
+    command: ['node', 'server.mjs']
+    environment:
+      PORT: 8090
+      MIPRES_MOCK_INITIAL_TOKEN: initial-secret
+      MIPRES_MOCK_OPERATIVE_TOKEN: operative-token
+    volumes:
+      - ./infra/mipres-mock:/mock:ro
+
   api:
     image: authorization-platform-api:local
     build:
@@ -78,6 +89,10 @@ services:
       API_PORT: 3001
       IMPORT_MAX_FILE_BYTES: 20971520
       IMPORT_PROCESSOR_VERSION: 2
+      MIPRES_BASE_URL: http://mipres-mock:8090
+      MIPRES_NIT: 900123456
+      MIPRES_INITIAL_TOKEN: initial-secret
+      MIPRES_MANUAL_RECHECK_DAILY_LIMIT: 3
     ports:
       - '127.0.0.1:3001:3001'
     healthcheck:
@@ -115,6 +130,10 @@ services:
       IMPORT_MAX_FILE_BYTES: 20971520
       IMPORT_PROCESSOR_VERSION: 2
       IMPORT_QUEUE_CONCURRENCY: 3
+      MIPRES_BASE_URL: http://mipres-mock:8090
+      MIPRES_NIT: 900123456
+      MIPRES_INITIAL_TOKEN: initial-secret
+      MIPRES_AUTO_REVALIDATION_INTERVAL_MS: 0
     depends_on:
       migrate:
         condition: service_completed_successfully
