@@ -490,11 +490,14 @@ describe('Gate F2', () => {
   });
 
   it('does not permit an explicit update before READY_TO_DISPENSE', async () => {
+    // Fase 4 materializa operation_status en la confirmación: un ítem NO PBS
+    // habilitado queda BLOCKED (direccionamiento pendiente) y no admite la
+    // actualización explícita de evidencia (DEC-002/ADR-021).
     const authorization = `AUTH-UPDATE-${randomUUID()}`;
     const batch = await createImport(
       adminToken,
       authorizationCsv([
-        { authorization, medication: 'MED-UPDATE', prescripcion: '', status: '5' },
+        { authorization, medication: 'MED-UPDATE', prescripcion: '20260915123000', status: '5' },
       ]),
     );
     await waitForBatch(adminToken, batch.id);
@@ -1247,7 +1250,7 @@ describe('Gate F2', () => {
       enablement_status: 'BLOCKED_SOURCE_STATUS',
       coverage_type: 'NO_PBS',
       direction_status: 'PENDING',
-      operation_status: null,
+      operation_status: 'BLOCKED',
     });
   });
 });

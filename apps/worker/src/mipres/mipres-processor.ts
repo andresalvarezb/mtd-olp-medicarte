@@ -5,11 +5,13 @@ import {
 } from '@authorization/contracts';
 import {
   currentBogotaDate,
+  deriveOperationStatus,
   evaluateMipresVigencia,
   MIPRES_VIGENCIA_RULE_VERSION,
   type MipresPort,
 } from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
+import { randomUUID } from 'node:crypto';
 import { MipresNotConfiguredError, MipresQueryError } from './mipres-token-provider';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -20,6 +22,7 @@ type ItemRow = {
   enablement_status: string;
   coverage_type: string;
   direction_status: string | null;
+  operation_status: string | null;
 };
 
 export type MipresProcessingResult = Readonly<{
@@ -32,13 +35,14 @@ export type MipresProcessingResult = Readonly<{
   skipReason?: string;
 }>;
 
-/**
- * Fase 3 (SPEC-003): consulta de direccionamientos MIPRES para ítems
- * NO_PBS + ENABLED. Persiste evidencia histórica (checks + direcciones),
- * actualiza `direction_status` y deja auditoría sin tokens. Un reintento del
- * mismo job no duplica checks: job_results y la ventana item/día lo garantizan.
- * No modifica `operation_status`: esa materialización pertenece a Fase 4.
- */
+  /**
+   * Fase 3 (SPEC-003): consulta de direccionamientos MIPRES para ítems
+   * NO_PBS + ENABLED. Persiste evidencia histórica (checks + direcciones),
+   * actualiza `direction_status` y deja auditoría sin tokens. Un reintento del
+   * mismo job no duplica checks: job_results y la ventana item/día lo garantizan.
+   * Fase 4 (SPEC-002/ADR-021): materializa `operation_status` con la regla
+   * pura centralizada del dominio y notifica la entrada a `READY_TO_DISPENSE`.
+   */
 export class MipresProcessor {
   constructor(
     private readonly database: Database,
@@ -142,6 +146,73 @@ export class MipresProcessor {
         `update authorization_items set direction_status = $2, updated_at = now() where id = $1`,
         [item.id, outcome],
       );
+      const operationStatus = deriveOperationStatus({
+        enablementStatus: item.enablement_status as 'ENABLED' | 'BLOCKED_SOURCE_STATUS',
+        coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
+        directionStatus: outcome,
+      });
+      if (operationStatus !== item.operation_status) {
+        const materialized = await client.query<{ version: number }>(
+          `update authorization_items set operation_status = $2, version = version + 1, updated_at = now()
+           where id = $1 returning version`,
+          [item.id, operationStatus],
+        );
+        const readinessVersion = materialized.rows[0]?.version ?? 0;
+        await client.query(
+          `insert into audit_events
+             (actor_type, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
+           values ('SYSTEM', null, $1, 'authorization_item', $2, $3::jsonb, $4, $5, 'SUCCESS')`,
+          [
+            'OPERATION_STATUS_MATERIALIZED',
+            item.id,
+            JSON.stringify({
+              previousOperationStatus: item.operation_status,
+              operationStatus,
+              directionStatus: outcome,
+              rule: 'ADR-021',
+            }),
+            job.correlationId,
+            job.correlationId,
+          ],
+        );
+        if (operationStatus === 'READY_TO_DISPENSE') {
+          await client.query(
+            `insert into audit_events
+               (actor_type, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
+             values ('SYSTEM', null, 'AUTHORIZATION_READY_TO_DISPENSE', 'authorization_item', $1, $2::jsonb, $3, $4, 'SUCCESS')`,
+            [
+              item.id,
+              JSON.stringify({ readinessVersion, directionStatus: outcome }),
+              job.correlationId,
+              job.correlationId,
+            ],
+          );
+          const recipients = await client.query<{ id: string; code: string }>(
+            `select id, code from organizations where code = any($1::text[])`,
+            [['OLP', 'MEDICARTE']],
+          );
+          for (const recipient of recipients.rows) {
+            const key = `ready:${item.id}:${readinessVersion}:${recipient.code}`.slice(0, 200);
+            const eventId = randomUUID();
+            const payload = {
+              eventId,
+              notificationType: 'AUTHORIZATION_READY_TO_DISPENSE',
+              itemId: item.id,
+              recipientOrganizationId: recipient.id,
+              period: null,
+              correlationId: job.correlationId,
+              idempotencyKey: key,
+            };
+            await client.query(
+              `insert into outbox_events
+                 (id, event_type, version, payload, correlation_id, organization_id, idempotency_key)
+               values ($1, 'notification.email', 1, $2::jsonb, $3, $4, $5)
+               on conflict (idempotency_key) do nothing`,
+              [eventId, JSON.stringify(payload), job.correlationId, recipient.id, key],
+            );
+          }
+        }
+      }
       await client.query(
         `insert into audit_events
            (actor_type, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
@@ -193,7 +264,7 @@ export class MipresProcessor {
 
   private async loadItem(itemId: string): Promise<ItemRow | undefined> {
     const result = await this.database.pool.query<ItemRow>(
-      `select id, no_prescripcion, enablement_status, coverage_type, direction_status
+      `select id, no_prescripcion, enablement_status, coverage_type, direction_status, operation_status
        from authorization_items where id = $1`,
       [itemId],
     );

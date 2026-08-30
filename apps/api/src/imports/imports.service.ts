@@ -18,6 +18,7 @@ import {
 } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
 import type { ApiConfig } from '@authorization/config';
+import { currentBogotaDate, deriveOperationStatus } from '@authorization/domain';
 import { API_CONFIG, DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
 
@@ -446,6 +447,16 @@ export class ImportsService {
       await client.query(`update import_batches set status = 'CONFIRMING' where id = $1`, [
         batchId,
       ]);
+      const organizationIds = await client.query<{ id: string; code: string }>(
+        `select id, code from organizations where code = any($1::text[])`,
+        [['OLP', 'MEDICARTE', 'COMPENSAR']],
+      );
+      const organizationIdByCode = new Map(
+        organizationIds.rows.map((organization) => [organization.code, organization.id]),
+      );
+      const olpOrganizationId = organizationIdByCode.get('OLP');
+      const medicarteOrganizationId = organizationIdByCode.get('MEDICARTE');
+      const epsOrganizationId = organizationIdByCode.get('COMPENSAR');
       const rows = await client.query<{
         id: string;
         row_number: number;
@@ -460,16 +471,23 @@ export class ImportsService {
       );
       let createdRows = 0;
       let concurrentExistingRows = 0;
+      const readyItemIds: string[] = [];
+      const epsPendingItemIds: string[] = [];
       for (const row of rows.rows) {
         const classification = authorizationClassificationSchema.parse(row.normalized_data);
-        const item = await client.query<{ id: string }>(
+        const operationStatus = deriveOperationStatus({
+          enablementStatus: classification.enablementStatus,
+          coverageType: classification.coverageType,
+          directionStatus: classification.directionStatus,
+        });
+        const item = await client.query<{ id: string; version: number }>(
           `insert into authorization_items
              (numero_autorizacion, codigo_medicamento, authorization_key, source_data, source_status_normalized,
               source_prescripcion_normalized, no_prescripcion, enablement_status, coverage_type, direction_status,
               operation_status, coverage_rule_version, created_from_batch_id)
-           values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, null, 'F2-COVERAGE-2', $11)
+           values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, 'F2-COVERAGE-2', $12)
            on conflict (numero_autorizacion, codigo_medicamento) do nothing
-           returning id`,
+           returning id, version`,
           [
             classification.numeroAutorizacion,
             classification.codigoMedicamento,
@@ -481,6 +499,7 @@ export class ImportsService {
             classification.enablementStatus,
             classification.coverageType,
             classification.directionStatus,
+            operationStatus,
             batchId,
           ],
         );
@@ -512,6 +531,16 @@ export class ImportsService {
            on conflict do nothing`,
           [itemId, INITIAL_SCOPE_ORGANIZATION_CODES],
         );
+        if (operationStatus === 'READY_TO_DISPENSE') {
+          readyItemIds.push(itemId);
+        }
+        if (
+          operationStatus === 'BLOCKED' &&
+          classification.enablementStatus === 'ENABLED' &&
+          classification.coverageType === 'NO_PBS'
+        ) {
+          epsPendingItemIds.push(itemId);
+        }
         await this.insertAudit(client, {
           actorId: input.scope.userId,
           organizationId: input.scope.organizationId,
@@ -551,6 +580,51 @@ export class ImportsService {
           [row.id, importRowResultMessages.ITEM_CREATED, itemId],
         );
         createdRows += 1;
+      }
+
+      for (const itemId of readyItemIds) {
+        const readyItem = await client.query<{ id: string; version: number }>(
+          'select id, version from authorization_items where id = $1',
+          [itemId],
+        );
+        const version = readyItem.rows[0]?.version;
+        if (!version) continue;
+        await this.insertAudit(client, {
+          actorId: input.scope.userId,
+          organizationId: input.scope.organizationId,
+          action: 'AUTHORIZATION_READY_TO_DISPENSE',
+          resourceType: 'authorization_item',
+          resourceId: itemId,
+          after: { readinessVersion: version },
+          correlationId: input.scope.correlationId,
+        });
+        await this.enqueueNotifications(client, {
+          notificationType: 'AUTHORIZATION_READY_TO_DISPENSE',
+          recipientCodes: ['OLP', 'MEDICARTE'],
+          recipientIdByCode: {
+            OLP: olpOrganizationId,
+            MEDICARTE: medicarteOrganizationId,
+          },
+          itemId,
+          period: null,
+          idempotencyKeys: (recipientCode) => `ready:${itemId}:${version}:${recipientCode}`,
+          correlationId: input.scope.correlationId,
+        });
+      }
+
+      if (epsOrganizationId && epsPendingItemIds.length > 0) {
+        const period = currentBogotaDate();
+        for (const itemId of epsPendingItemIds) {
+          await this.enqueueNotifications(client, {
+            notificationType: 'EPS_DIRECTION_PENDING',
+            recipientCodes: ['COMPENSAR'],
+            recipientIdByCode: { COMPENSAR: epsOrganizationId },
+            itemId,
+            period,
+            idempotencyKeys: () => `eps-pending:${itemId}:${period}`,
+            correlationId: input.scope.correlationId,
+          });
+        }
       }
 
       const completed = await client.query<{ confirmed_at: Date }>(
@@ -598,6 +672,53 @@ export class ImportsService {
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  private async enqueueNotifications(
+    client: { query: (query: string, values?: unknown[]) => Promise<unknown> },
+    input: {
+      notificationType:
+        | 'AUTHORIZATION_READY_TO_DISPENSE'
+        | 'EPS_DIRECTION_PENDING'
+        | 'DISPENSATION_LOCATION_ASSIGNED'
+        | 'DISPENSATION_LOCATION_CHANGED'
+        | 'DAILY_OPERATIONAL_REPORT';
+      recipientCodes: readonly string[];
+      recipientIdByCode: Record<string, string | undefined>;
+      itemId: string;
+      period: string | null;
+      idempotencyKeys: (recipientCode: string) => string;
+      correlationId: string;
+    },
+  ): Promise<void> {
+    for (const recipientCode of input.recipientCodes) {
+      const recipientOrganizationId = input.recipientIdByCode[recipientCode];
+      if (!recipientOrganizationId) continue;
+      const idempotencyKey = input.idempotencyKeys(recipientCode).slice(0, 200);
+      const eventId = randomUUID();
+      const payload = {
+        eventId,
+        notificationType: input.notificationType,
+        itemId: input.itemId,
+        recipientOrganizationId,
+        period: input.period,
+        correlationId: input.correlationId,
+        idempotencyKey,
+      };
+      await client.query(
+        `insert into outbox_events
+           (id, event_type, version, payload, correlation_id, organization_id, idempotency_key)
+         values ($1, 'notification.email', 1, $2::jsonb, $3, $4, $5)
+         on conflict (idempotency_key) do nothing`,
+        [
+          eventId,
+          JSON.stringify(payload),
+          input.correlationId,
+          recipientOrganizationId,
+          idempotencyKey,
+        ],
+      );
     }
   }
 

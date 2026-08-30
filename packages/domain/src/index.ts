@@ -27,3 +27,13 @@ export type {
   MipresQueryResult,
   MipresVigenciaEvaluation,
 } from './mipres';
+export {
+  OPERATIONAL_FIELD_LUGAR_DISPENSACION,
+  deriveApplicationSiteStatus,
+  evaluateOperationalFieldTransition,
+  isValidOperationalText,
+  normalizeOperationalText,
+} from './operational';
+export type { OperationalFieldTransition } from './operational';
+export { GmailSendError } from './gmail';
+export type { GmailPort, GmailSendInput, GmailSendResult } from './gmail';

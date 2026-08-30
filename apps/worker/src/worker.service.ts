@@ -4,6 +4,11 @@ import { Inject, Injectable, type OnApplicationShutdown, type OnModuleInit } fro
 import type { WorkerConfig } from '@authorization/config';
 import {
   authorizationImportJobSchema,
+  BULK_UPDATES_DEAD_LETTER_QUEUE,
+  BULK_UPDATE_JOB_NAME,
+  BULK_UPDATE_JOB_OPTIONS,
+  BULK_UPDATES_QUEUE,
+  bulkUpdateJobSchema,
   FOUNDATION_DEAD_LETTER_QUEUE,
   FOUNDATION_JOB_NAME,
   FOUNDATION_JOB_OPTIONS,
@@ -18,12 +23,19 @@ import {
   MIPRES_JOB_OPTIONS,
   MIPRES_QUEUE,
   mipresRecheckJobSchema,
+  NOTIFICATIONS_DEAD_LETTER_QUEUE,
+  NOTIFICATION_JOB_NAME,
+  NOTIFICATION_JOB_OPTIONS,
+  NOTIFICATIONS_QUEUE,
+  notificationJobSchema,
   type AuthorizationImportJob,
+  type BulkUpdateJob,
   type FoundationJob,
   type MipresRecheckJob,
+  type NotificationJob,
 } from '@authorization/contracts';
 import { currentBogotaDate, type MipresPort } from '@authorization/domain';
-import { jobResults, outboxEvents } from '@authorization/database';
+import { jobResults, notifications, outboxEvents } from '@authorization/database';
 import type { createDatabase } from '@authorization/database';
 import { Queue, QueueEvents, Worker, type Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
@@ -40,10 +52,22 @@ import {
 } from './mipres/mipres-processor';
 import { MipresHttpAdapter } from './mipres/mipres-http-adapter';
 import { MipresNotConfiguredPort, MipresTokenProvider } from './mipres/mipres-token-provider';
+import { BulkUpdateProcessor, type BulkProcessingResult } from './bulk/bulk-processor';
+import {
+  dailyReportIdempotencyKey,
+  NotificationProcessor,
+  type NotificationProcessingResult,
+} from './notifications/notification-processor';
+import { GmailApiAdapter, GmailFakeAdapter } from './notifications/gmail-adapter';
 
 type Database = ReturnType<typeof createDatabase>;
-type WorkerJob = FoundationJob | AuthorizationImportJob | MipresRecheckJob;
-type QueueJob = FoundationJob | AuthorizationImportJob | MipresRecheckJob;
+type WorkerJob =
+  | FoundationJob
+  | AuthorizationImportJob
+  | MipresRecheckJob
+  | NotificationJob
+  | BulkUpdateJob;
+type QueueJob = WorkerJob;
 type OutboxRow = {
   id: string;
   event_type: string;
@@ -68,19 +92,31 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private readonly foundationQueue: Queue<FoundationJob>;
   private readonly importQueue: Queue<AuthorizationImportJob>;
   private readonly mipresQueue: Queue<MipresRecheckJob>;
+  private readonly notificationQueue: Queue<NotificationJob>;
+  private readonly bulkQueue: Queue<BulkUpdateJob>;
   private readonly foundationDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly importDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly mipresDeadLetterQueue: Queue<DeadLetterJob>;
+  private readonly notificationDeadLetterQueue: Queue<DeadLetterJob>;
+  private readonly bulkDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly foundationQueueEvents: QueueEvents;
   private readonly importQueueEvents: QueueEvents;
   private readonly mipresQueueEvents: QueueEvents;
+  private readonly notificationQueueEvents: QueueEvents;
+  private readonly bulkQueueEvents: QueueEvents;
   private readonly foundationWorker: Worker<FoundationJob>;
   private readonly importWorker: Worker<AuthorizationImportJob>;
   private readonly mipresWorker: Worker<MipresRecheckJob>;
+  private readonly notificationWorker: Worker<NotificationJob>;
+  private readonly bulkWorker: Worker<BulkUpdateJob>;
   private readonly importProcessor: ImportProcessor;
   private readonly mipresProcessor: MipresProcessor;
+  private readonly notificationProcessor: NotificationProcessor;
+  private readonly bulkProcessor: BulkUpdateProcessor;
   private timer?: NodeJS.Timeout;
   private autoRevalidationTimer?: NodeJS.Timeout;
+  private dailyReportTimer?: NodeJS.Timeout;
+  private lastDailyReportDate: string | null = null;
   private autoRevalidating = false;
   private dispatching = false;
   private lastIdempotencyCleanupAt = 0;
@@ -104,6 +140,12 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     this.mipresQueue = new Queue<MipresRecheckJob>(MIPRES_QUEUE, {
       connection: this.connection,
     });
+    this.notificationQueue = new Queue<NotificationJob>(NOTIFICATIONS_QUEUE, {
+      connection: this.connection,
+    });
+    this.bulkQueue = new Queue<BulkUpdateJob>(BULK_UPDATES_QUEUE, {
+      connection: this.connection,
+    });
     this.foundationDeadLetterQueue = new Queue<DeadLetterJob>(FOUNDATION_DEAD_LETTER_QUEUE, {
       connection: this.connection,
     });
@@ -113,9 +155,19 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     this.mipresDeadLetterQueue = new Queue<DeadLetterJob>(MIPRES_DEAD_LETTER_QUEUE, {
       connection: this.connection,
     });
+    this.notificationDeadLetterQueue = new Queue<DeadLetterJob>(NOTIFICATIONS_DEAD_LETTER_QUEUE, {
+      connection: this.connection,
+    });
+    this.bulkDeadLetterQueue = new Queue<DeadLetterJob>(BULK_UPDATES_DEAD_LETTER_QUEUE, {
+      connection: this.connection,
+    });
     this.foundationQueueEvents = new QueueEvents(FOUNDATION_QUEUE, { connection: this.connection });
     this.importQueueEvents = new QueueEvents(IMPORT_QUEUE, { connection: this.connection });
     this.mipresQueueEvents = new QueueEvents(MIPRES_QUEUE, { connection: this.connection });
+    this.notificationQueueEvents = new QueueEvents(NOTIFICATIONS_QUEUE, {
+      connection: this.connection,
+    });
+    this.bulkQueueEvents = new QueueEvents(BULK_UPDATES_QUEUE, { connection: this.connection });
     this.importProcessor = new ImportProcessor(database, config);
     const mipresTokenProvider = new MipresTokenProvider(config);
     const mipresPort: MipresPort =
@@ -123,6 +175,17 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         ? new MipresHttpAdapter(config, mipresTokenProvider)
         : new MipresNotConfiguredPort();
     this.mipresProcessor = new MipresProcessor(database, mipresPort);
+    const gmailPort =
+      config.GMAIL_SENDER && config.GOOGLE_SERVICE_ACCOUNT_EMAIL && config.GOOGLE_PRIVATE_KEY
+        ? new GmailApiAdapter(config)
+        : new GmailFakeAdapter((input) =>
+            this.logger.info(
+              { to: input.to, subject: input.subject },
+              'gmail fake delivery (Gmail no configurado)',
+            ),
+          );
+    this.notificationProcessor = new NotificationProcessor(database, gmailPort);
+    this.bulkProcessor = new BulkUpdateProcessor(database);
     this.foundationWorker = new Worker<FoundationJob>(
       FOUNDATION_QUEUE,
       (job) => this.processFoundation(job),
@@ -147,6 +210,22 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         concurrency: config.MIPRES_QUEUE_CONCURRENCY,
       },
     );
+    this.notificationWorker = new Worker<NotificationJob>(
+      NOTIFICATIONS_QUEUE,
+      (job) => this.processNotification(job),
+      {
+        connection: this.connection,
+        concurrency: config.NOTIFICATION_QUEUE_CONCURRENCY,
+      },
+    );
+    this.bulkWorker = new Worker<BulkUpdateJob>(
+      BULK_UPDATES_QUEUE,
+      (job) => this.processBulkUpdate(job),
+      {
+        connection: this.connection,
+        concurrency: config.BULK_QUEUE_CONCURRENCY,
+      },
+    );
   }
 
   onModuleInit(): void {
@@ -168,9 +247,23 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         'job completed',
       );
     });
+    this.notificationWorker.on('completed', (job) => {
+      this.logger.info(
+        { jobId: job.id, correlationId: job.data?.correlationId, queue: NOTIFICATIONS_QUEUE },
+        'job completed',
+      );
+    });
+    this.bulkWorker.on('completed', (job) => {
+      this.logger.info(
+        { jobId: job.id, correlationId: job.data?.correlationId, queue: BULK_UPDATES_QUEUE },
+        'job completed',
+      );
+    });
     this.foundationWorker.on('error', (error) => this.handleWorkerError(error));
     this.importWorker.on('error', (error) => this.handleWorkerError(error));
     this.mipresWorker.on('error', (error) => this.handleWorkerError(error));
+    this.notificationWorker.on('error', (error) => this.handleWorkerError(error));
+    this.bulkWorker.on('error', (error) => this.handleWorkerError(error));
     this.foundationQueueEvents.on('failed', ({ jobId, failedReason }) => {
       void this.moveToDeadLetterWhenExhausted(
         this.foundationQueue,
@@ -198,12 +291,35 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         failedReason,
       );
     });
+    this.notificationQueueEvents.on('failed', ({ jobId, failedReason }) => {
+      void this.moveToDeadLetterWhenExhausted(
+        this.notificationQueue,
+        this.notificationDeadLetterQueue,
+        NOTIFICATIONS_QUEUE,
+        jobId,
+        failedReason,
+      );
+    });
+    this.bulkQueueEvents.on('failed', ({ jobId, failedReason }) => {
+      void this.moveToDeadLetterWhenExhausted(
+        this.bulkQueue,
+        this.bulkDeadLetterQueue,
+        BULK_UPDATES_QUEUE,
+        jobId,
+        failedReason,
+      );
+    });
     if (this.config.SCHEDULER_ENABLED) {
       this.timer = setInterval(
         () => void this.dispatchOutbox(),
         this.config.OUTBOX_POLL_INTERVAL_MS,
       );
       void this.dispatchOutbox();
+      this.dailyReportTimer = setInterval(
+        () => void this.scheduleDailyReport(),
+        60_000,
+      );
+      void this.scheduleDailyReport();
       if (this.config.MIPRES_AUTO_REVALIDATION_INTERVAL_MS > 0) {
         this.autoRevalidationTimer = setInterval(
           () => void this.runAutoRevalidation(),
@@ -314,6 +430,32 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
           this.mipresQueue,
           mipresRecheck.data,
           MIPRES_JOB_OPTIONS,
+        );
+        return true;
+      }
+      const notification = notificationJobSchema.safeParse(sharedInput);
+      if (notification.success) {
+        await this.enqueueOutboxJob(
+          client,
+          event,
+          NOTIFICATIONS_QUEUE,
+          NOTIFICATION_JOB_NAME,
+          this.notificationQueue,
+          notification.data,
+          NOTIFICATION_JOB_OPTIONS,
+        );
+        return true;
+      }
+      const bulkUpdate = bulkUpdateJobSchema.safeParse(sharedInput);
+      if (bulkUpdate.success) {
+        await this.enqueueOutboxJob(
+          client,
+          event,
+          BULK_UPDATES_QUEUE,
+          BULK_UPDATE_JOB_NAME,
+          this.bulkQueue,
+          bulkUpdate.data,
+          BULK_UPDATE_JOB_OPTIONS,
         );
         return true;
       }
@@ -497,6 +639,135 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     return { processed: true };
   }
 
+  private async processNotification(rawJob: Job<NotificationJob>): Promise<{ processed: true }> {
+    const job = notificationJobSchema.parse(rawJob.data);
+    const result: NotificationProcessingResult = await this.notificationProcessor.process(job);
+    await this.database.db
+      .insert(jobResults)
+      .values({
+        queue: NOTIFICATIONS_QUEUE,
+        jobName: NOTIFICATION_JOB_NAME,
+        idempotencyKey: job.idempotencyKey,
+        result,
+        correlationId: job.correlationId,
+      })
+      .onConflictDoNothing();
+    await this.database.db
+      .update(outboxEvents)
+      .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
+      .where(eq(outboxEvents.id, job.payload.eventId));
+    this.logger.info(
+      {
+        jobId: rawJob.id,
+        correlationId: job.correlationId,
+        queue: NOTIFICATIONS_QUEUE,
+        notificationType: job.payload.notificationType,
+        status: result.status,
+      },
+      'notification processed',
+    );
+    return { processed: true };
+  }
+
+  private async processBulkUpdate(rawJob: Job<BulkUpdateJob>): Promise<{ processed: true }> {
+    const job = bulkUpdateJobSchema.parse(rawJob.data);
+    const result: BulkProcessingResult = await this.bulkProcessor.process(job);
+    const inserted = await this.database.db
+      .insert(jobResults)
+      .values({
+        queue: BULK_UPDATES_QUEUE,
+        jobName: BULK_UPDATE_JOB_NAME,
+        idempotencyKey: job.idempotencyKey,
+        result,
+        correlationId: job.correlationId,
+      })
+      .onConflictDoNothing()
+      .returning({ id: jobResults.id });
+    await this.database.db
+      .update(outboxEvents)
+      .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
+      .where(eq(outboxEvents.id, job.payload.eventId));
+    this.logger.info(
+      {
+        jobId: rawJob.id,
+        correlationId: job.correlationId,
+        queue: BULK_UPDATES_QUEUE,
+        batchId: job.payload.batchId,
+        duplicate: inserted.length === 0,
+        status: result.status,
+        updatedRows: result.updatedRows,
+      },
+      'bulk update processed',
+    );
+    return { processed: true };
+  }
+
+  /**
+   * DEC-005/SPEC-004: consolidado diario a las 08:00 America/Bogota con las
+   * novedades del día calendario anterior. Se encola un evento por
+   * organización; el idempotency key del outbox deduplica reintentos y
+   * reinicios del worker.
+   */
+  private async scheduleDailyReport(): Promise<void> {
+    try {
+      const nowBogota = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'America/Bogota',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(new Date());
+      const [hour] = nowBogota.split(':');
+      if (!hour || Number(hour) < 8) return;
+      const period = currentBogotaDate();
+      // La ventana del reporte es el día calendario anterior (America/Bogota).
+      const previousDay = new Date(`${period}T00:00:00Z`);
+      previousDay.setUTCDate(previousDay.getUTCDate() - 1);
+      const reportPeriod = previousDay.toISOString().slice(0, 10);
+      if (this.lastDailyReportDate === reportPeriod) return;
+      const organizations = await this.database.pool.query<{ id: string; code: string }>(
+        `select id, code from organizations where active = true`,
+      );
+      const client = await this.database.pool.connect();
+      try {
+        await client.query('begin');
+        let enqueued = 0;
+        for (const organization of organizations.rows) {
+          const idempotencyKey = dailyReportIdempotencyKey(organization.code, reportPeriod);
+          const eventId = randomUUID();
+          const payload = {
+            eventId,
+            notificationType: 'DAILY_OPERATIONAL_REPORT',
+            itemId: null,
+            recipientOrganizationId: organization.id,
+            period: reportPeriod,
+            correlationId: eventId,
+            idempotencyKey,
+          };
+          const inserted = await client.query(
+            `insert into outbox_events (id, event_type, version, payload, correlation_id, organization_id, idempotency_key)
+             values ($1, 'notification.email', 1, $2::jsonb, $3, $4, $5)
+             on conflict (idempotency_key) do nothing`,
+            [eventId, JSON.stringify(payload), eventId, organization.id, idempotencyKey],
+          );
+          if (inserted.rowCount) enqueued += 1;
+        }
+        await client.query('commit');
+        this.lastDailyReportDate = reportPeriod;
+        if (enqueued > 0) {
+          this.logger.info({ enqueued, reportPeriod }, 'daily report scheduled');
+        }
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      this.logger.error({ error }, 'daily report scheduling failed');
+      Sentry.captureException(error);
+    }
+  }
+
   private async runAutoRevalidation(): Promise<void> {
     if (this.autoRevalidating) return;
     this.autoRevalidating = true;
@@ -565,6 +836,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     const job = await queue.getJob(jobId);
     if (!job) return;
     const importJob = authorizationImportJobSchema.safeParse(job.data);
+    const notificationJob = notificationJobSchema.safeParse(job.data);
     const classification = classifyTerminalImportError(failedReason);
     const isDiscardedImport = importJob.success && classification === 'PROCESSOR_VERSION_MISMATCH';
     if (!isDiscardedImport && job.attemptsMade < (job.opts.attempts ?? 1)) return;
@@ -575,6 +847,16 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         attemptsMade: job.attemptsMade,
         classification,
       });
+    } else if (notificationJob.success) {
+      // SPEC-004: fallo visible en la bandeja administrativa y reintentable.
+      await this.database.db
+        .update(notifications)
+        .set({ status: 'FAILED', lastError: failedReason.slice(0, 500) })
+        .where(eq(notifications.idempotencyKey, notificationJob.data.payload.idempotencyKey));
+      await this.database.db
+        .update(outboxEvents)
+        .set({ status: 'FAILED', lastError: failedReason })
+        .where(eq(outboxEvents.id, notificationJob.data.payload.eventId));
     } else {
       await this.database.db
         .update(outboxEvents)
@@ -603,23 +885,32 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   async onApplicationShutdown(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     if (this.autoRevalidationTimer) clearInterval(this.autoRevalidationTimer);
+    if (this.dailyReportTimer) clearInterval(this.dailyReportTimer);
     await Promise.all([
       this.foundationWorker.close(),
       this.importWorker.close(),
       this.mipresWorker.close(),
+      this.notificationWorker.close(),
+      this.bulkWorker.close(),
     ]);
     await Promise.all([
       this.foundationQueueEvents.close(),
       this.importQueueEvents.close(),
       this.mipresQueueEvents.close(),
+      this.notificationQueueEvents.close(),
+      this.bulkQueueEvents.close(),
     ]);
     await Promise.all([
       this.foundationQueue.close(),
       this.importQueue.close(),
       this.mipresQueue.close(),
+      this.notificationQueue.close(),
+      this.bulkQueue.close(),
       this.foundationDeadLetterQueue.close(),
       this.importDeadLetterQueue.close(),
       this.mipresDeadLetterQueue.close(),
+      this.notificationDeadLetterQueue.close(),
+      this.bulkDeadLetterQueue.close(),
     ]);
     await this.connection.quit();
     await this.database.pool.end();

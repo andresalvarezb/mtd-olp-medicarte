@@ -149,13 +149,17 @@ export const authorizationItems = pgTable(
     sourceStatusNormalized: varchar('source_status_normalized', { length: 80 }).notNull(),
     sourcePrescripcionNormalized: varchar('source_prescripcion_normalized', {
       length: 255,
-    }).notNull(),
-    noPrescripcion: varchar('no_prescripcion', { length: 255 }).notNull(),
+    })
+      .notNull()
+      .default(''),
+    noPrescripcion: varchar('no_prescripcion', { length: 255 }).notNull().default(''),
     enablementStatus: varchar('enablement_status', { length: 40 }).notNull(),
     coverageType: varchar('coverage_type', { length: 30 }).notNull(),
     directionStatus: varchar('direction_status', { length: 30 }).notNull(),
     operationStatus: varchar('operation_status', { length: 40 }),
     coverageRuleVersion: varchar('coverage_rule_version', { length: 40 }).notNull(),
+    lugarDispensacion: text('lugar_dispensacion'),
+    operationalVersion: integer('operational_version').notNull().default(0),
     createdFromBatchId: uuid('created_from_batch_id')
       .notNull()
       .references(() => importBatches.id, { onDelete: 'restrict' }),
@@ -452,6 +456,230 @@ export const idempotencyRecords = pgTable(
   (table) => [
     uniqueIndex('idempotency_records_scope_key_idx').on(table.scope, table.key),
     index('idempotency_records_expires_at_idx').on(table.expiresAt),
+  ],
+);
+
+export const operationalFieldChanges = pgTable(
+  'operational_field_changes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    fieldName: varchar('field_name', { length: 120 }).notNull(),
+    previousValue: text('previous_value'),
+    newValue: text('new_value').notNull(),
+    previousOperationalVersion: integer('previous_operational_version').notNull(),
+    newOperationalVersion: integer('new_operational_version').notNull(),
+    operationType: varchar('operation_type', { length: 40 }).notNull(),
+    bulkUpdateBatchId: uuid('bulk_update_batch_id'),
+    bulkUpdateRowId: uuid('bulk_update_row_id'),
+    actorType: varchar('actor_type', { length: 30 }).notNull(),
+    actorId: uuid('actor_id'),
+    organizationId: uuid('organization_id').references(() => organizations.id, {
+      onDelete: 'restrict',
+    }),
+    correlationId: uuid('correlation_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('operational_field_changes_item_idx').on(table.authorizationItemId, table.createdAt),
+    check(
+      'operational_field_changes_version_check',
+      sql`${table.newOperationalVersion} > ${table.previousOperationalVersion}`,
+    ),
+  ],
+);
+
+export const bulkUpdateBatches = pgTable(
+  'bulk_update_batches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    operationType: varchar('operation_type', { length: 40 }).notNull(),
+    contractVersion: integer('contract_version').notNull(),
+    originalFilename: varchar('original_filename', { length: 255 }).notNull(),
+    mimeType: varchar('mime_type', { length: 160 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: varchar('sha256', { length: 64 }).notNull(),
+    status: varchar('status', { length: 30 }).notNull().default('UPLOADED'),
+    totalRows: integer('total_rows').notNull().default(0),
+    processedRows: integer('processed_rows').notNull().default(0),
+    updatedRows: integer('updated_rows').notNull().default(0),
+    unchangedRows: integer('unchanged_rows').notNull().default(0),
+    rejectedRows: integer('rejected_rows').notNull().default(0),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    correlationId: uuid('correlation_id').notNull(),
+    idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('bulk_update_batches_org_idx').on(table.organizationId, table.createdAt),
+    index('bulk_update_batches_hash_idx').on(table.sha256),
+    check(
+      'bulk_update_batches_size_bytes_check',
+      sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 20971520`,
+    ),
+    check(
+      'bulk_update_batches_status_check',
+      sql`${table.status} IN ('UPLOADED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED')`,
+    ),
+    check(
+      'bulk_update_batches_operation_type_check',
+      sql`${table.operationType} IN ('ASSIGN_DISPENSATION_LOCATION', 'REPORT_DISPENSATION_DATE', 'REPORT_APPLICATION_DATE')`,
+    ),
+  ],
+);
+
+export const bulkUpdateSourceFiles = pgTable(
+  'bulk_update_source_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => bulkUpdateBatches.id, { onDelete: 'cascade' }),
+    originalFilename: varchar('original_filename', { length: 255 }).notNull(),
+    mimeType: varchar('mime_type', { length: 160 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: varchar('sha256', { length: 64 }).notNull(),
+    content: bytea('content'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('bulk_update_source_files_batch_idx').on(table.batchId),
+    check(
+      'bulk_update_source_files_size_bytes_check',
+      sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 20971520`,
+    ),
+  ],
+);
+
+export const bulkUpdateRows = pgTable(
+  'bulk_update_rows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => bulkUpdateBatches.id, { onDelete: 'cascade' }),
+    rowNumber: integer('row_number').notNull(),
+    rawData: jsonb('raw_data').notNull(),
+    authorizationKey: varchar('authorization_key', { length: 511 }),
+    authorizationItemId: uuid('authorization_item_id').references(() => authorizationItems.id, {
+      onDelete: 'restrict',
+    }),
+    fieldName: varchar('field_name', { length: 120 }),
+    previousValue: text('previous_value'),
+    newValue: text('new_value'),
+    fieldVersion: integer('field_version'),
+    resultCode: varchar('result_code', { length: 40 }).notNull(),
+    resultMessage: text('result_message').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('bulk_update_rows_batch_row_unique').on(table.batchId, table.rowNumber),
+    index('bulk_update_rows_batch_result_idx').on(table.batchId, table.resultCode, table.rowNumber),
+    check('bulk_update_rows_row_number_check', sql`${table.rowNumber} > 0`),
+    check(
+      'bulk_update_rows_result_code_check',
+      sql`${table.resultCode} IN ('ROW_UPDATED', 'UNCHANGED_VALUE', 'INVALID_FILE_FORMAT', 'FILE_TOO_LARGE', 'INVALID_HEADERS', 'MISSING_BUSINESS_KEY', 'DUPLICATE_KEY_IN_FILE', 'AUTHORIZATION_ITEM_NOT_FOUND', 'FORBIDDEN_ITEM_SCOPE', 'OPERATION_NOT_ALLOWED', 'MISSING_VALUE', 'INVALID_VALUE_FORMAT', 'INVALID_OPERATION_STATE', 'VERSION_CONFLICT', 'PROCESSING_ERROR')`,
+    ),
+  ],
+);
+
+export const notificationTemplates = pgTable(
+  'notification_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    notificationType: varchar('notification_type', { length: 60 }).notNull(),
+    version: integer('version').notNull(),
+    subjectTemplate: text('subject_template').notNull(),
+    bodyTemplate: text('body_template').notNull(),
+    active: boolean('active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('notification_templates_type_version_idx').on(
+      table.notificationType,
+      table.version,
+    ),
+    check('notification_templates_version_check', sql`${table.version} > 0`),
+  ],
+);
+
+export const notificationRecipients = pgTable(
+  'notification_recipients',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    notificationType: varchar('notification_type', { length: 60 }).notNull(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    email: varchar('email', { length: 320 }).notNull(),
+    active: boolean('active').notNull().default(true),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('notification_recipients_unique_idx').on(
+      table.notificationType,
+      table.organizationId,
+      table.email,
+    ),
+    index('notification_recipients_lookup_idx').on(
+      table.notificationType,
+      table.organizationId,
+      table.active,
+    ),
+  ],
+);
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    notificationType: varchar('notification_type', { length: 60 }).notNull(),
+    recipientOrganizationId: uuid('recipient_organization_id').references(() => organizations.id, {
+      onDelete: 'restrict',
+    }),
+    itemId: uuid('item_id').references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    period: date('period'),
+    itemSetHash: varchar('item_set_hash', { length: 64 }),
+    templateVersion: integer('template_version').notNull(),
+    subject: text('subject').notNull(),
+    body: text('body').notNull(),
+    recipients: jsonb('recipients').notNull(),
+    params: jsonb('params').notNull(),
+    payload: jsonb('payload').notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('PENDING'),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    gmailMessageId: varchar('gmail_message_id', { length: 255 }),
+    correlationId: uuid('correlation_id').notNull(),
+    idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('notifications_idempotency_key_idx').on(table.idempotencyKey),
+    index('notifications_status_idx').on(table.status, table.createdAt),
+    index('notifications_type_idx').on(table.notificationType, table.createdAt),
+    check(
+      'notifications_status_check',
+      sql`${table.status} IN ('PENDING', 'SENT', 'FAILED', 'SKIPPED')`,
+    ),
+    check(
+      'notifications_type_check',
+      sql`${table.notificationType} IN ('AUTHORIZATION_READY_TO_DISPENSE', 'DISPENSATION_LOCATION_ASSIGNED', 'DISPENSATION_LOCATION_CHANGED', 'EPS_DIRECTION_PENDING', 'DAILY_OPERATIONAL_REPORT')`,
+    ),
   ],
 );
 

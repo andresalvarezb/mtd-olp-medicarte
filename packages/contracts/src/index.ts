@@ -159,6 +159,10 @@ export const operationStatusSchema = z.enum([
   'DISPENSED',
 ]);
 
+/** Fase 4 (SPEC-011/ADR-020): estado de sitio derivado, nunca persistido. */
+export const applicationSiteStatusSchema = z.enum(['PENDING_ASSIGNMENT', 'ASSIGNED']);
+export type ApplicationSiteStatus = z.infer<typeof applicationSiteStatusSchema>;
+
 export const authorizationSourceColumns = [
   'CODEPS',
   'NUMERO_AUTORIZACION',
@@ -296,6 +300,9 @@ export const authorizationItemResponseSchema = z.object({
   sourceData: z.record(z.string(), z.unknown()).nullable(),
   sourcePrescripcionNormalized: z.string(),
   noPrescripcion: z.string(),
+  lugarDispensacion: z.string().nullable(),
+  applicationSiteStatus: applicationSiteStatusSchema,
+  operationalVersion: z.number().int().nonnegative(),
   coverageRuleVersion: z.string(),
   version: z.number().int().positive(),
   createdAt: isoDateTimeSchema,
@@ -331,3 +338,266 @@ export const sourceUpdateResponseSchema = z.object({
   rowId: z.string().uuid(),
   resultCode: z.literal('ITEM_UPDATED'),
 });
+
+// ---------------------------------------------------------------------------
+// Fase 4 — Disponibilidad, bulk updates operativos y notificaciones.
+// Contratos compartidos web/api/worker (GLOBAL_RULES: no duplicar DTO/enums).
+// ---------------------------------------------------------------------------
+
+export const bulkUpdateOperationTypeSchema = z.enum([
+  'ASSIGN_DISPENSATION_LOCATION',
+  'REPORT_DISPENSATION_DATE',
+  'REPORT_APPLICATION_DATE',
+]);
+export type BulkUpdateOperationType = z.infer<typeof bulkUpdateOperationTypeSchema>;
+
+/** Catálogo cerrado ADR-022. Cada tipo fija actor, permiso y columna mutable. */
+export const bulkUpdateOperationContracts = {
+  ASSIGN_DISPENSATION_LOCATION: {
+    actorOrganizationCode: 'MEDICARTE',
+    permission: 'bulk_updates.dispensation_location',
+    mutableField: 'lugar_dispensacion',
+    requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'lugar_dispensacion'],
+  },
+  REPORT_DISPENSATION_DATE: {
+    actorOrganizationCode: 'OLP',
+    permission: 'dispensing.register',
+    mutableField: 'fecha_dispensacion',
+    requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'fecha_dispensacion'],
+  },
+  REPORT_APPLICATION_DATE: {
+    actorOrganizationCode: 'MEDICARTE',
+    permission: 'dispensing.register',
+    mutableField: 'fecha_aplicacion',
+    requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'fecha_aplicacion'],
+  },
+} as const satisfies Record<
+  BulkUpdateOperationType,
+  {
+    actorOrganizationCode: string;
+    permission: string;
+    mutableField: string;
+    requiredColumns: readonly string[];
+  }
+>;
+
+/** Tipos habilitados en la Fase 4; los demás quedan para fases posteriores. */
+export const enabledBulkUpdateOperationTypes = ['ASSIGN_DISPENSATION_LOCATION'] as const;
+export const enabledBulkUpdateOperationTypeSchema = z.enum(['ASSIGN_DISPENSATION_LOCATION']);
+
+export const bulkUpdateBatchStatusSchema = z.enum([
+  'UPLOADED',
+  'QUEUED',
+  'PROCESSING',
+  'COMPLETED',
+  'FAILED',
+]);
+export type BulkUpdateBatchStatus = z.infer<typeof bulkUpdateBatchStatusSchema>;
+
+/** Causales mínimas estables de SPEC-013 más el resultado exitoso por fila. */
+export const bulkUpdateRowResultCodeSchema = z.enum([
+  'ROW_UPDATED',
+  'UNCHANGED_VALUE',
+  'INVALID_FILE_FORMAT',
+  'FILE_TOO_LARGE',
+  'INVALID_HEADERS',
+  'MISSING_BUSINESS_KEY',
+  'DUPLICATE_KEY_IN_FILE',
+  'AUTHORIZATION_ITEM_NOT_FOUND',
+  'FORBIDDEN_ITEM_SCOPE',
+  'OPERATION_NOT_ALLOWED',
+  'MISSING_VALUE',
+  'INVALID_VALUE_FORMAT',
+  'INVALID_OPERATION_STATE',
+  'VERSION_CONFLICT',
+  'PROCESSING_ERROR',
+]);
+export type BulkUpdateRowResultCode = z.infer<typeof bulkUpdateRowResultCodeSchema>;
+
+export const bulkUpdateRowResultMessages: Record<BulkUpdateRowResultCode, string> = {
+  ROW_UPDATED: 'Valor operativo actualizado.',
+  UNCHANGED_VALUE: 'El valor enviado es igual al vigente; no se actualizó.',
+  INVALID_FILE_FORMAT: 'El archivo o el valor no cumple el formato técnico.',
+  FILE_TOO_LARGE: 'El archivo supera el tamaño máximo permitido.',
+  INVALID_HEADERS: 'Los encabezados no coinciden exactamente con el contrato del tipo.',
+  MISSING_BUSINESS_KEY: 'Falta la llave de negocio del ítem.',
+  DUPLICATE_KEY_IN_FILE: 'La llave aparece repetida dentro del archivo.',
+  AUTHORIZATION_ITEM_NOT_FOUND: 'No existe un ítem para la llave enviada.',
+  FORBIDDEN_ITEM_SCOPE: 'El ítem está fuera del alcance de la organización.',
+  OPERATION_NOT_ALLOWED: 'La operación no está permitida para el estado actual del ítem.',
+  MISSING_VALUE: 'Falta el valor del campo operativo.',
+  INVALID_VALUE_FORMAT: 'El valor del campo operativo no cumple el formato esperado.',
+  INVALID_OPERATION_STATE: 'El ítem no cumple la precondición operacional del tipo.',
+  VERSION_CONFLICT: 'El ítem cambió durante el procesamiento.',
+  PROCESSING_ERROR: 'No fue posible procesar la fila.',
+};
+
+export const BULK_UPDATES_QUEUE = 'bulk-updates';
+export const BULK_UPDATES_DEAD_LETTER_QUEUE = 'bulk-updates.dead-letter';
+export const BULK_UPDATE_JOB_NAME = 'authorization.bulk-update.v1';
+export const BULK_UPDATE_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 1000 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail: false,
+};
+export const BULK_UPDATE_CONTRACT_VERSION = 1;
+
+export const bulkUpdateJobPayloadSchema = z.object({
+  eventId: z.string().uuid(),
+  batchId: z.string().uuid(),
+  contractVersion: z.literal(BULK_UPDATE_CONTRACT_VERSION),
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type BulkUpdateJobPayload = z.infer<typeof bulkUpdateJobPayloadSchema>;
+
+export const bulkUpdateJobSchema = z.object({
+  name: z.literal('authorization.bulk-update'),
+  version: z.literal(BULK_UPDATE_CONTRACT_VERSION),
+  payload: bulkUpdateJobPayloadSchema,
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type BulkUpdateJob = z.infer<typeof bulkUpdateJobSchema>;
+
+export const bulkUpdateBatchResponseSchema = z.object({
+  id: z.string().uuid(),
+  operationType: bulkUpdateOperationTypeSchema,
+  status: bulkUpdateBatchStatusSchema,
+  originalFilename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  sha256: z.string().length(64),
+  contractVersion: z.number().int().positive(),
+  totalRows: z.number().int().nonnegative(),
+  processedRows: z.number().int().nonnegative(),
+  updatedRows: z.number().int().nonnegative(),
+  unchangedRows: z.number().int().nonnegative(),
+  rejectedRows: z.number().int().nonnegative(),
+  lastErrorCode: z.string().min(1).max(80).nullable(),
+  createdAt: isoDateTimeSchema,
+  completedAt: isoDateTimeSchema.nullable(),
+});
+export type BulkUpdateBatchResponse = z.infer<typeof bulkUpdateBatchResponseSchema>;
+
+export const bulkUpdateRowResponseSchema = z.object({
+  id: z.string().uuid(),
+  rowNumber: z.number().int().positive(),
+  resultCode: bulkUpdateRowResultCodeSchema,
+  resultMessage: z.string(),
+  authorizationItemId: z.string().uuid().nullable(),
+  authorizationKey: z.string().nullable(),
+  fieldName: z.string().nullable(),
+  previousValue: z.string().nullable(),
+  newValue: z.string().nullable(),
+  fieldVersion: z.number().int().nonnegative().nullable(),
+  createdAt: isoDateTimeSchema,
+});
+export type BulkUpdateRowResponse = z.infer<typeof bulkUpdateRowResponseSchema>;
+
+export const paginatedBulkUpdateRowsResponseSchema = z.object({
+  items: z.array(bulkUpdateRowResponseSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const notificationTypeSchema = z.enum([
+  'AUTHORIZATION_READY_TO_DISPENSE',
+  'DISPENSATION_LOCATION_ASSIGNED',
+  'DISPENSATION_LOCATION_CHANGED',
+  'EPS_DIRECTION_PENDING',
+  'DAILY_OPERATIONAL_REPORT',
+]);
+export type NotificationType = z.infer<typeof notificationTypeSchema>;
+
+/** Organización destinataria de cada tipo de notificación (SPEC-004). */
+export const notificationRecipientOrganizations: Record<NotificationType, readonly string[]> = {
+  AUTHORIZATION_READY_TO_DISPENSE: ['OLP', 'MEDICARTE'],
+  DISPENSATION_LOCATION_ASSIGNED: ['OLP'],
+  DISPENSATION_LOCATION_CHANGED: ['OLP'],
+  EPS_DIRECTION_PENDING: ['COMPENSAR'],
+  DAILY_OPERATIONAL_REPORT: ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'],
+};
+
+export const NOTIFICATIONS_QUEUE = 'notifications';
+export const NOTIFICATIONS_DEAD_LETTER_QUEUE = 'notifications.dead-letter';
+export const NOTIFICATION_JOB_NAME = 'notification.email.v1';
+export const NOTIFICATION_JOB_OPTIONS = {
+  attempts: 5,
+  backoff: { type: 'exponential' as const, delay: 2000 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail: false,
+};
+
+export const notificationJobPayloadSchema = z.object({
+  eventId: z.string().uuid(),
+  notificationType: notificationTypeSchema,
+  itemId: z.string().uuid().nullable(),
+  recipientOrganizationId: z.string().uuid().nullable(),
+  /** Fecha calendario America/Bogota de la ventana consolidada. */
+  period: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type NotificationJobPayload = z.infer<typeof notificationJobPayloadSchema>;
+
+export const notificationJobSchema = z.object({
+  name: z.literal('notification.email'),
+  version: z.literal(1),
+  payload: notificationJobPayloadSchema,
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type NotificationJob = z.infer<typeof notificationJobSchema>;
+
+export const notificationStatusSchema = z.enum(['PENDING', 'SENT', 'FAILED', 'SKIPPED']);
+export type NotificationStatus = z.infer<typeof notificationStatusSchema>;
+
+export const notificationResponseSchema = z.object({
+  id: z.string().uuid(),
+  notificationType: notificationTypeSchema,
+  recipientOrganizationId: z.string().uuid().nullable(),
+  itemId: z.string().uuid().nullable(),
+  period: z.string().nullable(),
+  status: notificationStatusSchema,
+  attempts: z.number().int().nonnegative(),
+  subject: z.string(),
+  recipients: z.array(z.string().email()),
+  templateVersion: z.number().int().positive(),
+  gmailMessageId: z.string().nullable(),
+  lastError: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+  sentAt: isoDateTimeSchema.nullable(),
+});
+export type NotificationResponse = z.infer<typeof notificationResponseSchema>;
+
+export const notificationRecipientRequestSchema = z.object({
+  notificationType: notificationTypeSchema,
+  organizationId: z.string().uuid(),
+  email: z.string().email().max(320),
+});
+export type NotificationRecipientRequest = z.infer<typeof notificationRecipientRequestSchema>;
+
+export const notificationRecipientResponseSchema = z.object({
+  id: z.string().uuid(),
+  notificationType: notificationTypeSchema,
+  organizationId: z.string().uuid(),
+  email: z.string().email(),
+  active: z.boolean(),
+  createdAt: isoDateTimeSchema,
+});
+export type NotificationRecipientResponse = z.infer<typeof notificationRecipientResponseSchema>;
+
+export const notificationListQuerySchema = z.object({
+  status: notificationStatusSchema.optional(),
+  notificationType: notificationTypeSchema.optional(),
+  cursor: z.string().min(1).max(500).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export const operationalExportFormatSchema = z.enum(['csv', 'xlsx']);
+export const operationalExportQuerySchema = z.object({
+  operationType: bulkUpdateOperationTypeSchema,
+  format: operationalExportFormatSchema.default('csv'),
+});
+export type OperationalExportQuery = z.infer<typeof operationalExportQuerySchema>;

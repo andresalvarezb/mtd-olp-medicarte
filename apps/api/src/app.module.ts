@@ -20,6 +20,12 @@ import { ImportsController } from './imports/imports.controller';
 import { ImportsService } from './imports/imports.service';
 import { AuthorizationItemsController } from './authorization-items/authorization-items.controller';
 import { AuthorizationItemsService } from './authorization-items/authorization-items.service';
+import { BulkUpdatesController } from './bulk-updates/bulk-updates.controller';
+import { BulkUpdatesService } from './bulk-updates/bulk-updates.service';
+import { OperationalExportsController } from './operational-exports/operational-exports.controller';
+import { OperationalExportsService } from './operational-exports/operational-exports.service';
+import { NotificationsAdminController } from './notifications/notifications-admin.controller';
+import { NotificationsAdminService } from './notifications/notifications-admin.service';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
 
 const config = parseApiConfig(process.env);
@@ -61,6 +67,9 @@ new Gauge({
     AdminJobsController,
     ImportsController,
     AuthorizationItemsController,
+    BulkUpdatesController,
+    OperationalExportsController,
+    NotificationsAdminController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -69,6 +78,9 @@ new Gauge({
     FoundationService,
     ImportsService,
     AuthorizationItemsService,
+    BulkUpdatesService,
+    OperationalExportsService,
+    NotificationsAdminService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

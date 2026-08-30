@@ -36,6 +36,13 @@
       "when": 1788210420663,
       "tag": "0004_mipres",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788296820663,
+      "tag": "0005_phase4_operational_notifications",
+      "breakpoints": true
     }
   ]
 }

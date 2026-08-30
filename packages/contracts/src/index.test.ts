@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   authorizationImportJobSchema,
+  bulkUpdateOperationContracts,
+  bulkUpdateOperationTypeSchema,
+  bulkUpdateRowResultCodeSchema,
   confirmImportResponseSchema,
+  enabledBulkUpdateOperationTypes,
   foundationJobSchema,
   importBatchResponseSchema,
   importRowResultCodeSchema,
+  notificationJobSchema,
+  notificationRecipientOrganizations,
 } from './index';
 
 describe('foundationJobSchema', () => {
@@ -72,6 +78,80 @@ describe('phase two contracts', () => {
         createdRows: 1,
         existingRows: 0,
         confirmedAt: 'not-a-date',
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('phase four contracts', () => {
+  it('mantiene el catálogo cerrado de ADR-022 con actor y columna por tipo', () => {
+    expect(bulkUpdateOperationTypeSchema.options).toEqual([
+      'ASSIGN_DISPENSATION_LOCATION',
+      'REPORT_DISPENSATION_DATE',
+      'REPORT_APPLICATION_DATE',
+    ]);
+    expect(bulkUpdateOperationContracts.ASSIGN_DISPENSATION_LOCATION).toMatchObject({
+      actorOrganizationCode: 'MEDICARTE',
+      mutableField: 'lugar_dispensacion',
+    });
+    expect(bulkUpdateOperationContracts.REPORT_DISPENSATION_DATE).toMatchObject({
+      actorOrganizationCode: 'OLP',
+      mutableField: 'fecha_dispensacion',
+    });
+  });
+
+  it('en Fase 4 solo ASSIGN_DISPENSATION_LOCATION está habilitado', () => {
+    expect(enabledBulkUpdateOperationTypes).toEqual(['ASSIGN_DISPENSATION_LOCATION']);
+  });
+
+  it('conserva las causales estables de SPEC-013', () => {
+    for (const code of [
+      'UNCHANGED_VALUE',
+      'INVALID_HEADERS',
+      'MISSING_BUSINESS_KEY',
+      'DUPLICATE_KEY_IN_FILE',
+      'AUTHORIZATION_ITEM_NOT_FOUND',
+      'FORBIDDEN_ITEM_SCOPE',
+      'OPERATION_NOT_ALLOWED',
+      'MISSING_VALUE',
+      'INVALID_VALUE_FORMAT',
+      'INVALID_OPERATION_STATE',
+      'VERSION_CONFLICT',
+    ]) {
+      expect(bulkUpdateRowResultCodeSchema.safeParse(code).success).toBe(true);
+    }
+  });
+
+  it('valida el job de notificación y sus destinatarios', () => {
+    const id = '10000000-0000-4000-8000-000000000001';
+    const job = notificationJobSchema.parse({
+      name: 'notification.email',
+      version: 1,
+      payload: {
+        eventId: id,
+        notificationType: 'DISPENSATION_LOCATION_ASSIGNED',
+        itemId: id,
+        recipientOrganizationId: null,
+        period: null,
+        correlationId: id,
+        idempotencyKey: 'location-key-1',
+      },
+      correlationId: id,
+      idempotencyKey: 'location-key-1',
+    });
+    expect(job.payload.notificationType).toBe('DISPENSATION_LOCATION_ASSIGNED');
+    expect(notificationRecipientOrganizations.AUTHORIZATION_READY_TO_DISPENSE).toEqual([
+      'OLP',
+      'MEDICARTE',
+    ]);
+    expect(notificationRecipientOrganizations.DISPENSATION_LOCATION_CHANGED).toEqual(['OLP']);
+    expect(
+      notificationJobSchema.safeParse({
+        name: 'notification.email',
+        version: 1,
+        payload: { eventId: id, notificationType: 'OTHER' },
+        correlationId: id,
+        idempotencyKey: 'bad-key-1',
       }).success,
     ).toBe(false);
   });

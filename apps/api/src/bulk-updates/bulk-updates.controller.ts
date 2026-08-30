@@ -1,59 +1,60 @@
 import {
   BadRequestException,
-  Body,
+  Body as NestBody,
   Controller,
+  Get,
   Headers,
   HttpCode,
   Param,
   Post,
+  Query,
+  Req,
   UploadedFile,
   UseGuards,
   UseInterceptors,
-  Get,
-  Query,
-  Req,
+  Header,
 } from '@nestjs/common';
 import {
-  ApiAcceptedResponse,
-  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
-  ApiConflictResponse,
   ApiForbiddenResponse,
   ApiHeader,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiParam,
-  ApiNotFoundResponse,
   ApiPayloadTooLargeResponse,
-  ApiServiceUnavailableResponse,
   ApiTags,
-  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
+  ApiBadRequestResponse,
+  ApiConflictResponse,
+  ApiQuery,
+  ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle } from '@nestjs/throttler';
-import { idempotencyKeySchema } from '@authorization/contracts';
 import { z } from 'zod';
+import { idempotencyKeySchema, bulkUpdateOperationTypeSchema } from '@authorization/contracts';
 import { AuthGuard } from '../common/auth.guard';
 import { scopeFromProfile } from '../common/request-scope';
 import { AccessService } from '../identity/access.service';
 import type { AuthenticatedRequest } from '../types';
-import { ImportsService } from './imports.service';
+import { BulkUpdatesService } from './bulk-updates.service';
 
-type UploadedImportFile = Readonly<{
+const uuidSchema = z.string().uuid();
+const rowsQuerySchema = z.object({
+  cursor: z.string().min(1).max(500).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+const reportQuerySchema = z.object({ format: z.literal('csv').default('csv') });
+
+type UploadedBulkFile = Readonly<{
   originalname: string;
   mimetype: string;
   size: number;
   buffer: Buffer;
 }>;
 
-const uuidSchema = z.string().uuid();
-const emptyBodySchema = z.object({}).strict();
-const rowsQuerySchema = z.object({
-  cursor: z.string().min(1).max(500).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(25),
-});
 const errorSchema = {
   type: 'object',
   required: ['code', 'message', 'correlationId'],
@@ -61,59 +62,50 @@ const errorSchema = {
     code: { type: 'string' },
     message: { type: 'string' },
     correlationId: { type: 'string' },
-    fields: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } } },
   },
 };
 
-const batchStatusEnum = [
-  'UPLOADED',
-  'VALIDATING',
-  'READY_TO_CONFIRM',
-  'CONFIRMING',
-  'COMPLETED',
-  'FAILED',
-  'CANCELLED',
-];
-
-const importBatchResponseSchema = {
+const bulkBatchResponseSchema = {
   type: 'object',
   required: [
     'id',
+    'operationType',
     'status',
     'originalFilename',
     'mimeType',
     'sizeBytes',
     'sha256',
+    'contractVersion',
     'totalRows',
-    'validRows',
+    'processedRows',
+    'updatedRows',
+    'unchangedRows',
     'rejectedRows',
-    'duplicateRows',
-    'existingRows',
-    'confirmedRows',
     'lastErrorCode',
     'createdAt',
     'completedAt',
   ],
   properties: {
     id: { type: 'string', format: 'uuid' },
-    status: { type: 'string', enum: batchStatusEnum },
+    operationType: { type: 'string' },
+    status: { type: 'string', enum: ['UPLOADED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED'] },
     originalFilename: { type: 'string' },
     mimeType: { type: 'string' },
     sizeBytes: { type: 'integer' },
     sha256: { type: 'string' },
+    contractVersion: { type: 'integer' },
     totalRows: { type: 'integer' },
-    validRows: { type: 'integer' },
+    processedRows: { type: 'integer' },
+    updatedRows: { type: 'integer' },
+    unchangedRows: { type: 'integer' },
     rejectedRows: { type: 'integer' },
-    duplicateRows: { type: 'integer' },
-    existingRows: { type: 'integer' },
-    confirmedRows: { type: 'integer' },
     lastErrorCode: { type: 'string', nullable: true },
     createdAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time', nullable: true },
   },
 };
 
-const paginatedRowsResponseSchema = {
+const bulkRowsResponseSchema = {
   type: 'object',
   required: ['items', 'nextCursor'],
   properties: {
@@ -121,27 +113,19 @@ const paginatedRowsResponseSchema = {
       type: 'array',
       items: {
         type: 'object',
-        required: [
-          'id',
-          'rowNumber',
-          'resultCode',
-          'resultMessage',
-          'confirmable',
-          'authorizationItemId',
-          'authorizationKey',
-          'normalized',
-          'validationErrors',
-        ],
+        required: ['id', 'rowNumber', 'resultCode', 'resultMessage', 'createdAt'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           rowNumber: { type: 'integer' },
           resultCode: { type: 'string' },
           resultMessage: { type: 'string' },
-          confirmable: { type: 'boolean' },
           authorizationItemId: { type: 'string', format: 'uuid', nullable: true },
           authorizationKey: { type: 'string', nullable: true },
-          normalized: { type: 'object', nullable: true },
-          validationErrors: { type: 'array', items: { type: 'object' } },
+          fieldName: { type: 'string', nullable: true },
+          previousValue: { type: 'string', nullable: true },
+          newValue: { type: 'string', nullable: true },
+          fieldVersion: { type: 'integer', nullable: true },
+          createdAt: { type: 'string', format: 'date-time' },
         },
       },
     },
@@ -149,27 +133,15 @@ const paginatedRowsResponseSchema = {
   },
 };
 
-const confirmResponseSchema = {
-  type: 'object',
-  required: ['batchId', 'status', 'createdRows', 'existingRows', 'confirmedAt'],
-  properties: {
-    batchId: { type: 'string', format: 'uuid' },
-    status: { type: 'string', enum: ['COMPLETED'] },
-    createdRows: { type: 'integer' },
-    existingRows: { type: 'integer' },
-    confirmedAt: { type: 'string', format: 'date-time' },
-  },
-};
-
-@ApiTags('imports')
+@ApiTags('bulk-updates')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ schema: errorSchema })
 @ApiTooManyRequestsResponse({ schema: errorSchema })
-@Controller('imports')
+@Controller('bulk-updates')
 @UseGuards(AuthGuard)
-export class ImportsController {
+export class BulkUpdatesController {
   constructor(
-    private readonly imports: ImportsService,
+    private readonly bulkUpdates: BulkUpdatesService,
     private readonly access: AccessService,
   ) {}
 
@@ -182,137 +154,127 @@ export class ImportsController {
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['file'],
-      properties: { file: { type: 'string', format: 'binary' } },
+      required: ['operationType', 'file'],
+      properties: {
+        operationType: { type: 'string', enum: ['ASSIGN_DISPENSATION_LOCATION'] },
+        file: { type: 'string', format: 'binary' },
+      },
     },
-  })
-  @ApiAcceptedResponse({
-    description: 'Import batch accepted for asynchronous processing',
-    schema: importBatchResponseSchema,
   })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiConflictResponse({ schema: errorSchema })
   @ApiPayloadTooLargeResponse({ schema: errorSchema })
   async create(
-    @UploadedFile() file: UploadedImportFile | undefined,
+    @NestBody('operationType') rawOperationType: string | undefined,
+    @UploadedFile() file: UploadedBulkFile | undefined,
     @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
     if (!file)
       throw new BadRequestException({
-        code: 'IMPORT_FILE_REQUIRED',
-        message: 'An import file is required',
+        code: 'BULK_FILE_REQUIRED',
+        message: 'Un archivo de actualización masiva es obligatorio.',
       });
+    const operationType = bulkUpdateOperationTypeSchema.parse(rawOperationType);
     const idempotencyKey = idempotencyKeySchema.parse(rawIdempotencyKey);
     const organization = uuidSchema.parse(organizationId);
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'imports.create',
+      operationType === 'ASSIGN_DISPENSATION_LOCATION'
+        ? 'bulk_updates.dispensation_location'
+        : 'dispensing.register',
     );
-    return this.imports.create({
+    return this.bulkUpdates.create({
+      operationType,
       file,
       idempotencyKey,
       scope: scopeFromProfile(profile, organization, request),
     });
   }
 
-  @Get(':id')
+  @Get(':batchId')
   @SkipThrottle()
-  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({ name: 'batchId', format: 'uuid' })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiOkResponse({
-    description: 'Import batch progress and totals',
-    schema: importBatchResponseSchema,
-  })
+  @ApiOkResponse({ schema: bulkBatchResponseSchema })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiNotFoundResponse({ schema: errorSchema })
   async get(
-    @Param('id') rawId: string,
+    @Param('batchId') rawBatchId: string,
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    const id = uuidSchema.parse(rawId);
+    const batchId = uuidSchema.parse(rawBatchId);
     const organization = uuidSchema.parse(organizationId);
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'authorizations.read',
+      'bulk_updates.read',
     );
-    return this.imports.getBatch(id, scopeFromProfile(profile, organization, request));
+    return this.bulkUpdates.getBatch(batchId, scopeFromProfile(profile, organization, request));
   }
 
-  @Get(':id/rows')
+  @Get(':batchId/rows')
   @SkipThrottle()
-  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({ name: 'batchId', format: 'uuid' })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiOkResponse({
-    description: 'Paginated import row report',
-    schema: paginatedRowsResponseSchema,
-  })
+  @ApiOkResponse({ schema: bulkRowsResponseSchema })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   @ApiNotFoundResponse({ schema: errorSchema })
   async rows(
-    @Param('id') rawId: string,
+    @Param('batchId') rawBatchId: string,
     @Query() rawQuery: unknown,
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    const id = uuidSchema.parse(rawId);
+    const batchId = uuidSchema.parse(rawBatchId);
     const query = rowsQuerySchema.parse(rawQuery);
     const organization = uuidSchema.parse(organizationId);
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'authorizations.read',
+      'bulk_updates.read',
     );
-    return this.imports.getRows({
-      batchId: id,
+    return this.bulkUpdates.getRows({
+      batchId,
       limit: query.limit,
       ...(query.cursor ? { cursor: query.cursor } : {}),
       scope: scopeFromProfile(profile, organization, request),
     });
   }
 
-  @Post(':id/confirm')
-  @HttpCode(200)
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiHeader({ name: 'Idempotency-Key', required: true })
+  @Get(':batchId/report')
+  @ApiParam({ name: 'batchId', format: 'uuid' })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiBody({ schema: { type: 'object', additionalProperties: false } })
-  @ApiOkResponse({
-    description: 'Import rows confirmed transactionally',
-    schema: confirmResponseSchema,
-  })
+  @ApiQuery({ name: 'format', enum: ['csv'], required: false })
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @ApiOkResponse({ schema: { type: 'string' } })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
-  @ApiConflictResponse({ schema: errorSchema })
   @ApiNotFoundResponse({ schema: errorSchema })
-  @ApiServiceUnavailableResponse({ schema: errorSchema })
-  async confirm(
-    @Param('id') rawId: string,
-    @Body() rawBody: unknown,
-    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
+  async report(
+    @Param('batchId') rawBatchId: string,
+    @Query() rawQuery: unknown,
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    emptyBodySchema.parse(rawBody);
-    const id = uuidSchema.parse(rawId);
-    const idempotencyKey = idempotencyKeySchema.parse(rawIdempotencyKey);
+    reportQuerySchema.parse(rawQuery);
+    const batchId = uuidSchema.parse(rawBatchId);
     const organization = uuidSchema.parse(organizationId);
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'imports.confirm',
+      'bulk_updates.read',
     );
-    return this.imports.confirm({
-      batchId: id,
-      idempotencyKey,
+    const report = await this.bulkUpdates.getReport({
+      batchId,
       scope: scopeFromProfile(profile, organization, request),
     });
+    return report.content;
   }
 }

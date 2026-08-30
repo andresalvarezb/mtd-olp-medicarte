@@ -17,8 +17,12 @@
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
-      "redirectUris": ["http://localhost:3000/*"],
-      "webOrigins": ["http://localhost:3000"],
+      "redirectUris": [
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
       "protocol": "openid-connect",
       "protocolMappers": [
         {
@@ -60,7 +64,13 @@
       "lastName": "Operator",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "olp-operator", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "olp-operator",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "33333333-3333-4333-8333-333333333333",
@@ -70,7 +80,13 @@
       "lastName": "User",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "suspended-user", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "suspended-user",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "44444444-4444-4444-8444-444444444444",
@@ -80,7 +96,29 @@
       "lastName": "Local",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "unknown-local-user", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "unknown-local-user",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "45555555-5555-4555-8555-555555555555",
+      "username": "medicarte-operator",
+      "email": "medicarte@example.test",
+      "firstName": "Medicarte",
+      "lastName": "Operator",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "medicarte-operator",
+          "temporary": false
+        }
+      ]
     }
   ]
 }

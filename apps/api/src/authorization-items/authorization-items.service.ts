@@ -21,7 +21,7 @@ import {
 } from '@authorization/contracts';
 import type { ApiConfig } from '@authorization/config';
 import type { createDatabase } from '@authorization/database';
-import { currentBogotaDate, deriveOperationStatus } from '@authorization/domain';
+import { currentBogotaDate, deriveApplicationSiteStatus, deriveOperationStatus } from '@authorization/domain';
 import { API_CONFIG, DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
 
@@ -41,6 +41,8 @@ type ItemRow = {
   direction_status: string;
   operation_status: string | null;
   coverage_rule_version: string;
+  lugar_dispensacion: string | null;
+  operational_version: number;
   version: number;
   created_at: Date;
   updated_at: Date;
@@ -123,6 +125,9 @@ function toItemResponse(row: ItemRow, includeSourceData: boolean): Authorization
     sourceData: includeSourceData ? sourceDataRecord(row.source_data) : null,
     sourcePrescripcionNormalized: row.source_prescripcion_normalized,
     noPrescripcion: row.no_prescripcion,
+    lugarDispensacion: row.lugar_dispensacion,
+    applicationSiteStatus: deriveApplicationSiteStatus(row.lugar_dispensacion),
+    operationalVersion: row.operational_version,
     coverageRuleVersion: row.coverage_rule_version,
     version: row.version,
     createdAt: row.created_at.toISOString(),
@@ -173,7 +178,7 @@ export class AuthorizationItemsService {
     const result = await this.database.pool.query<ItemRow>(
       `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, null::jsonb as source_data,
               i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
-              i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.version,
+              i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion, i.operational_version, i.version,
               i.created_at, i.updated_at
        from authorization_items i
        where ${conditions.join(' and ')}
@@ -295,7 +300,7 @@ export class AuthorizationItemsService {
       const itemResult = await client.query<ItemRow>(
         `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
-                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.version,
+                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion, i.operational_version, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
          where i.id = $1
@@ -413,8 +418,8 @@ export class AuthorizationItemsService {
           where id = $1 and version = $10
           returning id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
                    source_status_normalized, source_prescripcion_normalized, no_prescripcion, enablement_status,
-                   coverage_type, direction_status, operation_status, coverage_rule_version, version, created_at,
-                   updated_at`,
+                   coverage_type, direction_status, operation_status, coverage_rule_version, lugar_dispensacion,
+                   operational_version, version, created_at, updated_at`,
         [
           itemId,
           JSON.stringify(row.raw_data),
@@ -735,7 +740,7 @@ export class AuthorizationItemsService {
       `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key,
                 ${includeSourceData ? 'i.source_data' : 'null::jsonb'} as source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
-                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.version,
+                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion, i.operational_version, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
          where i.id = $1
