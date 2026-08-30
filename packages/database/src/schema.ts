@@ -146,9 +146,10 @@ export const authorizationItems = pgTable(
     authorizationKey: varchar('authorization_key', { length: 511 }).notNull(),
     sourceData: jsonb('source_data').notNull(),
     sourceStatusNormalized: varchar('source_status_normalized', { length: 80 }).notNull(),
-    sourceCupsPrincipalNormalized: varchar('source_cups_principal_normalized', {
+    sourcePrescripcionNormalized: varchar('source_prescripcion_normalized', {
       length: 255,
     }).notNull(),
+    noPrescripcion: varchar('no_prescripcion', { length: 255 }).notNull(),
     enablementStatus: varchar('enablement_status', { length: 40 }).notNull(),
     coverageType: varchar('coverage_type', { length: 30 }).notNull(),
     directionStatus: varchar('direction_status', { length: 30 }).notNull(),

@@ -1,40 +1,46 @@
-# SPEC-006 — Auditoría, hallazgos y consolidación
+# SPEC-006 — Auditoría humana, hallazgos y consolidación
 
 **Fase:** 6
 
 ## Flujo
 
-`NOT_STARTED -> READY -> IN_REVIEW -> APPROVED|REJECTED`.
+```text
+NOT_STARTED -> READY -> IN_REVIEW -> APPROVED | REJECTED
+```
 
-Un rechazo puede requerir corrección de soportes sin borrar evidencia ni la revisión anterior.
+`READY` significa disponible para revisión, no “soportes completos”. Un rechazo puede dar lugar a correcciones externas en Drive y a una revisión posterior sin borrar decisiones ni hallazgos previos.
+
+Después de correcciones externas, un auditor autorizado puede iniciar una nueva revisión `REJECTED -> IN_REVIEW`. La plataforma no detecta automáticamente cambios en Drive y cada revisión conserva su propia decisión e historial.
+
+`NOT_STARTED -> READY` se deriva cuando existen `fecha_dispensacion` y `fecha_aplicacion`. Esta derivación no inspecciona soportes ni aprueba el registro.
 
 ## Funciones
 
 - iniciar revisión;
-- crear hallazgos tipificados;
-- rechazar;
-- registrar subsanación;
-- aprobar;
-- generar consolidado asíncrono;
+- registrar observaciones y hallazgos cuando correspondan;
+- aprobar o rechazar explícitamente;
+- registrar revisiones posteriores conservando historial;
+- generar consolidado on-demand;
 - calcular indicadores.
 
-## Reglas confirmadas
+## Regla de soportes
+
+El auditor consulta externamente los soportes administrados por MEDICARTE en Drive. La plataforma no enumera archivos, no valida tipos/cantidades y no calcula completitud. La suficiencia documental es una decisión humana.
+
+Solo un auditor MTD autorizado puede producir `APPROVED` o `REJECTED`. Cada decisión registra actor, organización, timestamp, observaciones y hallazgos cuando existan. Ningún job, conteo, integración o regla automática puede producir `APPROVED`.
+
+## Consolidación
 
 - Solo `audit_status = APPROVED` es elegible para el consolidado definitivo.
-- Un registro rechazado o pendiente no puede entrar al consolidado.
-- Las exportaciones deben soportar CSV y XLSX/Excel.
-- Se generan bajo demanda y no se persiste una copia del archivo exportado.
-- Debe auditarse la acción de exportar.
-- `READY_FOR_ADMISSION` se deriva. La UI no puede marcarlo manualmente.
-
-## Aprobación de auditoría
-
-- La revisión es humana y visual.
-- Solo un auditor autorizado puede producir `APPROVED`.
-- No existe aprobación automática.
-- La acción explícita de aprobar soportes es condición suficiente para `audit_status = APPROVED`.
-- Deben registrarse actor y timestamp.
+- Un registro rechazado o pendiente no entra al consolidado.
+- `APPROVED` deriva `operation_status = DISPENSED` y habilita la derivación posterior de admisión según sus reglas.
+- CSV/XLSX se genera on-demand, sin copia persistente, y se audita.
+- `READY_FOR_ADMISSION` se deriva; la UI no puede marcarlo manualmente.
 
 ## Aceptación
 
-No permitir aprobación automática; únicamente un auditor autorizado puede ejecutar la aprobación explícita; export no bloquea API; permisos y auditoría aplicados.
+- Solo un auditor autorizado puede aprobar/rechazar.
+- Toda decisión conserva actor, fecha, observaciones e historial.
+- Un auditor puede registrar su evaluación manual sin que la plataforma afirme completitud automática.
+- Ningún soporte o cambio en Drive altera estados automáticamente.
+- Exportación no bloquea la API y aplica permisos y auditoría.

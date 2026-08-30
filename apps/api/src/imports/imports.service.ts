@@ -465,9 +465,9 @@ export class ImportsService {
         const item = await client.query<{ id: string }>(
           `insert into authorization_items
              (numero_autorizacion, codigo_medicamento, authorization_key, source_data, source_status_normalized,
-              source_cups_principal_normalized, enablement_status, coverage_type, direction_status, operation_status,
-              coverage_rule_version, created_from_batch_id)
-           values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, null, 'F2-COVERAGE-1', $10)
+              source_prescripcion_normalized, no_prescripcion, enablement_status, coverage_type, direction_status,
+              operation_status, coverage_rule_version, created_from_batch_id)
+           values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, null, 'F2-COVERAGE-2', $11)
            on conflict (numero_autorizacion, codigo_medicamento) do nothing
            returning id`,
           [
@@ -476,7 +476,8 @@ export class ImportsService {
             classification.authorizationKey,
             JSON.stringify(row.raw_data),
             classification.sourceStatusNormalized,
-            classification.cupsPrincipalNormalized,
+            classification.prescripcionNormalized,
+            classification.noPrescripcion,
             classification.enablementStatus,
             classification.coverageType,
             classification.directionStatus,
@@ -498,17 +499,12 @@ export class ImportsService {
           concurrentExistingRows += 1;
           continue;
         }
-        const sourceValue = rawText(sourceDataRecord(row.raw_data)?.CUPS_PRINCIPAL);
+        const sourceValue = rawText(sourceDataRecord(row.raw_data)?.['No.PRESCRIPCION']);
         await client.query(
           `insert into coverage_evaluations
              (authorization_item_id, evaluation_version, source_value, normalized_value, coverage_type, rule_version)
-           values ($1, 1, $2, $3, $4, 'F2-COVERAGE-1')`,
-          [
-            itemId,
-            sourceValue,
-            classification.cupsPrincipalNormalized,
-            classification.coverageType,
-          ],
+           values ($1, 1, $2, $3, $4, 'F2-COVERAGE-2')`,
+          [itemId, sourceValue, classification.prescripcionNormalized, classification.coverageType],
         );
         await client.query(
           `insert into authorization_item_organizations (authorization_item_id, organization_id)
@@ -533,8 +529,9 @@ export class ImportsService {
           resourceId: itemId,
           after: {
             coverageType: classification.coverageType,
-            normalizedValue: classification.cupsPrincipalNormalized,
-            ruleVersion: 'F2-COVERAGE-1',
+            normalizedValue: classification.prescripcionNormalized,
+            noPrescripcion: classification.noPrescripcion,
+            ruleVersion: 'F2-COVERAGE-2',
           },
           correlationId: input.scope.correlationId,
         });

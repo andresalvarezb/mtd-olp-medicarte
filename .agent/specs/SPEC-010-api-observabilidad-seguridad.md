@@ -7,7 +7,7 @@
 - `/api/v1`;
 - OpenAPI;
 - cursor pagination para listados grandes;
-- ISO 8601 UTC;
+- ISO 8601: timestamps UTC (`date-time`) y fechas calendario operativas como `date` (`YYYY-MM-DD`) sin zona horaria;
 - correlation ID;
 - error `{code,message,fields?,correlationId}`;
 - optimistic concurrency para actualizaciones sensibles;
@@ -17,7 +17,7 @@
 ## Límites operativos iniciales
 
 - Tamaño máximo de archivo cargado: 20 MB.
-- Volumen esperado: hasta 2.500 archivos por mes.
+- No se aplica un límite mensual de soportes: esos archivos no ingresan a la aplicación.
 
 ## Despliegue
 
@@ -33,7 +33,7 @@ TLS, secretos fuera del repo, mínimo privilegio, datos de prueba anonimizados, 
 
 ## Observabilidad
 
-Health API/DB/Redis, métricas de cola, latencia/error MIPRES, Gmail/Drive failures, jobs agotados, logs JSON, trazas/correlation.
+Health API/DB/Redis, métricas de cola, latencia/error MIPRES, fallos Gmail, jobs agotados, logs JSON y trazas/correlation. Drive no requiere health técnico porque no existe integración de archivos desde la aplicación.
 
 ## Aceptación
 

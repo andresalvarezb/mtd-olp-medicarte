@@ -15,7 +15,7 @@ const job: AuthorizationImportJob = {
     eventId: '11111111-1111-4111-8111-111111111111',
     batchId: '22222222-2222-4222-8222-222222222222',
     sourceFileId: '33333333-3333-4333-8333-333333333333',
-    processorVersion: 1,
+    processorVersion: 2,
     correlationId: '44444444-4444-4444-8444-444444444444',
     idempotencyKey: 'import-batch',
   },
@@ -23,12 +23,12 @@ const job: AuthorizationImportJob = {
   idempotencyKey: 'import-batch',
 };
 
-const config = { IMPORT_PROCESSOR_VERSION: 1 } as WorkerConfig;
+const config = { IMPORT_PROCESSOR_VERSION: 2 } as WorkerConfig;
 
 function source(
   processorVersion: number,
   content = Buffer.from(
-    'NUMERO_AUTORIZACION,COD_COMERCIAL,CUPS_PRINCIPAL,ESTADO_AUTORIZACION\nA,M,C,ACTIVA',
+    'NUMERO_AUTORIZACION,COD_COMERCIAL,ESTADO_AUTORIZACION,No.PRESCRIPCION\nA,M,ACTIVA,20260915123',
   ),
 ) {
   const sha256 = createHash('sha256').update(content).digest('hex');
@@ -51,7 +51,7 @@ describe('ImportProcessor processor version validation', () => {
     const connect = vi.fn();
     const database = {
       pool: {
-        query: vi.fn(() => Promise.resolve({ rows: [source(2)] })),
+        query: vi.fn(() => Promise.resolve({ rows: [source(1)] })),
         connect,
       },
     } as unknown as Database;
@@ -67,7 +67,7 @@ describe('ImportProcessor processor version validation', () => {
       query: vi.fn((query: string) => {
         if (query.includes('for update'))
           return Promise.resolve({
-            rows: [{ status: 'UPLOADED', processor_version: 2 }],
+            rows: [{ status: 'UPLOADED', processor_version: 1 }],
             rowCount: 1,
           });
         return Promise.resolve({ rows: [], rowCount: 0 });
@@ -76,7 +76,7 @@ describe('ImportProcessor processor version validation', () => {
     };
     const database = {
       pool: {
-        query: vi.fn(() => Promise.resolve({ rows: [source(1)] })),
+        query: vi.fn(() => Promise.resolve({ rows: [source(2)] })),
         connect: vi.fn(() => Promise.resolve(client)),
       },
     } as unknown as Database;

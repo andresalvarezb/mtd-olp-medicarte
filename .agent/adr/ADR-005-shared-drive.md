@@ -1,24 +1,24 @@
-# ADR-005 — Google Shared Drive para soportes
+# ADR-005 — Drive corporativo externo para soportes
 
 **Estado:** ACCEPTED
 
 ## Decisión
 
-Guardar soportes en una unidad compartida mediante Drive API. PostgreSQL guarda `drive_file_id`, hash, tipo, versión, actor, tamaño y demás metadatos.
+Google Drive continúa como repositorio corporativo externo y su destino puede conservarse como configuración administrativa. Medicarte carga y administra los soportes directamente en Drive, fuera del flujo de archivos de la aplicación.
 
 ## Reglas
 
-No enlaces públicos. El acceso del usuario ocurre a través de la API después de autorización.
+La aplicación no carga, descarga, cuenta, versiona ni valida archivos individuales de soporte. No existe relación obligatoria `attachment -> authorization_item`, endpoint de attachments ni conciliación Drive/PostgreSQL.
 
 ## Configuración del destino
 
-El ID del Drive/carpeta destino no se fija en código. Es un parámetro administrable únicamente por MTD Admin.
+El ID o referencia del Drive/carpeta corporativa no se fija en código. Si se expone como configuración o enlace administrativo, solo MTD Admin puede modificarlo y el cambio queda auditado.
 
 Un cambio:
 
-- aplica a nuevas cargas;
-- no mueve automáticamente archivos existentes;
+- orienta la operación externa de Medicarte;
+- no mueve ni modifica archivos existentes;
 - debe quedar auditado;
-- obliga a conservar en cada `attachment` la referencia al destino usado en el momento de carga.
+- no crea metadatos de archivos en la aplicación.
 
-La aplicación no elimina soportes automáticamente por antigüedad. Los documentos permanecen en el Drive corporativo sin una fecha máxima definida por este producto.
+La aplicación no elimina soportes ni gobierna su retención. Las políticas corporativas de Drive quedan fuera de este producto.

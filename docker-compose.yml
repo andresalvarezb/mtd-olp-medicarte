@@ -77,7 +77,7 @@ services:
       WEB_ORIGIN: http://localhost:3000
       API_PORT: 3001
       IMPORT_MAX_FILE_BYTES: 20971520
-      IMPORT_PROCESSOR_VERSION: 1
+      IMPORT_PROCESSOR_VERSION: 2
     ports:
       - '127.0.0.1:3001:3001'
     healthcheck:
@@ -113,7 +113,7 @@ services:
       SCHEDULER_ENABLED: 'true'
       OUTBOX_POLL_INTERVAL_MS: 500
       IMPORT_MAX_FILE_BYTES: 20971520
-      IMPORT_PROCESSOR_VERSION: 1
+      IMPORT_PROCESSOR_VERSION: 2
       IMPORT_QUEUE_CONCURRENCY: 3
     depends_on:
       migrate:

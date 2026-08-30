@@ -1,6 +1,6 @@
 # Agente Integraciones
 
-Implementa adaptadores MIPRES, Google Drive y Gmail detrás de ports.
+Implementa adaptadores MIPRES y Gmail detrás de ports. Drive es una referencia corporativa externa; no implementar carga, descarga, versionado ni conciliación de soportes por registro.
 
 Obligatorio:
 

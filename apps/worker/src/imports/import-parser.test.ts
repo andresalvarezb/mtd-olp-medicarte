@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { parseImportFile } from './import-parser';
 
 const header =
-  'NUMERO_AUTORIZACION,COD_COMERCIAL,CUPS_PRINCIPAL,ESTADO_AUTORIZACION,OBS_AUTORIZACION';
+  'NUMERO_AUTORIZACION,COD_COMERCIAL,CUPS_PRINCIPAL,ESTADO_AUTORIZACION,No.PRESCRIPCION,OBS_AUTORIZACION';
 
 describe('parseImportFile', () => {
   it('parses CSV rows, keeps unknown source columns, and reports missing headers', () => {
     const content = Buffer.from(
-      `\uFEFF${header}\nAUTH-1,MED-1,MEDICAMENTOS POS,5,nota\nAUTH-2,MED-2,MEDICAMENTOS NO POS,4,otra\n`,
+      `\uFEFF${header}\nAUTH-1,MED-1,MEDICAMENTOS POS,5,20260915123,nota\nAUTH-2,MED-2,MEDICAMENTOS NO POS,4,,otra\n`,
     );
     const parsed = parseImportFile(content, 'authorizations.csv', 'text/csv');
     expect(parsed.missingHeaders).toEqual([]);
@@ -20,6 +20,7 @@ describe('parseImportFile', () => {
           COD_COMERCIAL: 'MED-1',
           CUPS_PRINCIPAL: 'MEDICAMENTOS POS',
           ESTADO_AUTORIZACION: '5',
+          'No.PRESCRIPCION': '20260915123',
           OBS_AUTORIZACION: 'nota',
         },
       },
@@ -30,6 +31,7 @@ describe('parseImportFile', () => {
           COD_COMERCIAL: 'MED-2',
           CUPS_PRINCIPAL: 'MEDICAMENTOS NO POS',
           ESTADO_AUTORIZACION: '4',
+          'No.PRESCRIPCION': null,
           OBS_AUTORIZACION: 'otra',
         },
       },
@@ -38,8 +40,14 @@ describe('parseImportFile', () => {
 
   it('parses XLSX input without depending on a local shared path', () => {
     const worksheet = XLSX.utils.aoa_to_sheet([
-      ['NUMERO_AUTORIZACION', 'COD_COMERCIAL', 'CUPS_PRINCIPAL', 'ESTADO_AUTORIZACION'],
-      ['AUTH-X', 'MED-X', 'MEDICAMENTOS POS', 5],
+      [
+        'NUMERO_AUTORIZACION',
+        'COD_COMERCIAL',
+        'CUPS_PRINCIPAL',
+        'ESTADO_AUTORIZACION',
+        'No.PRESCRIPCION',
+      ],
+      ['AUTH-X', 'MED-X', 'MEDICAMENTOS POS', 5, 20260915123],
     ]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Hoja1');

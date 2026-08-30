@@ -138,6 +138,7 @@ export const authorizationSourceColumns = [
   'FECHA_ASIGNACION',
   'FECHA_FINAL_VIGENCIA',
   'ESTADO_AUTORIZACION',
+  'No.PRESCRIPCION',
   'OBS_AUTORIZACION',
   'MEDICO_REMITENTE',
   'CMNT',
@@ -149,16 +150,17 @@ export type AuthorizationSourceColumn = (typeof authorizationSourceColumns)[numb
 export const requiredAuthorizationSourceColumns = [
   'NUMERO_AUTORIZACION',
   'COD_COMERCIAL',
-  'CUPS_PRINCIPAL',
   'ESTADO_AUTORIZACION',
+  'No.PRESCRIPCION',
 ] as const;
 
 export const authorizationClassificationSchema = z.object({
   numeroAutorizacion: z.string().min(1),
   codigoMedicamento: z.string().min(1),
   authorizationKey: z.string().min(3),
-  cupsPrincipalNormalized: z.string(),
   sourceStatusNormalized: z.string(),
+  prescripcionNormalized: z.string(),
+  noPrescripcion: z.string(),
   enablementStatus: enablementStatusSchema,
   coverageType: coverageTypeSchema.exclude(['UNCLASSIFIED']),
   directionStatus: directionStatusSchema,
@@ -251,7 +253,8 @@ export const authorizationItemResponseSchema = z.object({
   directionStatus: directionStatusSchema,
   operationStatus: operationStatusSchema.nullable(),
   sourceData: z.record(z.string(), z.unknown()).nullable(),
-  sourceCupsPrincipalNormalized: z.string(),
+  sourcePrescripcionNormalized: z.string(),
+  noPrescripcion: z.string(),
   coverageRuleVersion: z.string(),
   version: z.number().int().positive(),
   createdAt: isoDateTimeSchema,

@@ -4,7 +4,7 @@
 
 ## Decisión
 
-Importaciones pesadas, MIPRES, correo, archivos, exportaciones y reintentos se ejecutan mediante worker y BullMQ/Redis.
+Importaciones y actualizaciones masivas, MIPRES, correo y reintentos se ejecutan mediante worker y BullMQ/Redis. Las exportaciones normales se generan on-demand conforme a ADR-018 y no requieren un job persistente.
 
 ## Consecuencias
 

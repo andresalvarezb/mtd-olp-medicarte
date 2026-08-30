@@ -1,86 +1,77 @@
 # SPEC-002 — Estados, cobertura y disponibilidad
 
-**Fases:** 2 y 4
+**Fases:** 2, 4, 5 y 6
 
-## Dimensiones
+## Dimensiones persistidas
 
-- enablement
-- coverage
-- direction
-- operation
-- application_site
-- support
-- audit
-- admission
+- `enablement_status`
+- `coverage_type`
+- `direction_status`
+- `operation_status`
+- `audit_status`
+- `admission_status`
 
-## Reglas confirmadas de cobertura
+`lugar_dispensacion`, `fecha_dispensacion` y `fecha_aplicacion` son datos operativos versionados, no dimensiones de estado independientes. `process_summary` y `application_site_status` son proyecciones de lectura. `support_status` no existe.
 
-`normalizar(CUPS_PRINCIPAL)`:
+## Cobertura y habilitación
 
-- exactamente `MEDICAMENTOS NO POS` => `NO_PBS`;
-- cualquier otro valor => `PBS`.
+- `normalizar(No.PRESCRIPCION)` vacío produce `PBS`; valor no vacío produce `NO_PBS` (DEC-016). `CUPS_PRINCIPAL` no participa en la clasificación.
+- `No.PRESCRIPCION` no vacío debe contener solo dígitos con longitud mayor a 3; en caso contrario la fila se rechaza con `INVALID_FIELD_FORMAT`.
+- Normalizar significa trim, mayúsculas y colapso de espacios; no usar contains ni regex semántica.
+- `ESTADO_AUTORIZACION == 5` produce `ENABLED`; cualquier otro valor produce `BLOCKED_SOURCE_STATUS`.
+- PBS usa `direction_status = NOT_APPLICABLE`.
+- Solo `NO_PBS + ENABLED` entra a MIPRES.
 
-Normalizar significa trim, mayúsculas y colapso de espacios. No usar contains/regex semántica.
+## Operación
 
-## Reglas confirmadas de habilitación
-
-- `ESTADO_AUTORIZACION == 5` => `ENABLED`;
-- otro valor => `BLOCKED_SOURCE_STATUS`.
-
-## Dirección
-
-- PBS => `NOT_APPLICABLE`.
-- NO_PBS + ENABLED => entra a MIPRES.
-- NO_PBS bloqueado por fuente no consulta MIPRES.
-
-## Disponibilidad y operación
-
-La función `deriveOperationStatus()` debe ser pura y centralizada.
-
-Estados iniciales de `operation_status`:
+Estados:
 
 - `BLOCKED`
 - `READY_TO_DISPENSE`
 - `DISPENSATION_REPORTED`
 - `DISPENSED`
 
-`READY_TO_DISPENSE` significa que el ítem superó las reglas previas de habilitación/cobertura/direccionamiento y entra a coordinación logística. No significa todavía que el medicamento haya sido aplicado.
-
-### Invariante de actualización explícita
-
-Cuando una actualización explícita permitida reemplaza la evidencia y reevalúa las cuatro columnas de negocio, `deriveOperationStatus()` recalcula el estado operacional de forma pura:
-
-- `ENABLED + PBS + NOT_APPLICABLE` => `READY_TO_DISPENSE`.
-- `ENABLED + NO_PBS + CONFIRMED` => `READY_TO_DISPENSE`.
-- Cualquier otra combinación => `BLOCKED`.
-
-La actualización solo puede iniciarse cuando el estado anterior es `READY_TO_DISPENSE`. En Fase 2, `NO_PBS + ENABLED + PENDING` no llama MIPRES y queda `BLOCKED`; Fase 3 podrá confirmar el direccionamiento y Fase 4 aplicará la transición de disponibilidad correspondiente. Esta regla no modifica `DISPENSATION_REPORTED` ni `DISPENSED`, que permanecen protegidos por DEC-002.
-
-## Punto de aplicación
-
-Nueva dimensión `application_site_status`:
-
-- `PENDING_ASSIGNMENT`
-- `ASSIGNED`
-
 Reglas:
 
-- Cuando un ítem entra en `READY_TO_DISPENSE`, `application_site_status = PENDING_ASSIGNMENT`.
-- Medicarte es quien define el punto/dirección donde realizará la aplicación.
-- Al guardar la dirección, `application_site_status = ASSIGNED`.
-- La asignación debe conservar dirección estructurada, texto de referencia, actor, organización, timestamp e historial de cambios.
-- Cambiar una dirección ya asignada debe auditarse y volver a disparar la notificación logística correspondiente a OLP.
-- El punto de aplicación no debe guardarse como texto suelto dentro de `authorization_items`; debe modelarse como dato de negocio explícito.
+1. `ENABLED + PBS + NOT_APPLICABLE` produce `READY_TO_DISPENSE`.
+2. `ENABLED + NO_PBS + CONFIRMED` produce `READY_TO_DISPENSE`.
+3. Cualquier otra combinación previa produce `BLOCKED`.
+4. La primera persistencia válida de `fecha_dispensacion` por OLP mueve `READY_TO_DISPENSE -> DISPENSATION_REPORTED`.
+5. Corregir `fecha_dispensacion` conserva `DISPENSATION_REPORTED` y agrega historial.
+6. `audit_status = APPROVED` produce `DISPENSED`.
+7. Ningún proceso automático produce `audit_status = APPROVED`.
+8. `fecha_aplicacion` no crea un estado nuevo.
+9. Cuando existen `fecha_dispensacion` y `fecha_aplicacion`, `audit_status` pasa de `NOT_STARTED` a `READY`; esto habilita revisión, no aprobación.
 
-## Continuidad de operación
+`READY_TO_DISPENSE` significa que el ítem superó habilitación, cobertura y direccionamiento; no significa que se haya enviado, aplicado o auditado.
 
-- Medicarte registra la dispensación/aplicación al cargar los soportes requeridos.
-- Ese registro mueve el ítem a `DISPENSATION_REPORTED`.
-- `DISPENSED` se deriva únicamente cuando `audit_status = APPROVED`.
-- La regla final que marque `READY_TO_DISPENSE` debe quedar congelada por tests antes de Fase 4.
+## Estados derivados y eliminados
 
-Durante Fase 2, la confirmación de un ítem nuevo puede dejar `operation_status = NULL`: la transición operacional y sus notificaciones pertenecen a Fase 4. Cuando una actualización explícita se ejecuta sobre un ítem que ya está en `READY_TO_DISPENSE`, la regla anterior se aplica inmediatamente y solo persiste `READY_TO_DISPENSE` o `BLOCKED`.
+```text
+application_site_status = lugar_dispensacion IS NULL
+    ? PENDING_ASSIGNMENT
+    : ASSIGNED
+```
 
-## Prohibición
+Este indicador puede exponerse en API/UI, pero no se persiste. `support_status` se elimina porque la aplicación no conoce los soportes individuales y no debe inferir completitud por conteos o tipos.
 
-No persistir `process_summary` como estado autoritativo.
+## Auditoría
+
+`audit_status` conserva:
+
+```text
+NOT_STARTED -> READY -> IN_REVIEW -> APPROVED | REJECTED
+REJECTED -> IN_REVIEW (inicio explícito de una revisión posterior)
+```
+
+La transición a `READY` ocurre cuando ambas fechas operativas están persistidas e identifica disponibilidad para revisión humana, no suficiencia automática de soportes. El auditor consulta externamente el Drive, decide y registra actor, fecha, observaciones y hallazgos cuando correspondan. `APPROVED` solo puede partir de una revisión humana iniciada. Tras `REJECTED`, solo un auditor puede iniciar explícitamente otra revisión y volver a `IN_REVIEW`.
+
+## Actualización explícita de evidencia F2
+
+Una actualización de las cuatro columnas de origen (`NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `ESTADO_AUTORIZACION`, `No.PRESCRIPCION`) solo puede comenzar cuando el estado actual es `READY_TO_DISPENSE`. Recalcula la regla previa y persiste `READY_TO_DISPENSE` o `BLOCKED`. No es el mismo contrato que las actualizaciones operativas de ADR-022.
+
+## Prohibiciones
+
+- No persistir `process_summary` como fuente de verdad.
+- No crear estados por cada dato operativo cuando pueden derivarse.
+- No usar presencia, cantidad o tipo de archivos en Drive para cambiar `audit_status`.

@@ -3,7 +3,6 @@ import type { WorkerConfig } from '@authorization/config';
 import {
   authorizationImportJobSchema,
   importRowResultMessages,
-  requiredAuthorizationSourceColumns,
   type AuthorizationClassification,
   type AuthorizationImportJob,
   type ImportRowResultCode,
@@ -49,9 +48,11 @@ function hasValue(row: Record<string, unknown>, field: string): boolean {
 }
 
 function missingFields(row: Record<string, unknown>, headers: string[]): string[] {
-  return requiredAuthorizationSourceColumns.filter(
+  const missing = ['NUMERO_AUTORIZACION', 'COD_COMERCIAL', 'ESTADO_AUTORIZACION'].filter(
     (field) => !headers.includes(field) || !hasValue(row, field),
   );
+  if (!headers.includes('No.PRESCRIPCION')) missing.push('No.PRESCRIPCION');
+  return missing;
 }
 
 function hashContent(content: Buffer): string {
@@ -291,7 +292,7 @@ export class ImportProcessor {
     const classification = deriveAuthorizationClassification({
       numeroAutorizacion: row.rawData.NUMERO_AUTORIZACION,
       codigoComercial: row.rawData.COD_COMERCIAL,
-      cupsPrincipal: row.rawData.CUPS_PRINCIPAL,
+      noPrescripcion: row.rawData['No.PRESCRIPCION'],
       estadoAutorizacion: row.rawData.ESTADO_AUTORIZACION,
     });
     if (!classification) {
@@ -301,7 +302,7 @@ export class ImportProcessor {
         resultCode: 'INVALID_FIELD_FORMAT',
         errors: [
           {
-            field: 'authorization',
+            field: 'No.PRESCRIPCION',
             code: 'INVALID_FIELD_FORMAT',
             message: messages.INVALID_FIELD_FORMAT,
           },

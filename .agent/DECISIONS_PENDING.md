@@ -11,19 +11,21 @@ Estados:
 | ID      | Estado   | Decisión                                                                                                                                                                                |
 | ------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | DEC-001 | ACCEPTED | Un direccionamiento MIPRES es válido únicamente cuando `current_date(America/Bogota) < fecha_maxima`.                                                                                   |
-| DEC-002 | ACCEPTED | Una llave existente solo puede actualizarse explícitamente si `operation_status = READY_TO_DISPENSE`. Se bloquea desde `DISPENSATION_REPORTED` en adelante.                             |
+| DEC-002 | ACCEPTED | La evidencia F2 de una llave existente solo se actualiza explícitamente en `READY_TO_DISPENSE`; el bloqueo posterior no aplica a los bulk updates tipados.                              |
 | DEC-003 | ACCEPTED | `DISPENSED` solo se alcanza cuando `audit_status = APPROVED`.                                                                                                                           |
-| DEC-004 | ACCEPTED | Medicarte registra la dispensación al cargar los soportes; el sistema usa `DISPENSATION_REPORTED` hasta aprobación.                                                                     |
+| DEC-004 | ACCEPTED | OLP reporta `fecha_dispensacion` por carga masiva; el sistema usa `DISPENSATION_REPORTED` hasta aprobación humana.                                                                      |
 | DEC-005 | ACCEPTED | Los reportes se envían todos los días a las 08:00 `America/Bogota`, con novedades del día anterior. Los destinatarios son parametrizables.                                              |
 | DEC-006 | ACCEPTED | La auditoría es humana y visual. La aprobación explícita del auditor es condición suficiente para `APPROVED`; no existe aprobación automática.                                          |
-| DEC-007 | ACCEPTED | Los soportes permanecen en Drive sin vencimiento automático. Las exportaciones CSV/XLSX se generan bajo demanda y no se almacenan como copia persistente.                               |
-| DEC-008 | ACCEPTED | Máximo 20 MB por archivo y volumen esperado de hasta 2.500 archivos por mes.                                                                                                            |
+| DEC-007 | ACCEPTED | Medicarte administra soportes directamente en Drive fuera de la aplicación; las exportaciones CSV/XLSX son on-demand y no persistentes.                                                 |
+| DEC-008 | ACCEPTED | Máximo 20 MB por archivo para importaciones y actualizaciones masivas.                                                                                                                  |
 | DEC-009 | ACCEPTED | Despliegue esperado en Render, Google Cloud como alternativa, región requerida Colombia.                                                                                                |
 | DEC-010 | ACCEPTED | El código se alojará en un repositorio nuevo e independiente en GitHub, estructurado como monorepo.                                                                                     |
-| DEC-011 | ACCEPTED | Medicarte define y versiona el punto de aplicación; cada asignación o cambio notifica a OLP.                                                                                            |
+| DEC-011 | ACCEPTED | Medicarte actualiza masivamente `lugar_dispensacion`; cada asignación o cambio persistido notifica a OLP.                                                                               |
 | DEC-012 | ACCEPTED | Las autorizaciones son registros únicos y compartidos; el alcance se resuelve por usuario, organización, permisos y relación explícita del recurso, sin duplicar `authorization_items`. |
-| DEC-013 | PENDING  | Falta contrato HTTP oficial de direccionamientos y acceso seguro al sandbox MIPRES. Su implementación real está prohibida.                                                              |
+| DEC-013 | ACCEPTED | Integración de lectura con `WSSUMMIPRESNOPBS` para validar vigencia de direccionamientos. Contrato aceptado en `contracts/MIPRES_DIRECCIONAMIENTOS_CONTRATO.md`; autoriza Fase 3.       |
 | DEC-014 | ACCEPTED | Una actualización explícita permitida recalcula `operation_status`: conserva `READY_TO_DISPENSE` solo si los prerrequisitos siguen válidos; en caso contrario queda `BLOCKED`.          |
+| DEC-015 | ACCEPTED | Un pipeline tipado reutilizable procesa las tres actualizaciones operativas; descargas completas y cargas de llave + un campo.                                                          |
+| DEC-016 | ACCEPTED | La columna `No.PRESCRIPCION` clasifica la cobertura: vacía produce `PBS`, no vacía produce `NO_PBS`; la API MIPRES recibe el valor sin sus últimos 3 dígitos.                           |
 
 ---
 
@@ -40,7 +42,7 @@ La comparación es estricta. Si la fecha actual es igual o superior a `fecha_max
 
 ---
 
-## DEC-002 — Actualización de una llave existente
+## DEC-002 — Actualización de evidencia F2 de una llave existente
 
 **Estado:** ACCEPTED
 
@@ -50,7 +52,7 @@ Llave:
 NUMERO_AUTORIZACION + COD_COMERCIAL
 ```
 
-Si ya existe:
+Si ya existe y se intenta reemplazar la evidencia de importación F2:
 
 1. No se actualiza automáticamente.
 2. Se reporta para verificación humana.
@@ -71,6 +73,8 @@ o si ya avanzó a `DISPENSED`.
 5. La actualización debe conservar auditoría de antes/después, actor, fecha e idempotencia. La evidencia compara las dimensiones F2 normalizadas, referencia las filas de importación anterior y nueva, y enlaza el registro idempotente sin duplicar datos sensibles del archivo en `audit_events`.
 
 El resultado operacional posterior a una actualización permitida se rige por DEC-014.
+
+Esta decisión no prohíbe las correcciones de `lugar_dispensacion`, `fecha_dispensacion` o `fecha_aplicacion` definidas en DEC-015/ADR-022; esos contratos no reemplazan evidencia F2 y aplican sus propias precondiciones.
 
 ---
 
@@ -95,11 +99,12 @@ READY_TO_DISPENSE
     -> DISPENSED
 ```
 
-- Medicarte registra la dispensación cuando carga los soportes requeridos.
-- Ese hecho produce `DISPENSATION_REPORTED`.
+- OLP registra masivamente `fecha_dispensacion` después de recibir `lugar_dispensacion`.
+- La primera persistencia válida de la fecha produce `DISPENSATION_REPORTED`.
+- Una modificación posterior conserva trazabilidad y no retrocede el estado.
 - La auditoría es posterior.
 - Solo `audit_status = APPROVED` produce `DISPENSED`.
-- Un rechazo no elimina los soportes ni el registro histórico de dispensación.
+- Un rechazo no elimina el historial operativo ni los soportes externos.
 
 ---
 
@@ -123,7 +128,7 @@ READY_TO_DISPENSE
 - La auditoría es humana y visual.
 - Solo un auditor autorizado puede aprobar o rechazar.
 - No existe aprobación automática.
-- La acción humana explícita **Aprobar soportes** es suficiente para:
+- La acción humana explícita **Aprobar** produce:
 
 ```text
 audit_status = APPROVED
@@ -134,6 +139,7 @@ audit_status = APPROVED
   - inclusión en consolidado;
   - derivación posterior de `READY_FOR_ADMISSION` cuando apliquen las demás reglas.
 - Deben conservarse actor, fecha y decisión.
+- La aplicación no determina completitud documental. La existencia de ambas fechas habilita la revisión, pero solo la decisión humana produce aprobación.
 
 ---
 
@@ -143,11 +149,11 @@ audit_status = APPROVED
 
 ### Soportes
 
-- Permanecen en el Drive corporativo.
-- No existe fecha máxima de eliminación definida por esta aplicación.
-- No se ejecutará borrado automático por antigüedad.
-- El ID del Drive/carpeta destino es parametrizable.
-- Cambiar el destino afecta únicamente cargas futuras y no rompe referencias históricas.
+- Medicarte los carga y administra directamente en el Drive corporativo, fuera del flujo de archivos de la aplicación.
+- La aplicación no sube, descarga, versiona, cuenta ni valida soportes individuales.
+- No existe relación obligatoria `attachment -> authorization_item` ni estado automático de completitud.
+- La referencia al Drive/carpeta puede mantenerse como configuración administrativa de MTD, sin que implique integración por archivo.
+- Retención, movimiento y versionado de archivos pertenecen a las políticas externas de Drive.
 
 ### Exportaciones
 
@@ -164,9 +170,8 @@ audit_status = APPROVED
 
 **Estado:** ACCEPTED
 
-- Máximo por archivo: `20 MB`.
-- Volumen esperado: hasta `2.500 archivos por mes`.
-- La cifra de 2.500 es un supuesto de dimensionamiento, no un límite funcional mensual automático.
+- Máximo por archivo de importación o actualización masiva: `20 MB`.
+- El supuesto previo de 2.500 soportes mensuales queda retirado porque la aplicación ya no recibe esos archivos.
 
 ---
 
@@ -230,21 +235,21 @@ Al cambiar una decisión:
 
 ---
 
-## DEC-011 — Coordinación logística del punto de aplicación
+## DEC-011 — Coordinación logística del lugar de dispensación
 
 **Estado:** ACCEPTED
 
 1. Cuando un registro entra en `READY_TO_DISPENSE`, se generan notificaciones event-driven a:
    - OLP;
    - Medicarte.
-2. Medicarte define el punto/dirección donde realizará la aplicación.
-3. La dirección se persiste, versiona y audita.
-4. La primera asignación produce `APPLICATION_SITE_ASSIGNED`.
-5. Una modificación produce `APPLICATION_SITE_CHANGED`.
+2. Medicarte descarga la base completa permitida y define `lugar_dispensacion` mediante carga masiva reducida.
+3. El valor vigente se persiste en `authorization_items` y cada cambio conserva historial y auditoría.
+4. La primera asignación produce `DISPENSATION_LOCATION_ASSIGNED`.
+5. Una modificación produce `DISPENSATION_LOCATION_CHANGED`.
 6. Cada asignación/modificación genera una notificación event-driven a OLP con la dirección vigente.
 7. La notificación permite a OLP saber dónde coordinar el envío del medicamento.
-8. La aplicación/registro de dispensación requiere `application_site_status = ASSIGNED`.
-9. El flujo posterior de soportes, auditoría y `DISPENSED` continúa sin cambios.
+8. OLP reporta `fecha_dispensacion`; Medicarte reporta `fecha_aplicacion`, ambos por carga masiva reducida.
+9. Los soportes permanecen externos y la auditoría continúa como decisión humana.
 10. El reporte diario de las 08:00 sigue existiendo como consolidado y no reemplaza estas notificaciones operativas.
 
 ---
@@ -274,20 +279,84 @@ La UI puede ocultar acciones, pero toda consulta y mutación vuelve a validar el
 
 ---
 
-## DEC-013 — Contrato y sandbox MIPRES
+## DEC-013 — Consulta MIPRES de direccionamientos
 
-**Estado:** PENDING
+**Estado:** ACCEPTED
 
-No se recibieron endpoint, autenticación, esquema oficial, fixtures aprobados ni credenciales de sandbox. El detalle de la evidencia necesaria está en `contracts/MIPRES_DIRECCIONAMIENTOS_SANDBOX.md`.
+Se adopta la integración de producción con:
 
-Mientras esta decisión permanezca abierta:
+```text
+WSSUMMIPRESNOPBS
+```
 
-1. no implementar `MipresHttpAdapter` contra un contrato inferido;
-2. no presentar fixtures inventados como respuestas oficiales;
-3. no almacenar secretos en Git, documentación, frontend, logs o base de datos;
-4. no iniciar el alcance funcional de Fase 3 que dependa del proveedor real.
+Base URL:
 
-Sí se mantienen como decisiones internas aceptadas la precondición `NO_PBS + ENABLED`, los estados internos, la capa anticorrupción y la comparación estricta de `fecha_maxima`.
+```text
+https://wsmipres.sispro.gov.co/WSSUMMIPRESNOPBS
+```
+
+La integración tendrá exclusivamente el propósito de consultar los direccionamientos asociados al número de prescripción de una fórmula NO PBS habilitada y determinar si existe alguno vigente. Es de solo lectura: no crea, modifica ni anula direccionamientos, ni consulta programación, entrega o suministro.
+
+Endpoints utilizados:
+
+```http
+GET /api/GenerarToken/{nit}/{token}
+
+GET /api/DireccionamientoXPrescripcion/{nit}/{token}/{noPrescripcion}
+```
+
+El NIT y token inicial son secretos de infraestructura configurados mediante:
+
+```text
+MIPRES_NIT
+MIPRES_INITIAL_TOKEN
+```
+
+La base URL se configura mediante:
+
+```text
+MIPRES_BASE_URL
+```
+
+El token operativo se obtiene mediante `GenerarToken` y es responsabilidad de `MipresTokenProvider`.
+
+La vigencia se determina utilizando `FecMaxEnt`.
+
+Regla:
+
+```text
+current_date(America/Bogota) < FecMaxEnt
+```
+
+La igualdad con `FecMaxEnt` no es válida.
+
+Un direccionamiento anulado no puede producir `CONFIRMED`.
+
+Resultados internos:
+
+```text
+CONFIRMED
+PENDING
+QUERY_ERROR
+```
+
+`CONFIRMED` requiere al menos un direccionamiento vigente.
+
+`PENDING` representa ausencia de direccionamientos o existencia únicamente de direccionamientos no vigentes.
+
+`QUERY_ERROR` representa incapacidad técnica de determinar el resultado.
+
+El dominio depende exclusivamente de `MipresPort`.
+
+Los contratos y nombres propios de MIPRES permanecen dentro de `MipresHttpAdapter`.
+
+Cada consulta conserva evidencia histórica y no sobrescribe consultas anteriores.
+
+Nunca se almacenan o registran tokens completos en Git, frontend, logs, auditoría o payloads históricos.
+
+El detalle técnico completo del contrato está en `contracts/MIPRES_DIRECCIONAMIENTOS_CONTRATO.md`. La fuente de `noPrescripcion` quedó resuelta con DEC-016: la columna `No.PRESCRIPCION` del archivo de importación, tras retirar sus últimos 3 dígitos.
+
+Con esta decisión queda autorizado implementar el alcance correspondiente de Fase 3.
 
 ---
 
@@ -314,3 +383,46 @@ cualquier otra combinación
 En Fase 2, `NO_PBS + ENABLED` tiene direccionamiento `PENDING` porque MIPRES pertenece a Fase 3; por tanto, esa actualización queda `BLOCKED` sin realizar llamadas externas. Las actualizaciones posteriores a `DISPENSATION_REPORTED` o `DISPENSED` continúan prohibidas.
 
 La actualización conserva control de versión, idempotencia y auditoría dentro de la misma transacción. La restricción equivalente en PostgreSQL impide persistir `READY_TO_DISPENSE` con prerrequisitos incompatibles desde cualquier ruta de escritura.
+
+---
+
+## DEC-015 — Descargas y actualizaciones operativas masivas
+
+**Estado:** ACCEPTED
+
+- Se adopta un único pipeline parametrizado por tipos cerrados, conforme a ADR-022 y SPEC-013.
+- MEDICARTE: llave + `lugar_dispensacion`, o llave + `fecha_aplicacion`.
+- OLP: llave + `fecha_dispensacion`.
+- Las descargas contienen la base completa que el actor pueda consultar; las cargas no reutilizan esa base completa como contrato de escritura.
+- Backend valida esquema exacto, actor, permiso, alcance, estado y campo por fila.
+- Se reutilizan máximo 20 MB, PostgreSQL `BYTEA` temporal, BullMQ con identificadores, staging, causales, auditoría e idempotencia.
+- Los valores vigentes viven en `authorization_items` y los cambios en historial append-only.
+- `lugar_dispensacion` es texto libre; sin validación de estructura de dirección.
+- `fecha_aplicacion` es corregible mientras `audit_status` no sea `APPROVED`; tras la aprobación el campo queda inmutable.
+- La existencia de `fecha_dispensacion` y `fecha_aplicacion` produce `audit_status = READY`; la aprobación continúa siendo exclusivamente humana.
+
+---
+
+## DEC-016 — Clasificación PBS/NO PBS por `No.PRESCRIPCION`
+
+**Estado:** ACCEPTED
+
+1. El archivo de importación agrega la columna `No.PRESCRIPCION`. El diccionario pasa de 25 a 26 columnas; el encabezado es obligatorio, pero su valor puede ser vacío.
+2. La clasificación de cobertura se define por la presencia del valor normalizado:
+
+```text
+No.PRESCRIPCION vacio      => coverage_type = PBS
+No.PRESCRIPCION no vacio   => coverage_type = NO_PBS
+```
+
+3. `CUPS_PRINCIPAL` pierde su semántica de negocio y pasa a columna de evidencia, igual que `COD_CUPS_PRINCIPAL`.
+4. El contenido de `No.PRESCRIPCION` es numérico. Para consumir la API MIPRES se deriva:
+
+```text
+no_prescripcion = No.PRESCRIPCION sin sus ultimos 3 digitos de la derecha
+```
+
+5. Validación de la columna: si el valor no está vacío debe contener solo dígitos y tener longitud mayor a 3 (para que la truncación sea posible); en caso contrario la fila produce `INVALID_FIELD_FORMAT`.
+6. Se conserva el valor original como evidencia y el valor derivado como dato de negocio que alimenta `MipresPort`.
+7. Las cuatro columnas de negocio de F2 quedan: `NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `ESTADO_AUTORIZACION` y `No.PRESCRIPCION`.
+8. Las reglas previas no cambian: `ESTADO_AUTORIZACION = 5` habilita; PBS usa `direction_status = NOT_APPLICABLE`; solo `NO_PBS + ENABLED` consulta MIPRES; la actualización explícita reevalúa cobertura con esta regla conforme a DEC-014.

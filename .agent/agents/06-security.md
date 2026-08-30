@@ -7,9 +7,10 @@ Debe intentar:
 - acceso horizontal entre organizaciones;
 - elevación vertical de privilegios;
 - bypass de descarga;
-- archivo con extensión PDF falsa;
+- archivo masivo con columnas adicionales, fórmulas o contenido malicioso;
 - replay de mutaciones;
 - exposición de tokens en logs;
-- links públicos de Drive.
+- exposición de datos sensibles en descargas/reportes por fila;
+- intento de usar la configuración de Drive como acceso a soportes.
 
 No acepta controles exclusivamente de frontend.

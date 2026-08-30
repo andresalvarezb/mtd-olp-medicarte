@@ -4,7 +4,7 @@
 
 ## Decisión
 
-Persistir por separado habilitación, cobertura, direccionamiento, operación, punto de aplicación, soportes, auditoría y admisión. `process_summary` es solo una proyección de lectura.
+Persistir por separado habilitación, cobertura, direccionamiento, operación, auditoría y admisión. Los datos logísticos se persisten como campos versionados, pero sus indicadores se derivan; `process_summary` es solo una proyección de lectura.
 
 ## Consecuencia
 
@@ -12,19 +12,17 @@ Las transiciones se implementan en servicios/reglas de dominio y se prueban como
 
 ## Implicación de dispensación
 
-La dimensión `operation_status` distingue el hecho reportado por Medicarte de la confirmación posterior de auditoría:
+La dimensión `operation_status` distingue la dispensación reportada por OLP de la confirmación posterior de auditoría:
 
 `READY_TO_DISPENSE -> DISPENSATION_REPORTED -> DISPENSED`
 
 `DISPENSED` requiere `audit_status = APPROVED`.
 
-## Punto de aplicación
+## Datos operativos derivados
 
-La logística de la dirección de aplicación constituye una dimensión ortogonal y no se incorpora artificialmente a `operation_status`.
+- `lugar_dispensacion` es dato de negocio vigente con historial. `application_site_status` no se persiste: `NULL => PENDING_ASSIGNMENT`, valor presente `=> ASSIGNED`.
+- `fecha_dispensacion` es reportada por OLP. Su primera persistencia produce `DISPENSATION_REPORTED`.
+- `fecha_aplicacion` es reportada por Medicarte y no crea otro estado.
+- `support_status` se elimina porque la aplicación no administra archivos ni calcula completitud.
 
-`application_site_status`:
-
-- `PENDING_ASSIGNMENT`
-- `ASSIGNED`
-
-Al llegar a `READY_TO_DISPENSE`, el registro espera que Medicarte asigne el punto de aplicación. Esa asignación dispara una notificación a OLP.
+`audit_status` conserva `NOT_STARTED -> READY -> IN_REVIEW -> APPROVED | REJECTED`, con `REJECTED -> IN_REVIEW` cuando un auditor inicia explícitamente una revisión posterior. Ambas fechas operativas producen `READY`, que solo habilita revisión; una acción humana autorizada es la única que decide. La aplicación no infiere aprobación ni completitud documental.

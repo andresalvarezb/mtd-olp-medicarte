@@ -1,89 +1,51 @@
-# SPEC-004 — Notificaciones EPS, OLP y Medicarte
+# SPEC-004 — Notificaciones operativas y reporte diario
 
-**Fase:** 4
+**Fase:** 4 y transversal
 
 ## Arquitectura
 
-Negocio -> transacción DB -> outbox -> BullMQ -> worker -> Gmail API.
+Negocio -> transacción PostgreSQL (dato + auditoría + outbox) -> BullMQ -> worker -> Gmail API.
 
-## Eventos lógicos
+## Notificaciones event-driven
 
-- pendiente de direccionamiento para EPS, cuando la regla aprobada lo determine;
-- `AUTHORIZATION_READY_TO_DISPENSE`: notifica simultáneamente a OLP y Medicarte que el registro está disponible para coordinación;
-- `APPLICATION_SITE_ASSIGNED`: cuando Medicarte define el punto/dirección de aplicación, notifica a OLP la ubicación a la que debe enviar el medicamento.
+| Evento                            | Condición de emisión                          | Destinatario    |
+| --------------------------------- | --------------------------------------------- | --------------- |
+| `AUTHORIZATION_READY_TO_DISPENSE` | transición comprometida a `READY_TO_DISPENSE` | OLP y MEDICARTE |
+| `DISPENSATION_LOCATION_ASSIGNED`  | primera persistencia de `lugar_dispensacion`  | OLP             |
+| `DISPENSATION_LOCATION_CHANGED`   | cambio posterior del valor                    | OLP             |
 
-## Reglas
+Estas notificaciones habilitan acciones operativas y se procesan sin esperar al reporte diario. El cambio de lugar solo se publica después de persistir valor vigente, historial y auditoría.
 
-- plantillas versionadas;
-- destinatarios por organización/evento;
-- ejecución diaria;
-- cada ejecución consolida las novedades del día calendario anterior usando `America/Bogota`;
-- cada entidad recibe únicamente su reporte correspondiente;
-- ejecución a las `08:00 America/Bogota`;
-- destinatarios parametrizables, no codificados;
-- altas/bajas de destinatarios auditadas y protegidas por permiso administrativo;
-- consolidación por ventana diaria;
-- idempotency key estable;
-- guardar destinatarios, asunto, versión de plantilla, parámetros, estado, fecha y Gmail message id;
-- fallo visible/reintentable.
+Contenido mínimo de disponibilidad: identificador, número de autorización, código/medicamento, estado y datos adicionales permitidos al destinatario.
+
+Contenido mínimo de lugar: identificador, llave de negocio, `lugar_dispensacion` vigente, versión y fecha/hora del cambio. No incluir valores sensibles que el destinatario no pueda consultar.
+
+## Reporte diario
+
+- Se ejecuta todos los días a las `08:00 America/Bogota`.
+- Consolida novedades del día calendario anterior.
+- Cada organización recibe únicamente sus novedades.
+- No sustituye ni retrasa las notificaciones event-driven.
+
+## Reglas comunes
+
+- Plantillas versionadas y destinatarios por organización/evento parametrizables.
+- Altas/bajas de destinatarios protegidas por permiso administrativo y auditadas.
+- Persistir destinatarios, asunto, versión de plantilla, parámetros, estado, intentos, fecha y `gmail_message_id`.
+- Fallo visible, reintentable y con dead-letter; Gmail caído no revierte el negocio.
+- El consumidor tolera entrega al menos una vez.
+
+## Idempotencia
+
+- disponibilidad: `AUTHORIZATION_READY_TO_DISPENSE + item_id + readiness_version + recipient_org`;
+- lugar: `event_type + item_id + operational_field_version + OLP`;
+- reporte diario: `DAILY_REPORT + recipient_group + local_date + item_set_hash`.
+
+Una modificación real de `lugar_dispensacion` incrementa versión y produce un nuevo correo. Reenviar el mismo evento no lo duplica; un valor idéntico no emite evento.
 
 ## Aceptación
 
-Reprocesar evento no duplica correo. Gmail caído no revierte estado de negocio.
-
-## Secuencia logística
-
-```text
-READY_TO_DISPENSE
-    -> notificar OLP
-    -> notificar MEDICARTE
-    -> Medicarte define punto de aplicación
-    -> APPLICATION_SITE_ASSIGNED
-    -> notificar OLP con la dirección
-    -> continúa aplicación / soportes / auditoría
-```
-
-### Notificación 1 — disponibilidad
-
-Destinatarios lógicos:
-
-- OLP;
-- Medicarte.
-
-Contenido mínimo:
-
-- identificación interna del ítem;
-- número de autorización;
-- medicamento/código comercial;
-- paciente según permisos;
-- clasificación PBS/NO_PBS;
-- estado `READY_TO_DISPENSE`.
-
-### Notificación 2 — punto de aplicación
-
-Se genera únicamente después de que Medicarte persista una asignación válida.
-
-Destinatario lógico:
-
-- OLP.
-
-Contenido mínimo:
-
-- identificación del ítem;
-- número de autorización;
-- medicamento;
-- punto/dirección de aplicación definido por Medicarte;
-- fecha/hora de asignación;
-- referencia necesaria para que OLP coordine el envío.
-
-La notificación no puede enviarse antes de comprometer la dirección en PostgreSQL. Debe salir mediante outbox para garantizar consistencia.
-
-## Idempotencia específica
-
-Claves sugeridas:
-
-- disponibilidad OLP: `READY_TO_DISPENSE + authorization_item_id + readiness_version + OLP`;
-- disponibilidad Medicarte: `READY_TO_DISPENSE + authorization_item_id + readiness_version + MEDICARTE`;
-- dirección a OLP: `APPLICATION_SITE_ASSIGNED + authorization_item_id + application_site_version + OLP`.
-
-Si Medicarte modifica una dirección, aumenta `application_site_version` y se genera una nueva notificación a OLP.
+- OLP y MEDICARTE reciben eventos independientes al alcanzar `READY_TO_DISPENSE`.
+- OLP recibe el lugar asignado y cada modificación posterior.
+- Ningún correo de lugar puede observarse antes del commit.
+- El reporte de las 08:00 sigue operando aunque no existan novedades inmediatas y no reemplaza alertas operativas.

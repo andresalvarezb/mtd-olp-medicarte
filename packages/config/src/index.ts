@@ -19,7 +19,7 @@ const importConfigSchema = {
     .positive()
     .max(20 * 1024 * 1024)
     .default(20 * 1024 * 1024),
-  IMPORT_PROCESSOR_VERSION: z.coerce.number().int().positive().default(1),
+  IMPORT_PROCESSOR_VERSION: z.coerce.number().int().positive().default(2),
 };
 
 export const apiConfigSchema = commonSchema.extend({

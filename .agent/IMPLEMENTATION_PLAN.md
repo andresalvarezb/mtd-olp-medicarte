@@ -9,20 +9,22 @@ La secuencia debe respetar dependencias técnicas y de negocio. Cada fase tiene 
 Entregables obligatorios:
 
 - Decisión del repositorio destino: monorepo independiente o incorporación a repositorios existentes.
-- Diccionario de datos definitivo del archivo de autorizaciones, con tipo, obligatoriedad, normalización y validaciones.
+- Diccionario de datos definitivo del archivo de autorizaciones, con tipo, obligatoriedad, normalización y validaciones; versión 2 con `No.PRESCRIPCION` (DEC-016).
 - Confirmación de la llave `NUMERO_AUTORIZACION + COD_COMERCIAL`.
 - Catálogo estable de causales de carga.
 - Llave existente: revisión humana; actualización explícita solo si `operation_status = READY_TO_DISPENSE`, recalcula el estado operacional y queda `BLOCKED` si la nueva clasificación no cumple los prerrequisitos; bloqueada desde `DISPENSATION_REPORTED` en adelante.
-- Contrato MIPRES de direccionamientos y credenciales de sandbox. `PENDING` en DEC-013; queda prohibida la implementación real de Fase 3 hasta recibir y validar la evidencia externa.
+- Contrato MIPRES de direccionamientos aceptado en DEC-013: integración de lectura `WSSUMMIPRESNOPBS` con `GenerarToken`, `DireccionamientoXPrescripcion` y `MipresTokenProvider`, según `contracts/MIPRES_DIRECCIONAMIENTOS_CONTRATO.md`. `noPrescripcion` proviene de `No.PRESCRIPCION` sin sus últimos 3 dígitos (DEC-016).
 - Regla de direccionamiento confirmada: `current_date(America/Bogota) < fecha_maxima`; igualdad con la fecha máxima no es válida.
 - Reportes diarios a las 08:00 `America/Bogota`, con novedades del día anterior y destinatarios parametrizables.
-- Drive parametrizable para cargas futuras; soportes sin borrado automático; máximo 20 MB; exportaciones CSV/XLSX on-demand y no persistentes.
-- Auditoría humana/visual; la aprobación explícita del auditor produce `APPROVED` y habilita consolidación.
-- Medicarte registra al cargar soportes (`DISPENSATION_REPORTED`); `DISPENSED` ocurre únicamente después de auditoría `APPROVED`.
-- Límite inicial de 20 MB y capacidad esperada de hasta 2.500 archivos por mes.
+- Drive conservado como repositorio corporativo externo; Medicarte administra allí los soportes sin carga individual desde la aplicación; exportaciones CSV/XLSX on-demand y no persistentes.
+- Auditoría humana/visual sin cálculo automático de completitud; la aprobación explícita produce `APPROVED` y habilita consolidación.
+- OLP reporta masivamente `fecha_dispensacion` (`DISPENSATION_REPORTED`); Medicarte reporta `fecha_aplicacion`; `DISPENSED` ocurre únicamente después de auditoría `APPROVED`.
+- Pipeline genérico de bulk updates cerrado por tipo, llave + un campo, 20 MB, fuente temporal PostgreSQL `BYTEA`, BullMQ con identificadores, staging y reporte por fila.
+- Límite de 20 MB para importaciones y actualizaciones masivas; se retira el dimensionamiento mensual de soportes externos.
 - Render esperado, Google Cloud alternativo, región Colombia.
 - Repositorio nuevo e independiente en GitHub, estructurado como monorepo.
 - Alcance multi-organización de autorizaciones cerrado en DEC-012, sin duplicar `authorization_items`.
+- Ambas fechas operativas habilitan `audit_status = READY`; la suficiencia documental y aprobación siguen siendo humanas.
 
 **Gate F0:** las decisiones pendientes que afecten esquema, estados o permisos están documentadas como `ACCEPTED` o explícitamente marcadas como `PENDING` con una prohibición de implementación.
 
@@ -55,8 +57,10 @@ Entregables obligatorios:
 - Si una llave ya existe, reportarla para verificación humana y permitir actualización explícita solo si `operation_status = READY_TO_DISPENSE`; recalcular `operation_status` en la misma transacción y degradarlo a `BLOCKED` si corresponde.
 - `enablement_status` derivado de `ESTADO_AUTORIZACION`: `5 = ENABLED`; cualquier otro valor = `BLOCKED_SOURCE_STATUS`.
 - `coverage_type` derivado en esta fase, no en MIPRES:
-  - `normalizar(CUPS_PRINCIPAL) == "MEDICAMENTOS NO POS"` → `NO_PBS`.
-  - cualquier otro valor → `PBS`.
+  - `normalizar(No.PRESCRIPCION)` vacío → `PBS` (valor no vacío → `NO_PBS`), conforme a DEC-016.
+  - `No.PRESCRIPCION` no vacío debe contener solo dígitos con longitud mayor a 3; en caso contrario la fila se rechaza.
+  - `no_prescripcion` para MIPRES se deriva retirando los últimos 3 dígitos; se conserva el valor original como evidencia.
+  - `CUPS_PRINCIPAL` pasa a evidencia sin semántica de negocio.
 - Para `PBS`, `direction_status = NOT_APPLICABLE`.
 - La confirmación de un ítem nuevo puede dejar `operation_status = NULL` hasta la derivación operacional de Fase 4; una actualización explícita de un ítem ya `READY_TO_DISPENSE` siempre recalcula `READY_TO_DISPENSE` o `BLOCKED`.
 - Bandeja de autorizaciones, detalle, filtros y trazabilidad de la carga.
@@ -66,20 +70,22 @@ Entregables obligatorios:
 
 ### Fase 3 — Direccionamientos MIPRES
 
-**Objetivo:** incorporar MIPRES únicamente para los ítems que realmente lo requieren.
+**Objetivo:** incorporar MIPRES únicamente para los ítems que realmente lo requieren. El alcance es exclusivamente de lectura conforme a DEC-013 y `contracts/MIPRES_DIRECCIONAMIENTOS_CONTRATO.md`.
 
 - `MipresPort`, `MipresHttpAdapter` y `MipresFakeAdapter`.
-- Gestión segura de credenciales.
-- Consulta solo para `NO_PBS + ENABLED`.
-- Persistencia de `mipres_checks` y del historial de direccionamientos sin sobrescribir evidencia.
+- `MipresTokenProvider`: `GET GenerarToken` con `MIPRES_NIT`/`MIPRES_INITIAL_TOKEN`; token operativo en backend, renovable, sin exponerlo ni registrarlo completo.
+- Consulta `GET DireccionamientoXPrescripcion` solo para `NO_PBS + ENABLED`, usando `no_prescripcion` derivado de `No.PRESCRIPCION` sin sus últimos 3 dígitos (DEC-016).
+- Normalización de `ID`, `IDDireccionamiento`, `NoPrescripcion`, `TipoTec`, `ConTec`, `FecMaxEnt`, `EstDireccionamiento`, `FecAnulacion` a `MipresDirection`; los nombres oficiales no salen del adaptador.
+- Gestión segura de credenciales; `MIPRES_BASE_URL` configurable, nunca hardcodeada.
+- Persistencia de `mipres_checks` y del historial de direccionamientos sin sobrescribir evidencia; tokens redactados/eliminados antes de persistir.
 - Diferenciación entre `PENDING`, `CONFIRMED` y `QUERY_ERROR`.
-- `CONFIRMED` únicamente si `current_date(America/Bogota) < fecha_maxima` del direccionamiento.
-- Regla explícita “sin direccionamiento” distinta de “falló la consulta”.
+- `CONFIRMED` únicamente si existe direccionamiento no anulado con `current_date(America/Bogota) < FecMaxEnt`.
+- Regla explícita “sin direccionamiento” y “anulado” distintas de “falló la consulta”.
 - Revalidación automática de pendientes y revalidación manual con permiso/rate limit.
 - Timeout, backoff, circuit breaker, concurrencia configurable y dead-letter.
 - Versionamiento de los catálogos **de MIPRES que realmente se utilicen**; la clasificación PBS/NO PBS no depende de esos catálogos.
 
-**Gate F3:** tests de timeout/401/500/respuesta inválida/sin direccionamiento/direccionamiento válido; un reintento no duplica checks ni altera incorrectamente el estado.
+**Gate F3:** tests de timeout/401/500/respuesta inválida/sin direccionamiento/direccionamiento anulado/direccionamiento vigente/igualdad de `FecMaxEnt`; un reintento no duplica checks ni altera incorrectamente el estado; la evidencia no contiene tokens.
 
 ### Fase 4 — Disponibilidad y notificaciones
 
@@ -87,7 +93,12 @@ Entregables obligatorios:
 
 - Regla de derivación de `operation_status` y `READY_TO_DISPENSE`, centralizada en dominio y reutilizada por actualizaciones explícitas.
 - Evento de pendiente de direccionamiento para EPS cuando corresponda.
-- Evento de disponibilidad para OLP cuando corresponda.
+- Evento de disponibilidad para OLP y MEDICARTE cuando corresponda.
+- Descarga on-demand de base completa permitida para MEDICARTE.
+- Pipeline reutilizable de bulk updates: lote, fuente `BYTEA`, staging, resultados y consulta.
+- Operación MEDICARTE para `lugar_dispensacion`, con esquema exacto de llave + campo.
+- Persistencia del valor vigente en `authorization_items`, historial append-only y estado de sitio derivado.
+- Eventos `DISPENSATION_LOCATION_ASSIGNED` y `DISPENSATION_LOCATION_CHANGED` para OLP.
 - Plantillas versionadas y destinatarios configurables.
 - Handlers de outbox para Gmail.
 - Consolidación diaria a las 08:00 de novedades del día calendario anterior (`America/Bogota`), destinatarios parametrizables, deduplicación, idempotency keys y bandeja administrativa de fallos.
@@ -95,26 +106,21 @@ Entregables obligatorios:
 
 El patrón outbox **no nace en esta fase**; debe existir desde Fase 1. Aquí se implementan los eventos y handlers específicos del negocio.
 
-**Gate F4:** repetir el mismo evento no duplica correo; una caída de Gmail no revierte el estado de negocio; un fallo queda visible y reintentable.
+**Gate F4:** repetir evento/lote no duplica correo ni cambio; columnas extra o actor incorrecto son rechazados en backend; una caída de Gmail no revierte el estado; OLP recibe cada versión real del lugar y los fallos quedan visibles/reintentables.
 
-### Fase 5 — Dispensación y soportes
+### Fase 5 — Dispensación y aplicación masivas
 
-**Objetivo:** habilitar la operación de Medicarte y el manejo documental sin perder versiones.
+**Objetivo:** habilitar la operación masiva de OLP y MEDICARTE con trazabilidad, manteniendo soportes fuera de la aplicación.
 
-- Bandeja de disponibles según permisos.
-- Precondición: `application_site_status = ASSIGNED`.
-- Medicarte registra la dispensación cuando carga los soportes requeridos.
-- El registro produce `DISPENSATION_REPORTED`.
-- `DISPENSED` solo se produce posteriormente cuando auditoría = `APPROVED`.
-- Tipos de soporte: fórmula y soporte de aplicación.
-- Google Drive Shared Drive mediante adaptador, con ID destino parametrizable por MTD Admin para cargas futuras.
-- Metadatos en PostgreSQL, hash SHA-256, versiones, reemplazos y versión vigente.
-- Validación MIME real, máximo 20 MB por archivo y antivirus.
-- Descarga siempre mediada por API y autorización.
-- Corrección/reemplazo sin eliminar evidencia anterior.
-- Notificaciones de faltantes si la regla de negocio lo exige.
+- Descargas de base completa según permisos; OLP recibe `lugar_dispensacion`.
+- OLP carga únicamente llave + `fecha_dispensacion`; primera fecha produce `DISPENSATION_REPORTED`.
+- MEDICARTE carga únicamente llave + `fecha_aplicacion`.
+- Reutilización del pipeline de F4 y reporte de procesadas/actualizadas/sin cambio/rechazadas.
+- Correcciones conservan antes/después, actor, lote, fila, organización y versión.
+- `DISPENSED` solo se produce posteriormente cuando auditoría humana = `APPROVED`.
+- Los soportes son administrados directamente por MEDICARTE en Drive; no hay attachments, carga, descarga, versionado, MIME, antivirus o conteo de documentos en la aplicación.
 
-**Gate F5:** no hay enlaces públicos; reemplazar soporte conserva historial; fallo Drive/DB deja una situación conciliable; acceso cruzado entre empresas es rechazado.
+**Gate F5:** cada actor solo modifica su campo; descargas respetan sensibilidad; concurrencia/reintentos no pierden historial; acceso cruzado y columnas extra son rechazados; no existe flujo individual de soportes.
 
 ### Fase 6 — Auditoría, consolidación y preparación de admisión
 
@@ -122,13 +128,14 @@ El patrón outbox **no nace en esta fase**; debe existir desde Fase 1. Aquí se 
 
 - Bandeja de auditoría MTD/Facturación.
 - Inicio de revisión, hallazgos, rechazo, subsanación y aprobación.
-- Validación de soportes requeridos antes de aprobar.
+- Revisión manual externa de soportes; la plataforma no calcula completitud.
+- Derivación `NOT_STARTED -> READY` cuando existen ambas fechas operativas, sin inferir suficiencia documental.
 - Exportaciones CSV/XLSX bajo demanda con filtros y permisos, sin conservar copia persistente; auditar la operación.
 - Indicadores operativos.
 - Solo registros con `audit_status = APPROVED` pueden entrar al consolidado.
 - Derivación de `admission_status = READY`/`READY_FOR_ADMISSION` únicamente desde reglas de dominio; nunca por edición libre de UI.
 
-**Gate F6:** un auditor no puede aprobar un ítem inválido según los criterios aprobados; exportaciones no bloquean la API; todas las lecturas/descargas sensibles definidas quedan auditadas.
+**Gate F6:** ambas fechas habilitan revisión; solo un auditor puede decidir y ningún proceso automático aprueba; actor, fecha, observaciones y hallazgos quedan trazables; exportaciones no bloquean la API y lecturas/descargas sensibles quedan auditadas.
 
 ### Fase 7 — Handoff al scraper de admisiones
 
@@ -175,4 +182,4 @@ CSV/XLSX se generan bajo demanda y no se conserva una copia persistente. Solo se
 
 ## Cierre de Fase 0
 
-El resultado verificable se documenta en `F0_CLOSURE.md`. DEC-001 a DEC-012 están `ACCEPTED`. DEC-013 permanece `PENDING` con prohibición explícita de implementar la integración MIPRES real; por ello el gate permite Fases 1 y 2, pero bloquea Fase 3 y cualquier trabajo posterior que infiera el contrato externo.
+El resultado verificable se documenta en `F0_CLOSURE.md`. No quedan decisiones `PENDING`: DEC-013 se cerró con el contrato de lectura `WSSUMMIPRESNOPBS` y autoriza el alcance de Fase 3 definido en el contrato y SPEC-003.

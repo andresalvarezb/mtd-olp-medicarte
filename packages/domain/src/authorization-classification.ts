@@ -3,7 +3,7 @@ import type { AuthorizationClassification } from '@authorization/contracts';
 export type AuthorizationClassificationInput = Readonly<{
   numeroAutorizacion: unknown;
   codigoComercial: unknown;
-  cupsPrincipal: unknown;
+  noPrescripcion: unknown;
   estadoAutorizacion: unknown;
 }>;
 
@@ -53,8 +53,32 @@ export function deriveEnablementStatus(value: unknown): 'ENABLED' | 'BLOCKED_SOU
   return normalizeSourceText(value) === '5' ? 'ENABLED' : 'BLOCKED_SOURCE_STATUS';
 }
 
-export function deriveCoverageType(value: unknown): 'PBS' | 'NO_PBS' {
-  return normalizeSourceText(value) === 'MEDICAMENTOS NO POS' ? 'NO_PBS' : 'PBS';
+const MIN_PRESCRIPCION_LENGTH = 4;
+const MIPRES_PRESCRIPCION_SUFFIX_LENGTH = 3;
+
+export type DerivedPrescripcion = Readonly<{
+  normalized: string;
+  derived: string;
+}>;
+
+/**
+ * DEC-016: el valor original de `No.PRESCRIPCION` es numérico y opcional. Vacío
+ * clasifica PBS. Cuando tiene valor, la API MIPRES consume el mismo valor sin
+ * sus últimos 3 dígitos de la derecha. Devuelve null cuando el valor no cumple
+ * el formato técnico (solo dígitos, longitud mayor a 3).
+ */
+export function derivePrescripcion(value: unknown): DerivedPrescripcion | null {
+  const normalized = normalizeSourceText(value);
+  if (normalized === '') return { normalized: '', derived: '' };
+  if (!/^\d+$/.test(normalized) || normalized.length < MIN_PRESCRIPCION_LENGTH) return null;
+  return {
+    normalized,
+    derived: normalized.slice(0, -MIPRES_PRESCRIPCION_SUFFIX_LENGTH),
+  };
+}
+
+export function deriveCoverageType(prescripcionNormalized: string): 'PBS' | 'NO_PBS' {
+  return prescripcionNormalized === '' ? 'PBS' : 'NO_PBS';
 }
 
 export function deriveDirectionStatus(
@@ -83,14 +107,16 @@ export function deriveAuthorizationClassification(
   input: AuthorizationClassificationInput,
 ): AuthorizationClassification | null {
   const key = buildAuthorizationKey(input.numeroAutorizacion, input.codigoComercial);
-  const cupsPrincipalNormalized = normalizeSourceText(input.cupsPrincipal);
   const sourceStatusNormalized = normalizeSourceText(input.estadoAutorizacion);
-  if (!key || !cupsPrincipalNormalized || !sourceStatusNormalized) return null;
-  const coverageType = deriveCoverageType(cupsPrincipalNormalized);
+  if (!key || !sourceStatusNormalized) return null;
+  const prescripcion = derivePrescripcion(input.noPrescripcion);
+  if (!prescripcion) return null;
+  const coverageType = deriveCoverageType(prescripcion.normalized);
   return {
     ...key,
-    cupsPrincipalNormalized,
     sourceStatusNormalized,
+    prescripcionNormalized: prescripcion.normalized,
+    noPrescripcion: prescripcion.derived,
     enablementStatus: deriveEnablementStatus(sourceStatusNormalized),
     coverageType,
     directionStatus: deriveDirectionStatus(coverageType),

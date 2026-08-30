@@ -16,6 +16,8 @@ Descomponer trabajo por SPEC, respetar dependencias de `IMPLEMENTATION_PLAN.md` 
 
 Frontend/backend/tests pueden ir en paralelo solo después de congelar DTOs, enums y API contract. Integraciones externas nunca deben bloquear pruebas: usar ports/fakes.
 
+Las tareas de SPEC-013 comparten un pipeline. No delegar tres implementaciones independientes ni habilitar formularios individuales para los campos operativos.
+
 ## Salida
 
 Un plan de tareas pequeñas con owner, dependencia, spec, tests y gate.

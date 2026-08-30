@@ -11,9 +11,11 @@ export {
   deriveDirectionStatus,
   deriveEnablementStatus,
   deriveOperationStatus,
+  derivePrescripcion,
   normalizeSourceText,
 } from './authorization-classification';
 export type {
   AuthorizationClassificationInput,
+  DerivedPrescripcion,
   OperationStatusInput,
 } from './authorization-classification';

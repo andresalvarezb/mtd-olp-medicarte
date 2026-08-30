@@ -40,6 +40,7 @@ const sourceColumns = [
   'FECHA_ASIGNACION',
   'FECHA_FINAL_VIGENCIA',
   'ESTADO_AUTORIZACION',
+  'No.PRESCRIPCION',
   'OBS_AUTORIZACION',
   'MEDICO_REMITENTE',
   'CMNT',
@@ -87,7 +88,7 @@ function jsonEvidenceHash(value: unknown): string {
 }
 
 function authorizationCsv(
-  rows: Array<{ authorization: string; medication: string; coverage: string; status: string }>,
+  rows: Array<{ authorization: string; medication: string; prescripcion: string; status: string }>,
 ): string {
   return [
     csvRow(sourceColumns),
@@ -100,7 +101,7 @@ function authorizationCsv(
         'Paciente de prueba',
         '3000000000',
         'CUPS-1',
-        row.coverage,
+        'MEDICAMENTOS POS',
         row.medication,
         'CUM-1',
         '900000001',
@@ -112,6 +113,7 @@ function authorizationCsv(
         '2026-08-01',
         '2026-12-31',
         row.status,
+        row.prescripcion,
         'prueba F2',
         'Medico de prueba',
         'comentario',
@@ -231,9 +233,9 @@ describe('Gate F2', () => {
   it('processes CSV staging, classifies PBS/NO PBS, confirms transactionally, and preserves traceability', async () => {
     const authorization = `AUTH-F2-${randomUUID()}`;
     const content = authorizationCsv([
-      { authorization, medication: 'MED-PBS', coverage: ' MEDICAMENTOS   POS ', status: '5' },
-      { authorization, medication: 'MED-NO-PBS', coverage: ' medicamentos no pos ', status: '5' },
-      { authorization, medication: 'MED-NO-PBS', coverage: 'MEDICAMENTOS NO POS', status: '5' },
+      { authorization, medication: 'MED-PBS', prescripcion: '', status: '5' },
+      { authorization, medication: 'MED-NO-PBS', prescripcion: '20260915123', status: '5' },
+      { authorization, medication: 'MED-NO-PBS', prescripcion: '20260915123', status: '5' },
     ]);
     const batch = await createImport(adminToken, content);
     const ready = await waitForBatch(adminToken, batch.id);
@@ -386,10 +388,89 @@ describe('Gate F2', () => {
     );
   });
 
+  it('derives no_prescripcion for MIPRES and rejects invalid prescripcion formats', async () => {
+    const authorization = `AUTH-PRES-${randomUUID()}`;
+    const batch = await createImport(
+      adminToken,
+      authorizationCsv([
+        { authorization, medication: 'MED-PRES-PBS', prescripcion: '', status: '5' },
+        {
+          authorization,
+          medication: 'MED-PRES-NO-PBS',
+          prescripcion: ' 20260915123 ',
+          status: '5',
+        },
+        { authorization, medication: 'MED-PRES-INVALID', prescripcion: '123', status: '5' },
+      ]),
+    );
+    await waitForBatch(adminToken, batch.id);
+    const ready = await waitForBatch(adminToken, batch.id);
+    expect(ready).toMatchObject({
+      status: 'READY_TO_CONFIRM',
+      totalRows: 3,
+      validRows: 2,
+      rejectedRows: 1,
+    });
+    const rows = (await (
+      await fetch(`${apiUrl}/api/v1/imports/${batch.id}/rows?limit=10`, {
+        headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
+      })
+    ).json()) as {
+      items: Array<{
+        resultCode: string;
+        normalized: { noPrescripcion: string } | null;
+        validationErrors: Array<{ field: string; code: string }>;
+      }>;
+    };
+    expect(rows.items[0]?.normalized).toMatchObject({ noPrescripcion: '' });
+    expect(rows.items[1]?.normalized).toMatchObject({ noPrescripcion: '20260915' });
+    expect(rows.items[2]).toMatchObject({ resultCode: 'INVALID_FIELD_FORMAT' });
+    expect(rows.items[2]?.validationErrors[0]).toMatchObject({
+      field: 'No.PRESCRIPCION',
+      code: 'INVALID_FIELD_FORMAT',
+    });
+
+    const confirmation = await confirmImport(adminToken, batch.id);
+    expect(confirmation.createdRows).toBe(2);
+    const items = await database.query<{
+      codigo_medicamento: string;
+      source_prescripcion_normalized: string;
+      no_prescripcion: string;
+      coverage_type: string;
+      direction_status: string;
+      coverage_rule_version: string;
+    }>(
+      `select codigo_medicamento, source_prescripcion_normalized, no_prescripcion, coverage_type,
+              direction_status, coverage_rule_version
+       from authorization_items
+       where numero_autorizacion = $1
+       order by codigo_medicamento`,
+      [authorization.toUpperCase()],
+    );
+    expect(items.rows).toEqual([
+      {
+        codigo_medicamento: 'MED-PRES-NO-PBS',
+        source_prescripcion_normalized: '20260915123',
+        no_prescripcion: '20260915',
+        coverage_type: 'NO_PBS',
+        direction_status: 'PENDING',
+        coverage_rule_version: 'F2-COVERAGE-2',
+      },
+      {
+        codigo_medicamento: 'MED-PRES-PBS',
+        source_prescripcion_normalized: '',
+        no_prescripcion: '',
+        coverage_type: 'PBS',
+        direction_status: 'NOT_APPLICABLE',
+        coverage_rule_version: 'F2-COVERAGE-2',
+      },
+    ]);
+  });
+
   it('does not create duplicate items when two batches confirm the same key concurrently', async () => {
     const authorization = `AUTH-CONCURRENT-${randomUUID()}`;
     const content = authorizationCsv([
-      { authorization, medication: 'MED-CONCURRENT', coverage: 'MEDICAMENTOS POS', status: '5' },
+      { authorization, medication: 'MED-CONCURRENT', prescripcion: '', status: '5' },
     ]);
     const [first, second] = await Promise.all([
       createImport(adminToken, content),
@@ -413,7 +494,7 @@ describe('Gate F2', () => {
     const batch = await createImport(
       adminToken,
       authorizationCsv([
-        { authorization, medication: 'MED-UPDATE', coverage: 'MEDICAMENTOS POS', status: '5' },
+        { authorization, medication: 'MED-UPDATE', prescripcion: '', status: '5' },
       ]),
     );
     await waitForBatch(adminToken, batch.id);
@@ -448,30 +529,33 @@ describe('Gate F2', () => {
     const cases = [
       {
         name: 'keeps a PBS item ready',
-        coverage: 'MEDICAMENTOS POS',
+        prescripcion: '',
         status: '5',
         expectedOperationStatus: 'READY_TO_DISPENSE',
         expectedEnablementStatus: 'ENABLED',
         expectedCoverageType: 'PBS',
         expectedDirectionStatus: 'NOT_APPLICABLE',
+        expectedNoPrescripcion: '',
       },
       {
         name: 'blocks an item with a blocked source status',
-        coverage: 'MEDICAMENTOS POS',
+        prescripcion: '',
         status: '4',
         expectedOperationStatus: 'BLOCKED',
         expectedEnablementStatus: 'BLOCKED_SOURCE_STATUS',
         expectedCoverageType: 'PBS',
         expectedDirectionStatus: 'NOT_APPLICABLE',
+        expectedNoPrescripcion: '',
       },
       {
         name: 'blocks a NO_PBS item pending MIPRES',
-        coverage: 'MEDICAMENTOS NO POS',
+        prescripcion: '20260915123',
         status: '5',
         expectedOperationStatus: 'BLOCKED',
         expectedEnablementStatus: 'ENABLED',
         expectedCoverageType: 'NO_PBS',
         expectedDirectionStatus: 'PENDING',
+        expectedNoPrescripcion: '20260915',
       },
     ] as const;
 
@@ -483,7 +567,7 @@ describe('Gate F2', () => {
           {
             authorization,
             medication: 'MED-UPDATE-STATUS',
-            coverage: 'MEDICAMENTOS POS',
+            prescripcion: '',
             status: '5',
           },
         ]),
@@ -505,7 +589,7 @@ describe('Gate F2', () => {
           {
             authorization,
             medication: 'MED-UPDATE-STATUS',
-            coverage: testCase.coverage,
+            prescripcion: testCase.prescripcion,
             status: testCase.status,
           },
         ]),
@@ -624,7 +708,8 @@ describe('Gate F2', () => {
         codigoComercialNormalized: string;
         sourceEvidence: { importRowId: string | null; sha256: string };
         sourceStatusNormalized: string;
-        sourceCupsPrincipalNormalized: string;
+        sourcePrescripcionNormalized: string;
+        noPrescripcion: string;
         enablementStatus: string;
         coverageType: string;
         directionStatus: string;
@@ -668,12 +753,13 @@ describe('Gate F2', () => {
           sha256: initialEvidenceHash,
         },
         sourceStatusNormalized: '5',
-        sourceCupsPrincipalNormalized: 'MEDICAMENTOS POS',
+        sourcePrescripcionNormalized: '',
+        noPrescripcion: '',
         enablementStatus: 'ENABLED',
         coverageType: 'PBS',
         directionStatus: 'NOT_APPLICABLE',
         operationStatus: 'READY_TO_DISPENSE',
-        coverageRuleVersion: 'F2-COVERAGE-1',
+        coverageRuleVersion: 'F2-COVERAGE-2',
       });
       expect(audit.after).toMatchObject({
         version: expectedVersion + 1,
@@ -685,12 +771,13 @@ describe('Gate F2', () => {
           sha256: newEvidenceHash,
         },
         sourceStatusNormalized: testCase.status,
-        sourceCupsPrincipalNormalized: testCase.coverage,
+        sourcePrescripcionNormalized: testCase.prescripcion,
+        noPrescripcion: testCase.expectedNoPrescripcion,
         enablementStatus: testCase.expectedEnablementStatus,
         coverageType: testCase.expectedCoverageType,
         directionStatus: testCase.expectedDirectionStatus,
         operationStatus: testCase.expectedOperationStatus,
-        coverageRuleVersion: 'F2-COVERAGE-1',
+        coverageRuleVersion: 'F2-COVERAGE-2',
         idempotency: {
           recordId: idempotencyRecord.id,
           scope: idempotencyScope,
@@ -719,7 +806,7 @@ describe('Gate F2', () => {
       {
         authorization,
         medication: 'MED-UPDATE-ROLLBACK',
-        coverage: 'MEDICAMENTOS POS',
+        prescripcion: '',
         status: '5',
       },
     ]);
@@ -847,7 +934,7 @@ describe('Gate F2', () => {
           {
             authorization,
             medication: 'MED-REPLAY-SCOPE',
-            coverage: 'MEDICAMENTOS POS',
+            prescripcion: '',
             status: '5',
           },
         ]);
@@ -1024,7 +1111,7 @@ describe('Gate F2', () => {
   it('rejects a source update row owned by another organization even when the item is shared', async () => {
     const authorization = `AUTH-SOURCE-SCOPE-${randomUUID()}`;
     const content = authorizationCsv([
-      { authorization, medication: 'MED-SOURCE-SCOPE', coverage: 'MEDICAMENTOS POS', status: '5' },
+      { authorization, medication: 'MED-SOURCE-SCOPE', prescripcion: '', status: '5' },
     ]);
     const initialBatch = await createImport(adminToken, content);
     await waitForBatch(adminToken, initialBatch.id);
@@ -1070,7 +1157,7 @@ describe('Gate F2', () => {
         {
           authorization: `AUTH-IDEM-${randomUUID()}`,
           medication: 'MED-A',
-          coverage: 'MEDICAMENTOS POS',
+          prescripcion: '',
           status: '5',
         },
       ]),
@@ -1086,7 +1173,7 @@ describe('Gate F2', () => {
         {
           authorization: `AUTH-IDEM-${randomUUID()}`,
           medication: 'MED-B',
-          coverage: 'MEDICAMENTOS POS',
+          prescripcion: '',
           status: '5',
         },
       ]),
@@ -1133,13 +1220,13 @@ describe('Gate F2', () => {
     };
     expect(missingRows.items[0]).toMatchObject({ resultCode: 'MISSING_REQUIRED_FIELD' });
     expect(missingRows.items[0]?.validationErrors.map((entry) => entry.field)).toEqual(
-      expect.arrayContaining(['CUPS_PRINCIPAL', 'ESTADO_AUTORIZACION']),
+      expect.arrayContaining(['No.PRESCRIPCION', 'ESTADO_AUTORIZACION']),
     );
 
     const blockedBatch = await createImport(
       adminToken,
       authorizationCsv([
-        { authorization, medication: 'MED-BLOCKED', coverage: 'MEDICAMENTOS NO POS', status: '4' },
+        { authorization, medication: 'MED-BLOCKED', prescripcion: '20260915123', status: '4' },
       ]),
     );
     await waitForBatch(adminToken, blockedBatch.id);

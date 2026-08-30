@@ -29,7 +29,8 @@ type ItemRow = {
   authorization_key: string;
   source_data: unknown;
   source_status_normalized: string;
-  source_cups_principal_normalized: string;
+  source_prescripcion_normalized: string;
+  no_prescripcion: string;
   enablement_status: string;
   coverage_type: string;
   direction_status: string;
@@ -115,7 +116,8 @@ function toItemResponse(row: ItemRow, includeSourceData: boolean): Authorization
     directionStatus: row.direction_status as AuthorizationItemResponse['directionStatus'],
     operationStatus: row.operation_status as AuthorizationItemResponse['operationStatus'],
     sourceData: includeSourceData ? sourceDataRecord(row.source_data) : null,
-    sourceCupsPrincipalNormalized: row.source_cups_principal_normalized,
+    sourcePrescripcionNormalized: row.source_prescripcion_normalized,
+    noPrescripcion: row.no_prescripcion,
     coverageRuleVersion: row.coverage_rule_version,
     version: row.version,
     createdAt: row.created_at.toISOString(),
@@ -162,8 +164,9 @@ export class AuthorizationItemsService {
     const limit = add(query.limit + 1);
     const result = await this.database.pool.query<ItemRow>(
       `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, null::jsonb as source_data,
-              i.source_status_normalized, i.source_cups_principal_normalized, i.enablement_status, i.coverage_type,
-              i.direction_status, i.operation_status, i.coverage_rule_version, i.version, i.created_at, i.updated_at
+              i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
+              i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.version,
+              i.created_at, i.updated_at
        from authorization_items i
        where ${conditions.join(' and ')}
        order by i.created_at desc, i.id desc
@@ -283,8 +286,9 @@ export class AuthorizationItemsService {
       );
       const itemResult = await client.query<ItemRow>(
         `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
-                i.source_status_normalized, i.source_cups_principal_normalized, i.enablement_status, i.coverage_type,
-                i.direction_status, i.operation_status, i.coverage_rule_version, i.version, i.created_at, i.updated_at
+                i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
+                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.version,
+                i.created_at, i.updated_at
          from authorization_items i
          where i.id = $1
          for update`,
@@ -395,18 +399,20 @@ export class AuthorizationItemsService {
       });
       const updated = await client.query<ItemRow>(
         `update authorization_items set
-           source_data = $2::jsonb, source_status_normalized = $3, source_cups_principal_normalized = $4,
-           enablement_status = $5, coverage_type = $6, direction_status = $7, operation_status = $8,
-           coverage_rule_version = 'F2-COVERAGE-1', version = version + 1, updated_at = now()
-          where id = $1 and version = $9
+           source_data = $2::jsonb, source_status_normalized = $3, source_prescripcion_normalized = $4,
+           no_prescripcion = $5, enablement_status = $6, coverage_type = $7, direction_status = $8,
+           operation_status = $9, coverage_rule_version = 'F2-COVERAGE-2', version = version + 1, updated_at = now()
+          where id = $1 and version = $10
           returning id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
-                   source_status_normalized, source_cups_principal_normalized, enablement_status, coverage_type,
-                   direction_status, operation_status, coverage_rule_version, version, created_at, updated_at`,
+                   source_status_normalized, source_prescripcion_normalized, no_prescripcion, enablement_status,
+                   coverage_type, direction_status, operation_status, coverage_rule_version, version, created_at,
+                   updated_at`,
         [
           itemId,
           JSON.stringify(row.raw_data),
           classification.data.sourceStatusNormalized,
-          classification.data.cupsPrincipalNormalized,
+          classification.data.prescripcionNormalized,
+          classification.data.noPrescripcion,
           classification.data.enablementStatus,
           classification.data.coverageType,
           classification.data.directionStatus,
@@ -420,16 +426,16 @@ export class AuthorizationItemsService {
           code: 'VERSION_CONFLICT',
           message: 'Authorization item version has changed',
         });
-      const sourceValue = rawText(sourceDataRecord(row.raw_data)?.CUPS_PRINCIPAL);
+      const sourceValue = rawText(sourceDataRecord(row.raw_data)?.['No.PRESCRIPCION']);
       await client.query(
         `insert into coverage_evaluations
            (authorization_item_id, evaluation_version, source_value, normalized_value, coverage_type, rule_version)
-         values ($1, $2, $3, $4, $5, 'F2-COVERAGE-1')`,
+         values ($1, $2, $3, $4, $5, 'F2-COVERAGE-2')`,
         [
           itemId,
           changed.version,
           sourceValue,
-          classification.data.cupsPrincipalNormalized,
+          classification.data.prescripcionNormalized,
           classification.data.coverageType,
         ],
       );
@@ -466,7 +472,8 @@ export class AuthorizationItemsService {
             sha256: evidenceHash(previousEvidenceRow.raw_data),
           },
           sourceStatusNormalized: item.source_status_normalized,
-          sourceCupsPrincipalNormalized: item.source_cups_principal_normalized,
+          sourcePrescripcionNormalized: item.source_prescripcion_normalized,
+          noPrescripcion: item.no_prescripcion,
           coverageType: item.coverage_type,
           enablementStatus: item.enablement_status,
           directionStatus: item.direction_status,
@@ -483,7 +490,8 @@ export class AuthorizationItemsService {
             sha256: evidenceHash(row.raw_data),
           },
           sourceStatusNormalized: changed.source_status_normalized,
-          sourceCupsPrincipalNormalized: changed.source_cups_principal_normalized,
+          sourcePrescripcionNormalized: changed.source_prescripcion_normalized,
+          noPrescripcion: changed.no_prescripcion,
           coverageType: changed.coverage_type,
           enablementStatus: changed.enablement_status,
           directionStatus: changed.direction_status,
@@ -522,12 +530,13 @@ export class AuthorizationItemsService {
   ): Promise<ItemRow | undefined> {
     const result = await this.database.pool.query<ItemRow>(
       `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key,
-              ${includeSourceData ? 'i.source_data' : 'null::jsonb'} as source_data,
-              i.source_status_normalized, i.source_cups_principal_normalized, i.enablement_status, i.coverage_type,
-              i.direction_status, i.operation_status, i.coverage_rule_version, i.version, i.created_at, i.updated_at
-       from authorization_items i
-       where i.id = $1
-         and ($2::boolean = true or exists (select 1 from authorization_item_organizations aio where aio.authorization_item_id = i.id and aio.organization_id = $3))`,
+                ${includeSourceData ? 'i.source_data' : 'null::jsonb'} as source_data,
+                i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
+                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.version,
+                i.created_at, i.updated_at
+         from authorization_items i
+         where i.id = $1
+           and ($2::boolean = true or exists (select 1 from authorization_item_organizations aio where aio.authorization_item_id = i.id and aio.organization_id = $3))`,
       [itemId, scope.organizationCode === 'MTD', scope.organizationId],
     );
     return result.rows[0];

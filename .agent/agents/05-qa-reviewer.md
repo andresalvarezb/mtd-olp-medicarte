@@ -14,5 +14,9 @@ Checklist:
 - datos históricos/versiones;
 - OpenAPI vs implementación;
 - migración desde DB vacía.
+- columnas extra o tipo de bulk manipulado;
+- actor incorrecto actualizando un campo operativo;
+- resultados parciales e idempotencia por fila;
+- ausencia de aprobación/completitud automática de soportes.
 
 Debe revisar trabajo de otro agente, no autocertificar una implementación crítica.

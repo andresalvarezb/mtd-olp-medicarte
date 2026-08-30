@@ -1,6 +1,6 @@
 # ADR-011 — Monorepo TypeScript
 
-**Estado:** ACCEPTED, sujeto a P-010 sobre repositorio físico
+**Estado:** ACCEPTED
 
 ## Decisión
 
@@ -8,4 +8,4 @@ Cuando el destino físico se confirme, mantener `web`, `api`, `worker` y paquete
 
 ## Nota
 
-P-010 puede cambiar la ubicación física, pero no justifica duplicar contratos ni reglas.
+DEC-010 y ADR-019 fijan un repositorio GitHub independiente; esta decisión no justifica duplicar contratos ni reglas.
