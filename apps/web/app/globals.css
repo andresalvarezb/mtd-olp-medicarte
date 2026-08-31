@@ -777,12 +777,6 @@ td {
 .hidden-by-role {
   display: none !important;
 }
-.footer-note {
-  padding: 20px 0 4px;
-  color: #98a2b3;
-  font-size: 10px;
-  text-align: center;
-}
 .mobile-backdrop {
   display: none;
 }

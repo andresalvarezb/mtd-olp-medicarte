@@ -56,7 +56,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Topbar onOpenMenu={() => setMenuOpen(true)} />
         <main className="main">
           {children}
-          <div className="footer-note">Prototipo visual — no procesa información real ni contiene datos de pacientes.</div>
         </main>
       </section>
     </div>
