@@ -11,7 +11,7 @@ export class AuthGuard implements CanActivate {
 
   constructor(@Inject(API_CONFIG) private readonly config: ApiConfig) {
     this.jwks = createRemoteJWKSet(
-      new URL(config.OIDC_JWKS_URL ?? `${config.OIDC_ISSUER}/protocol/openid-connect/certs`),
+      new URL(config.OIDC_JWKS_URL || `${config.OIDC_ISSUER}/protocol/openid-connect/certs`),
     );
   }
 

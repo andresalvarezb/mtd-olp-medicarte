@@ -40,6 +40,13 @@ export class MeController {
     },
   })
   getMe(@Req() request: AuthenticatedRequest): Promise<MeResponse> {
-    return this.access.getProfile(request.auth.sub);
+    const claims = request.auth;
+    const displayName =
+      (typeof claims.name === 'string' ? claims.name : undefined) ??
+      (typeof claims.preferred_username === 'string' ? claims.preferred_username : undefined);
+    return this.access.getProfile(claims.sub, {
+      ...(typeof claims.email === 'string' ? { email: claims.email } : {}),
+      ...(displayName ? { displayName } : {}),
+    });
   }
 }

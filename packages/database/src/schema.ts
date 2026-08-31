@@ -786,3 +786,18 @@ export const jobResults = pgTable(
     uniqueIndex('job_results_queue_idempotency_idx').on(table.queue, table.idempotencyKey),
   ],
 );
+
+export const pendingUserRequests = pgTable(
+  'pending_user_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    oidcSubject: varchar('oidc_subject', { length: 255 }).notNull().unique(),
+    email: varchar('email', { length: 320 }).notNull(),
+    displayName: varchar('display_name', { length: 160 }),
+    status: varchar('status', { length: 20 }).notNull().default('PENDING'),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: uuid('resolved_by'),
+  },
+  (table) => [index('pending_user_requests_status_idx').on(table.status)],
+);

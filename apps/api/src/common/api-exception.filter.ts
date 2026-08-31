@@ -54,7 +54,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
         : undefined;
 
     if (status >= 500) {
-      this.logger.error({ correlationId: request.correlationId, error: exception });
+      this.logger.error({ correlationId: request.correlationId, error: exception, err: exception });
       Sentry.captureException(exception, { tags: { correlationId: request.correlationId } });
     }
 

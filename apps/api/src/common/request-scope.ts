@@ -8,6 +8,7 @@ export type Scope = Readonly<{
   userId: string;
   correlationId: string;
   readSensitive: boolean;
+  isFoundationAdmin: boolean;
 }>;
 
 export function scopeFromProfile(
@@ -27,5 +28,6 @@ export function scopeFromProfile(
     userId: profile.id,
     correlationId: request.correlationId,
     readSensitive: organization.permissions.includes('authorizations.read_sensitive'),
+    isFoundationAdmin: organization.roles.includes('MTD_ADMIN'),
   };
 }

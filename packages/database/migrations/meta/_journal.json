@@ -64,6 +64,27 @@
       "when": 1788103695268,
       "tag": "0008_phase6_admission_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788556020663,
+      "tag": "0009_user_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788642420663,
+      "tag": "0010_mtd_admin_full_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788728820663,
+      "tag": "0011_tenant_sensitive_read",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,7 @@ const commonSchema = z.object({
   REDIS_URL: z.string().url(),
   OIDC_ISSUER: z.string().url(),
   OIDC_AUDIENCE: z.string().min(1),
-  OIDC_JWKS_URL: z.string().url().optional(),
+  OIDC_JWKS_URL: z.string().url().optional().or(z.literal('')),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional().or(z.literal('')),
   SENTRY_DSN: z.string().url().optional().or(z.literal('')),
 });
@@ -23,9 +23,9 @@ const importConfigSchema = {
 };
 
 const mipresConfigSchema = {
-  MIPRES_BASE_URL: z.string().url().optional(),
-  MIPRES_NIT: z.string().min(1).optional(),
-  MIPRES_INITIAL_TOKEN: z.string().min(1).optional(),
+  MIPRES_BASE_URL: z.string().url().optional().or(z.literal('')),
+  MIPRES_NIT: z.string().min(1).optional().or(z.literal('')),
+  MIPRES_INITIAL_TOKEN: z.string().min(1).optional().or(z.literal('')),
   MIPRES_TIMEOUT_MS: z.coerce.number().int().min(100).default(15_000),
   MIPRES_HTTP_RETRIES: z.coerce.number().int().min(0).max(10).default(2),
   MIPRES_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().min(1).default(5),
@@ -38,6 +38,12 @@ const mipresConfigSchema = {
     .default(12 * 60 * 60 * 1000),
   MIPRES_AUTO_REVALIDATION_BATCH: z.coerce.number().int().positive().max(500).default(100),
   MIPRES_MANUAL_RECHECK_DAILY_LIMIT: z.coerce.number().int().positive().default(5),
+};
+
+const keycloakAdminConfigSchema = {
+  OIDC_ADMIN_ISSUER: z.string().url().optional(),
+  OIDC_ADMIN_CLIENT_ID: z.string().min(1).default('authorization-admin'),
+  OIDC_ADMIN_CLIENT_SECRET: z.string().min(1).optional(),
 };
 
 const gmailConfigSchema = {
@@ -55,6 +61,7 @@ const bulkConfigSchema = {
 export const apiConfigSchema = commonSchema.extend({
   ...importConfigSchema,
   ...mipresConfigSchema,
+  ...keycloakAdminConfigSchema,
   ...gmailConfigSchema,
   API_PORT: z.coerce.number().int().positive().default(3001),
   API_PUBLIC_URL: z.string().url(),

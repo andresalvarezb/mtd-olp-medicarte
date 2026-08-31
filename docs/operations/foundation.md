@@ -37,3 +37,4 @@ Usuario técnico local de verificación: `foundation-admin`. La credencial del r
 - `GET /api/v1/admin/dead-letter-jobs`: fallos durables, protegido por organización y `platform.jobs.manage`.
 - `GET /api/v1/openapi.json`: contrato OpenAPI.
 - `POST /api/v1/foundation/events`: sonda autenticada no productiva para probar auditoría, outbox, job e idempotencia.
+- `/api/v1/users`: CRUD de usuarios con acceso y bandeja de solicitudes (permiso `users.manage`). Ver [gestión-usuarios.md](gestion-usuarios.md).

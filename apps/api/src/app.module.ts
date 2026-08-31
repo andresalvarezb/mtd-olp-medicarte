@@ -14,7 +14,10 @@ import { FoundationController } from './foundation/foundation.controller';
 import { FoundationService } from './foundation/foundation.service';
 import { AdminJobsController } from './foundation/admin-jobs.controller';
 import { AccessService } from './identity/access.service';
+import { KeycloakAdminService } from './identity/keycloak-admin.service';
 import { MeController } from './identity/me.controller';
+import { UsersController } from './identity/users.controller';
+import { UsersService } from './identity/users.service';
 import { OperationsController } from './operations/operations.controller';
 import { ImportsController } from './imports/imports.controller';
 import { ImportsService } from './imports/imports.service';
@@ -68,6 +71,7 @@ new Gauge({
   ],
   controllers: [
     MeController,
+    UsersController,
     OperationsController,
     AdminJobsController,
     ImportsController,
@@ -83,6 +87,8 @@ new Gauge({
   providers: [
     AuthGuard,
     AccessService,
+    KeycloakAdminService,
+    UsersService,
     FoundationService,
     ImportsService,
     AuthorizationItemsService,

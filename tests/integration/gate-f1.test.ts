@@ -13,6 +13,8 @@ let token: string;
 let olpToken: string;
 let suspendedToken: string;
 let unknownToken: string;
+/** Subjects creados directamente en Keycloak; se eliminan en la limpieza final. */
+const keycloakOnlySubjects: string[] = [];
 
 async function login(username: string, password: string): Promise<string> {
   const body = new URLSearchParams({
@@ -35,17 +37,117 @@ async function login(username: string, password: string): Promise<string> {
   return result.access_token;
 }
 
+async function keycloakAdminToken(): Promise<string> {
+  const response = await fetch(
+    `${keycloakUrl}/realms/authorization/protocol/openid-connect/token`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: 'authorization-admin',
+        client_secret: 'local-dev-admin-secret',
+      }),
+    },
+  );
+  const result = (await response.json()) as { access_token?: string };
+  if (!result.access_token) throw new Error(`Keycloak admin token failed: ${response.status}`);
+  return result.access_token;
+}
+
+/** Crea un usuario efímero en Keycloak y devuelve su id (subject). */
+async function createKeycloakUser(username: string, password: string): Promise<string> {
+  const admin = await keycloakAdminToken();
+  const response = await fetch(`${keycloakUrl}/admin/realms/authorization/users`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${admin}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      username,
+      email: `${username}@example.test`,
+      firstName: 'F1',
+      lastName: 'Test',
+      enabled: true,
+      emailVerified: true,
+      credentials: [{ type: 'password', value: password, temporary: false }],
+    }),
+  });
+  expect(response.status).toBe(201);
+  const search = await fetch(
+    `${keycloakUrl}/admin/realms/authorization/users?username=${encodeURIComponent(username)}&exact=true`,
+    { headers: { authorization: `Bearer ${admin}` } },
+  );
+  const users = (await search.json()) as Array<{ id: string }>;
+  const id = users[0]?.id;
+  if (!id) throw new Error(`keycloak user ${username} not found`);
+  return id;
+}
+
+async function deleteKeycloakUser(subject: string): Promise<void> {
+  const admin = await keycloakAdminToken();
+  await fetch(`${keycloakUrl}/admin/realms/authorization/users/${subject}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${admin}` },
+  });
+}
+
 beforeAll(async () => {
   await database.connect();
-  [token, olpToken, suspendedToken, unknownToken] = await Promise.all([
-    login('foundation-admin', 'foundation-admin'),
-    login('olp-operator', 'olp-operator'),
-    login('suspended-user', 'suspended-user'),
-    login('unknown-local-user', 'unknown-local-user'),
-  ]);
+  token = await login('foundation-admin', 'foundation-admin');
+  olpToken = await login('olp-operator', 'olp-operator');
+
+  // Usuario suspendido: existe en Keycloak y localmente, pero con active=false.
+  const suffix = randomUUID().slice(0, 8);
+  const suspendedEmail = `f1-suspended-${suffix}@example.test`;
+  const suspendedPassword = `F1-Suspended-${suffix}`;
+  const createResponse = await fetch(`${apiUrl}/api/v1/users`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'x-organization-id': organizationId,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: suspendedEmail,
+      displayName: 'F1 Suspended User',
+      password: suspendedPassword,
+      organizationId,
+      roleCode: 'READ_ONLY',
+    }),
+  });
+  expect(createResponse.status).toBe(201);
+  await database.query(`update users set active = false where email = $1`, [suspendedEmail]);
+  suspendedToken = await login(suspendedEmail, suspendedPassword);
+
+  // Usuario conocido por Keycloak pero sin cuenta local: /me debe rechazarlo.
+  const unknownUsername = `f1-unknown-${suffix}`;
+  const unknownPassword = `F1-Unknown-${suffix}`;
+  keycloakOnlySubjects.push(await createKeycloakUser(unknownUsername, unknownPassword));
+  unknownToken = await login(unknownUsername, unknownPassword);
 });
 
-afterAll(async () => database.end());
+afterAll(async () => {
+  // Limpieza: los usuarios efímeros no deben quedar ni en Keycloak ni en la BD.
+  const stale = await database.query<{ oidc_subject: string }>(
+    `select oidc_subject from users where email like 'f1-%@example.test'`,
+  );
+  const subjects = [
+    ...stale.rows.map((row) => row.oidc_subject),
+    ...keycloakOnlySubjects,
+  ];
+  for (const subject of subjects) await deleteKeycloakUser(subject);
+  await database.query(`delete from pending_user_requests where oidc_subject = any($1)`, [
+    subjects,
+  ]);
+  await database.query(
+    `delete from pending_user_requests where email like 'f1-%@example.test'`,
+  );
+  await database.query(
+    `delete from user_organization_roles where user_id in (select id from users where oidc_subject = any($1))`,
+    [subjects],
+  );
+  await database.query(`delete from users where oidc_subject = any($1)`, [subjects]);
+  await database.end();
+});
 
 describe('Gate F1', () => {
   it('reports API, PostgreSQL and Redis as healthy', async () => {

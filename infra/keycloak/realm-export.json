@@ -17,12 +17,8 @@
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
-      "redirectUris": [
-        "http://localhost:3002/*"
-      ],
-      "webOrigins": [
-        "http://localhost:3002"
-      ],
+      "redirectUris": ["http://localhost:3002/*"],
+      "webOrigins": ["http://localhost:3002"],
       "protocol": "openid-connect",
       "protocolMappers": [
         {
@@ -37,9 +33,28 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "authorization-admin",
+      "enabled": true,
+      "secret": "local-dev-admin-secret",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocol": "openid-connect"
     }
   ],
   "users": [
+    {
+      "id": "99999999-9999-4999-8999-999999999999",
+      "username": "service-account-authorization-admin",
+      "enabled": true,
+      "serviceAccountClientId": "authorization-admin",
+      "clientRoles": {
+        "realm-management": ["manage-users", "view-users", "view-clients"]
+      }
+    },
     {
       "id": "11111111-1111-4111-8111-111111111111",
       "username": "foundation-admin",
@@ -68,38 +83,6 @@
         {
           "type": "password",
           "value": "olp-operator",
-          "temporary": false
-        }
-      ]
-    },
-    {
-      "id": "33333333-3333-4333-8333-333333333333",
-      "username": "suspended-user",
-      "email": "suspended@example.test",
-      "firstName": "Suspended",
-      "lastName": "User",
-      "enabled": true,
-      "emailVerified": true,
-      "credentials": [
-        {
-          "type": "password",
-          "value": "suspended-user",
-          "temporary": false
-        }
-      ]
-    },
-    {
-      "id": "44444444-4444-4444-8444-444444444444",
-      "username": "unknown-local-user",
-      "email": "unknown@example.test",
-      "firstName": "Unknown",
-      "lastName": "Local",
-      "enabled": true,
-      "emailVerified": true,
-      "credentials": [
-        {
-          "type": "password",
-          "value": "unknown-local-user",
           "temporary": false
         }
       ]

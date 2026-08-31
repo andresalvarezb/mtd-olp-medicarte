@@ -18,7 +18,35 @@ type Database = ReturnType<typeof createDatabase>;
 export class AccessService {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
 
-  async getProfile(subject: string): Promise<MeResponse> {
+  /**
+   * Registra (best effort) la solicitud de acceso cuando un usuario autenticado
+   * en Keycloak aún no tiene cuenta local. El admin la gestiona desde /users.
+   */
+  private async recordPendingRequest(
+    subject: string,
+    email?: string,
+    displayName?: string,
+  ): Promise<void> {
+    try {
+      await this.database.pool.query(
+        `insert into pending_user_requests (oidc_subject, email, display_name, status)
+         values ($1, $2, $3, 'PENDING')
+         on conflict (oidc_subject) do update
+           set email = excluded.email,
+               display_name = coalesce(excluded.display_name, pending_user_requests.display_name),
+               requested_at = now()
+         where pending_user_requests.status = 'PENDING'`,
+        [subject, email ?? `${subject}@unknown.subject`, displayName ?? null],
+      );
+    } catch {
+      // Nunca bloquea el flujo de autenticación.
+    }
+  }
+
+  async getProfile(
+    subject: string,
+    identity?: { email?: string; displayName?: string },
+  ): Promise<MeResponse> {
     const rows = await this.database.db
       .select({
         userId: users.id,
@@ -45,7 +73,14 @@ export class AccessService {
       .where(eq(users.oidcSubject, subject));
 
     const first = rows[0];
-    if (!first || !first.userActive) {
+    if (!first) {
+      await this.recordPendingRequest(subject, identity?.email, identity?.displayName);
+      throw new UnauthorizedException({
+        code: 'LOCAL_USER_INACTIVE',
+        message: 'Local user is not active',
+      });
+    }
+    if (!first.userActive) {
       throw new UnauthorizedException({
         code: 'LOCAL_USER_INACTIVE',
         message: 'Local user is not active',

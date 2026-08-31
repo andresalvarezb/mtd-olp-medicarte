@@ -732,3 +732,75 @@ export const consolidatedExportQuerySchema = z.object({
   coverageType: coverageTypeSchema.exclude(['UNCLASSIFIED']).optional(),
 });
 export type ConsolidatedExportQuery = z.infer<typeof consolidatedExportQuerySchema>;
+
+/** ---- Gestión de usuarios (users.manage) ---- */
+
+export const userAssignmentSchema = z.object({
+  organizationId: z.string().uuid(),
+  organizationCode: z.string(),
+  organizationName: z.string(),
+  roleCode: z.string(),
+  active: z.boolean(),
+});
+export type UserAssignment = z.infer<typeof userAssignmentSchema>;
+
+export const userResponseSchema = z.object({
+  id: z.string().uuid(),
+  subject: z.string().nullable(),
+  email: z.string().email(),
+  displayName: z.string(),
+  active: z.boolean(),
+  assignments: z.array(userAssignmentSchema),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type UserResponse = z.infer<typeof userResponseSchema>;
+
+export const userListQuerySchema = z.object({
+  active: z.enum(['true', 'false']).optional(),
+});
+export type UserListQuery = z.infer<typeof userListQuerySchema>;
+
+export const createUserRequestSchema = z.object({
+  email: z.string().email().max(320),
+  displayName: z.string().min(1).max(160),
+  password: z.string().min(8).max(72),
+  organizationId: z.string().uuid(),
+  roleCode: z.string().min(1).max(80),
+});
+export type CreateUserRequest = z.infer<typeof createUserRequestSchema>;
+
+export const updateUserRequestSchema = z.object({
+  displayName: z.string().min(1).max(160).optional(),
+  active: z.boolean().optional(),
+});
+export type UpdateUserRequest = z.infer<typeof updateUserRequestSchema>;
+
+export const createAssignmentRequestSchema = z.object({
+  organizationId: z.string().uuid(),
+  roleCode: z.string().min(1).max(80),
+});
+export type CreateAssignmentRequest = z.infer<typeof createAssignmentRequestSchema>;
+
+export const pendingUserStatusSchema = z.enum(['PENDING', 'APPROVED', 'REJECTED']);
+export type PendingUserStatus = z.infer<typeof pendingUserStatusSchema>;
+
+export const pendingUserRequestSchema = z.object({
+  id: z.string().uuid(),
+  subject: z.string(),
+  email: z.string().email(),
+  displayName: z.string().nullable(),
+  status: pendingUserStatusSchema,
+  requestedAt: isoDateTimeSchema,
+  resolvedAt: isoDateTimeSchema.nullable(),
+});
+export type PendingUserRequest = z.infer<typeof pendingUserRequestSchema>;
+
+export const approvePendingUserRequestSchema = z.object({
+  organizationId: z.string().uuid(),
+  roleCode: z.string().min(1).max(80),
+});
+export type ApprovePendingUserRequest = z.infer<typeof approvePendingUserRequestSchema>;
+
+export const rejectPendingUserRequestSchema = z.object({}).strict();
+export type RejectPendingUserRequest = z.infer<typeof rejectPendingUserRequestSchema>;
