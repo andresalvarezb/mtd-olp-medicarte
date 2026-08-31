@@ -99,10 +99,17 @@ describe('phase four and five contracts', () => {
     expect(bulkUpdateOperationContracts.ASSIGN_DISPENSATION_LOCATION).toMatchObject({
       actorOrganizationCode: 'MEDICARTE',
       mutableField: 'lugar_dispensacion',
+      requiredColumns: ['authorization_key', 'lugar_dispensacion'],
     });
     expect(bulkUpdateOperationContracts.REPORT_DISPENSATION_DATE).toMatchObject({
       actorOrganizationCode: 'OLP',
       mutableField: 'fecha_dispensacion',
+      requiredColumns: ['authorization_key', 'fecha_dispensacion'],
+    });
+    expect(bulkUpdateOperationContracts.REPORT_APPLICATION_DATE).toMatchObject({
+      actorOrganizationCode: 'MEDICARTE',
+      mutableField: 'fecha_aplicacion',
+      requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'fecha_aplicacion'],
     });
   });
 
@@ -222,6 +229,13 @@ describe('phase six contracts', () => {
     expect(authorizationItemListQuerySchema.safeParse({ auditStatus: 'PENDING' }).success).toBe(
       false,
     );
+    expect(
+      authorizationItemListQuerySchema.parse({ applicationSiteStatus: 'ASSIGNED' })
+        .applicationSiteStatus,
+    ).toBe('ASSIGNED');
+    expect(
+      authorizationItemListQuerySchema.safeParse({ applicationSiteStatus: 'OTHER' }).success,
+    ).toBe(false);
     expect(admissionStatusSchema.options).toEqual(['NOT_READY', 'READY']);
   });
 
@@ -236,6 +250,7 @@ describe('phase six contracts', () => {
       },
       byCoverageType: { UNCLASSIFIED: 0, PBS: 4, NO_PBS: 2 },
       pendingDispensationLocation: 1,
+      assignedDispensationLocation: 1,
       pendingDispensationDate: 2,
       pendingApplicationDate: 3,
       readyForReview: 2,

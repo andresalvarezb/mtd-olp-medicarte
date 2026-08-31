@@ -153,7 +153,10 @@ export class BulkUpdatesService {
     }
     const operationType = input.operationType as BulkUpdateOperationType;
     const contract = bulkUpdateOperationContracts[operationType];
-    if (input.scope.organizationCode !== contract.actorOrganizationCode) {
+    if (
+      input.scope.organizationCode !== contract.actorOrganizationCode &&
+      !input.scope.isFoundationAdmin
+    ) {
       throw new ForbiddenException({
         code: 'ACTOR_NOT_ALLOWED',
         message: 'La organización no puede ejecutar este tipo de operación.',
@@ -310,7 +313,7 @@ export class BulkUpdatesService {
       await client.query(
         `insert into outbox_events
            (id, event_type, version, payload, correlation_id, organization_id, idempotency_key)
-         values ($1, 'authorization.bulk-update', 1, $2::jsonb, $3, $4, $5)`,
+         values ($1, 'authorization.bulk-update', ${BULK_UPDATE_CONTRACT_VERSION}, $2::jsonb, $3, $4, $5)`,
         [
           eventId,
           JSON.stringify(payload),
@@ -487,7 +490,11 @@ export class BulkUpdatesService {
     const row = result.rows[0];
     if (!row) return undefined;
     const contract = bulkUpdateOperationContracts[row.operation_type as BulkUpdateOperationType];
-    if (!contract || scope.organizationCode !== contract.actorOrganizationCode) return undefined;
+    if (
+      !contract ||
+      (scope.organizationCode !== contract.actorOrganizationCode && !scope.isFoundationAdmin)
+    )
+      return undefined;
     const permission = await this.database.pool.query(
       `select 1
        from user_organization_roles uor

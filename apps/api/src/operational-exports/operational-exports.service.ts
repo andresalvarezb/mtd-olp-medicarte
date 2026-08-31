@@ -9,6 +9,7 @@ import { deriveApplicationSiteStatus } from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
 import { DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
+import { sourceBaseColumns, sourceBaseSelectSql } from '../common/source-base-columns';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -31,13 +32,26 @@ type ExportRow = {
   updated_at: Date;
   nombre_paciente: string | null;
   numero_documento: string | null;
+  cums: string | null;
+  cod_cups_autorizado: string | null;
+  cups_autorizado: string | null;
+  cantidad: string | null;
+  dosis: string | null;
+  fecha_asignacion: string | null;
+  fecha_final_vigencia: string | null;
+  estado_autorizacion: string | null;
+  obs_autorizacion: string | null;
+  valor_cuota_moderadora: string | null;
+  no_prescripcion: string | null;
 };
 
-const baseColumns = [
+/** Campos base del archivo original; siempre presentes en la descarga. */
+const exportSourceColumns = [...sourceBaseColumns] as string[];
+
+/** Columnas creadas por sección del proceso (fases operativas). */
+const processColumns = [
   'id',
   'authorization_key',
-  'numero_autorizacion',
-  'codigo_medicamento',
   'enablement_status',
   'coverage_type',
   'direction_status',
@@ -52,8 +66,6 @@ const baseColumns = [
   'created_at',
   'updated_at',
 ] as const;
-
-const sensitiveColumns = ['nombre_paciente', 'numero_documento'] as const;
 
 function csvValue(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return '';
@@ -82,34 +94,49 @@ export class OperationalExportsService {
   }): Promise<{ filename: string; content: Buffer; rowCount: number; columns: string[] }> {
     const operationType: BulkUpdateOperationType = input.query.operationType;
     const contract = bulkUpdateOperationContracts[operationType];
-    const readSensitive = input.scope.readSensitive;
     if (
       input.scope.organizationCode !== contract.actorOrganizationCode &&
-      input.scope.organizationCode !== 'MTD'
+      !input.scope.isFoundationAdmin
     ) {
       throw new ForbiddenExportError(contract.actorOrganizationCode);
     }
+    // La base de OLP solo expone registros con punto de aplicación asignado;
+    // los pendientes de asignación se omiten.
+    const onlyAssignedLocation = operationType === 'REPORT_DISPENSATION_DATE';
     const result = await this.database.pool.query<ExportRow>(
       `select i.id, i.authorization_key, i.numero_autorizacion, i.codigo_medicamento,
               i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
                i.lugar_dispensacion, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
                i.audit_status, i.operational_version, i.version, i.created_at, i.updated_at,
-              ${readSensitive ? "i.source_data->>'NOMBRE_PACIENTE'" : 'null::text'} as nombre_paciente,
-              ${readSensitive ? "i.source_data->>'NUM_DOCUMENTO'" : 'null::text'} as numero_documento
+               ${sourceBaseSelectSql('i')}
        from authorization_items i
        where i.operation_status in ('READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED')
+         ${onlyAssignedLocation ? 'and i.lugar_dispensacion is not null' : ''}
          and ($1::boolean = true or exists (
            select 1 from authorization_item_organizations aio
            where aio.authorization_item_id = i.id and aio.organization_id = $2))
        order by i.created_at asc, i.id asc`,
-      [input.scope.organizationCode === 'MTD', input.scope.organizationId],
+       [input.scope.isFoundationAdmin, input.scope.organizationId],
     );
-    const columns = [...baseColumns, ...(readSensitive ? sensitiveColumns : [])];
+    const columns = [...exportSourceColumns, ...processColumns];
     const rows: Array<Record<string, string | number | null>> = result.rows.map((row) => ({
+      NUMERO_AUTORIZACION: row.numero_autorizacion,
+      NUM_DOCUMENTO: row.numero_documento,
+      NOMBRE_PACIENTE: row.nombre_paciente,
+      COD_COMERCIAL: row.codigo_medicamento,
+      CUMS: row.cums,
+      COD_CUPS_AUTORIZADO: row.cod_cups_autorizado,
+      CUPS_AUTORIZADO: row.cups_autorizado,
+      CANTIDAD: row.cantidad,
+      DOSIS: row.dosis,
+      FECHA_ASIGNACION: row.fecha_asignacion,
+      FECHA_FINAL_VIGENCIA: row.fecha_final_vigencia,
+      ESTADO_AUTORIZACION: row.estado_autorizacion,
+      OBS_AUTORIZACION: row.obs_autorizacion,
+      'VALOR CUOTA MODERADORA': row.valor_cuota_moderadora,
+      'No.PRESCRIPCION': row.no_prescripcion,
       id: row.id,
       authorization_key: row.authorization_key,
-      numero_autorizacion: row.numero_autorizacion,
-      codigo_medicamento: row.codigo_medicamento,
       enablement_status: row.enablement_status,
       coverage_type: row.coverage_type,
       direction_status: row.direction_status,
@@ -123,8 +150,6 @@ export class OperationalExportsService {
       version: row.version,
       created_at: row.created_at.toISOString(),
       updated_at: row.updated_at.toISOString(),
-      nombre_paciente: row.nombre_paciente,
-      numero_documento: row.numero_documento,
     }));
     const filename = `authorization-items-${operationType.toLowerCase()}`;
     if (input.query.format === 'xlsx') {

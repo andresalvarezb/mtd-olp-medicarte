@@ -297,6 +297,7 @@ export const authorizationItemListQuerySchema = z.object({
   enablementStatus: enablementStatusSchema.optional(),
   directionStatus: directionStatusSchema.optional(),
   operationStatus: operationStatusSchema.optional(),
+  applicationSiteStatus: applicationSiteStatusSchema.optional(),
   auditStatus: auditStatusSchema.optional(),
   authorizationKey: z.string().trim().min(1).max(300).optional(),
   cursor: z.string().min(1).max(500).optional(),
@@ -444,19 +445,21 @@ export const bulkUpdateOperationTypeSchema = z.enum([
 ]);
 export type BulkUpdateOperationType = z.infer<typeof bulkUpdateOperationTypeSchema>;
 
-/** Catálogo cerrado ADR-022. Cada tipo fija actor, permiso y columna mutable. */
+/** Catálogo cerrado ADR-022. Cada tipo fija actor, permiso y columna mutable.
+ * Los tipos de lugar y fecha de dispensación usan `authorization_key` como única
+ * llave de negocio (pareja normalizada numero_autorizacion + codigo_medicamento). */
 export const bulkUpdateOperationContracts = {
   ASSIGN_DISPENSATION_LOCATION: {
     actorOrganizationCode: 'MEDICARTE',
     permission: 'bulk_updates.dispensation_location',
     mutableField: 'lugar_dispensacion',
-    requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'lugar_dispensacion'],
+    requiredColumns: ['authorization_key', 'lugar_dispensacion'],
   },
   REPORT_DISPENSATION_DATE: {
     actorOrganizationCode: 'OLP',
     permission: 'bulk_updates.dispensation_date',
     mutableField: 'fecha_dispensacion',
-    requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'fecha_dispensacion'],
+    requiredColumns: ['authorization_key', 'fecha_dispensacion'],
   },
   REPORT_APPLICATION_DATE: {
     actorOrganizationCode: 'MEDICARTE',
@@ -534,7 +537,7 @@ export const BULK_UPDATE_JOB_OPTIONS = {
   removeOnComplete: { age: 3600, count: 1000 },
   removeOnFail: false,
 };
-export const BULK_UPDATE_CONTRACT_VERSION = 1;
+export const BULK_UPDATE_CONTRACT_VERSION = 2;
 
 export const bulkUpdateJobPayloadSchema = z.object({
   eventId: z.string().uuid(),
@@ -719,6 +722,7 @@ export const operationalIndicatorsResponseSchema = z.object({
   byOperationStatus: z.record(operationStatusSchema, z.number().int().nonnegative()),
   byCoverageType: z.record(coverageTypeSchema, z.number().int().nonnegative()),
   pendingDispensationLocation: z.number().int().nonnegative(),
+  assignedDispensationLocation: z.number().int().nonnegative(),
   pendingDispensationDate: z.number().int().nonnegative(),
   pendingApplicationDate: z.number().int().nonnegative(),
   readyForReview: z.number().int().nonnegative(),

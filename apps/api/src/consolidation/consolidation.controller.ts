@@ -118,6 +118,7 @@ export class ConsolidationController {
               userId: request.auth.sub,
               correlationId: request.correlationId,
               readSensitive: false,
+              isFoundationAdmin: false,
             },
             format: query.format,
             coverageType: query.coverageType ?? null,

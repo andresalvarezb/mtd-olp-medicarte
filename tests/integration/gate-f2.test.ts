@@ -328,9 +328,11 @@ describe('Gate F2', () => {
     const olpDetail = await fetch(`${apiUrl}/api/v1/authorization-items/${itemId}`, {
       headers: { authorization: `Bearer ${olpToken}`, 'x-organization-id': olpOrganizationId },
     });
-    expect(
-      ((await olpDetail.json()) as { item: { sourceData: unknown } }).item.sourceData,
-    ).toBeNull();
+    const olpDetailResult = (await olpDetail.json()) as {
+      item: { sourceData: Record<string, unknown> | null };
+    };
+    expect(olpDetailResult.item.sourceData).not.toBeNull();
+    expect(olpDetailResult.item.sourceData?.NUMERO_AUTORIZACION).toBe(authorization);
 
     for (const path of [
       `/api/v1/imports/${batch.id}`,
@@ -1084,9 +1086,13 @@ describe('Gate F2', () => {
           await Promise.all([itemLock.end(), permissionRevocation.end()]);
           await database.query(
             `insert into role_permissions (role_id, permission_id)
-             values ($1, $2)
+             values ($1, $2), ($1, $3)
              on conflict do nothing`,
-            [olpOperatorRoleId, importsConfirmPermissionId],
+            [
+              olpOperatorRoleId,
+              importsConfirmPermissionId,
+              authorizationsReadSensitivePermissionId,
+            ],
           );
         }
 

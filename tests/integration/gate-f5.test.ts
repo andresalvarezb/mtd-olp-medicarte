@@ -76,6 +76,13 @@ function dateCsv(
 ): string {
   const field =
     operationType === 'REPORT_DISPENSATION_DATE' ? 'fecha_dispensacion' : 'fecha_aplicacion';
+  if (operationType === 'REPORT_DISPENSATION_DATE') {
+    return [
+      `authorization_key,${field}${extraColumn ? ',campo_extra' : ''}`,
+      `${item.authorization}:${item.medication},${value}${extraColumn ? ',no-permitido' : ''}`,
+      '',
+    ].join('\n');
+  }
   return [
     `numero_autorizacion,codigo_medicamento,${field}${extraColumn ? ',campo_extra' : ''}`,
     `${item.authorization},${item.medication},${value}${extraColumn ? ',no-permitido' : ''}`,
@@ -337,6 +344,11 @@ describe('Gate F5', () => {
 
   it('deduplica creación concurrente y exporta a OLP el lugar permitido', async () => {
     const item = await seedReadyItem('REPLAY');
+    const pending = await seedReadyItem('NO-LOCATION');
+    await database.query(
+      `update authorization_items set lugar_dispensacion = null where id = $1`,
+      [pending.id],
+    );
     const content = dateCsv('REPORT_DISPENSATION_DATE', item, '2026-08-29');
     const responses = await Promise.all([
       createBulk({
@@ -371,7 +383,11 @@ describe('Gate F5', () => {
     expect(csv).toContain('fecha_dispensacion');
     expect(csv).toContain('fecha_aplicacion');
     expect(csv).toContain(item.authorization);
-    expect(csv).not.toContain('nombre_paciente');
+    expect(csv).not.toContain(pending.authorization);
+    expect(csv).toContain('NOMBRE_PACIENTE');
+    expect(csv).toContain('NUM_DOCUMENTO');
+    expect(csv).toContain('CUPS_AUTORIZADO');
+    expect(csv).toContain('No.PRESCRIPCION');
 
     const mtdExport = await fetch(
       `${apiUrl}/api/v1/operational-exports/authorization-items?operationType=REPORT_DISPENSATION_DATE&format=csv`,

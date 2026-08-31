@@ -8,13 +8,13 @@ Permitir descargas completas según alcance y tres actualizaciones masivas segur
 
 ## Tipos y contratos de columnas
 
-| Tipo                           | Actor     | Encabezados exactos                                         |
-| ------------------------------ | --------- | ----------------------------------------------------------- |
-| `ASSIGN_DISPENSATION_LOCATION` | MEDICARTE | `numero_autorizacion,codigo_medicamento,lugar_dispensacion` |
-| `REPORT_DISPENSATION_DATE`     | OLP       | `numero_autorizacion,codigo_medicamento,fecha_dispensacion` |
-| `REPORT_APPLICATION_DATE`      | MEDICARTE | `numero_autorizacion,codigo_medicamento,fecha_aplicacion`   |
+| Tipo                           | Actor     | Encabezados exactos                                       |
+| ------------------------------ | --------- | ---------------------------------------------------------- |
+| `ASSIGN_DISPENSATION_LOCATION` | MEDICARTE | `authorization_key,lugar_dispensacion`                     |
+| `REPORT_DISPENSATION_DATE`     | OLP       | `authorization_key,fecha_dispensacion`                     |
+| `REPORT_APPLICATION_DATE`      | MEDICARTE | `numero_autorizacion,codigo_medicamento,fecha_aplicacion`  |
 
-No se aceptan columnas adicionales, alias ni campos arbitrarios. `lugar_dispensacion` es texto libre: el sistema solo exige valor no vacío y normalización de espacios; no valida estructura de dirección. Las fechas usan el formato canónico `YYYY-MM-DD`; no se inventan restricciones temporales adicionales mientras no exista una decisión de negocio.
+No se aceptan columnas adicionales, alias ni campos arbitrarios. Para lugar y fecha de dispensación la única llave de negocio es `authorization_key`: la pareja normalizada `numero_autorizacion + codigo_medicamento` (separador `:`, con escape de `\` y `:`) que entrega la descarga operativa. `lugar_dispensacion` es texto libre: el sistema solo exige valor no vacío y normalización de espacios; no valida estructura de dirección. Las fechas usan el formato canónico `YYYY-MM-DD`; no se inventan restricciones temporales adicionales mientras no exista una decisión de negocio. El cambio de esquema de los dos primeros tipos versiona el contrato (`BULK_UPDATE_CONTRACT_VERSION = 2`).
 
 ## Pipeline
 
@@ -61,7 +61,7 @@ Estas precondiciones ordenan el flujo solicitado; no validan automáticamente so
 ## Descargas
 
 - MEDICARTE descarga la base completa de registros listos o posteriores dentro de su alcance, para asignar `lugar_dispensacion` y reportar `fecha_aplicacion`.
-- OLP descarga la base completa de registros sobre los que debe operar, incluyendo `lugar_dispensacion`.
+- OLP descarga únicamente los registros con `lugar_dispensacion` ya asignado por MEDICARTE, incluyendo el valor vigente y la `authorization_key` para el reporte de `fecha_dispensacion`; los registros pendientes de asignación se omiten.
 - “Completa” significa todos los campos disponibles que el permiso de lectura y la política de datos sensibles permitan; nunca omite silenciosamente la seguridad por columna.
 - CSV/XLSX se genera on-demand, no se conserva copia y se auditan actor, organización, filtros, formato, columnas efectivas, cantidad y resultado.
 
@@ -75,7 +75,7 @@ Estas precondiciones ordenan el flujo solicitado; no validan automáticamente so
 
 `POST` responde `202` con `batchId`, estado y URL de consulta. Consultas y reportes vuelven a validar organización, permiso y alcance. El reporte de resultados no habilita modificar el lote.
 
-`operationType` es obligatorio en la descarga para aplicar el alcance de etapa y actor. No reduce las columnas consultables: la descarga conserva la vista completa permitida, mientras la plantilla de carga sigue limitada a tres columnas.
+`operationType` es obligatorio en la descarga para aplicar el alcance de etapa y actor. No reduce las columnas consultables: la descarga conserva la vista completa permitida, mientras la plantilla de carga de dispensación queda limitada a `authorization_key` + columna mutable (la de `REPORT_APPLICATION_DATE` conserva tres columnas).
 
 ## Aceptación
 

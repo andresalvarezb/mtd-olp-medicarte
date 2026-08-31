@@ -11,6 +11,7 @@ import {
 } from '@authorization/contracts';
 import {
   buildAuthorizationKey,
+  parseAuthorizationKeyInput,
   evaluateOperationalFieldTransition,
   normalizeOperationalText,
   isValidOperationalText,
@@ -268,15 +269,20 @@ export class BulkUpdateProcessor {
       return code;
     };
 
-    const rawAuthorization = input.row.rawData['numero_autorizacion'];
-    const rawMedication = input.row.rawData['codigo_medicamento'];
-    if (
-      !hasValue(input.row.rawData, 'numero_autorizacion') ||
-      !hasValue(input.row.rawData, 'codigo_medicamento')
+    // Los tipos de dispensación traen la llave ya formada (authorization_key);
+    // el resto conserva la pareja numero_autorizacion + codigo_medicamento.
+    let keyComponents: ReturnType<typeof buildAuthorizationKey> | null = null;
+    if (hasValue(input.row.rawData, 'authorization_key')) {
+      keyComponents = parseAuthorizationKeyInput(input.row.rawData['authorization_key']);
+    } else if (
+      hasValue(input.row.rawData, 'numero_autorizacion') &&
+      hasValue(input.row.rawData, 'codigo_medicamento')
     ) {
-      return await reject('MISSING_BUSINESS_KEY', null, { fieldName: null, newValue: null });
+      keyComponents = buildAuthorizationKey(
+        input.row.rawData['numero_autorizacion'],
+        input.row.rawData['codigo_medicamento'],
+      );
     }
-    const keyComponents = buildAuthorizationKey(rawAuthorization, rawMedication);
     if (!keyComponents) {
       return await reject('MISSING_BUSINESS_KEY', null, { fieldName: null, newValue: null });
     }
@@ -312,7 +318,8 @@ export class BulkUpdateProcessor {
        inner join role_permissions rp on rp.role_id = r.id
        inner join permissions p on p.id = rp.permission_id
        where u.id = $1 and u.active = true and uor.active = true and o.active = true
-         and o.code = $3 and p.code = $4`,
+         and (o.code = $3 or (o.code = 'MTD' and r.code = 'MTD_ADMIN'))
+         and p.code = $4`,
       [input.actorId, input.organizationId, input.actorOrganizationCode, input.requiredPermission],
     );
     if (permission.rowCount === 0) {

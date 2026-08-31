@@ -270,10 +270,8 @@ function locationCsv(
   rows: Array<{ authorizationKey: string; location: string }>,
 ): string {
   return [
-    'numero_autorizacion,codigo_medicamento,lugar_dispensacion',
-    ...rows.map((row) =>
-      csvRow([row.authorizationKey.split(':')[0], row.authorizationKey.split(':')[1], row.location]),
-    ),
+    'authorization_key,lugar_dispensacion',
+    ...rows.map((row) => csvRow([row.authorizationKey, row.location])),
     '',
   ].join('\n');
 }
@@ -384,7 +382,6 @@ describe('Gate F4', () => {
     );
     const authorizationKey = itemKey.rows[0]?.authorization_key;
     if (!authorizationKey) throw new Error('Expected authorization key');
-    const [numero, codigo] = authorizationKey.split(':');
 
     // Actor incorrecto: OLP no puede ejecutar la operación de MEDICARTE.
     const forbidden = await createBulkBatch(olpToken, olpOrganizationId, '');
@@ -394,7 +391,7 @@ describe('Gate F4', () => {
     const extraColumns = await createBulkBatch(
       medicarteToken,
       medicarteOrganizationId,
-      `numero_autorizacion,codigo_medicamento,lugar_dispensacion,extra\n${numero},${codigo},Calle 1,X\n`,
+      `authorization_key,lugar_dispensacion,extra\n${authorizationKey},Calle 1,X\n`,
     );
     expect(extraColumns.status).toBe(202);
     const extraBatchId = ((await extraColumns.json()) as { id: string }).id;
@@ -564,16 +561,15 @@ describe('Gate F4', () => {
     );
     const readyKey = keyRows.rows[0]?.authorization_key;
     if (!readyKey) throw new Error('Expected authorization key');
-    const [numero, codigo] = readyKey.split(':');
     const batch = await createBulkBatch(
       medicarteToken,
       medicarteOrganizationId,
       [
-        'numero_autorizacion,codigo_medicamento,lugar_dispensacion',
-        csvRow([numero, codigo, '   ']),
-        csvRow([numero, codigo, 'Calle valida 1']),
-        csvRow(['FUERA', 'LEJA', 'Calle fuera de alcance']),
-        csvRow([numero, '', 'Sin llave']),
+        'authorization_key,lugar_dispensacion',
+        csvRow([readyKey, '   ']),
+        csvRow([readyKey, 'Calle valida 1']),
+        csvRow(['FUERA:LEJA', 'Calle fuera de alcance']),
+        csvRow(['', 'Sin llave']),
         '',
       ].join('\n'),
     );
@@ -761,7 +757,7 @@ describe('Gate F4', () => {
     expect(csv).toContain('lugar_dispensacion');
     expect(csv).toContain('application_site_status');
     expect(csv).toContain(numero);
-    expect(csv).not.toContain('NOMBRE_PACIENTE');
+    expect(csv).toContain('NOMBRE_PACIENTE');
 
     // OLP no puede descargar la base de la etapa de MEDICARTE en esta fase.
     const forbiddenExport = await fetch(
