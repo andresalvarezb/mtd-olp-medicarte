@@ -12,14 +12,11 @@
     "lint": "eslint apps packages tests --max-warnings=0",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
-    "test:integration": "sh scripts/run-integration-tests.sh",
-    "test:integration:run": "vitest run --config tests/vitest.integration.config.ts",
+    "test:integration": "vitest run --config tests/vitest.integration.config.ts",
     "format:check": "prettier --check .",
     "db:generate": "pnpm --filter @authorization/database db:generate",
     "db:migrate": "pnpm --filter @authorization/database db:migrate",
-    "db:reset": "pnpm --filter @authorization/database db:reset --yes",
-    "db:cleanup:test-data": "node --env-file-if-exists=.env scripts/cleanup-test-data.mjs --yes",
-    "db:cleanup:test-data:dry": "node --env-file-if-exists=.env scripts/cleanup-test-data.mjs --dry-run"
+    "db:reset": "pnpm --filter @authorization/database db:reset --yes"
   },
   "devDependencies": {
     "@eslint/js": "9.34.0",

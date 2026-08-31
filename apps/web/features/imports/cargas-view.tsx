@@ -16,19 +16,14 @@ import { Timeline, Note } from '@/components/ui/timeline';
 import { useRole } from '@/components/layout/role-context';
 import { ApiError } from '@/lib/api-client';
 import { resultLabel, formatNumber } from '@/lib/labels';
-import { importReversalBlockReasonMessages } from '@authorization/contracts';
 import { IMPORT_MAX_FILE_BYTES } from '@/lib/config';
 import {
   confirmImport,
   createImport,
   getImportBatch,
   getImportRows,
-  getReversalPreview,
-  revertImport,
   type ImportBatch,
   type ImportBatchStatus,
-  type ImportReversalPreview,
-  type ImportRevertResult,
   type ImportRow,
 } from '@/lib/imports-api';
 
@@ -51,30 +46,26 @@ const ROW_COLUMNS = [
 ];
 
 const STATUS_LABELS: Record<ImportBatchStatus, string> = {
-  CARGADO: 'Recibido',
-  VALIDANDO: 'Validando',
-  LISTO_PARA_CONFIRMAR: 'Lista para confirmar',
-  CONFIRMANDO: 'Confirmando',
-  COMPLETADO: 'Completada',
-  FALLIDO: 'Fallida',
-  CANCELADO: 'Cancelada',
-  REVIRTIENDO: 'Revirtiendo',
-  REVERTIDO: 'Revertida',
+  UPLOADED: 'Recibido',
+  VALIDATING: 'Validando',
+  READY_TO_CONFIRM: 'Lista para confirmar',
+  CONFIRMING: 'Confirmando',
+  COMPLETED: 'Completada',
+  FAILED: 'Fallida',
+  CANCELLED: 'Cancelada',
 };
 
 const STATUS_PILL: Record<ImportBatchStatus, string> = {
-  CARGADO: 'pill gray',
-  VALIDANDO: 'pill blue',
-  LISTO_PARA_CONFIRMAR: 'pill orange',
-  CONFIRMANDO: 'pill purple',
-  COMPLETADO: 'pill green',
-  FALLIDO: 'pill red',
-  CANCELADO: 'pill gray',
-  REVIRTIENDO: 'pill purple',
-  REVERTIDO: 'pill red',
+  UPLOADED: 'pill gray',
+  VALIDATING: 'pill blue',
+  READY_TO_CONFIRM: 'pill orange',
+  CONFIRMING: 'pill purple',
+  COMPLETED: 'pill green',
+  FAILED: 'pill red',
+  CANCELLED: 'pill gray',
 };
 
-const ACTIVE_STATUSES: ImportBatchStatus[] = ['CARGADO', 'VALIDANDO', 'CONFIRMANDO', 'REVIRTIENDO'];
+const ACTIVE_STATUSES: ImportBatchStatus[] = ['UPLOADED', 'VALIDATING', 'CONFIRMING'];
 const POLL_INTERVAL_MS = 1500;
 
 function formatBytes(bytes: number): string {
@@ -98,8 +89,6 @@ function downloadTemplate(): void {
     'ESTADO_AUTORIZACION',
     'No.PRESCRIPCION',
     'NOMBRE_PACIENTE',
-    'CPRG',
-    'CDGN001',
     'NUM_DOCUMENTO',
   ];
   const content = `${headers.join(',')}\n`;
@@ -113,8 +102,7 @@ function downloadTemplate(): void {
 }
 
 export function CargasView() {
-  const { organizationId, hasPermission } = useRole();
-  const canRevert = hasPermission('imports.revert');
+  const { organizationId } = useRole();
 
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [rowsByBatch, setRowsByBatch] = useState<Record<string, ImportRow[]>>({});
@@ -124,10 +112,6 @@ export function CargasView() {
   const [uploading, setUploading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [reversalPreview, setReversalPreview] = useState<ImportReversalPreview | null>(null);
-  const [reversalLoading, setReversalLoading] = useState(false);
-  const [reverting, setReverting] = useState(false);
-  const [revertResult, setRevertResult] = useState<ImportRevertResult | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const idempotencyKeys = useRef(new Map<string, string>());
@@ -163,7 +147,7 @@ export function CargasView() {
       try {
         const fresh = await getImportBatch(activeBatch.id, organizationId);
         updateBatch(fresh);
-        if (fresh.status === 'LISTO_PARA_CONFIRMAR' || fresh.status === 'COMPLETADO')
+        if (fresh.status === 'READY_TO_CONFIRM' || fresh.status === 'COMPLETED')
           void loadRows(fresh.id);
       } catch {
         // el siguiente intento reintenta; errores transitorios no detienen el sondeo
@@ -234,7 +218,7 @@ export function CargasView() {
       const result = await confirmImport(batch.id, organizationId, idempotencyKey);
       updateBatch({
         ...batch,
-        status: 'COMPLETADO',
+        status: 'COMPLETED',
         confirmedRows: result.createdRows + result.existingRows,
         existingRows: result.existingRows,
         completedAt: result.confirmedAt,
@@ -245,46 +229,6 @@ export function CargasView() {
       else setError('No fue posible confirmar la carga.');
     } finally {
       setConfirming(false);
-    }
-  };
-
-  const openReversalPreview = async (batch: ImportBatch) => {
-    if (reversalLoading || reverting) return;
-    setReversalLoading(true);
-    setError(null);
-    setRevertResult(null);
-    try {
-      const preview = await getReversalPreview(batch.id, organizationId);
-      setReversalPreview(preview);
-    } catch (err) {
-      if (err instanceof ApiError) setError(`${err.code}: ${err.message}`);
-      else setError('No fue posible calcular el impacto de la reversión.');
-    } finally {
-      setReversalLoading(false);
-    }
-  };
-
-  const closeReversal = () => {
-    setReversalPreview(null);
-    setRevertResult(null);
-  };
-
-  const handleRevert = async () => {
-    if (!reversalPreview || reverting) return;
-    setReverting(true);
-    setError(null);
-    const idempotencyKey = crypto.randomUUID();
-    try {
-      const result = await revertImport(reversalPreview.batchId, organizationId, idempotencyKey);
-      setRevertResult(result);
-      const batch = batches.find((candidate) => candidate.id === result.batchId);
-      if (batch) updateBatch({ ...batch, status: 'REVERTIDO' });
-      void loadRows(result.batchId);
-    } catch (err) {
-      if (err instanceof ApiError) setError(`${err.code}: ${err.message}`);
-      else setError('No fue posible revertir el cargue.');
-    } finally {
-      setReverting(false);
     }
   };
 
@@ -436,7 +380,7 @@ export function CargasView() {
                     <strong>{formatNumber(activeBatch.confirmedRows)}</strong>
                   </li>
                 </ul>
-                {activeBatch.status === 'LISTO_PARA_CONFIRMAR' ? (
+                {activeBatch.status === 'READY_TO_CONFIRM' ? (
                   <button
                     type="button"
                     className="btn primary"
@@ -452,170 +396,6 @@ export function CargasView() {
                   <Note>
                     Error del lote: <strong>{resultLabel(activeBatch.lastErrorCode)}</strong>
                   </Note>
-                ) : null}
-                {canRevert && activeBatch.status === 'COMPLETADO' ? (
-                  <div style={{ marginTop: 12 }}>
-                    <button
-                      type="button"
-                      className="btn danger"
-                      disabled={reversalLoading || reverting}
-                      onClick={() => {
-                        void openReversalPreview(activeBatch);
-                      }}
-                    >
-                      {reversalLoading ? 'Calculando impacto…' : 'Eliminar registros del cargue'}
-                    </button>
-                  </div>
-                ) : null}
-                {reversalPreview && reversalPreview.batchId === activeBatch.id ? (
-                  <div
-                    className="reversal-panel"
-                    style={{
-                      marginTop: 12,
-                      border: '1px solid var(--danger, #b3261e)',
-                      borderRadius: 8,
-                      padding: 12,
-                    }}
-                    role="dialog"
-                    aria-label="Impacto de la reversión del cargue"
-                  >
-                    {revertResult ? (
-                      <>
-                        <h4>Reversión aplicada</h4>
-                        <ul className="metric-list">
-                          <li className="metric-mini">
-                            <span>Autorizaciones evaluadas</span>
-                            <strong>{formatNumber(revertResult.evaluatedItems)}</strong>
-                          </li>
-                          <li className="metric-mini">
-                            <span>Eliminadas</span>
-                            <strong>{formatNumber(revertResult.removedItems)}</strong>
-                          </li>
-                          <li className="metric-mini">
-                            <span>Bloqueadas con causal</span>
-                            <strong>{formatNumber(revertResult.blockedItems)}</strong>
-                          </li>
-                        </ul>
-                        {revertResult.blockedItems > 0 ? (
-                          <p>
-                            {formatNumber(revertResult.blockedItems)} autorizaciones no se
-                            eliminaron: tienen actividad posterior y conservan sus causales en el
-                            reporte del cargue.
-                          </p>
-                        ) : null}
-                        <p>
-                          El cargue queda como evidencia histórica con estado{' '}
-                          <strong>Revertida</strong>.
-                        </p>
-                        <button type="button" className="btn" onClick={closeReversal}>
-                          Cerrar
-                        </button>
-                      </>
-                    ) : reversalPreview.alreadyReverted ? (
-                      <>
-                        <h4>Este cargue ya fue revertido</h4>
-                        <p>
-                          Eliminadas: {formatNumber(reversalPreview.revertedRemovedItems)} ·
-                          Bloqueadas: {formatNumber(reversalPreview.revertedBlockedItems)}
-                        </p>
-                        <button type="button" className="btn" onClick={closeReversal}>
-                          Cerrar
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <h4>Impacto de la reversión</h4>
-                        <p>
-                          Esta acción afecta únicamente las autorizaciones generadas por el cargue{' '}
-                          <strong title={reversalPreview.batchId}>
-                            {shortId(reversalPreview.batchId)}
-                          </strong>{' '}
-                          — <strong>{reversalPreview.originalFilename}</strong>.
-                        </p>
-                        <ul className="metric-list">
-                          <li className="metric-mini">
-                            <span>Fecha del cargue</span>
-                            <strong>{formatDate(reversalPreview.createdAt)}</strong>
-                          </li>
-                          <li className="metric-mini">
-                            <span>Usuario que realizó el cargue</span>
-                            <strong>
-                              {reversalPreview.createdByName ?? reversalPreview.createdByEmail}
-                            </strong>
-                          </li>
-                          <li className="metric-mini">
-                            <span>Filas procesadas</span>
-                            <strong>{formatNumber(reversalPreview.totalRows)}</strong>
-                          </li>
-                          <li className="metric-mini">
-                            <span>Autorizaciones creadas</span>
-                            <strong>{formatNumber(reversalPreview.confirmedRows)}</strong>
-                          </li>
-                          <li className="metric-mini">
-                            <span>Filas rechazadas/duplicadas</span>
-                            <strong>
-                              {formatNumber(
-                                reversalPreview.rejectedRows + reversalPreview.duplicateRows,
-                              )}
-                            </strong>
-                          </li>
-                          <li className="metric-mini">
-                            <span>Pueden eliminarse</span>
-                            <strong>{formatNumber(reversalPreview.itemsEligibleForRemoval)}</strong>
-                          </li>
-                          <li className="metric-mini">
-                            <span>No pueden eliminarse</span>
-                            <strong>{formatNumber(reversalPreview.itemsBlocked)}</strong>
-                          </li>
-                        </ul>
-                        {reversalPreview.itemsBlocked > 0 ? (
-                          <>
-                            <p>
-                              <strong>
-                                {formatNumber(reversalPreview.itemsBlocked)} autorizaciones no
-                                pueden eliminarse por actividad posterior:
-                              </strong>
-                            </p>
-                            <ul>
-                              {reversalPreview.blockedReasonCounts.map((entry) => (
-                                <li key={entry.reason}>
-                                  {importReversalBlockReasonMessages[entry.reason] ?? entry.reason}:{' '}
-                                  {formatNumber(entry.count)}
-                                </li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : null}
-                        <p>
-                          Las autorizaciones eliminadas no se pueden recuperar. Los correos ya
-                          enviados y la auditoría se conservan. El cargue permanece como evidencia
-                          histórica.
-                        </p>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <button
-                            type="button"
-                            className="btn danger"
-                            disabled={reverting}
-                            onClick={() => {
-                              void handleRevert();
-                            }}
-                          >
-                            {reverting
-                              ? 'Revirtiendo…'
-                              : `Confirmar reversión (${formatNumber(reversalPreview.itemsEligibleForRemoval)} autorizaciones)`}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn"
-                            disabled={reverting}
-                            onClick={closeReversal}
-                          >
-                            Cancelar
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
                 ) : null}
                 {selectedRows && selectedRows.length > 0 ? (
                   <div style={{ marginTop: 12 }}>
@@ -645,7 +425,7 @@ export function CargasView() {
             <div style={{ marginTop: 14 }}>
               <Note>
                 Las llaves ya existentes se reportan para revisión humana. Solo pueden actualizarse
-                 si están en <strong>LISTO_PARA_DISPENSAR</strong> y no han avanzado a dispensación
+                si están en <strong>READY_TO_DISPENSE</strong> y no han avanzado a dispensación
                 reportada.
               </Note>
             </div>

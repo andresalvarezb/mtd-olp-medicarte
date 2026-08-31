@@ -40,7 +40,6 @@ import { scopeFromProfile } from '../common/request-scope';
 import { AccessService } from '../identity/access.service';
 import type { AuthenticatedRequest } from '../types';
 import { ImportsService } from './imports.service';
-import { ImportsReversalService } from './imports-reversal.service';
 
 type UploadedImportFile = Readonly<{
   originalname: string;
@@ -67,15 +66,13 @@ const errorSchema = {
 };
 
 const batchStatusEnum = [
-  'CARGADO',
-  'VALIDANDO',
-  'LISTO_PARA_CONFIRMAR',
-  'CONFIRMANDO',
-  'COMPLETADO',
-  'FALLIDO',
-  'CANCELADO',
-  'REVIRTIENDO',
-  'REVERTIDO',
+  'UPLOADED',
+  'VALIDATING',
+  'READY_TO_CONFIRM',
+  'CONFIRMING',
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
 ];
 
 const importBatchResponseSchema = {
@@ -157,117 +154,10 @@ const confirmResponseSchema = {
   required: ['batchId', 'status', 'createdRows', 'existingRows', 'confirmedAt'],
   properties: {
     batchId: { type: 'string', format: 'uuid' },
-    status: { type: 'string', enum: ['COMPLETADO'] },
+    status: { type: 'string', enum: ['COMPLETED'] },
     createdRows: { type: 'integer' },
     existingRows: { type: 'integer' },
     confirmedAt: { type: 'string', format: 'date-time' },
-  },
-};
-
-const reversalBlockedItemSchema = {
-  type: 'object',
-  required: ['itemId', 'authorizationKey', 'reasons'],
-  properties: {
-    itemId: { type: 'string', format: 'uuid' },
-    authorizationKey: { type: 'string' },
-    reasons: {
-      type: 'array',
-      items: {
-        type: 'string',
-        enum: [
-          'ITEM_HAS_AUDIT_ACTIVITY',
-          'ITEM_HAS_MIPRES_ACTIVITY',
-          'ITEM_HAS_OPERATIONAL_UPDATES',
-          'ITEM_HAS_NOTIFICATIONS',
-          'ITEM_HAS_UPDATED_SOURCE_EVIDENCE',
-          'ITEM_REFERENCED_BY_LATER_IMPORT',
-        ],
-      },
-    },
-  },
-};
-
-const reversalSummarySchema = {
-  itemsCreatedByBatch: { type: 'integer' },
-  itemsEligibleForRemoval: { type: 'integer' },
-  itemsBlocked: { type: 'integer' },
-  blockedReasonCounts: {
-    type: 'array',
-    items: {
-      type: 'object',
-      required: ['reason', 'count'],
-      properties: { reason: { type: 'string' }, count: { type: 'integer' } },
-    },
-  },
-  blockedItems: { type: 'array', items: reversalBlockedItemSchema },
-  blockedItemsTruncated: { type: 'boolean' },
-};
-
-const reversalPreviewResponseSchema = {
-  type: 'object',
-  required: [
-    'batchId',
-    'batchStatus',
-    'originalFilename',
-    'createdAt',
-    'createdBy',
-    'createdByEmail',
-    'createdByName',
-    'totalRows',
-    'confirmedRows',
-    'rejectedRows',
-    'duplicateRows',
-    'existingRows',
-    'alreadyReverted',
-    'revertedAt',
-    'revertedRemovedItems',
-    'revertedBlockedItems',
-    ...Object.keys(reversalSummarySchema),
-  ],
-  properties: {
-    batchId: { type: 'string', format: 'uuid' },
-    batchStatus: { type: 'string', enum: batchStatusEnum },
-    originalFilename: { type: 'string' },
-    createdAt: { type: 'string', format: 'date-time' },
-    createdBy: { type: 'string', format: 'uuid' },
-    createdByEmail: { type: 'string' },
-    createdByName: { type: 'string', nullable: true },
-    totalRows: { type: 'integer' },
-    confirmedRows: { type: 'integer' },
-    rejectedRows: { type: 'integer' },
-    duplicateRows: { type: 'integer' },
-    existingRows: { type: 'integer' },
-    alreadyReverted: { type: 'boolean' },
-    revertedAt: { type: 'string', format: 'date-time', nullable: true },
-    revertedRemovedItems: { type: 'integer' },
-    revertedBlockedItems: { type: 'integer' },
-    ...reversalSummarySchema,
-  },
-};
-
-const revertResponseSchema = {
-  type: 'object',
-  required: [
-    'batchId',
-    'status',
-    'alreadyReverted',
-    'evaluatedItems',
-    'removedItems',
-    'blockedItems',
-    'blockedItemsDetail',
-    'blockedItemsTruncated',
-    'revertedAt',
-  ],
-  properties: {
-    batchId: { type: 'string', format: 'uuid' },
-    status: { type: 'string', enum: ['REVERTIDO'] },
-    alreadyReverted: { type: 'boolean' },
-    evaluatedItems: { type: 'integer' },
-    removedItems: { type: 'integer' },
-    blockedItems: { type: 'integer' },
-    blockedItemsDetail: { type: 'array', items: reversalBlockedItemSchema },
-    blockedItemsTruncated: { type: 'boolean' },
-    revertedAt: { type: 'string', format: 'date-time' },
   },
 };
 
@@ -280,7 +170,6 @@ const revertResponseSchema = {
 export class ImportsController {
   constructor(
     private readonly imports: ImportsService,
-    private readonly reversal: ImportsReversalService,
     private readonly access: AccessService,
   ) {}
 
@@ -421,73 +310,6 @@ export class ImportsController {
       'imports.confirm',
     );
     return this.imports.confirm({
-      batchId: id,
-      idempotencyKey,
-      scope: scopeFromProfile(profile, organization, request),
-    });
-  }
-
-  @Get(':id/reversal-preview')
-  @SkipThrottle()
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiOkResponse({
-    description:
-      'Impact preview of reverting the batch: items created by it, removable and blocked with stable reasons',
-    schema: reversalPreviewResponseSchema,
-  })
-  @ApiBadRequestResponse({ schema: errorSchema })
-  @ApiForbiddenResponse({ schema: errorSchema })
-  @ApiNotFoundResponse({ schema: errorSchema })
-  @ApiConflictResponse({ schema: errorSchema })
-  async reversalPreview(
-    @Param('id') rawId: string,
-    @Headers('x-organization-id') organizationId: string | undefined,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    const id = uuidSchema.parse(rawId);
-    const organization = uuidSchema.parse(organizationId);
-    const profile = await this.access.requirePermission(
-      request.auth.sub,
-      organization,
-      'imports.revert',
-    );
-    return this.reversal.preview(id, scopeFromProfile(profile, organization, request));
-  }
-
-  @Post(':id/revert')
-  @HttpCode(200)
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiHeader({ name: 'Idempotency-Key', required: true })
-  @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiBody({ schema: { type: 'object', additionalProperties: false } })
-  @ApiOkResponse({
-    description:
-       'Transactional reversal of the batch: removes only the items it created, keeps blocked items with reasons, batch becomes REVERTIDO',
-    schema: revertResponseSchema,
-  })
-  @ApiBadRequestResponse({ schema: errorSchema })
-  @ApiForbiddenResponse({ schema: errorSchema })
-  @ApiConflictResponse({ schema: errorSchema })
-  @ApiNotFoundResponse({ schema: errorSchema })
-  @ApiServiceUnavailableResponse({ schema: errorSchema })
-  async revert(
-    @Param('id') rawId: string,
-    @Body() rawBody: unknown,
-    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
-    @Headers('x-organization-id') organizationId: string | undefined,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    emptyBodySchema.parse(rawBody);
-    const id = uuidSchema.parse(rawId);
-    const idempotencyKey = idempotencyKeySchema.parse(rawIdempotencyKey);
-    const organization = uuidSchema.parse(organizationId);
-    const profile = await this.access.requirePermission(
-      request.auth.sub,
-      organization,
-      'imports.revert',
-    );
-    return this.reversal.revert({
       batchId: id,
       idempotencyKey,
       scope: scopeFromProfile(profile, organization, request),

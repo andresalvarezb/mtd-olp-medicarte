@@ -10,7 +10,7 @@ Cuando una autorización queda lista para dispensar, Medicarte define mediante c
 
 Introducir una etapa logística explícita y persistida.
 
-1. `LISTO_PARA_DISPENSAR` genera notificación a OLP y Medicarte.
+1. `READY_TO_DISPENSE` genera notificación a OLP y Medicarte.
 2. Medicarte descarga la base completa permitida y carga únicamente llave + `lugar_dispensacion`.
 3. El valor vigente se guarda en `authorization_items` y cada cambio queda en historial append-only.
 4. El evento `DISPENSATION_LOCATION_ASSIGNED` o `DISPENSATION_LOCATION_CHANGED` se registra mediante outbox en la misma transacción.
@@ -23,8 +23,8 @@ Estado derivado de lectura:
 
 ```text
 application_site_status = lugar_dispensacion IS NULL
-     ? PENDIENTE_ASIGNACION
-     : ASIGNADO
+    ? PENDING_ASSIGNMENT
+    : ASSIGNED
 ```
 
 `application_site_status` no se persiste porque no aporta información independiente. La dirección no forma parte de `operation_status` porque representa logística.

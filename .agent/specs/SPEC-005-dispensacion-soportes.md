@@ -13,7 +13,7 @@
 ## Datos
 
 - `lugar_dispensacion`: valor vigente definido por MEDICARTE, modificable con historial y notificación a OLP.
-- `fecha_dispensacion`: fecha reportada por OLP; su primera carga produce `DISPENSACION_REPORTADA`.
+- `fecha_dispensacion`: fecha reportada por OLP; su primera carga produce `DISPENSATION_REPORTED`.
 - `fecha_aplicacion`: fecha efectiva de aplicación reportada por MEDICARTE.
 
 Los tres valores vigentes viven en `authorization_items`; `operational_field_changes` conserva cada cambio. Aplican control de versión, idempotencia, permisos backend y auditoría antes/después.

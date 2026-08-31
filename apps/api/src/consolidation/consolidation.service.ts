@@ -43,19 +43,21 @@ type ExportRow = {
   fecha_aplicacion: string | null;
   audit_status: string;
   admission_status: string;
-  tariff_membership_status: string;
   version: number;
   created_at: Date;
   updated_at: Date;
   nombre_paciente: string | null;
   numero_documento: string | null;
-  cdgn001: string | null;
+  cums: string | null;
+  cod_cups_autorizado: string | null;
   cups_autorizado: string | null;
   cantidad: string | null;
   dosis: string | null;
   fecha_asignacion: string | null;
   fecha_final_vigencia: string | null;
   estado_autorizacion: string | null;
+  obs_autorizacion: string | null;
+  valor_cuota_moderadora: string | null;
   no_prescripcion: string | null;
 };
 
@@ -78,7 +80,6 @@ const processColumns = [
   'coverage_type',
   'direction_status',
   'operation_status',
-  'tariff_membership_status',
   'lugar_dispensacion',
   'fecha_dispensacion',
   'fecha_aplicacion',
@@ -92,7 +93,7 @@ const processColumns = [
 
 /**
  * SPEC-006/ADR-018: el consolidado definitivo solo incluye registros
-  * audit_status = APROBADO; el archivo se genera on-demand y no se persiste.
+ * audit_status = APPROVED; el archivo se genera on-demand y no se persiste.
  */
 @Injectable()
 export class ConsolidationService {
@@ -112,12 +113,12 @@ export class ConsolidationService {
          i.audit_status,
          i.operation_status,
          i.coverage_type,
-          (i.lugar_dispensacion is null and i.operation_status in ('LISTO_PARA_DISPENSAR','DISPENSACION_REPORTADA','DISPENSADO')) as pending_location,
-          (i.lugar_dispensacion is not null and i.lugar_dispensacion <> '' and i.operation_status = 'LISTO_PARA_DISPENSAR') as assigned_location,
-          (i.fecha_dispensacion is null and i.operation_status = 'LISTO_PARA_DISPENSAR') as pending_dispensation_date,
-          (i.fecha_aplicacion is null and i.fecha_dispensacion is not null and i.operation_status = 'DISPENSACION_REPORTADA') as pending_application_date,
-          (i.audit_status = 'LISTO') as ready_for_review,
-          (i.audit_status = 'APROBADO') as approved_for_admission
+         (i.lugar_dispensacion is null and i.operation_status in ('READY_TO_DISPENSE','DISPENSATION_REPORTED','DISPENSED')) as pending_location,
+         (i.lugar_dispensacion is not null and i.lugar_dispensacion <> '' and i.operation_status = 'READY_TO_DISPENSE') as assigned_location,
+         (i.fecha_dispensacion is null and i.operation_status = 'READY_TO_DISPENSE') as pending_dispensation_date,
+         (i.fecha_aplicacion is null and i.fecha_dispensacion is not null and i.operation_status = 'DISPENSATION_REPORTED') as pending_application_date,
+         (i.audit_status = 'READY') as ready_for_review,
+         (i.audit_status = 'APPROVED') as approved_for_admission
        from authorization_items i
        where ${condition.sql}`,
       condition.values,
@@ -183,11 +184,10 @@ export class ConsolidationService {
       `select i.id, i.authorization_key, i.numero_autorizacion, i.codigo_medicamento,
               i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
               i.lugar_dispensacion, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
-               i.audit_status, i.admission_status, i.tariff_membership_status, i.version,
-               i.created_at, i.updated_at,
+              i.audit_status, i.admission_status, i.version, i.created_at, i.updated_at,
               ${sourceBaseSelectSql('i')}
        from authorization_items i
-        where i.audit_status = 'APROBADO' ${coverageFilter}
+       where i.audit_status = 'APPROVED' ${coverageFilter}
          and ${condition.sql}
        order by i.created_at asc, i.id asc`,
       values,
@@ -197,14 +197,17 @@ export class ConsolidationService {
       NUMERO_AUTORIZACION: row.numero_autorizacion,
       NUM_DOCUMENTO: row.numero_documento,
       NOMBRE_PACIENTE: row.nombre_paciente,
-      CDGN001: row.cdgn001,
       COD_COMERCIAL: row.codigo_medicamento,
+      CUMS: row.cums,
+      COD_CUPS_AUTORIZADO: row.cod_cups_autorizado,
       CUPS_AUTORIZADO: row.cups_autorizado,
       CANTIDAD: row.cantidad,
       DOSIS: row.dosis,
       FECHA_ASIGNACION: row.fecha_asignacion,
       FECHA_FINAL_VIGENCIA: row.fecha_final_vigencia,
       ESTADO_AUTORIZACION: row.estado_autorizacion,
+      OBS_AUTORIZACION: row.obs_autorizacion,
+      'VALOR CUOTA MODERADORA': row.valor_cuota_moderadora,
       'No.PRESCRIPCION': row.no_prescripcion,
       id: row.id,
       authorization_key: row.authorization_key,
@@ -212,7 +215,6 @@ export class ConsolidationService {
       coverage_type: row.coverage_type,
       direction_status: row.direction_status,
       operation_status: row.operation_status,
-      tariff_membership_status: row.tariff_membership_status,
       lugar_dispensacion: row.lugar_dispensacion,
       fecha_dispensacion: row.fecha_dispensacion,
       fecha_aplicacion: row.fecha_aplicacion,

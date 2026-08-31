@@ -40,13 +40,11 @@ Las operaciones quedan auditadas en `audit_events` con acciones `USER_CREATED`, 
 
 Cuando un usuario autenticado en Keycloak intenta usar la plataforma sin cuenta local (o con cuenta inactiva), `GET /me` responde 401 `LOCAL_USER_INACTIVE` y, de forma automática y best-effort, registra la solicitud en `pending_user_requests` con el `sub` y el email del token. El administrador la aprueba (elige organización y rol) o la rechaza desde la bandeja; aprobar crea la fila local vinculando ese `oidc_subject`, de modo que el siguiente inicio de sesión ya resuelve permisos.
 
-El campo `pending_user_requests.status` usa `PENDIENTE`, `APROBADO` y `RECHAZADO`. Los códigos de error y las acciones de auditoría conservan sus identificadores técnicos.
-
 Este flujo cierra el hueco entre crear un usuario en Keycloak y provisionarlo localmente: nunca hay que copiar `sub` a mano.
 
 ## Roles y permisos sembrados
 
-Los roles disponibles (`MTD_ADMIN`, `MTD_OPERATOR`, `MTD_AUDITOR`, `COMPENSAR_VIEWER`, `OLP_OPERATOR`, `MEDICARTE_OPERATOR`, `READ_ONLY`) y su mapa de permisos viven en las migraciones (`packages/database/migrations/0000_foundation.sql` y siguientes). `MTD_AUDITOR` solo se puede asignar a MTD y permite consultar autorizaciones, iniciar la revisión y dar visto bueno; no permite rechazar, registrar hallazgos, importar, exportar ni administrar usuarios. Crear un rol nuevo requiere migración, no es parte del CRUD.
+Los roles disponibles (`MTD_ADMIN`, `MTD_OPERATOR`, `COMPENSAR_VIEWER`, `OLP_OPERATOR`, `MEDICARTE_OPERATOR`, `READ_ONLY`) y su mapa de permisos viven en las migraciones (`packages/database/migrations/0000_foundation.sql` y siguientes). Crear un rol nuevo requiere migración, no es parte del CRUD.
 
 ## Buenas prácticas
 

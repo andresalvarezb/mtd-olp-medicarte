@@ -2,7 +2,7 @@ import { apiRequest } from './api-client';
 import type { NotificationResponse, NotificationType } from '@authorization/contracts';
 
 export type { NotificationType };
-export type NotificationStatus = 'PENDIENTE' | 'ENVIADO' | 'FALLIDO' | 'OMITIDO';
+export type NotificationStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
 
 export interface NotificationRecipient {
   id: string;

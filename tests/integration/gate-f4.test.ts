@@ -139,7 +139,7 @@ async function waitForBatch(
     });
     if (response.ok) {
       const batch = (await response.json()) as { status: string; validRows: number };
-       if (batch.status === 'LISTO_PARA_CONFIRMAR' || batch.status === 'COMPLETADO') return batch;
+      if (batch.status === 'READY_TO_CONFIRM' || batch.status === 'COMPLETED') return batch;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -161,20 +161,6 @@ async function confirmImport(token: string, batchId: string, idempotencyKey?: st
 
 async function confirmReadyItem(suffix: string): Promise<string> {
   const authorization = `AUTH-F4-${randomUUID()}`;
-  // SPEC-014: el medicamento debe estar en el Anexo Tarifario para que el
-   // ítem entre en LISTO_PARA_DISPENSAR (alta idempotente vía la API administrativa).
-  const annexRegistration = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/products`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${adminToken}`,
-      'x-organization-id': mtdOrganizationId,
-      'idempotency-key': randomUUID(),
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ codigoProducto: `MED-F4-${suffix}` }),
-  });
-  if (annexRegistration.status !== 200)
-    throw new Error(`Annex product registration failed: ${annexRegistration.status}`);
   const batch = await createImport(
     adminToken,
     authorizationCsv([
@@ -190,7 +176,7 @@ async function confirmReadyItem(suffix: string): Promise<string> {
   );
   const item = items.rows[0];
   if (!item) throw new Error('Expected item to be confirmed');
-   expect(item.operation_status).toBe('LISTO_PARA_DISPENSAR');
+  expect(item.operation_status).toBe('READY_TO_DISPENSE');
   return item.id;
 }
 
@@ -205,7 +191,7 @@ async function waitForNotificationsSettled(
       values,
     );
     const counts = new Map(rows.rows.map((row) => [row.status, Number(row.count)]));
-     const settled = counts.size > 0 && !counts.has('PENDIENTE');
+    const settled = counts.size > 0 && !counts.has('PENDING');
     if (settled) return counts;
     if (Date.now() > deadline) throw new Error('Notifications never settled');
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -225,7 +211,7 @@ async function waitForNotificationCount(
       values,
     );
     const counts = new Map(rows.rows.map((row) => [row.status, Number(row.count)]));
-     if ((counts.get(status) ?? 0) >= expected && !counts.has('PENDIENTE')) return counts;
+    if ((counts.get(status) ?? 0) >= expected && !counts.has('PENDING')) return counts;
     if (Date.now() > deadline) throw new Error(`Notification count never reached ${expected}`);
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
@@ -273,7 +259,7 @@ async function waitForBulkBatch(
     });
     if (response.ok) {
       const batch = (await response.json()) as BulkBatchResponse;
-       if (batch.status === 'COMPLETADO' || batch.status === 'FALLIDO') return batch;
+      if (batch.status === 'COMPLETED' || batch.status === 'FAILED') return batch;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
@@ -289,7 +275,6 @@ function locationCsv(
     '',
   ].join('\n');
 }
-
 
 describe('Gate F4', () => {
   beforeAll(async () => {
@@ -331,7 +316,7 @@ describe('Gate F4', () => {
     await waitForNotificationCount(
       "notification_type = 'AUTHORIZATION_READY_TO_DISPENSE' and item_id = $1",
       [itemId],
-       'ENVIADO',
+      'SENT',
       2,
     );
     const notifications = await database.query<{ recipient_organization_id: string; status: string }>(
@@ -343,7 +328,7 @@ describe('Gate F4', () => {
     expect(new Set(notifications.rows.map((row) => row.recipient_organization_id))).toEqual(
       new Set([olpOrganizationId, medicarteOrganizationId]),
     );
-    expect(notifications.rows.every((row) => row.status === 'ENVIADO')).toBe(true);
+    expect(notifications.rows.every((row) => row.status === 'SENT')).toBe(true);
 
     const audits = await database.query<{ action: string }>(
       `select action from audit_events
@@ -355,18 +340,6 @@ describe('Gate F4', () => {
 
   it('no duplica la notificación al reconfirmar con la misma llave de idempotencia', async () => {
     const authorization = `AUTH-F4-IDEM-${randomUUID()}`;
-    const annexRegistration = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/products`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${adminToken}`,
-        'x-organization-id': mtdOrganizationId,
-        'idempotency-key': randomUUID(),
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ codigoProducto: 'MED-F4-IDEM' }),
-    });
-    if (annexRegistration.status !== 200)
-      throw new Error(`Annex product registration failed: ${annexRegistration.status}`);
     const batch = await createImport(
       adminToken,
       authorizationCsv([
@@ -386,7 +359,7 @@ describe('Gate F4', () => {
     await waitForNotificationCount(
       "notification_type = 'AUTHORIZATION_READY_TO_DISPENSE' and item_id = $1",
       [itemId],
-       'ENVIADO',
+      'SENT',
       2,
     );
 
@@ -423,7 +396,7 @@ describe('Gate F4', () => {
     expect(extraColumns.status).toBe(202);
     const extraBatchId = ((await extraColumns.json()) as { id: string }).id;
     const extraBatch = await waitForBulkBatch(medicarteToken, medicarteOrganizationId, extraBatchId);
-     expect(extraBatch.status).toBe('FALLIDO');
+    expect(extraBatch.status).toBe('FAILED');
     expect(extraBatch.lastErrorCode).toBe('INVALID_HEADERS');
 
     // Primera asignación.
@@ -438,7 +411,7 @@ describe('Gate F4', () => {
       medicarteOrganizationId,
       ((await first.json()) as { id: string }).id,
     );
-     expect(firstBatch).toMatchObject({ status: 'COMPLETADO', updatedRows: 1, rejectedRows: 0 });
+    expect(firstBatch).toMatchObject({ status: 'COMPLETED', updatedRows: 1, rejectedRows: 0 });
     const afterFirst = await database.query<{
       lugar_dispensacion: string;
       operational_version: number;
@@ -453,7 +426,7 @@ describe('Gate F4', () => {
     await waitForNotificationCount(
       "notification_type = 'DISPENSATION_LOCATION_ASSIGNED' and item_id = $1",
       [itemId],
-       'ENVIADO',
+      'SENT',
       1,
     );
 
@@ -468,7 +441,7 @@ describe('Gate F4', () => {
       medicarteOrganizationId,
       ((await second.json()) as { id: string }).id,
     );
-     expect(secondBatch).toMatchObject({ status: 'COMPLETADO', updatedRows: 1 });
+    expect(secondBatch).toMatchObject({ status: 'COMPLETED', updatedRows: 1 });
     const afterSecond = await database.query<{
       lugar_dispensacion: string;
       operational_version: number;
@@ -482,7 +455,7 @@ describe('Gate F4', () => {
     await waitForNotificationCount(
       "notification_type = 'DISPENSATION_LOCATION_CHANGED' and item_id = $1",
       [itemId],
-       'ENVIADO',
+      'SENT',
       1,
     );
 
@@ -499,7 +472,7 @@ describe('Gate F4', () => {
       medicarteOrganizationId,
       ((await third.json()) as { id: string }).id,
     );
-     expect(thirdBatch).toMatchObject({ status: 'COMPLETADO', unchangedRows: 1, updatedRows: 0 });
+    expect(thirdBatch).toMatchObject({ status: 'COMPLETED', unchangedRows: 1, updatedRows: 0 });
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const changedCount = await database.query<{ count: string }>(
       `select count(*)::text as count from notifications
@@ -556,7 +529,7 @@ describe('Gate F4', () => {
     const changedEventId = changedEvents.rows[0]?.id;
     if (!changedEventId) throw new Error('Expected CHANGED outbox event');
     const redelivered = await database.query<{ id: string }>(
-       `update outbox_events set status = 'PENDIENTE', dispatched_at = null where id = $1 returning id`,
+      `update outbox_events set status = 'PENDING', dispatched_at = null where id = $1 returning id`,
       [changedEventId],
     );
     expect(redelivered.rows).toHaveLength(1);
@@ -571,7 +544,7 @@ describe('Gate F4', () => {
         `select status from outbox_events where id = $1`,
         [changedEventId],
       );
-       if (events.rows.every((row) => row.status === 'PROCESADO')) {
+      if (events.rows.every((row) => row.status === 'PROCESSED')) {
         expect(Number(count.rows[0]?.count ?? '0')).toBe(1);
         break;
       }
@@ -604,7 +577,7 @@ describe('Gate F4', () => {
     const batchId = ((await batch.json()) as { id: string }).id;
     const result = await waitForBulkBatch(medicarteToken, medicarteOrganizationId, batchId);
     // La fila fuera de alcance y las inválidas se rechazan; la válida se aplica.
-     expect(result.status).toBe('COMPLETADO');
+    expect(result.status).toBe('COMPLETED');
     expect(result.updatedRows).toBe(1);
     expect(result.rejectedRows).toBeGreaterThanOrEqual(2);
     const rows = await database.query<{ row_number: number; result_code: string }>(
@@ -664,7 +637,7 @@ describe('Gate F4', () => {
     );
     const batchId = ((await batch.json()) as { id: string }).id;
     const batchResult = await waitForBulkBatch(medicarteToken, medicarteOrganizationId, batchId);
-     expect(batchResult.status).toBe('COMPLETADO');
+    expect(batchResult.status).toBe('COMPLETED');
     const item = await database.query<{ lugar_dispensacion: string; operational_version: number }>(
       'select lugar_dispensacion, operational_version from authorization_items where id = $1',
       [itemId],
@@ -700,7 +673,7 @@ describe('Gate F4', () => {
     };
     const entry = body.items.find((candidate) => candidate.itemId === itemId);
     expect(entry).toBeTruthy();
-       expect(entry?.status).toBe('OMITIDO');
+    expect(entry?.status).toBe('SKIPPED');
     expect(entry?.attempts).toBeGreaterThan(0);
 
     // Configurar destinatario y reintentar: el fallo queda recuperable.
@@ -731,12 +704,12 @@ describe('Gate F4', () => {
       body: '{}',
     });
     expect(retry.status).toBe(202);
-     await waitForNotificationCount('id = $1', [notificationId], 'ENVIADO', 1);
+    await waitForNotificationCount('id = $1', [notificationId], 'SENT', 1);
     const retried = await database.query<{ status: string; gmail_message_id: string | null }>(
       'select status, gmail_message_id from notifications where id = $1',
       [notificationId],
     );
-     expect(retried.rows[0]?.status).toBe('ENVIADO');
+    expect(retried.rows[0]?.status).toBe('SENT');
     expect(retried.rows[0]?.gmail_message_id).toBeTruthy();
   });
 
@@ -766,7 +739,7 @@ describe('Gate F4', () => {
     };
     expect(detailBody.item).toMatchObject({
       lugarDispensacion: 'Calle lectura 5',
-       applicationSiteStatus: 'ASIGNADO',
+      applicationSiteStatus: 'ASSIGNED',
     });
 
     // Descarga on-demand de la base completa para MEDICARTE.

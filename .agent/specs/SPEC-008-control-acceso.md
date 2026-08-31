@@ -14,13 +14,12 @@
 | Auditar soportes/decidir          | No        | No                               | Auditor autorizado                       |
 | Administrar configuración Drive   | No        | No                               | MTD Admin                                |
 
-Compensar conserva lectura de autorizaciones y consolidado solo con permiso explícito. MTD mantiene administración y auditoría según rol, pero no suplanta las cargas operativas exclusivas de OLP o MEDICARTE. Una corrección excepcional por MTD requeriría una decisión y permiso futuros explícitos. `imports.revert` (reversión de cargues, ADR-023) pertenece únicamente a `MTD_ADMIN`: Compensar, OLP y Medicarte no pueden ejecutarla.
+Compensar conserva lectura de autorizaciones y consolidado solo con permiso explícito. MTD mantiene administración y auditoría según rol, pero no suplanta las cargas operativas exclusivas de OLP o MEDICARTE. Una corrección excepcional por MTD requeriría una decisión y permiso futuros explícitos.
 
 ## Permisos atómicos
 
 - `authorizations.read`
 - `authorizations.read_sensitive`
-- `imports.revert`
 - `operational_exports.create`
 - `bulk_updates.dispensation_location`
 - `bulk_updates.dispensation_date`

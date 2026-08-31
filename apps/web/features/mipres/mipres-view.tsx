@@ -30,7 +30,7 @@ const COLUMNS = [
   { label: 'Acciones' },
 ];
 
-type DirectionFilter = 'PENDIENTE' | 'CONFIRMADO' | 'ERROR_DE_CONSULTA';
+type DirectionFilter = 'PENDING' | 'CONFIRMED' | 'QUERY_ERROR';
 
 export function MipresView() {
   const { organizationId, hasPermission } = useRole();
@@ -42,7 +42,7 @@ export function MipresView() {
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        directionStatus: 'PENDIENTE',
+        directionStatus: 'PENDING',
         ...(cursor ? { cursor } : {}),
       }),
     [organizationId],
@@ -51,7 +51,7 @@ export function MipresView() {
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        directionStatus: 'CONFIRMADO',
+        directionStatus: 'CONFIRMED',
         ...(cursor ? { cursor } : {}),
       }),
     [organizationId],
@@ -60,19 +60,19 @@ export function MipresView() {
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        directionStatus: 'ERROR_DE_CONSULTA',
+        directionStatus: 'QUERY_ERROR',
         ...(cursor ? { cursor } : {}),
       }),
     [organizationId],
   );
 
   const pages: Record<DirectionFilter, { items: AuthorizationItemResponse[] } | null> = {
-    PENDIENTE: { items: pending.items },
-    CONFIRMADO: { items: confirmed.items },
-    ERROR_DE_CONSULTA: { items: errored.items },
+    PENDING: { items: pending.items },
+    CONFIRMED: { items: confirmed.items },
+    QUERY_ERROR: { items: errored.items },
   };
   const hooks = [pending, confirmed, errored];
-  const tabFilters: DirectionFilter[] = ['PENDIENTE', 'CONFIRMADO', 'ERROR_DE_CONSULTA'];
+  const tabFilters: DirectionFilter[] = ['PENDING', 'CONFIRMED', 'QUERY_ERROR'];
   const canRecheck = hasPermission('mipres.recheck');
 
   const handleRecheck = async (itemId: string, numero: string) => {
@@ -91,7 +91,7 @@ export function MipresView() {
     const items = pages[filter]?.items ?? [];
     return items.map((item) => {
       const actionColumn =
-        canRecheck && filter !== 'CONFIRMADO' && !requeued.includes(item.id)
+        canRecheck && filter !== 'CONFIRMED' && !requeued.includes(item.id)
           ? [
               <button
                 key={`recheck-${item.id}`}
@@ -172,7 +172,7 @@ export function MipresView() {
           onChange={setTab}
         >
           {(() => {
-            const filter = tabFilters[tab] ?? 'PENDIENTE';
+            const filter = tabFilters[tab] ?? 'PENDING';
             const currentHook = hooks[tab] ?? pending;
             const loading = currentHook.loading;
             const error = currentHook.error;

@@ -28,17 +28,17 @@ const STATUS_PILL: Record<
   NotificationStatus,
   'gray' | 'blue' | 'green' | 'orange' | 'red' | 'purple'
 > = {
-  PENDIENTE: 'orange',
-  ENVIADO: 'green',
-  FALLIDO: 'red',
-  OMITIDO: 'gray',
+  PENDING: 'orange',
+  SENT: 'green',
+  FAILED: 'red',
+  SKIPPED: 'gray',
 };
 
 const STATUS_LABELS: Record<NotificationStatus, string> = {
-  PENDIENTE: 'Pendiente',
-  ENVIADO: 'Enviada',
-  FALLIDO: 'Fallida',
-  OMITIDO: 'Omitida',
+  PENDING: 'Pendiente',
+  SENT: 'Enviada',
+  FAILED: 'Fallida',
+  SKIPPED: 'Omitida',
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -56,7 +56,7 @@ export function NotificacionesView() {
   const [retried, setRetried] = useState<string[]>([]);
 
   const canManage = hasPermission('notifications.manage');
-  const filters: Array<NotificationStatus | undefined> = [undefined, 'PENDIENTE', 'ENVIADO', 'FALLIDO'];
+  const filters: Array<NotificationStatus | undefined> = [undefined, 'PENDING', 'SENT', 'FAILED'];
   const filter = filters[tab];
 
   const { data, error, loading, reload } = useApiData(
@@ -65,7 +65,7 @@ export function NotificacionesView() {
   );
 
   const notifications = data?.items ?? [];
-  const failed = notifications.filter((notification) => notification.status === 'FALLIDO').length;
+  const failed = notifications.filter((notification) => notification.status === 'FAILED').length;
 
   const handleRetry = async (id: string) => {
     setActionError(null);
@@ -94,7 +94,7 @@ export function NotificacionesView() {
       {STATUS_LABELS[notification.status]}
     </span>,
     notification.attempts,
-    notification.status === 'FALLIDO' && canManage && !retried.includes(notification.id) ? (
+    notification.status === 'FAILED' && canManage && !retried.includes(notification.id) ? (
       <button
         key={`retry-${notification.id}`}
         type="button"
@@ -126,15 +126,15 @@ export function NotificacionesView() {
       <KpiGrid columns={3}>
         <KpiCard
           label="Enviadas"
-          value={notifications.filter((n) => n.status === 'ENVIADO').length}
-          foot="LISTO + punto aplicación"
+          value={notifications.filter((n) => n.status === 'SENT').length}
+          foot="READY + punto aplicación"
           icon="EV"
           iconBg="#eaf8f2"
           iconColor="#16835d"
         />
         <KpiCard
           label="Pendientes"
-          value={notifications.filter((n) => n.status === 'PENDIENTE').length}
+          value={notifications.filter((n) => n.status === 'PENDING').length}
           foot="En cola de envío"
           icon="…"
           iconBg="#eef4ff"

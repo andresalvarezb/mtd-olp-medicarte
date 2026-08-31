@@ -10,7 +10,7 @@ Negocio -> transacción PostgreSQL (dato + auditoría + outbox) -> BullMQ -> wor
 
 | Evento                            | Condición de emisión                          | Destinatario    |
 | --------------------------------- | --------------------------------------------- | --------------- |
-| `AUTHORIZATION_READY_TO_DISPENSE` | transición comprometida a `LISTO_PARA_DISPENSAR` | OLP y MEDICARTE |
+| `AUTHORIZATION_READY_TO_DISPENSE` | transición comprometida a `READY_TO_DISPENSE` | OLP y MEDICARTE |
 | `DISPENSATION_LOCATION_ASSIGNED`  | primera persistencia de `lugar_dispensacion`  | OLP             |
 | `DISPENSATION_LOCATION_CHANGED`   | cambio posterior del valor                    | OLP             |
 
@@ -45,7 +45,7 @@ Una modificación real de `lugar_dispensacion` incrementa versión y produce un 
 
 ## Aceptación
 
-- OLP y MEDICARTE reciben eventos independientes al alcanzar `LISTO_PARA_DISPENSAR`.
+- OLP y MEDICARTE reciben eventos independientes al alcanzar `READY_TO_DISPENSE`.
 - OLP recibe el lugar asignado y cada modificación posterior.
 - Ningún correo de lugar puede observarse antes del commit.
 - El reporte de las 08:00 sigue operando aunque no existan novedades inmediatas y no reemplaza alertas operativas.

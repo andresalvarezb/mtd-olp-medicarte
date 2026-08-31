@@ -27,7 +27,7 @@ const FLOW_STEPS: FlowStepData[] = [
     description: 'Medicarte define dirección y se notifica a OLP.',
     logistics: true,
   },
-  { title: 'Aplicación & auditoría', description: 'Soportes → auditoría humana → DISPENSADO.' },
+  { title: 'Aplicación & auditoría', description: 'Soportes → auditoría humana → DISPENSED.' },
 ];
 
 export function ResumenEjecutivoView() {
@@ -70,7 +70,7 @@ export function ResumenEjecutivoView() {
         />
         <KpiCard
           label="Listas para dispensar"
-          value={loading ? '…' : (indicators?.byOperationStatus.LISTO_PARA_DISPENSAR ?? 0)}
+          value={loading ? '…' : (indicators?.byOperationStatus.READY_TO_DISPENSE ?? 0)}
           foot="PBS + NO PBS habilitados"
           icon="RD"
           iconBg="#eaf8f2"
@@ -86,7 +86,7 @@ export function ResumenEjecutivoView() {
         />
         <KpiCard
           label="Auditorías aprobadas"
-          value={loading ? '…' : (indicators?.byAuditStatus.APROBADO ?? 0)}
+          value={loading ? '…' : (indicators?.byAuditStatus.APPROVED ?? 0)}
           foot="Dispensaciones confirmadas"
           icon="OK"
           iconBg="#f3f0ff"

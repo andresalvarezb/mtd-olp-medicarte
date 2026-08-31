@@ -44,17 +44,17 @@ export function isOperationalUpdateAllowed(
     lugarDispensacion: string | null;
   }>,
 ): boolean {
-  if (input.operationStatus === null || input.operationStatus === 'BLOQUEADO') return false;
+  if (input.operationStatus === null || input.operationStatus === 'BLOCKED') return false;
   if (input.operationType === 'ASSIGN_DISPENSATION_LOCATION') {
-    return ['LISTO_PARA_DISPENSAR', 'DISPENSACION_REPORTADA', 'DISPENSADO'].includes(
+    return ['READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED'].includes(
       input.operationStatus,
     );
   }
   if (!input.lugarDispensacion) return false;
   if (input.operationType === 'REPORT_DISPENSATION_DATE') {
-    return ['LISTO_PARA_DISPENSAR', 'DISPENSACION_REPORTADA'].includes(input.operationStatus);
+    return ['READY_TO_DISPENSE', 'DISPENSATION_REPORTED'].includes(input.operationStatus);
   }
-  return input.auditStatus !== 'APROBADO' && input.operationStatus !== 'DISPENSADO';
+  return input.auditStatus !== 'APPROVED' && input.operationStatus !== 'DISPENSED';
 }
 
 export function deriveOperationalStatuses(
@@ -74,12 +74,12 @@ export function deriveOperationalStatuses(
   return {
     operationStatus:
       input.operationType === 'REPORT_DISPENSATION_DATE' &&
-      input.operationStatus === 'LISTO_PARA_DISPENSAR'
-        ? 'DISPENSACION_REPORTADA'
+      input.operationStatus === 'READY_TO_DISPENSE'
+        ? 'DISPENSATION_REPORTED'
         : input.operationStatus,
     auditStatus:
-      input.auditStatus === 'NO_INICIADO' && fechaDispensacion && fechaAplicacion
-        ? 'LISTO'
+      input.auditStatus === 'NOT_STARTED' && fechaDispensacion && fechaAplicacion
+        ? 'READY'
         : input.auditStatus,
   };
 }
@@ -91,9 +91,7 @@ export function deriveOperationalStatuses(
 export function deriveApplicationSiteStatus(
   lugarDispensacion: string | null,
 ): ApplicationSiteStatus {
-  return lugarDispensacion === null || lugarDispensacion === ''
-    ? 'PENDIENTE_ASIGNACION'
-    : 'ASIGNADO';
+  return lugarDispensacion === null || lugarDispensacion === '' ? 'PENDING_ASSIGNMENT' : 'ASSIGNED';
 }
 
 export const OPERATIONAL_FIELD_LUGAR_DISPENSACION = 'lugar_dispensacion' as const;
@@ -108,7 +106,7 @@ export type OperationalFieldTransition = Readonly<{
 }>;
 
 /**
- * SPEC-011/DEC-011: la primera asignación produce ASIGNADO y un valor
+ * SPEC-011/DEC-011: la primera asignación produce ASSIGNED y un valor
  * idéntico no emite evento ni versión nueva.
  */
 export function evaluateOperationalFieldTransition(

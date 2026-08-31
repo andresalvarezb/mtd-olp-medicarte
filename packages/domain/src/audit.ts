@@ -2,24 +2,24 @@ import type { AdmissionStatus, AuditStatus } from '@authorization/contracts';
 
 /**
  * SPEC-002/SPEC-006/ADR-009: transiciones de auditoría puramente humanas.
- * Ningún proceso automático puede producir APROBADO; la derivación
- * NO_INICIADO -> LISTO ocurre en operational.ts cuando existen ambas fechas.
+ * Ningún proceso automático puede producir APPROVED; la derivación
+ * NOT_STARTED -> READY ocurre en operational.ts cuando existen ambas fechas.
  */
 export const AUDIT_RULE_VERSION = 'F6-AUDIT-1' as const;
 
-/** Inicio de revisión: solo LISTO o RECHAZADO (revisión posterior explícita). */
+/** Inicio de revisión: solo READY o REJECTED (revisión posterior explícita). */
 export function canStartAuditReview(auditStatus: AuditStatus): boolean {
-  return auditStatus === 'LISTO' || auditStatus === 'RECHAZADO';
+  return auditStatus === 'READY' || auditStatus === 'REJECTED';
 }
 
-/** Una decisión (aprobar/rechazar) solo puede partir de una revisión EN_REVISION. */
-export function canDecideAuditReview(reviewStatus: 'EN_REVISION' | 'APROBADO' | 'RECHAZADO'): boolean {
-  return reviewStatus === 'EN_REVISION';
+/** Una decisión (aprobar/rechazar) solo puede partir de una revisión IN_REVIEW. */
+export function canDecideAuditReview(reviewStatus: 'IN_REVIEW' | 'APPROVED' | 'REJECTED'): boolean {
+  return reviewStatus === 'IN_REVIEW';
 }
 
 /**
- * DEC-003/DEC-006/SPEC-006: la aprobación humana produce DISPENSADO y deriva
- * admission_status = LISTO ("listo para admisión"), que habilita la descarga
+ * DEC-003/DEC-006/SPEC-006: la aprobación humana produce DISPENSED y deriva
+ * admission_status = READY ("listo para admisión"), que habilita la descarga
  * de la base para el proceso externo de admisiones. No existen estados de
  * handoff en el núcleo: el alcance de Fase 6 cierra la plataforma.
  */
@@ -29,5 +29,5 @@ export function deriveAdmissionStatus(
     currentAdmissionStatus: AdmissionStatus;
   }>,
 ): AdmissionStatus {
-  return input.auditStatus === 'APROBADO' ? 'LISTO' : 'NO_LISTO';
+  return input.auditStatus === 'APPROVED' ? 'READY' : 'NOT_READY';
 }

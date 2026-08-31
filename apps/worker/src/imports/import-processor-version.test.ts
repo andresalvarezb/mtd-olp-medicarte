@@ -34,7 +34,7 @@ function source(
   const sha256 = createHash('sha256').update(content).digest('hex');
   return {
     batch_id: job.payload.batchId,
-    batch_status: 'CARGADO',
+    batch_status: 'UPLOADED',
     batch_sha256: sha256,
     batch_processor_version: processorVersion,
     source_file_id: job.payload.sourceFileId,
@@ -67,7 +67,7 @@ describe('ImportProcessor processor version validation', () => {
       query: vi.fn((query: string) => {
         if (query.includes('for update'))
           return Promise.resolve({
-            rows: [{ status: 'CARGADO', processor_version: 1 }],
+            rows: [{ status: 'UPLOADED', processor_version: 1 }],
             rowCount: 1,
           });
         return Promise.resolve({ rows: [], rowCount: 0 });

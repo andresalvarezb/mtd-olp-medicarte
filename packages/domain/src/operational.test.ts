@@ -36,16 +36,16 @@ describe('operational dates', () => {
     expect(
       isOperationalUpdateAllowed({
         operationType: 'REPORT_DISPENSATION_DATE',
-        operationStatus: 'LISTO_PARA_DISPENSAR',
-        auditStatus: 'NO_INICIADO',
+        operationStatus: 'READY_TO_DISPENSE',
+        auditStatus: 'NOT_STARTED',
         lugarDispensacion: 'Sede norte',
       }),
     ).toBe(true);
     expect(
       isOperationalUpdateAllowed({
         operationType: 'REPORT_APPLICATION_DATE',
-        operationStatus: 'DISPENSACION_REPORTADA',
-        auditStatus: 'APROBADO',
+        operationStatus: 'DISPENSATION_REPORTED',
+        auditStatus: 'APPROVED',
         lugarDispensacion: 'Sede norte',
       }),
     ).toBe(false);
@@ -55,13 +55,13 @@ describe('operational dates', () => {
     expect(
       deriveOperationalStatuses({
         operationType: 'REPORT_DISPENSATION_DATE',
-        operationStatus: 'LISTO_PARA_DISPENSAR',
-        auditStatus: 'NO_INICIADO',
+        operationStatus: 'READY_TO_DISPENSE',
+        auditStatus: 'NOT_STARTED',
         fechaDispensacion: null,
         fechaAplicacion: '2026-08-30',
         newValue: '2026-08-29',
       }),
-    ).toEqual({ operationStatus: 'DISPENSACION_REPORTADA', auditStatus: 'LISTO' });
+    ).toEqual({ operationStatus: 'DISPENSATION_REPORTED', auditStatus: 'READY' });
   });
 });
 
@@ -76,18 +76,18 @@ describe('isValidOperationalText', () => {
 });
 
 describe('deriveApplicationSiteStatus', () => {
-  it('deriva PENDIENTE_ASIGNACION cuando no hay lugar', () => {
-    expect(deriveApplicationSiteStatus(null)).toBe('PENDIENTE_ASIGNACION');
-    expect(deriveApplicationSiteStatus('')).toBe('PENDIENTE_ASIGNACION');
+  it('deriva PENDING_ASSIGNMENT cuando no hay lugar', () => {
+    expect(deriveApplicationSiteStatus(null)).toBe('PENDING_ASSIGNMENT');
+    expect(deriveApplicationSiteStatus('')).toBe('PENDING_ASSIGNMENT');
   });
 
-  it('deriva ASIGNADO cuando hay lugar', () => {
-    expect(deriveApplicationSiteStatus('Calle 123')).toBe('ASIGNADO');
+  it('deriva ASSIGNED cuando hay lugar', () => {
+    expect(deriveApplicationSiteStatus('Calle 123')).toBe('ASSIGNED');
   });
 });
 
 describe('evaluateOperationalFieldTransition', () => {
-  it('primera asignación produce ASIGNADO y aumenta la versión', () => {
+  it('primera asignación produce ASSIGNED y aumenta la versión', () => {
     const transition = evaluateOperationalFieldTransition(null, 'Calle 123', 3);
     expect(transition.eventType).toBe('DISPENSATION_LOCATION_ASSIGNED');
     expect(transition.newVersion).toBe(4);

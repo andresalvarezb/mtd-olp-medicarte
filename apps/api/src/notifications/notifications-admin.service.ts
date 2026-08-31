@@ -168,7 +168,7 @@ export class NotificationsAdminService {
     notificationId: string;
     idempotencyKey: string;
     scope: Scope;
-  }): Promise<{ notificationId: string; status: 'EN_COLA' }> {
+  }): Promise<{ notificationId: string; status: 'QUEUED' }> {
     const notificationId = parseUuid(input.notificationId, 'notificationId');
     const client = await this.database.pool.connect();
     try {
@@ -189,7 +189,7 @@ export class NotificationsAdminService {
           message: 'Notification not found',
         });
       }
-      if (row.status === 'ENVIADO') {
+      if (row.status === 'SENT') {
         throw new ConflictException({
           code: 'NOTIFICATION_ALREADY_SENT',
           message: 'La notificación ya fue enviada.',
@@ -215,7 +215,7 @@ export class NotificationsAdminService {
           });
         }
         await client.query('commit');
-        return { notificationId, status: 'EN_COLA' };
+        return { notificationId, status: 'QUEUED' };
       }
 
       const retryKey = createHash('sha256')
@@ -247,7 +247,7 @@ export class NotificationsAdminService {
         ],
       );
       await client.query(
-        `update notifications set status = 'PENDIENTE' where id = $1 and status = 'FALLIDO'`,
+        `update notifications set status = 'PENDING' where id = $1 and status = 'FAILED'`,
         [notificationId],
       );
       await client.query(
@@ -270,11 +270,11 @@ export class NotificationsAdminService {
           `${this.retryScope}:${input.scope.organizationId}`,
           input.idempotencyKey,
           requestHash,
-          JSON.stringify({ notificationId, status: 'EN_COLA' }),
+          JSON.stringify({ notificationId, status: 'QUEUED' }),
         ],
       );
       await client.query('commit');
-      return { notificationId, status: 'EN_COLA' };
+      return { notificationId, status: 'QUEUED' };
     } catch (error) {
       await client.query('rollback');
       throw error;
@@ -349,7 +349,7 @@ export class NotificationsAdminService {
         ],
       );
       await client.query('commit');
-      return { id, status: 'ACTIVO' };
+      return { id, status: 'ACTIVE' };
     } catch (error) {
       await client.query('rollback');
       throw error;
@@ -361,7 +361,7 @@ export class NotificationsAdminService {
   async deactivateRecipient(input: {
     recipientId: string;
     scope: Scope;
-  }): Promise<{ id: string; status: 'INACTIVO' }> {
+  }): Promise<{ id: string; status: 'INACTIVE' }> {
     const recipientId = parseUuid(input.recipientId, 'recipientId');
     const client = await this.database.pool.connect();
     try {
@@ -390,7 +390,7 @@ export class NotificationsAdminService {
         ],
       );
       await client.query('commit');
-      return { id, status: 'INACTIVO' };
+      return { id, status: 'INACTIVE' };
     } catch (error) {
       await client.query('rollback');
       throw error;

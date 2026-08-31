@@ -26,21 +26,22 @@ type ExportRow = {
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
   audit_status: string;
-  admission_status: string;
-  tariff_membership_status: string;
   operational_version: number;
   version: number;
   created_at: Date;
   updated_at: Date;
   nombre_paciente: string | null;
   numero_documento: string | null;
-  cdgn001: string | null;
+  cums: string | null;
+  cod_cups_autorizado: string | null;
   cups_autorizado: string | null;
   cantidad: string | null;
   dosis: string | null;
   fecha_asignacion: string | null;
   fecha_final_vigencia: string | null;
   estado_autorizacion: string | null;
+  obs_autorizacion: string | null;
+  valor_cuota_moderadora: string | null;
   no_prescripcion: string | null;
 };
 
@@ -55,12 +56,10 @@ const processColumns = [
   'coverage_type',
   'direction_status',
   'operation_status',
-  'tariff_membership_status',
   'lugar_dispensacion',
   'fecha_dispensacion',
-  'fecha_aplicacion_medicamento',
+  'fecha_aplicacion',
   'audit_status',
-  'admission_status',
   'application_site_status',
   'operational_version',
   'version',
@@ -108,32 +107,33 @@ export class OperationalExportsService {
       `select i.id, i.authorization_key, i.numero_autorizacion, i.codigo_medicamento,
               i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
                i.lugar_dispensacion, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
-               i.audit_status, i.admission_status, i.tariff_membership_status,
-               i.operational_version, i.version,
-               i.created_at, i.updated_at,
+               i.audit_status, i.operational_version, i.version, i.created_at, i.updated_at,
                ${sourceBaseSelectSql('i')}
        from authorization_items i
-       where i.operation_status in ('LISTO_PARA_DISPENSAR', 'DISPENSACION_REPORTADA', 'DISPENSADO')
+       where i.operation_status in ('READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED')
          ${onlyAssignedLocation ? 'and i.lugar_dispensacion is not null' : ''}
          and ($1::boolean = true or exists (
            select 1 from authorization_item_organizations aio
            where aio.authorization_item_id = i.id and aio.organization_id = $2))
        order by i.created_at asc, i.id asc`,
-      [input.scope.isFoundationAdmin, input.scope.organizationId],
+       [input.scope.isFoundationAdmin, input.scope.organizationId],
     );
     const columns = [...exportSourceColumns, ...processColumns];
     const rows: Array<Record<string, string | number | null>> = result.rows.map((row) => ({
       NUMERO_AUTORIZACION: row.numero_autorizacion,
       NUM_DOCUMENTO: row.numero_documento,
       NOMBRE_PACIENTE: row.nombre_paciente,
-      CDGN001: row.cdgn001,
       COD_COMERCIAL: row.codigo_medicamento,
+      CUMS: row.cums,
+      COD_CUPS_AUTORIZADO: row.cod_cups_autorizado,
       CUPS_AUTORIZADO: row.cups_autorizado,
       CANTIDAD: row.cantidad,
       DOSIS: row.dosis,
       FECHA_ASIGNACION: row.fecha_asignacion,
       FECHA_FINAL_VIGENCIA: row.fecha_final_vigencia,
       ESTADO_AUTORIZACION: row.estado_autorizacion,
+      OBS_AUTORIZACION: row.obs_autorizacion,
+      'VALOR CUOTA MODERADORA': row.valor_cuota_moderadora,
       'No.PRESCRIPCION': row.no_prescripcion,
       id: row.id,
       authorization_key: row.authorization_key,
@@ -141,12 +141,10 @@ export class OperationalExportsService {
       coverage_type: row.coverage_type,
       direction_status: row.direction_status,
       operation_status: row.operation_status,
-      tariff_membership_status: row.tariff_membership_status,
       lugar_dispensacion: row.lugar_dispensacion,
       fecha_dispensacion: row.fecha_dispensacion,
-      fecha_aplicacion_medicamento: row.fecha_aplicacion,
+      fecha_aplicacion: row.fecha_aplicacion,
       audit_status: row.audit_status,
-      admission_status: row.admission_status,
       application_site_status: deriveApplicationSiteStatus(row.lugar_dispensacion),
       operational_version: row.operational_version,
       version: row.version,

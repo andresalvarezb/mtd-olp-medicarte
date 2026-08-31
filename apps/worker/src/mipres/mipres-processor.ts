@@ -18,23 +18,18 @@ type Database = ReturnType<typeof createDatabase>;
 
 type ItemRow = {
   id: string;
-  no_prescripcion: string | null;
+  no_prescripcion: string;
   enablement_status: string;
   coverage_type: string;
-  direction_status: string;
+  direction_status: string | null;
   operation_status: string | null;
-  tariff_membership_status: string;
   fecha_final_vigencia: string | null;
-  lugar_dispensacion: string | null;
-  fecha_dispensacion: string | null;
-  fecha_aplicacion: string | null;
-  operational_version: number;
 };
 
 export type MipresProcessingResult = Readonly<{
   itemId: string;
-  outcome: 'CONFIRMADO' | 'PENDIENTE' | 'ERROR_DE_CONSULTA' | 'OMITIDO' | 'DEDUPLICADO';
-  directionStatus: 'PENDIENTE' | 'CONFIRMADO' | 'ERROR_DE_CONSULTA' | null;
+  outcome: 'CONFIRMED' | 'PENDING' | 'QUERY_ERROR' | 'SKIPPED' | 'DEDUPLICATED';
+  directionStatus: 'PENDING' | 'CONFIRMED' | 'QUERY_ERROR' | null;
   directionCount: number;
   hasCurrentDirection: boolean | null;
   httpStatus: number | null;
@@ -43,11 +38,11 @@ export type MipresProcessingResult = Readonly<{
 
   /**
    * Fase 3 (SPEC-003): consulta de direccionamientos MIPRES para ítems
-   * NO_PBS + HABILITADO. Persiste evidencia histórica (checks + direcciones),
+   * NO_PBS + ENABLED. Persiste evidencia histórica (checks + direcciones),
    * actualiza `direction_status` y deja auditoría sin tokens. Un reintento del
    * mismo job no duplica checks: job_results y la ventana item/día lo garantizan.
    * Fase 4 (SPEC-002/ADR-021): materializa `operation_status` con la regla
-   * pura centralizada del dominio y notifica la entrada a `LISTO_PARA_DISPENSAR`.
+   * pura centralizada del dominio y notifica la entrada a `READY_TO_DISPENSE`.
    */
 export class MipresProcessor {
   constructor(
@@ -66,16 +61,16 @@ export class MipresProcessor {
 
     const item = await this.loadItem(job.payload.itemId);
     if (!item) return this.skipped(job, 'ITEM_NOT_FOUND');
-    if (item.coverage_type !== 'NO_PBS' || item.enablement_status !== 'HABILITADO') {
+    if (item.coverage_type !== 'NO_PBS' || item.enablement_status !== 'ENABLED') {
       return this.skipped(job, 'NOT_ELIGIBLE');
     }
     if (!item.no_prescripcion) return this.skipped(job, 'MISSING_PRESCRIPTION_NUMBER');
-    if (job.payload.queryType === 'AUTO' && (item.direction_status ?? 'PENDIENTE') !== 'PENDIENTE') {
+    if (job.payload.queryType === 'AUTO' && (item.direction_status ?? 'PENDING') !== 'PENDING') {
       return this.skipped(job, 'AUTO_ONLY_FOR_PENDING');
     }
 
     const checkDate = currentBogotaDate();
-    let outcome: 'PENDIENTE' | 'CONFIRMADO' | 'ERROR_DE_CONSULTA';
+    let outcome: 'PENDING' | 'CONFIRMED' | 'QUERY_ERROR';
     let httpStatus: number | null = null;
     let evaluation = { hasCurrent: false as boolean | null, directionCount: 0 };
     let directions: Awaited<ReturnType<MipresPort['getDirectionsByPrescription']>>['directions'] =
@@ -92,7 +87,7 @@ export class MipresProcessor {
       evaluation = { hasCurrent: vigencia.hasCurrent, directionCount: vigencia.directionCount };
     } catch (error) {
       if (error instanceof MipresQueryError || error instanceof MipresNotConfiguredError) {
-        outcome = 'ERROR_DE_CONSULTA';
+        outcome = 'QUERY_ERROR';
         httpStatus = error instanceof MipresQueryError ? error.httpStatus : null;
       } else {
         throw error;
@@ -116,7 +111,7 @@ export class MipresProcessor {
           outcome,
           httpStatus,
           evaluation.directionCount,
-          outcome === 'ERROR_DE_CONSULTA' ? null : evaluation.hasCurrent,
+          outcome === 'QUERY_ERROR' ? null : evaluation.hasCurrent,
           MIPRES_VIGENCIA_RULE_VERSION,
           checkDate,
           JSON.stringify(rawPayload),
@@ -153,17 +148,11 @@ export class MipresProcessor {
         [item.id, outcome],
       );
       const operationStatus = deriveOperationStatus({
-        enablementStatus: item.enablement_status as 'HABILITADO' | 'BLOQUEADO_POR_ESTADO_ORIGEN',
+        enablementStatus: item.enablement_status as 'ENABLED' | 'BLOCKED_SOURCE_STATUS',
         coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
         directionStatus: outcome,
-        tariffListed: item.tariff_membership_status === 'LISTADO',
         fechaFinalVigencia: item.fecha_final_vigencia,
         today: checkDate,
-        hasOperationalIntervention:
-          item.lugar_dispensacion !== null ||
-          item.fecha_dispensacion !== null ||
-          item.fecha_aplicacion !== null ||
-          item.operational_version > 0,
       });
       if (operationStatus !== item.operation_status) {
         const materialized = await client.query<{ version: number }>(
@@ -189,7 +178,7 @@ export class MipresProcessor {
             job.correlationId,
           ],
         );
-        if (operationStatus === 'LISTO_PARA_DISPENSAR') {
+        if (operationStatus === 'READY_TO_DISPENSE') {
           await client.query(
             `insert into audit_events
                (actor_type, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
@@ -232,9 +221,9 @@ export class MipresProcessor {
            (actor_type, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
          values ('SYSTEM', null, $1, 'authorization_item', $2, $3::jsonb, $4, $5, 'SUCCESS')`,
         [
-          outcome === 'CONFIRMADO'
+          outcome === 'CONFIRMED'
             ? 'DIRECTION_CONFIRMED'
-            : outcome === 'ERROR_DE_CONSULTA'
+            : outcome === 'QUERY_ERROR'
               ? 'MIPRES_CHECK_COMPLETED'
               : 'DIRECTION_NOT_FOUND',
           item.id,
@@ -257,7 +246,7 @@ export class MipresProcessor {
         outcome,
         directionStatus: outcome,
         directionCount: evaluation.directionCount,
-        hasCurrentDirection: outcome === 'ERROR_DE_CONSULTA' ? null : evaluation.hasCurrent,
+        hasCurrentDirection: outcome === 'QUERY_ERROR' ? null : evaluation.hasCurrent,
         httpStatus,
       };
       await client.query(
@@ -279,8 +268,6 @@ export class MipresProcessor {
   private async loadItem(itemId: string): Promise<ItemRow | undefined> {
     const result = await this.database.pool.query<ItemRow>(
       `select id, no_prescripcion, enablement_status, coverage_type, direction_status, operation_status,
-              tariff_membership_status, lugar_dispensacion, fecha_dispensacion::text, fecha_aplicacion::text,
-              operational_version,
               source_data->>'FECHA_FINAL_VIGENCIA' as fecha_final_vigencia
        from authorization_items where id = $1`,
       [itemId],
@@ -291,7 +278,7 @@ export class MipresProcessor {
   private skipped(job: MipresRecheckJob, reason: string): MipresProcessingResult {
     return {
       itemId: (job.payload as MipresRecheckPayload).itemId,
-      outcome: 'OMITIDO',
+      outcome: 'SKIPPED',
       directionStatus: null,
       directionCount: 0,
       hasCurrentDirection: null,

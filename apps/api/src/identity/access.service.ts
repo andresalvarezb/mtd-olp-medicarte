@@ -30,12 +30,12 @@ export class AccessService {
     try {
       await this.database.pool.query(
         `insert into pending_user_requests (oidc_subject, email, display_name, status)
-         values ($1, $2, $3, 'PENDIENTE')
+         values ($1, $2, $3, 'PENDING')
          on conflict (oidc_subject) do update
            set email = excluded.email,
                display_name = coalesce(excluded.display_name, pending_user_requests.display_name),
                requested_at = now()
-         where pending_user_requests.status = 'PENDIENTE'`,
+         where pending_user_requests.status = 'PENDING'`,
         [subject, email ?? `${subject}@unknown.subject`, displayName ?? null],
       );
     } catch {

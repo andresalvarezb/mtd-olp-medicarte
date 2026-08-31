@@ -11,11 +11,11 @@ Estados:
 | ID      | Estado   | Decisión                                                                                                                                                                                |
 | ------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | DEC-001 | ACCEPTED | Un direccionamiento MIPRES es válido únicamente cuando `current_date(America/Bogota) < fecha_maxima`.                                                                                   |
-| DEC-002 | ACCEPTED | La evidencia F2 de una llave existente solo se actualiza explícitamente en `LISTO_PARA_DISPENSAR`; el bloqueo posterior no aplica a los bulk updates tipados.                          |
-| DEC-003 | ACCEPTED | `DISPENSADO` solo se alcanza cuando `audit_status = APROBADO`.                                                                                                                          |
-| DEC-004 | ACCEPTED | OLP reporta `fecha_dispensacion` por carga masiva; el sistema usa `DISPENSACION_REPORTADA` hasta aprobación humana.                                                                     |
+| DEC-002 | ACCEPTED | La evidencia F2 de una llave existente solo se actualiza explícitamente en `READY_TO_DISPENSE`; el bloqueo posterior no aplica a los bulk updates tipados.                              |
+| DEC-003 | ACCEPTED | `DISPENSED` solo se alcanza cuando `audit_status = APPROVED`.                                                                                                                           |
+| DEC-004 | ACCEPTED | OLP reporta `fecha_dispensacion` por carga masiva; el sistema usa `DISPENSATION_REPORTED` hasta aprobación humana.                                                                      |
 | DEC-005 | ACCEPTED | Los reportes se envían todos los días a las 08:00 `America/Bogota`, con novedades del día anterior. Los destinatarios son parametrizables.                                              |
-| DEC-006 | ACCEPTED | La auditoría es humana y visual. La aprobación explícita del auditor es condición suficiente para `APROBADO`; no existe aprobación automática.                                         |
+| DEC-006 | ACCEPTED | La auditoría es humana y visual. La aprobación explícita del auditor es condición suficiente para `APPROVED`; no existe aprobación automática.                                          |
 | DEC-007 | ACCEPTED | Medicarte administra soportes directamente en Drive fuera de la aplicación; las exportaciones CSV/XLSX son on-demand y no persistentes.                                                 |
 | DEC-008 | ACCEPTED | Máximo 20 MB por archivo para importaciones y actualizaciones masivas.                                                                                                                  |
 | DEC-009 | ACCEPTED | Despliegue esperado en Render, Google Cloud como alternativa, región requerida Colombia.                                                                                                |
@@ -23,12 +23,9 @@ Estados:
 | DEC-011 | ACCEPTED | Medicarte actualiza masivamente `lugar_dispensacion`; cada asignación o cambio persistido notifica a OLP.                                                                               |
 | DEC-012 | ACCEPTED | Las autorizaciones son registros únicos y compartidos; el alcance se resuelve por usuario, organización, permisos y relación explícita del recurso, sin duplicar `authorization_items`. |
 | DEC-013 | ACCEPTED | Integración de lectura con `WSSUMMIPRESNOPBS` para validar vigencia de direccionamientos. Contrato aceptado en `contracts/MIPRES_DIRECCIONAMIENTOS_CONTRATO.md`; autoriza Fase 3.       |
-| DEC-014 | ACCEPTED | Una actualización explícita permitida recalcula `operation_status`: conserva `LISTO_PARA_DISPENSAR` solo si los prerrequisitos siguen válidos; en caso contrario queda `BLOQUEADO`. |
+| DEC-014 | ACCEPTED | Una actualización explícita permitida recalcula `operation_status`: conserva `READY_TO_DISPENSE` solo si los prerrequisitos siguen válidos; en caso contrario queda `BLOCKED`.          |
 | DEC-015 | ACCEPTED | Un pipeline tipado reutilizable procesa las tres actualizaciones operativas; descargas completas y cargas de llave + un campo.                                                          |
 | DEC-016 | ACCEPTED | La columna `No.PRESCRIPCION` clasifica la cobertura: vacía produce `PBS`, no vacía produce `NO_PBS`; la API MIPRES recibe el valor sin sus últimos 3 dígitos.                           |
-| DEC-017 | ACCEPTED | La reversión de cargues usa hard delete controlado (ADR-023); las notificaciones de creación LISTO/EPS no bloquean y cualquier otra actividad posterior sí bloquea con causal estable. |
-| DEC-018 | ACCEPTED | Solo los registros exclusivamente LISTO_PARA_DISPENSAR sin intervención operativa expiran por FECHA_FINAL_VIGENCIA; los registros con actividad operativa preservan su estado y trazabilidad. |
-| DEC-019 | ACCEPTED | Columnas canónicas de descarga estandarizadas en todas las exportaciones: NUMERO_AUTORIZACION, NUM_DOCUMENTO, NOMBRE_PACIENTE, CDGN001, COD_COMERCIAL, CUPS_AUTORIZADO, CANTIDAD, DOSIS, FECHA_ASIGNACION, FECHA_FINAL_VIGENCIA, ESTADO_AUTORIZACION, No.PRESCRIPCION, más columnas derivadas del proceso; CPRG se omite. |
 
 ---
 
@@ -38,7 +35,7 @@ Estados:
 
 ```text
 current_date(America/Bogota) < fecha_maxima
-    => direction_status = CONFIRMADO
+    => direction_status = CONFIRMED
 ```
 
 La comparación es estricta. Si la fecha actual es igual o superior a `fecha_maxima`, el direccionamiento no es válido.
@@ -62,16 +59,16 @@ Si ya existe y se intenta reemplazar la evidencia de importación F2:
 3. Puede habilitarse una actualización explícita únicamente si:
 
 ```text
-operation_status = LISTO_PARA_DISPENSAR
+operation_status = READY_TO_DISPENSE
 ```
 
 4. Debe bloquearse si:
 
 ```text
-operation_status = DISPENSACION_REPORTADA
+operation_status = DISPENSATION_REPORTED
 ```
 
-o si ya avanzó a `DISPENSADO`.
+o si ya avanzó a `DISPENSED`.
 
 5. La actualización debe conservar auditoría de antes/después, actor, fecha e idempotencia. La evidencia compara las dimensiones F2 normalizadas, referencia las filas de importación anterior y nueva, y enlaza el registro idempotente sin duplicar datos sensibles del archivo en `audit_events`.
 
@@ -81,13 +78,13 @@ Esta decisión no prohíbe las correcciones de `lugar_dispensacion`, `fecha_disp
 
 ---
 
-## DEC-003 — Momento de `DISPENSADO`
+## DEC-003 — Momento de `DISPENSED`
 
 **Estado:** ACCEPTED
 
 ```text
-audit_status = APROBADO
-    => operation_status = DISPENSADO
+audit_status = APPROVED
+    => operation_status = DISPENSED
 ```
 
 ---
@@ -97,16 +94,16 @@ audit_status = APROBADO
 **Estado:** ACCEPTED
 
 ```text
-LISTO_PARA_DISPENSAR
-    -> DISPENSACION_REPORTADA
-    -> DISPENSADO
+READY_TO_DISPENSE
+    -> DISPENSATION_REPORTED
+    -> DISPENSED
 ```
 
 - OLP registra masivamente `fecha_dispensacion` después de recibir `lugar_dispensacion`.
-- La primera persistencia válida de la fecha produce `DISPENSACION_REPORTADA`.
+- La primera persistencia válida de la fecha produce `DISPENSATION_REPORTED`.
 - Una modificación posterior conserva trazabilidad y no retrocede el estado.
 - La auditoría es posterior.
-- Solo `audit_status = APROBADO` produce `DISPENSADO`.
+- Solo `audit_status = APPROVED` produce `DISPENSED`.
 - Un rechazo no elimina el historial operativo ni los soportes externos.
 
 ---
@@ -134,11 +131,11 @@ LISTO_PARA_DISPENSAR
 - La acción humana explícita **Aprobar** produce:
 
 ```text
-audit_status = APROBADO
+audit_status = APPROVED
 ```
 
 - La aprobación habilita:
-  - `operation_status = DISPENSADO`;
+  - `operation_status = DISPENSED`;
   - inclusión en consolidado;
   - derivación de `admission_status = READY`, que habilita la descarga de la base para el proceso de admisión externo.
 - Deben conservarse actor, fecha y decisión.
@@ -242,7 +239,7 @@ Al cambiar una decisión:
 
 **Estado:** ACCEPTED
 
-1. Cuando un registro entra en `LISTO_PARA_DISPENSAR`, se generan notificaciones event-driven a:
+1. Cuando un registro entra en `READY_TO_DISPENSE`, se generan notificaciones event-driven a:
    - OLP;
    - Medicarte.
 2. Medicarte descarga la base completa permitida y define `lugar_dispensacion` mediante carga masiva reducida.
@@ -333,21 +330,21 @@ current_date(America/Bogota) < FecMaxEnt
 
 La igualdad con `FecMaxEnt` no es válida.
 
-Un direccionamiento anulado no puede producir `CONFIRMADO`.
+Un direccionamiento anulado no puede producir `CONFIRMED`.
 
 Resultados internos:
 
 ```text
-CONFIRMADO
-PENDIENTE
-ERROR_DE_CONSULTA
+CONFIRMED
+PENDING
+QUERY_ERROR
 ```
 
-`CONFIRMADO` requiere al menos un direccionamiento vigente.
+`CONFIRMED` requiere al menos un direccionamiento vigente.
 
-`PENDIENTE` representa ausencia de direccionamientos o existencia únicamente de direccionamientos no vigentes.
+`PENDING` representa ausencia de direccionamientos o existencia únicamente de direccionamientos no vigentes.
 
-`ERROR_DE_CONSULTA` representa incapacidad técnica de determinar el resultado.
+`QUERY_ERROR` representa incapacidad técnica de determinar el resultado.
 
 El dominio depende exclusivamente de `MipresPort`.
 
@@ -367,25 +364,25 @@ Con esta decisión queda autorizado implementar el alcance correspondiente de Fa
 
 **Estado:** ACCEPTED
 
-La actualización explícita reemplaza la evidencia de origen y reevalúa las cuatro columnas de negocio de la fila aprobada. Solo puede comenzar cuando el estado actual es `LISTO_PARA_DISPENSAR`, conforme a DEC-002.
+La actualización explícita reemplaza la evidencia de origen y reevalúa las cuatro columnas de negocio de la fila aprobada. Solo puede comenzar cuando el estado actual es `READY_TO_DISPENSE`, conforme a DEC-002.
 
 La pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL` debe coincidir con la llave del ítem existente; sus componentes de identidad no cambian mediante esta acción.
 
 Después de clasificar la nueva fila, la transacción recalcula `operation_status` con la regla pura centralizada:
 
 ```text
-HABILITADO + PBS + NO_APLICA
+ENABLED + PBS + NOT_APPLICABLE
 o
-HABILITADO + NO_PBS + CONFIRMADO
-    => LISTO_PARA_DISPENSAR
+ENABLED + NO_PBS + CONFIRMED
+    => READY_TO_DISPENSE
 
 cualquier otra combinación
-    => BLOQUEADO
+    => BLOCKED
 ```
 
-En Fase 2, `NO_PBS + HABILITADO` tiene direccionamiento `PENDIENTE` porque MIPRES pertenece a Fase 3; por tanto, esa actualización queda `BLOQUEADO` sin realizar llamadas externas. Las actualizaciones posteriores a `DISPENSACION_REPORTADA` o `DISPENSADO` continúan prohibidas.
+En Fase 2, `NO_PBS + ENABLED` tiene direccionamiento `PENDING` porque MIPRES pertenece a Fase 3; por tanto, esa actualización queda `BLOCKED` sin realizar llamadas externas. Las actualizaciones posteriores a `DISPENSATION_REPORTED` o `DISPENSED` continúan prohibidas.
 
-La actualización conserva control de versión, idempotencia y auditoría dentro de la misma transacción. La restricción equivalente en PostgreSQL impide persistir `LISTO_PARA_DISPENSAR` con prerrequisitos incompatibles desde cualquier ruta de escritura.
+La actualización conserva control de versión, idempotencia y auditoría dentro de la misma transacción. La restricción equivalente en PostgreSQL impide persistir `READY_TO_DISPENSE` con prerrequisitos incompatibles desde cualquier ruta de escritura.
 
 ---
 
@@ -394,15 +391,15 @@ La actualización conserva control de versión, idempotencia y auditoría dentro
 **Estado:** ACCEPTED
 
 - Se adopta un único pipeline parametrizado por tipos cerrados, conforme a ADR-022 y SPEC-013.
-- MEDICARTE: `authorization_key` + `lugar_dispensacion`, o `authorization_key` + `fecha_aplicacion_medicamento`; esta última columna externa persiste en el campo de negocio `fecha_aplicacion DATE`.
+- MEDICARTE: llave + `lugar_dispensacion`, o llave + `fecha_aplicacion`.
 - OLP: llave + `fecha_dispensacion`.
 - Las descargas contienen la base completa que el actor pueda consultar; las cargas no reutilizan esa base completa como contrato de escritura.
 - Backend valida esquema exacto, actor, permiso, alcance, estado y campo por fila.
 - Se reutilizan máximo 20 MB, PostgreSQL `BYTEA` temporal, BullMQ con identificadores, staging, causales, auditoría e idempotencia.
 - Los valores vigentes viven en `authorization_items` y los cambios en historial append-only.
 - `lugar_dispensacion` es texto libre; sin validación de estructura de dirección.
-- `fecha_aplicacion` es corregible mientras `audit_status` no sea `APROBADO`; tras la aprobación el campo queda inmutable.
-- La existencia de `fecha_dispensacion` y `fecha_aplicacion` produce `audit_status = LISTO`; la aprobación continúa siendo exclusivamente humana.
+- `fecha_aplicacion` es corregible mientras `audit_status` no sea `APPROVED`; tras la aprobación el campo queda inmutable.
+- La existencia de `fecha_dispensacion` y `fecha_aplicacion` produce `audit_status = READY`; la aprobación continúa siendo exclusivamente humana.
 
 ---
 
@@ -428,66 +425,4 @@ no_prescripcion = No.PRESCRIPCION sin sus ultimos 3 digitos de la derecha
 5. Validación de la columna: si el valor no está vacío debe contener solo dígitos y tener longitud mayor a 3 (para que la truncación sea posible); en caso contrario la fila produce `INVALID_FIELD_FORMAT`.
 6. Se conserva el valor original como evidencia y el valor derivado como dato de negocio que alimenta `MipresPort`.
 7. Las cuatro columnas de negocio de F2 quedan: `NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `ESTADO_AUTORIZACION` y `No.PRESCRIPCION`.
-8. Las reglas previas no cambian: `ESTADO_AUTORIZACION = 5` habilita; PBS usa `direction_status = NO_APLICA`; solo `NO_PBS + HABILITADO` consulta MIPRES; la actualización explícita reevalúa cobertura con esta regla conforme a DEC-014.
-
----
-
-## DEC-017 — Reversión segura de cargues de autorizaciones
-
-**Estado:** ACCEPTED (aprobada por el responsable en sesión de diseño del 2026-08-31; detalle completo en ADR-023)
-
-1. Modelo adoptado: **hard delete controlado**. Se descarta soft delete/invalidación porque el índice único `numero_autorizacion + codigo_medicamento` bloquearía la reimportación de la llave corregida y obligaría a filtrar el flag en todas las lecturas del sistema. La evidencia sobrevive en `import_rows`, `import_source_files` y `audit_events`.
-2. La selección de ítems es exclusivamente por `created_from_batch_id`. Los ítems preexistentes detectados o actualizados por el cargue nunca se eliminan.
-3. Las notificaciones `AUTHORIZATION_READY_TO_DISPENSE` y `EPS_DIRECTION_PENDING`, generadas por la propia confirmación del cargue, **no bloquean** la eliminación (forman parte de la unidad revertida; los correos ya enviados son un riesgo documentado). Cualquier otra notificación del ítem bloquea.
-4. Actividad posterior que bloquea con causal estable: auditoría (`audit_status <> NO_INICIADO` o `audit_reviews`), MIPRES (`mipres_checks`), actualizaciones operativas/logística (`operational_field_changes`, `bulk_update_rows`, `operational_version > 0`, lugar o fechas no nulas), evidencia de origen reemplazada (`coverage_evaluations` v>1) y referencias de cargues posteriores (`import_rows` de otros lotes).
-5. El `import_batch` nunca se elimina: `COMPLETADO → REVIRTIENDO → REVERTIDO` con `reverted_at`, `reverted_by` y contadores; la transacción completa (plan, borrados, estado, auditoría, idempotencia) o rollback total.
-6. Permiso atómico `imports.revert`, únicamente MTD_ADMIN; validado en backend en preview y ejecución.
-7. Auditoría inmutable: `IMPORT_BATCH_REVERTED` y `AUTHORIZATION_ITEM_REMOVED_BY_IMPORT_ROLLBACK`, con correlation ID; sobreviven al borrado del negocio.
-8. Confirmaciones del responsable (sesión del 2026-08-31): no se requiere retractar los correos ya enviados por las notificaciones de creación; la acción de reversión en UI se limita a los lotes de la sesión vigente (no hay reversión de sesiones anteriores).
-
----
-
-## DEC-018 — Expiración solo para registros sin intervención operativa
-
-**Estado:** ACCEPTED
-
-La regla de expiración por `FECHA_FINAL_VIGENCIA` solo se aplica a registros que están exclusivamente en `LISTO_PARA_DISPENSAR` y no han tenido ninguna actividad operativa. Si un registro tuvo cualquier intervención operativa (asignación de lugar, reporte de dispensación, reporte de aplicación, cambio de versión operativa), se preserva su estado y trazabilidad aunque la vigencia haya expirado.
-
-**Criterios de intervención operativa:**
-
-```text
-lugar_dispensacion IS NOT NULL
-or fecha_dispensacion IS NOT NULL
-or fecha_aplicacion IS NOT NULL
-or operational_version > 0
-```
-
-**Implementación:**
-
-1. `deriveOperationStatus` acepta un flag opcional `hasOperationalIntervention: boolean`. Cuando es `true` y el estado derivado sería `VENCIDO`, devuelve `LISTO_PARA_DISPENSAR` en su lugar.
-2. `runExpirationSweep` (worker) excluye registros con intervención operativa del UPDATE.
-3. Los procesadores MIPRES y revalidación tarifaria pasan el flag basándose en los campos del registro.
-
----
-
-## DEC-019 — Columnas canónicas de descarga
-
-**Estado:** ACCEPTED
-
-Todas las exportaciones operativas, consolidadas y de EPS novedades incluyen exactamente las siguientes columnas de origen:
-
-| Columna origen      | Alias de destino     | Descripción                       |
-| ------------------- | -------------------- | --------------------------------- |
-| NUMERO_AUTORIZACION | codigo_autorizacion  | Número de autorización            |
-| NUM_DOCUMENTO       | numero_documento     | Documento del paciente            |
-| NOMBRE_PACIENTE     | nombre_paciente      | Nombre completo del paciente      |
-| COD_COMERCIAL       | codigo_producto      | Código comercial del medicamento  |
-| CUPS_AUTORIZADO     | nombre_producto      | Nombre CUPS del producto          |
-| CANTIDAD            | cantidad             | Cantidad autorizada               |
-| DOSIS               | dosis                | Dosis prescrita                   |
-| FECHA_ASIGNACION    | fecha_asignacion     | Fecha de asignación               |
-| FECHA_FINAL_VIGENCIA| fecha_vigencia       | Fecha final de vigencia           |
-| ESTADO_AUTORIZACION | estado_autorizacion  | Estado original del archivo       |
-| No.PRESCRIPCION     | no_prescripcion      | Número de prescripción            |
-
-A estas columnas se suman las columnas derivadas del proceso: `id`, `authorization_key`, `enablement_status`, `coverage_type`, `direction_status`, `operation_status`, `tariff_membership_status`, `lugar_dispensacion`, `fecha_dispensacion`, `fecha_aplicacion_medicamento`, `audit_status`, `admission_status` (si aplica), `application_site_status`, `operational_version`, `version`, `created_at`, `updated_at`, y columnas específicas de EPS (`resultado_validacion`, `causal`, `detalle_novedad`).
+8. Las reglas previas no cambian: `ESTADO_AUTORIZACION = 5` habilita; PBS usa `direction_status = NOT_APPLICABLE`; solo `NO_PBS + ENABLED` consulta MIPRES; la actualización explícita reevalúa cobertura con esta regla conforme a DEC-014.

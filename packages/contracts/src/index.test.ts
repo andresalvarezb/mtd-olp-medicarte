@@ -1,38 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   admissionStatusSchema,
-  applicationDateStatusSchema,
-  applicationSiteStatusSchema,
-  auditStatusSchema,
   auditReviewResponseSchema,
   authorizationImportJobSchema,
   authorizationItemListQuerySchema,
   bulkUpdateOperationContracts,
   bulkUpdateOperationTypeSchema,
-  bulkUpdateJobSchema,
   bulkUpdateRowResultCodeSchema,
   confirmImportResponseSchema,
   consolidatedExportQuerySchema,
   enabledBulkUpdateOperationTypes,
   foundationJobSchema,
   importBatchResponseSchema,
-  importBatchStatusSchema,
-  importReversalBlockReasonSchema,
-  importReversalPreviewResponseSchema,
   importRowResultCodeSchema,
-  enablementStatusSchema,
-  directionStatusSchema,
-  operationStatusSchema,
-  tariffMembershipStatusSchema,
-  bulkUpdateBatchStatusSchema,
-  notificationStatusSchema,
-  pendingUserStatusSchema,
-  tariffImportBatchStatusSchema,
   notificationJobSchema,
   notificationRecipientOrganizations,
   operationalIndicatorsResponseSchema,
   rejectAuditReviewRequestSchema,
-  revertImportResponseSchema,
 } from './index';
 
 describe('foundationJobSchema', () => {
@@ -42,53 +26,6 @@ describe('foundationJobSchema', () => {
 });
 
 describe('phase two contracts', () => {
-  it('expone estados en español y rechaza los valores anteriores', () => {
-    expect(enablementStatusSchema.options).toEqual([
-      'HABILITADO',
-      'BLOQUEADO_POR_ESTADO_ORIGEN',
-    ]);
-    expect(directionStatusSchema.options).toEqual([
-      'NO_APLICA',
-      'PENDIENTE',
-      'CONFIRMADO',
-      'ERROR_DE_CONSULTA',
-    ]);
-    expect(operationStatusSchema.options).toEqual([
-      'BLOQUEADO',
-      'LISTO_PARA_DISPENSAR',
-      'DISPENSACION_REPORTADA',
-      'DISPENSADO',
-      'VENCIDO',
-    ]);
-    expect(auditStatusSchema.options).toEqual([
-      'NO_INICIADO',
-      'LISTO',
-      'EN_REVISION',
-      'RECHAZADO',
-      'APROBADO',
-    ]);
-    expect(applicationSiteStatusSchema.options).toEqual(['PENDIENTE_ASIGNACION', 'ASIGNADO']);
-    expect(applicationDateStatusSchema.options).toEqual(['FALTANTE', 'PRESENTE']);
-    expect(tariffMembershipStatusSchema.options).toEqual(['NO_EVALUADO', 'LISTADO', 'NO_LISTADO']);
-    expect(bulkUpdateBatchStatusSchema.options).toEqual([
-      'CARGADO',
-      'EN_COLA',
-      'PROCESANDO',
-      'COMPLETADO',
-      'FALLIDO',
-    ]);
-    expect(notificationStatusSchema.options).toEqual(['PENDIENTE', 'ENVIADO', 'FALLIDO', 'OMITIDO']);
-    expect(pendingUserStatusSchema.options).toEqual(['PENDIENTE', 'APROBADO', 'RECHAZADO']);
-    expect(tariffImportBatchStatusSchema.options).toEqual([
-      'CARGADO',
-      'VALIDANDO',
-      'COMPLETADO',
-      'FALLIDO',
-    ]);
-    expect(importBatchStatusSchema.safeParse('UPLOADED').success).toBe(false);
-    expect(operationStatusSchema.safeParse('READY_TO_DISPENSE').success).toBe(false);
-  });
-
   it('accepts a versioned import job and only approved row result codes', () => {
     const id = '10000000-0000-4000-8000-000000000001';
     expect(
@@ -111,61 +48,10 @@ describe('phase two contracts', () => {
     expect(importRowResultCodeSchema.safeParse('TECHNICAL_EXCEPTION_MESSAGE').success).toBe(false);
   });
 
-  it('mantiene el catálogo cerrado de causales de reversión de cargues (ADR-023)', () => {
-    expect(importBatchStatusSchema.safeParse('REVERTIDO').success).toBe(true);
-    expect(importBatchStatusSchema.safeParse('REVIRTIENDO').success).toBe(true);
-    expect(importBatchStatusSchema.safeParse('DELETED').success).toBe(false);
-    expect(importReversalBlockReasonSchema.safeParse('ITEM_HAS_AUDIT_ACTIVITY').success).toBe(true);
-    expect(importReversalBlockReasonSchema.safeParse('UNKNOWN_REASON').success).toBe(false);
-    const preview = importReversalPreviewResponseSchema.parse({
-      batchId: '10000000-0000-4000-8000-000000000001',
-      batchStatus: 'COMPLETADO',
-      originalFilename: 'cargue.csv',
-      createdAt: '2026-08-31T12:00:00.000Z',
-      createdBy: '10000000-0000-4000-8000-000000000001',
-      createdByEmail: 'admin@example.test',
-      createdByName: 'Foundation Admin',
-      totalRows: 2,
-      confirmedRows: 2,
-      rejectedRows: 0,
-      duplicateRows: 0,
-      existingRows: 0,
-      alreadyReverted: false,
-      revertedAt: null,
-      revertedRemovedItems: 0,
-      revertedBlockedItems: 0,
-      itemsCreatedByBatch: 2,
-      itemsEligibleForRemoval: 1,
-      itemsBlocked: 1,
-      blockedReasonCounts: [{ reason: 'ITEM_HAS_AUDIT_ACTIVITY', count: 1 }],
-      blockedItems: [
-        {
-          itemId: '10000000-0000-4000-8000-000000000001',
-          authorizationKey: 'AUTH-1:MED-1',
-          reasons: ['ITEM_HAS_AUDIT_ACTIVITY'],
-        },
-      ],
-      blockedItemsTruncated: false,
-    });
-    expect(preview.itemsBlocked).toBe(1);
-    const revert = revertImportResponseSchema.parse({
-      batchId: '10000000-0000-4000-8000-000000000001',
-      status: 'REVERTIDO',
-      alreadyReverted: false,
-      evaluatedItems: 2,
-      removedItems: 1,
-      blockedItems: 1,
-      blockedItemsDetail: [],
-      blockedItemsTruncated: false,
-      revertedAt: '2026-08-31T12:05:00.000Z',
-    });
-    expect(revert.status).toBe('REVERTIDO');
-  });
-
   it('requires a stable nullable import error code and ISO datetimes', () => {
     const batch = {
       id: '10000000-0000-4000-8000-000000000001',
-      status: 'FALLIDO',
+      status: 'FAILED',
       originalFilename: 'authorizations.csv',
       mimeType: 'text/csv',
       sizeBytes: 100,
@@ -194,7 +80,7 @@ describe('phase two contracts', () => {
     expect(
       confirmImportResponseSchema.safeParse({
         batchId: batch.id,
-        status: 'COMPLETADO',
+        status: 'COMPLETED',
         createdRows: 1,
         existingRows: 0,
         confirmedAt: 'not-a-date',
@@ -223,8 +109,7 @@ describe('phase four and five contracts', () => {
     expect(bulkUpdateOperationContracts.REPORT_APPLICATION_DATE).toMatchObject({
       actorOrganizationCode: 'MEDICARTE',
       mutableField: 'fecha_aplicacion',
-      valueColumn: 'fecha_aplicacion_medicamento',
-      requiredColumns: ['authorization_key', 'fecha_aplicacion_medicamento'],
+      requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'fecha_aplicacion'],
     });
   });
 
@@ -236,25 +121,6 @@ describe('phase four and five contracts', () => {
     expect(bulkUpdateOperationContracts.REPORT_APPLICATION_DATE.permission).toBe(
       'bulk_updates.application_date',
     );
-  });
-
-  it('permite consumir jobs v2 pendientes para cerrarlos de forma controlada', () => {
-    const id = '10000000-0000-4000-8000-000000000001';
-    expect(
-      bulkUpdateJobSchema.parse({
-        name: 'authorization.bulk-update',
-        version: 2,
-        payload: {
-          eventId: id,
-          batchId: id,
-          contractVersion: 2,
-          correlationId: id,
-          idempotencyKey: 'legacy-v2',
-        },
-        correlationId: id,
-        idempotencyKey: 'legacy-v2',
-      }).version,
-    ).toBe(2);
   });
 
   it('conserva las causales estables de SPEC-013', () => {
@@ -316,7 +182,7 @@ describe('phase six contracts', () => {
     id: uuid,
     authorizationItemId: uuid,
     reviewNumber: 1,
-    status: 'EN_REVISION',
+    status: 'IN_REVIEW',
     observations: null,
     decidedBy: null,
     decidedAt: null,
@@ -326,7 +192,7 @@ describe('phase six contracts', () => {
   };
 
   it('valida la revision de auditoria con hallazgos trazables', () => {
-    expect(auditReviewResponseSchema.parse(review).status).toBe('EN_REVISION');
+    expect(auditReviewResponseSchema.parse(review).status).toBe('IN_REVIEW');
     expect(
       auditReviewResponseSchema.safeParse({
         ...review,
@@ -341,7 +207,7 @@ describe('phase six contracts', () => {
       }).success,
     ).toBe(true);
     expect(auditReviewResponseSchema.safeParse({ ...review, reviewNumber: 0 }).success).toBe(false);
-    expect(auditReviewResponseSchema.safeParse({ ...review, status: 'PENDIENTE' }).success).toBe(
+    expect(auditReviewResponseSchema.safeParse({ ...review, status: 'PENDING' }).success).toBe(
       false,
     );
   });
@@ -357,35 +223,30 @@ describe('phase six contracts', () => {
   });
 
   it('filtra la bandeja por auditStatus y deriva admissionStatus cerrado', () => {
-    expect(authorizationItemListQuerySchema.parse({ auditStatus: 'LISTO' }).auditStatus).toBe(
-      'LISTO',
+    expect(authorizationItemListQuerySchema.parse({ auditStatus: 'READY' }).auditStatus).toBe(
+      'READY',
     );
-    expect(authorizationItemListQuerySchema.safeParse({ auditStatus: 'PENDIENTE' }).success).toBe(
+    expect(authorizationItemListQuerySchema.safeParse({ auditStatus: 'PENDING' }).success).toBe(
       false,
     );
     expect(
-      authorizationItemListQuerySchema.parse({ applicationSiteStatus: 'ASIGNADO' })
+      authorizationItemListQuerySchema.parse({ applicationSiteStatus: 'ASSIGNED' })
         .applicationSiteStatus,
-    ).toBe('ASIGNADO');
+    ).toBe('ASSIGNED');
     expect(
       authorizationItemListQuerySchema.safeParse({ applicationSiteStatus: 'OTHER' }).success,
     ).toBe(false);
-    expect(
-      authorizationItemListQuerySchema.parse({ applicationDateStatus: 'PRESENTE' })
-        .applicationDateStatus,
-    ).toBe('PRESENTE');
-    expect(applicationDateStatusSchema.safeParse('OTHER').success).toBe(false);
-    expect(admissionStatusSchema.options).toEqual(['NO_LISTO', 'LISTO']);
+    expect(admissionStatusSchema.options).toEqual(['NOT_READY', 'READY']);
   });
 
   it('valida indicadores operativos derivados', () => {
     const indicators = operationalIndicatorsResponseSchema.parse({
-      byAuditStatus: { NO_INICIADO: 1, LISTO: 2, EN_REVISION: 0, RECHAZADO: 0, APROBADO: 3 },
+      byAuditStatus: { NOT_STARTED: 1, READY: 2, IN_REVIEW: 0, REJECTED: 0, APPROVED: 3 },
       byOperationStatus: {
-        BLOQUEADO: 0,
-        LISTO_PARA_DISPENSAR: 1,
-        DISPENSACION_REPORTADA: 2,
-        DISPENSADO: 3,
+        BLOCKED: 0,
+        READY_TO_DISPENSE: 1,
+        DISPENSATION_REPORTED: 2,
+        DISPENSED: 3,
       },
       byCoverageType: { UNCLASSIFIED: 0, PBS: 4, NO_PBS: 2 },
       pendingDispensationLocation: 1,

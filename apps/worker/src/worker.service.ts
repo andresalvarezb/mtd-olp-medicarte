@@ -28,19 +28,11 @@ import {
   NOTIFICATION_JOB_OPTIONS,
   NOTIFICATIONS_QUEUE,
   notificationJobSchema,
-  TARIFF_ANNEX_DEAD_LETTER_QUEUE,
-  TARIFF_ANNEX_JOB_NAME,
-  TARIFF_ANNEX_JOB_OPTIONS,
-  TARIFF_ANNEX_QUEUE,
-  tariffAnnexRevalidationJobSchema,
-  tariffImportJobSchema,
   type AuthorizationImportJob,
   type BulkUpdateJob,
   type FoundationJob,
   type MipresRecheckJob,
   type NotificationJob,
-  type TariffAnnexRevalidationJob,
-  type TariffImportJob,
 } from '@authorization/contracts';
 import { currentBogotaDate, type MipresPort } from '@authorization/domain';
 import { jobResults, notifications, outboxEvents } from '@authorization/database';
@@ -67,11 +59,6 @@ import {
   type NotificationProcessingResult,
 } from './notifications/notification-processor';
 import { GmailApiAdapter, GmailFakeAdapter } from './notifications/gmail-adapter';
-import { TariffImportProcessor, type TariffImportProcessingResult } from './tariff/tariff-import-processor';
-import {
-  TariffRevalidationProcessor,
-  type TariffRevalidationResult,
-} from './tariff/tariff-revalidation-processor';
 
 type Database = ReturnType<typeof createDatabase>;
 type WorkerJob =
@@ -79,10 +66,7 @@ type WorkerJob =
   | AuthorizationImportJob
   | MipresRecheckJob
   | NotificationJob
-  | BulkUpdateJob
-  | TariffImportJob
-  | TariffAnnexRevalidationJob;
-type TariffQueueJob = TariffImportJob | TariffAnnexRevalidationJob;
+  | BulkUpdateJob;
 type QueueJob = WorkerJob;
 type OutboxRow = {
   id: string;
@@ -110,31 +94,25 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private readonly mipresQueue: Queue<MipresRecheckJob>;
   private readonly notificationQueue: Queue<NotificationJob>;
   private readonly bulkQueue: Queue<BulkUpdateJob>;
-  private readonly tariffQueue: Queue<TariffQueueJob>;
   private readonly foundationDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly importDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly mipresDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly notificationDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly bulkDeadLetterQueue: Queue<DeadLetterJob>;
-  private readonly tariffDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly foundationQueueEvents: QueueEvents;
   private readonly importQueueEvents: QueueEvents;
   private readonly mipresQueueEvents: QueueEvents;
   private readonly notificationQueueEvents: QueueEvents;
   private readonly bulkQueueEvents: QueueEvents;
-  private readonly tariffQueueEvents: QueueEvents;
   private readonly foundationWorker: Worker<FoundationJob>;
   private readonly importWorker: Worker<AuthorizationImportJob>;
   private readonly mipresWorker: Worker<MipresRecheckJob>;
   private readonly notificationWorker: Worker<NotificationJob>;
   private readonly bulkWorker: Worker<BulkUpdateJob>;
-  private readonly tariffWorker: Worker<TariffQueueJob>;
   private readonly importProcessor: ImportProcessor;
   private readonly mipresProcessor: MipresProcessor;
   private readonly notificationProcessor: NotificationProcessor;
   private readonly bulkProcessor: BulkUpdateProcessor;
-  private readonly tariffImportProcessor: TariffImportProcessor;
-  private readonly tariffRevalidationProcessor: TariffRevalidationProcessor;
   private timer?: NodeJS.Timeout;
   private autoRevalidationTimer?: NodeJS.Timeout;
   private dailyReportTimer?: NodeJS.Timeout;
@@ -171,9 +149,6 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     this.bulkQueue = new Queue<BulkUpdateJob>(BULK_UPDATES_QUEUE, {
       connection: this.connection,
     });
-    this.tariffQueue = new Queue<TariffQueueJob>(TARIFF_ANNEX_QUEUE, {
-      connection: this.connection,
-    });
     this.foundationDeadLetterQueue = new Queue<DeadLetterJob>(FOUNDATION_DEAD_LETTER_QUEUE, {
       connection: this.connection,
     });
@@ -189,9 +164,6 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     this.bulkDeadLetterQueue = new Queue<DeadLetterJob>(BULK_UPDATES_DEAD_LETTER_QUEUE, {
       connection: this.connection,
     });
-    this.tariffDeadLetterQueue = new Queue<DeadLetterJob>(TARIFF_ANNEX_DEAD_LETTER_QUEUE, {
-      connection: this.connection,
-    });
     this.foundationQueueEvents = new QueueEvents(FOUNDATION_QUEUE, { connection: this.connection });
     this.importQueueEvents = new QueueEvents(IMPORT_QUEUE, { connection: this.connection });
     this.mipresQueueEvents = new QueueEvents(MIPRES_QUEUE, { connection: this.connection });
@@ -199,7 +171,6 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       connection: this.connection,
     });
     this.bulkQueueEvents = new QueueEvents(BULK_UPDATES_QUEUE, { connection: this.connection });
-    this.tariffQueueEvents = new QueueEvents(TARIFF_ANNEX_QUEUE, { connection: this.connection });
     this.importProcessor = new ImportProcessor(database, config);
     const mipresTokenProvider = new MipresTokenProvider(config);
     const mipresPort: MipresPort =
@@ -218,8 +189,6 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
           );
     this.notificationProcessor = new NotificationProcessor(database, gmailPort);
     this.bulkProcessor = new BulkUpdateProcessor(database);
-    this.tariffImportProcessor = new TariffImportProcessor(database);
-    this.tariffRevalidationProcessor = new TariffRevalidationProcessor(database);
     this.foundationWorker = new Worker<FoundationJob>(
       FOUNDATION_QUEUE,
       (job) => this.processFoundation(job),
@@ -260,17 +229,6 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         concurrency: config.BULK_QUEUE_CONCURRENCY,
       },
     );
-    this.tariffWorker = new Worker<TariffQueueJob>(
-      TARIFF_ANNEX_QUEUE,
-      (job) =>
-        job.data.name === 'tariff.import'
-          ? this.processTariffImport(job as Job<TariffImportJob>)
-          : this.processTariffRevalidation(job as Job<TariffAnnexRevalidationJob>),
-      {
-        connection: this.connection,
-        concurrency: 2,
-      },
-    );
   }
 
   onModuleInit(): void {
@@ -304,18 +262,11 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         'job completed',
       );
     });
-    this.tariffWorker.on('completed', (job) => {
-      this.logger.info(
-        { jobId: job.id, correlationId: job.data?.correlationId, queue: TARIFF_ANNEX_QUEUE },
-        'job completed',
-      );
-    });
     this.foundationWorker.on('error', (error) => this.handleWorkerError(error));
     this.importWorker.on('error', (error) => this.handleWorkerError(error));
     this.mipresWorker.on('error', (error) => this.handleWorkerError(error));
     this.notificationWorker.on('error', (error) => this.handleWorkerError(error));
     this.bulkWorker.on('error', (error) => this.handleWorkerError(error));
-    this.tariffWorker.on('error', (error) => this.handleWorkerError(error));
     this.foundationQueueEvents.on('failed', ({ jobId, failedReason }) => {
       void this.moveToDeadLetterWhenExhausted(
         this.foundationQueue,
@@ -357,15 +308,6 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         this.bulkQueue,
         this.bulkDeadLetterQueue,
         BULK_UPDATES_QUEUE,
-        jobId,
-        failedReason,
-      );
-    });
-    this.tariffQueueEvents.on('failed', ({ jobId, failedReason }) => {
-      void this.moveToDeadLetterWhenExhausted(
-        this.tariffQueue,
-        this.tariffDeadLetterQueue,
-        TARIFF_ANNEX_QUEUE,
         jobId,
         failedReason,
       );
@@ -441,7 +383,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       const result = await client.query<OutboxRow>(
         `select id, event_type, version, payload, correlation_id, idempotency_key
          from outbox_events
-          where (status = 'PENDIENTE' or (status = 'DESPACHADO' and dispatched_at < now() - interval '30 seconds'))
+         where (status = 'PENDING' or (status = 'DISPATCHED' and dispatched_at < now() - interval '30 seconds'))
            and available_at <= now()
          order by created_at
          limit 1
@@ -525,35 +467,9 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         );
         return true;
       }
-      const tariffImport = tariffImportJobSchema.safeParse(sharedInput);
-      if (tariffImport.success) {
-        await this.enqueueOutboxJob(
-          client,
-          event,
-          TARIFF_ANNEX_QUEUE,
-          TARIFF_ANNEX_JOB_NAME,
-          this.tariffQueue,
-          tariffImport.data,
-          TARIFF_ANNEX_JOB_OPTIONS,
-        );
-        return true;
-      }
-      const tariffRevalidation = tariffAnnexRevalidationJobSchema.safeParse(sharedInput);
-      if (tariffRevalidation.success) {
-        await this.enqueueOutboxJob(
-          client,
-          event,
-          TARIFF_ANNEX_QUEUE,
-          TARIFF_ANNEX_JOB_NAME,
-          this.tariffQueue,
-          tariffRevalidation.data,
-          TARIFF_ANNEX_JOB_OPTIONS,
-        );
-        return true;
-      }
 
       await client.query(
-        `update outbox_events set status = 'FALLIDO', attempts = attempts + 1, last_error = $2 where id = $1`,
+        `update outbox_events set status = 'FAILED', attempts = attempts + 1, last_error = $2 where id = $1`,
         [event.id, 'Non-retryable outbox contract validation failure'],
       );
       await client.query('commit');
@@ -595,7 +511,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     );
     if (persistedResult.rowCount) {
       await client.query(
-        `update outbox_events set status = 'PROCESADO', processed_at = now(), last_error = null where id = $1`,
+        `update outbox_events set status = 'PROCESSED', processed_at = now(), last_error = null where id = $1`,
         [event.id],
       );
       await client.query('commit');
@@ -607,8 +523,8 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       const state = await existingJob.getState();
       await client.query(
         state === 'failed' || state === 'completed'
-          ? `update outbox_events set status = 'FALLIDO', last_error = $2 where id = $1`
-          : `update outbox_events set status = 'DESPACHADO', dispatched_at = now() where id = $1`,
+          ? `update outbox_events set status = 'FAILED', last_error = $2 where id = $1`
+          : `update outbox_events set status = 'DISPATCHED', dispatched_at = now() where id = $1`,
         [
           event.id,
           state === 'failed'
@@ -624,7 +540,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
 
     await queue.add(jobName, data as Parameters<Queue<T>['add']>[1], { ...options, jobId });
     await client.query(
-      `update outbox_events set status = 'DESPACHADO', dispatched_at = now(), attempts = attempts + 1 where id = $1`,
+      `update outbox_events set status = 'DISPATCHED', dispatched_at = now(), attempts = attempts + 1 where id = $1`,
       [event.id],
     );
     await client.query('commit');
@@ -646,7 +562,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
 
     await this.database.db
       .update(outboxEvents)
-      .set({ status: 'PROCESADO', processedAt: new Date(), lastError: null })
+      .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
       .where(eq(outboxEvents.id, job.payload.eventId));
 
     this.logger.info(
@@ -683,7 +599,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       .returning({ id: jobResults.id });
     await this.database.db
       .update(outboxEvents)
-      .set({ status: 'PROCESADO', processedAt: new Date(), lastError: null })
+      .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
       .where(eq(outboxEvents.id, job.payload.eventId));
     this.logger.info(
       {
@@ -714,7 +630,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       .returning({ id: jobResults.id });
     await this.database.db
       .update(outboxEvents)
-      .set({ status: 'PROCESADO', processedAt: new Date(), lastError: null })
+      .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
       .where(eq(outboxEvents.id, job.payload.eventId));
     this.logger.info(
       {
@@ -746,7 +662,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       .onConflictDoNothing();
     await this.database.db
       .update(outboxEvents)
-      .set({ status: 'PROCESADO', processedAt: new Date(), lastError: null })
+      .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
       .where(eq(outboxEvents.id, job.payload.eventId));
     this.logger.info(
       {
@@ -757,72 +673,6 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         status: result.status,
       },
       'notification processed',
-    );
-    return { processed: true };
-  }
-
-  private async processTariffImport(rawJob: Job<TariffImportJob>): Promise<{ processed: true }> {
-    const job = tariffImportJobSchema.parse(rawJob.data);
-    const result: TariffImportProcessingResult = await this.tariffImportProcessor.process(job);
-    await this.database.db
-      .insert(jobResults)
-      .values({
-        queue: TARIFF_ANNEX_QUEUE,
-        jobName: TARIFF_ANNEX_JOB_NAME,
-        idempotencyKey: job.idempotencyKey,
-        result,
-        correlationId: job.correlationId,
-      })
-      .onConflictDoNothing();
-    await this.database.db
-      .update(outboxEvents)
-      .set({ status: 'PROCESADO', processedAt: new Date(), lastError: null })
-      .where(eq(outboxEvents.id, job.payload.eventId));
-    this.logger.info(
-      {
-        jobId: rawJob.id,
-        correlationId: job.correlationId,
-        queue: TARIFF_ANNEX_QUEUE,
-        batchId: job.payload.batchId,
-        status: result.status,
-        createdRows: result.createdRows,
-      },
-      'tariff annex import processed',
-    );
-    return { processed: true };
-  }
-
-  private async processTariffRevalidation(
-    rawJob: Job<TariffAnnexRevalidationJob>,
-  ): Promise<{ processed: true }> {
-    const job = tariffAnnexRevalidationJobSchema.parse(rawJob.data);
-    const result: TariffRevalidationResult =
-      await this.tariffRevalidationProcessor.process(job);
-    await this.database.db
-      .insert(jobResults)
-      .values({
-        queue: TARIFF_ANNEX_QUEUE,
-        jobName: TARIFF_ANNEX_JOB_NAME,
-        idempotencyKey: job.idempotencyKey,
-        result,
-        correlationId: job.correlationId,
-      })
-      .onConflictDoNothing();
-    await this.database.db
-      .update(outboxEvents)
-      .set({ status: 'PROCESADO', processedAt: new Date(), lastError: null })
-      .where(eq(outboxEvents.id, job.payload.eventId));
-    this.logger.info(
-      {
-        jobId: rawJob.id,
-        correlationId: job.correlationId,
-        queue: TARIFF_ANNEX_QUEUE,
-        tariffProductId: job.payload.tariffProductId,
-        codigoProducto: job.payload.codigoProducto,
-        revalidatedItems: result.revalidatedItems,
-        becameReadyItems: result.becameReadyItems,
-      },
-      'tariff annex revalidation processed',
     );
     return { processed: true };
   }
@@ -843,7 +693,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       .returning({ id: jobResults.id });
     await this.database.db
       .update(outboxEvents)
-      .set({ status: 'PROCESADO', processedAt: new Date(), lastError: null })
+      .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
       .where(eq(outboxEvents.id, job.payload.eventId));
     this.logger.info(
       {
@@ -927,13 +777,9 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /**
-   * Vencimiento por FECHA_FINAL_VIGENCIA: los registros LISTO_PARA_DISPENSAR cuya
+   * Vencimiento por FECHA_FINAL_VIGENCIA: los registros READY_TO_DISPENSE cuya
    * vigencia ya pasó (comparada contra la fecha del sistema en America/Bogota)
-   * pasan a VENCIDO. Se ejecuta una vez por día calendario.
-   *
-   * DEC-018: solo se degradan registros sin intervención operativa. Aquellos
-   * con lugar, dispensación o aplicación asignados preservan su estado para
-   * mantener la trazabilidad del proceso.
+   * pasan a EXPIRED. Se ejecuta una vez por día calendario.
    */
   private async runExpirationSweep(): Promise<void> {
     if (this.expirationSweeping) return;
@@ -943,16 +789,10 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       if (this.lastExpirationSweepDate === today) return;
       const result = await this.database.pool.query<{ id: string }>(
         `update authorization_items
-          set operation_status = 'VENCIDO', version = version + 1, updated_at = now()
-          where operation_status = 'LISTO_PARA_DISPENSAR'
+         set operation_status = 'EXPIRED', version = version + 1, updated_at = now()
+         where operation_status = 'READY_TO_DISPENSE'
            and (source_data->>'FECHA_FINAL_VIGENCIA') ~ '^[0-9]{8}$'
            and to_date(source_data->>'FECHA_FINAL_VIGENCIA', 'YYYYMMDD') < $1::date
-           and not (
-             lugar_dispensacion is not null
-             or fecha_dispensacion is not null
-             or fecha_aplicacion is not null
-             or operational_version > 0
-           )
          returning id`,
         [today],
       );
@@ -979,8 +819,8 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
           `select i.id, i.no_prescripcion
            from authorization_items i
            where i.coverage_type = 'NO_PBS'
-             and i.enablement_status = 'HABILITADO'
-             and i.direction_status = 'PENDIENTE'
+             and i.enablement_status = 'ENABLED'
+             and i.direction_status = 'PENDING'
              and i.no_prescripcion <> ''
            order by i.updated_at
            limit $1`,
@@ -1050,16 +890,16 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       // SPEC-004: fallo visible en la bandeja administrativa y reintentable.
       await this.database.db
         .update(notifications)
-        .set({ status: 'FALLIDO', lastError: failedReason.slice(0, 500) })
+        .set({ status: 'FAILED', lastError: failedReason.slice(0, 500) })
         .where(eq(notifications.idempotencyKey, notificationJob.data.payload.idempotencyKey));
       await this.database.db
         .update(outboxEvents)
-        .set({ status: 'FALLIDO', lastError: failedReason })
+        .set({ status: 'FAILED', lastError: failedReason })
         .where(eq(outboxEvents.id, notificationJob.data.payload.eventId));
     } else {
       await this.database.db
         .update(outboxEvents)
-        .set({ status: 'FALLIDO', lastError: failedReason })
+        .set({ status: 'FAILED', lastError: failedReason })
         .where(eq(outboxEvents.id, this.eventIdForJob(job.data)));
     }
     await deadLetterQueue.add(
@@ -1092,7 +932,6 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       this.mipresWorker.close(),
       this.notificationWorker.close(),
       this.bulkWorker.close(),
-      this.tariffWorker.close(),
     ]);
     await Promise.all([
       this.foundationQueueEvents.close(),
@@ -1100,7 +939,6 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       this.mipresQueueEvents.close(),
       this.notificationQueueEvents.close(),
       this.bulkQueueEvents.close(),
-      this.tariffQueueEvents.close(),
     ]);
     await Promise.all([
       this.foundationQueue.close(),
@@ -1108,13 +946,11 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       this.mipresQueue.close(),
       this.notificationQueue.close(),
       this.bulkQueue.close(),
-      this.tariffQueue.close(),
       this.foundationDeadLetterQueue.close(),
       this.importDeadLetterQueue.close(),
       this.mipresDeadLetterQueue.close(),
       this.notificationDeadLetterQueue.close(),
       this.bulkDeadLetterQueue.close(),
-      this.tariffDeadLetterQueue.close(),
     ]);
     await this.connection.quit();
     await this.database.pool.end();

@@ -1,15 +1,13 @@
 import { apiRequest } from './api-client';
 
 export type ImportBatchStatus =
-  | 'CARGADO'
-  | 'VALIDANDO'
-  | 'LISTO_PARA_CONFIRMAR'
-  | 'CONFIRMANDO'
-  | 'COMPLETADO'
-  | 'FALLIDO'
-  | 'CANCELADO'
-  | 'REVIRTIENDO'
-  | 'REVERTIDO';
+  | 'UPLOADED'
+  | 'VALIDATING'
+  | 'READY_TO_CONFIRM'
+  | 'CONFIRMING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
 
 export interface ImportBatch {
   id: string;
@@ -48,7 +46,7 @@ export interface ImportRowsPage {
 
 export interface ImportConfirmResult {
   batchId: string;
-  status: 'COMPLETADO';
+  status: 'COMPLETED';
   createdRows: number;
   existingRows: number;
   confirmedAt: string;
@@ -71,11 +69,7 @@ export function createImport(
   });
 }
 
-export function getImportBatch(
-  id: string,
-  organizationId: string,
-  signal?: AbortSignal,
-): Promise<ImportBatch> {
+export function getImportBatch(id: string, organizationId: string, signal?: AbortSignal): Promise<ImportBatch> {
   return apiRequest<ImportBatch>(`/imports/${id}`, { organizationId, signal });
 }
 
@@ -88,10 +82,7 @@ export function getImportRows(
   const params = new URLSearchParams();
   if (query?.cursor) params.set('cursor', query.cursor);
   params.set('limit', String(query?.limit ?? 50));
-  return apiRequest<ImportRowsPage>(`/imports/${id}/rows?${params.toString()}`, {
-    organizationId,
-    signal,
-  });
+  return apiRequest<ImportRowsPage>(`/imports/${id}/rows?${params.toString()}`, { organizationId, signal });
 }
 
 export function confirmImport(
@@ -101,83 +92,6 @@ export function confirmImport(
   signal?: AbortSignal,
 ): Promise<ImportConfirmResult> {
   return apiRequest<ImportConfirmResult>(`/imports/${id}/confirm`, {
-    method: 'POST',
-    organizationId,
-    body: '{}',
-    idempotencyKey,
-    signal,
-  });
-}
-
-export type ImportReversalBlockReason =
-  | 'ITEM_HAS_AUDIT_ACTIVITY'
-  | 'ITEM_HAS_MIPRES_ACTIVITY'
-  | 'ITEM_HAS_OPERATIONAL_UPDATES'
-  | 'ITEM_HAS_NOTIFICATIONS'
-  | 'ITEM_HAS_UPDATED_SOURCE_EVIDENCE'
-  | 'ITEM_REFERENCED_BY_LATER_IMPORT';
-
-export interface ImportReversalBlockedItem {
-  itemId: string;
-  authorizationKey: string;
-  reasons: ImportReversalBlockReason[];
-}
-
-export interface ImportReversalPreview {
-  batchId: string;
-  batchStatus: ImportBatchStatus;
-  originalFilename: string;
-  createdAt: string;
-  createdBy: string;
-  createdByEmail: string;
-  createdByName: string | null;
-  totalRows: number;
-  confirmedRows: number;
-  rejectedRows: number;
-  duplicateRows: number;
-  existingRows: number;
-  alreadyReverted: boolean;
-  revertedAt: string | null;
-  revertedRemovedItems: number;
-  revertedBlockedItems: number;
-  itemsCreatedByBatch: number;
-  itemsEligibleForRemoval: number;
-  itemsBlocked: number;
-  blockedReasonCounts: Array<{ reason: ImportReversalBlockReason; count: number }>;
-  blockedItems: ImportReversalBlockedItem[];
-  blockedItemsTruncated: boolean;
-}
-
-export interface ImportRevertResult {
-  batchId: string;
-  status: 'REVERTIDO';
-  alreadyReverted: boolean;
-  evaluatedItems: number;
-  removedItems: number;
-  blockedItems: number;
-  blockedItemsDetail: ImportReversalBlockedItem[];
-  blockedItemsTruncated: boolean;
-  revertedAt: string;
-}
-
-export function getReversalPreview(
-  id: string,
-  organizationId: string,
-  signal?: AbortSignal,
-): Promise<ImportReversalPreview> {
-  return apiRequest<ImportReversalPreview>(`/imports/${id}/reversal-preview`, {
-    organizationId,
-    signal,
-  });
-}
-
-export function revertImport(
-  id: string,
-  organizationId: string,
-  idempotencyKey: string,
-  signal?: AbortSignal,
-): Promise<ImportRevertResult> {
-  return apiRequest<ImportRevertResult>(`/imports/${id}/revert`, {
     method: 'POST',
     organizationId,
     body: '{}',

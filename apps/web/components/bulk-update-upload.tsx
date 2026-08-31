@@ -14,6 +14,8 @@ import { resultLabel, BULK_BATCH_STATUS_LABELS, formatNumber } from '@/lib/label
 import { IMPORT_MAX_FILE_BYTES } from '@/lib/config';
 
 const BULK_BATCH_POLL_MS = 1500;
+const REJECTED_ROWS_SHOWN = 5;
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(1)} KB`;
@@ -39,46 +41,31 @@ export function BulkUpdateUpload({
   const [uploading, setUploading] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [batch, setBatch] = useState<BulkUpdateBatch | null>(null);
-  const [resultRows, setResultRows] = useState<BulkUpdateRow[]>([]);
-  const [resultCodeCounts, setResultCodeCounts] = useState<Record<string, number>>({});
-  const [resultCursor, setResultCursor] = useState<string | null>(null);
-  const [resultPage, setResultPage] = useState(0);
-  const [resultError, setResultError] = useState<string | null>(null);
-  const [loadingResults, setLoadingResults] = useState(false);
+  const [rejectedRows, setRejectedRows] = useState<BulkUpdateRow[]>([]);
   const { organizationId } = useRole();
   const idempotencyKeyRef = useRef<string | null>(null);
 
   const completedRef = useRef(onCompleted);
   completedRef.current = onCompleted;
 
-  const loadResults = useCallback(
-    async (batchId: string, cursor?: string) => {
-      setLoadingResults(true);
-      setResultError(null);
-      try {
-        const page = await getBulkUpdateRows(batchId, organizationId, 100, cursor);
-        setResultRows(page.items);
-        setResultCursor(page.nextCursor);
-        setResultPage(cursor ? (current) => current + 1 : 0);
-        setResultCodeCounts(page.resultCodeCounts);
-      } catch {
-        setResultError('No fue posible consultar el resultado por fila. Intente nuevamente.');
-      } finally {
-        setLoadingResults(false);
-      }
-    },
-    [organizationId],
-  );
-
   useEffect(() => {
-    if (!batch || !['CARGADO', 'EN_COLA', 'PROCESANDO'].includes(batch.status)) return;
+    if (!batch || !['UPLOADED', 'QUEUED', 'PROCESSING'].includes(batch.status)) return;
     const tick = async () => {
       try {
         const fresh = await getBulkUpdateBatch(batch.id, organizationId);
         setBatch(fresh);
-        if (['COMPLETADO', 'FALLIDO'].includes(fresh.status)) {
+        if (['COMPLETED', 'FAILED'].includes(fresh.status)) {
           completedRef.current?.();
-          await loadResults(fresh.id);
+          if (fresh.rejectedRows > 0) {
+            const rows = await getBulkUpdateRows(fresh.id, organizationId);
+            setRejectedRows(
+              rows.items
+                .filter((row) => !['ROW_UPDATED', 'UNCHANGED_VALUE'].includes(row.resultCode))
+                .slice(0, REJECTED_ROWS_SHOWN),
+            );
+          } else {
+            setRejectedRows([]);
+          }
         }
       } catch {
         // reintenta en el siguiente ciclo
@@ -88,7 +75,7 @@ export function BulkUpdateUpload({
       void tick();
     }, BULK_BATCH_POLL_MS);
     return () => clearInterval(timer);
-  }, [batch, loadResults, organizationId]);
+  }, [batch, organizationId]);
 
   const acceptFile = useCallback((candidate: File) => {
     setBulkError(null);
@@ -115,11 +102,7 @@ export function BulkUpdateUpload({
     if (!file || uploading || !organizationId) return;
     setUploading(true);
     setBulkError(null);
-    setResultRows([]);
-    setResultCodeCounts({});
-    setResultCursor(null);
-    setResultPage(0);
-    setResultError(null);
+    setRejectedRows([]);
     idempotencyKeyRef.current = crypto.randomUUID();
     try {
       const created = await createBulkUpdate(
@@ -202,7 +185,7 @@ export function BulkUpdateUpload({
                 void handleUpload();
               }}
             >
-              {uploading ? 'Subiendo…' : 'Confirmar y procesar'}
+              {uploading ? 'Subiendo…' : 'Enviar archivo'}
             </button>
             {file ? (
               <button
@@ -227,84 +210,14 @@ export function BulkUpdateUpload({
             rechazadas {formatNumber(batch.rejectedRows)}
             {batch.lastErrorCode ? ` · error: ${resultLabel(batch.lastErrorCode)}` : ''}
           </p>
-          {batch.status === 'COMPLETADO' && resultRows.length ? (
-            <>
-              {operationType === 'REPORT_APPLICATION_DATE' ? (
-                <p style={{ marginTop: 8 }}>
-                  Conflictos{' '}
-                  {formatNumber(
-                    (resultCodeCounts.VERSION_CONFLICT ?? 0) +
-                      (resultCodeCounts.OPERATION_NOT_ALLOWED ?? 0),
-                  )}{' '}
-                  · no encontradas{' '}
-                  {formatNumber(resultCodeCounts.AUTHORIZATION_ITEM_NOT_FOUND ?? 0)} · fecha
-                  inválida o vacía{' '}
-                  {formatNumber(
-                    (resultCodeCounts.INVALID_VALUE_FORMAT ?? 0) +
-                      (resultCodeCounts.MISSING_VALUE ?? 0),
-                  )}{' '}
-                  · duplicadas {formatNumber(resultCodeCounts.DUPLICATE_KEY_IN_FILE ?? 0)} · fuera
-                  de alcance {formatNumber(resultCodeCounts.FORBIDDEN_ITEM_SCOPE ?? 0)}
-                </p>
-              ) : null}
-              <div className="table-wrap" style={{ marginTop: 12 }}>
-                <table aria-label="Resultado por fila de fechas de aplicación">
-                  <thead>
-                    <tr>
-                      <th>Fila</th>
-                      <th>authorization_key</th>
-                      <th>Resultado</th>
-                      <th>Detalle</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {resultRows.map((row) => (
-                      <tr key={row.id}>
-                        <td>{formatNumber(row.rowNumber)}</td>
-                        <td>{row.authorizationKey ?? '—'}</td>
-                        <td>{resultLabel(row.resultCode)}</td>
-                        <td>{row.resultMessage}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {resultCursor ? (
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={loadingResults}
-                  style={{ marginTop: 10 }}
-                  onClick={() => void loadResults(batch.id, resultCursor)}
-                >
-                  {loadingResults ? 'Consultando…' : 'Página siguiente'}
-                </button>
-              ) : null}
-              {resultPage > 0 ? (
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={loadingResults}
-                  style={{ marginTop: 10, marginLeft: 8 }}
-                  onClick={() => void loadResults(batch.id)}
-                >
-                  Volver al inicio
-                </button>
-              ) : null}
-            </>
-          ) : null}
-          {resultError ? (
-            <div className="login-error" role="alert" style={{ marginTop: 12 }}>
-              {resultError}{' '}
-              <button
-                type="button"
-                className="btn"
-                disabled={loadingResults}
-                onClick={() => void loadResults(batch.id)}
-              >
-                Reintentar
-              </button>
-            </div>
+          {rejectedRows.length ? (
+            <ul style={{ marginTop: 6, paddingLeft: 20 }}>
+              {rejectedRows.map((row) => (
+                <li key={row.id}>
+                  Fila {formatNumber(row.rowNumber)}: {resultLabel(row.resultCode)} — {row.resultMessage}
+                </li>
+              ))}
+            </ul>
           ) : null}
         </>
       ) : null}

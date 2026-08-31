@@ -1,15 +1,11 @@
-export type Role = 'MTD' | 'MTD_AUDITOR' | 'COMPENSAR' | 'OLP' | 'MEDICARTE';
+export type Role = 'MTD' | 'COMPENSAR' | 'OLP' | 'MEDICARTE';
 
-export const ROLES: Role[] = ['MTD', 'MTD_AUDITOR', 'COMPENSAR', 'OLP', 'MEDICARTE'];
+export const ROLES: Role[] = ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'];
 
 export const ROLE_META: Record<Role, { label: string; note: string }> = {
   MTD: {
     label: 'MTD Admin',
     note: 'Vista MTD: acceso integral a operación, auditoría, integraciones y administración.',
-  },
-  MTD_AUDITOR: {
-    label: 'MTD Auditoría',
-    note: 'Vista MTD: revisión de soportes y visto bueno para dejar registros listos para admisión.',
   },
   COMPENSAR: {
     label: 'Compensar Viewer',
@@ -38,7 +34,6 @@ export type ViewId =
   | 'notifications'
   | 'exports'
   | 'failures'
-  | 'tariff-annex'
   | 'admin';
 
 export interface NavSection {
@@ -111,15 +106,9 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/soportes',
         title: 'Soportes',
         icon: '08',
-        roles: ['MTD', 'MTD_AUDITOR', 'MEDICARTE'],
+        roles: ['MTD', 'MEDICARTE'],
       },
-      {
-        view: 'audit',
-        href: '/auditoria',
-        title: 'Auditoría',
-        icon: '09',
-        roles: ['MTD', 'MTD_AUDITOR'],
-      },
+      { view: 'audit', href: '/auditoria', title: 'Auditoría', icon: '09', roles: ['MTD'] },
     ],
   },
   {
@@ -147,13 +136,6 @@ export const NAV_SECTIONS: NavSection[] = [
         roles: ['MTD'],
       },
       {
-        view: 'tariff-annex',
-        href: '/anexo-tarifario',
-        title: 'Anexo Tarifario',
-        icon: '14',
-        roles: ['MTD'],
-      },
-      {
         view: 'admin',
         href: '/administracion',
         title: 'Administración',
@@ -165,14 +147,6 @@ export const NAV_SECTIONS: NavSection[] = [
 ];
 
 export const ALL_NAV_ITEMS: NavItem[] = NAV_SECTIONS.flatMap((s) => s.items);
-
-export function organizationCodeForRole(role: Role): string {
-  return role === 'MTD_AUDITOR' ? 'MTD' : role;
-}
-
-export function defaultPathForRoles(roles: Role[]): string {
-  return ALL_NAV_ITEMS.find((item) => item.roles.some((role) => roles.includes(role)))?.href ?? '/';
-}
 
 export function viewForPath(pathname: string): ViewId | undefined {
   return ALL_NAV_ITEMS.find((item) => item.href === pathname)?.view;

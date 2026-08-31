@@ -46,7 +46,6 @@ type ItemRow = {
   direction_status: string;
   operation_status: string | null;
   coverage_rule_version: string;
-  tariff_membership_status: string;
   lugar_dispensacion: string | null;
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
@@ -143,7 +142,6 @@ function toItemResponse(row: ItemRow, includeSourceData: boolean): Authorization
     applicationSiteStatus: deriveApplicationSiteStatus(row.lugar_dispensacion),
     operationalVersion: row.operational_version,
     coverageRuleVersion: row.coverage_rule_version,
-    tariffMembershipStatus: row.tariff_membership_status as AuthorizationItemResponse['tariffMembershipStatus'],
     version: row.version,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -179,19 +177,11 @@ export class AuthorizationItemsService {
       conditions.push(`i.direction_status = ${add(query.directionStatus)}`);
     if (query.operationStatus)
       conditions.push(`i.operation_status = ${add(query.operationStatus)}`);
-    if (query.tariffMembershipStatus)
-      conditions.push(`i.tariff_membership_status = ${add(query.tariffMembershipStatus)}`);
     if (query.applicationSiteStatus)
       conditions.push(
-        query.applicationSiteStatus === 'ASIGNADO'
+        query.applicationSiteStatus === 'ASSIGNED'
           ? `i.lugar_dispensacion is not null and i.lugar_dispensacion <> ''`
           : `(i.lugar_dispensacion is null or i.lugar_dispensacion = '')`,
-      );
-    if (query.applicationDateStatus)
-      conditions.push(
-        query.applicationDateStatus === 'PRESENTE'
-          ? 'i.fecha_aplicacion is not null'
-          : 'i.fecha_aplicacion is null',
       );
     if (query.auditStatus) conditions.push(`i.audit_status = ${add(query.auditStatus)}`);
     if (query.authorizationKey)
@@ -210,7 +200,7 @@ export class AuthorizationItemsService {
       `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
               i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-               i.tariff_membership_status, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
+               i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
               i.created_at, i.updated_at
        from authorization_items i
        where ${conditions.join(' and ')}
@@ -335,7 +325,7 @@ export class AuthorizationItemsService {
         `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                  i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-                 i.tariff_membership_status, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
+                 i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
          where i.id = $1
@@ -387,7 +377,7 @@ export class AuthorizationItemsService {
         };
       }
 
-      if (item.operation_status !== 'LISTO_PARA_DISPENSAR') {
+      if (item.operation_status !== 'READY_TO_DISPENSE') {
         throw new ConflictException({
           code: 'EXPLICIT_UPDATE_NOT_ALLOWED',
           message: importRowResultMessages.EXPLICIT_UPDATE_NOT_ALLOWED,
@@ -441,38 +431,22 @@ export class AuthorizationItemsService {
       if (!previousEvidenceRow) throw new Error('Previous source evidence was not found');
 
       const rawSource = (row.raw_data ?? {}) as Record<string, unknown>;
-      // SPEC-014: la identidad del ítem no cambia, pero la membresía del Anexo
-      // Tarifario se reevalúa con el catálogo vigente.
-      const membership = await client.query<{ active: boolean }>(
-        'select active from tariff_annex_products where codigo_producto = $1',
-        [classification.data.codigoMedicamento],
-      );
-      const tariffListed = membership.rows[0]?.active === true;
-      const tariffMembershipStatus = tariffListed ? 'LISTADO' : 'NO_LISTADO';
       const operationStatus = deriveOperationStatus({
         enablementStatus: classification.data.enablementStatus,
         coverageType: classification.data.coverageType,
         directionStatus: classification.data.directionStatus,
-        tariffListed,
         fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
         today: currentBogotaDate(),
-        hasOperationalIntervention:
-          item.lugar_dispensacion !== null ||
-          item.fecha_dispensacion !== null ||
-          item.fecha_aplicacion !== null ||
-          item.operational_version > 0,
       });
       const updated = await client.query<ItemRow>(
         `update authorization_items set
            source_data = $2::jsonb, source_status_normalized = $3, source_prescripcion_normalized = $4,
            no_prescripcion = $5, enablement_status = $6, coverage_type = $7, direction_status = $8,
-           operation_status = $9, coverage_rule_version = 'F2-COVERAGE-2',
-           tariff_membership_status = $10, tariff_membership_evaluated_at = now(), tariff_rule_version = 'TARIFF-ANNEX-1',
-           version = version + 1, updated_at = now()
-          where id = $1 and version = $11
+           operation_status = $9, coverage_rule_version = 'F2-COVERAGE-2', version = version + 1, updated_at = now()
+          where id = $1 and version = $10
           returning id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
                    source_status_normalized, source_prescripcion_normalized, no_prescripcion, enablement_status,
-                    coverage_type, direction_status, operation_status, coverage_rule_version, tariff_membership_status, lugar_dispensacion,
+                    coverage_type, direction_status, operation_status, coverage_rule_version, lugar_dispensacion,
                     fecha_dispensacion::text, fecha_aplicacion::text, audit_status, admission_status,
                    operational_version, version, created_at, updated_at`,
         [
@@ -485,7 +459,6 @@ export class AuthorizationItemsService {
           classification.data.coverageType,
           classification.data.directionStatus,
           operationStatus,
-          tariffMembershipStatus,
           input.expectedVersion,
         ],
       );
@@ -692,7 +665,7 @@ export class AuthorizationItemsService {
           message: 'Authorization item not found',
         });
       }
-      if (row.coverage_type !== 'NO_PBS' || row.enablement_status !== 'HABILITADO') {
+      if (row.coverage_type !== 'NO_PBS' || row.enablement_status !== 'ENABLED') {
         throw new ConflictException({
           code: 'MIPRES_RECHECK_NOT_APPLICABLE',
           message: 'Only enabled NO_PBS items can request a MIPRES recheck',
@@ -768,7 +741,7 @@ export class AuthorizationItemsService {
       );
       const response = mipresRecheckRequestResponseSchema.parse({
         itemId,
-        status: 'EN_COLA',
+        status: 'QUEUED',
         queryType: 'MANUAL',
         correlationId: input.scope.correlationId,
       });
@@ -797,7 +770,7 @@ export class AuthorizationItemsService {
                 ${includeSourceData ? 'i.source_data' : 'null::jsonb'} as source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                  i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-                 i.tariff_membership_status, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
+                 i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
          where i.id = $1

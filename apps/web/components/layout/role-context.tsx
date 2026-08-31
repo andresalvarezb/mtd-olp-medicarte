@@ -2,12 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import {
-  organizationCodeForRole,
-  ROLES,
-  ROLE_META,
-  type Role,
-} from '@/components/navigation/nav-config';
+import { ROLES, ROLE_META, type Role } from '@/components/navigation/nav-config';
 import { authenticate, clearSession } from '@/lib/auth';
 import { ApiError, apiRequest } from '@/lib/api-client';
 import type { MeResponse } from '@authorization/contracts';
@@ -51,32 +46,10 @@ async function fetchProfile(): Promise<MeResponse> {
   return profile;
 }
 
-function navigationRoleForOrganization(
-  organization: MeResponse['organizations'][number],
-): Role | null {
-  if (organization.code === 'MTD') {
-    if (
-      organization.roles.some((role) =>
-        ['MTD_ADMIN', 'MTD_AUTORIZACIONES', 'READ_ONLY'].includes(role),
-      )
-    ) {
-      return 'MTD';
-    }
-    if (organization.roles.includes('MTD_AUDITOR')) return 'MTD_AUDITOR';
-    return null;
-  }
-  return ROLES.includes(organization.code as Role) ? (organization.code as Role) : null;
-}
-
-/** Roles de navegación derivados del rol local, no solo de la organización. */
+/** Organizaciones del perfil que corresponden a roles de navegación, en orden de prioridad. */
 export function rolesFromProfile(me: MeResponse | null): Role[] {
   if (!me) return [];
-  const scoped = new Set(
-    me.organizations.flatMap((organization) => {
-      const role = navigationRoleForOrganization(organization);
-      return role ? [role] : [];
-    }),
-  );
+  const scoped = new Set(me.organizations.map((organization) => organization.code));
   return ROLES.filter((role) => scoped.has(role));
 }
 
@@ -215,22 +188,16 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const organizationId = useMemo(() => {
-    const scoped = me?.organizations.find(
-      (organization) => organization.code === organizationCodeForRole(role),
-    );
+    const scoped = me?.organizations.find((organization) => organization.code === role);
     return scoped?.id ?? me?.organizations[0]?.id ?? '';
   }, [me, role]);
 
   const hasPermission = useCallback(
     (permission: string) => {
       if (!me) return false;
-      return (
-        me.organizations
-          .find((organization) => organization.id === organizationId)
-          ?.permissions.includes(permission) ?? false
-      );
+      return me.organizations.some((organization) => organization.permissions.includes(permission));
     },
-    [me, organizationId],
+    [me],
   );
 
   const value = useMemo<RoleContextValue>(

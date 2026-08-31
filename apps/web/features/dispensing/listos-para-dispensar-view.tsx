@@ -44,7 +44,7 @@ export function ListosParaDispensarView() {
 
   const query: AuthorizationItemListQuery = {
     limit: 50,
-    operationStatus: 'LISTO_PARA_DISPENSAR',
+    operationStatus: 'READY_TO_DISPENSE',
     ...(coverage !== 'todos' ? { coverageType: coverage } : {}),
   };
 
@@ -79,7 +79,7 @@ export function ListosParaDispensarView() {
     <>
       <PageHeader
         title="Listos para dispensar"
-        description="Ítems habilitados cuyo evento AUTHORIZATION_READY_TO_DISPENSE notifica a OLP y Medicarte en tiempo real."
+        description="Ítems habilitados cuyo evento READY_TO_DISPENSE notifica a OLP y Medicarte en tiempo real."
         actions={
           <span className="pill blue">
             {formatNumber(items.length)} registros · página {list.page}

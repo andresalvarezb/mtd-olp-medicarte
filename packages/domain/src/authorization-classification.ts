@@ -84,10 +84,8 @@ export function parseAuthorizationKeyInput(
   return buildAuthorizationKey(numeroAutorizacion, codigoMedicamento);
 }
 
-export function deriveEnablementStatus(
-  value: unknown,
-): 'HABILITADO' | 'BLOQUEADO_POR_ESTADO_ORIGEN' {
-  return normalizeSourceText(value) === '5' ? 'HABILITADO' : 'BLOQUEADO_POR_ESTADO_ORIGEN';
+export function deriveEnablementStatus(value: unknown): 'ENABLED' | 'BLOCKED_SOURCE_STATUS' {
+  return normalizeSourceText(value) === '5' ? 'ENABLED' : 'BLOCKED_SOURCE_STATUS';
 }
 
 const MIN_PRESCRIPCION_LENGTH = 4;
@@ -120,29 +118,18 @@ export function deriveCoverageType(prescripcionNormalized: string): 'PBS' | 'NO_
 
 export function deriveDirectionStatus(
   coverageType: 'PBS' | 'NO_PBS',
-): 'NO_APLICA' | 'PENDIENTE' {
-  return coverageType === 'PBS' ? 'NO_APLICA' : 'PENDIENTE';
+): 'NOT_APPLICABLE' | 'PENDING' {
+  return coverageType === 'PBS' ? 'NOT_APPLICABLE' : 'PENDING';
 }
 
 export type OperationStatusInput = Readonly<{
-  enablementStatus: 'HABILITADO' | 'BLOQUEADO_POR_ESTADO_ORIGEN';
+  enablementStatus: 'ENABLED' | 'BLOCKED_SOURCE_STATUS';
   coverageType: 'PBS' | 'NO_PBS';
-  directionStatus: 'NO_APLICA' | 'PENDIENTE' | 'CONFIRMADO' | 'ERROR_DE_CONSULTA';
-  /**
-   * SPEC-014: el código del medicamento (COD_COMERCIAL normalizado) está
-   * incluido y activo en el Anexo Tarifario vigente.
-   */
-  tariffListed: boolean;
+  directionStatus: 'NOT_APPLICABLE' | 'PENDING' | 'CONFIRMED' | 'QUERY_ERROR';
   /** Valor original de FECHA_FINAL_VIGENCIA (ej. 20261001 o 2026-10-01). */
   fechaFinalVigencia?: unknown;
   /** Fecha del sistema (America/Bogota) contra la que se evalúa la vigencia. */
   today?: string;
-  /**
-   * DEC-018: cuando el registro ya tuvo actividad operativa (asignación de
-   * lugar, dispensación, aplicación, etc.) se preserva su estado y
-   * trazabilidad aunque la vigencia haya expirado.
-   */
-  hasOperationalIntervention?: boolean;
 }>;
 
 /**
@@ -159,20 +146,17 @@ export function parseVigenciaDate(value: unknown): string | null {
 
 export function deriveOperationStatus(
   input: OperationStatusInput,
-): 'BLOQUEADO' | 'LISTO_PARA_DISPENSAR' | 'VENCIDO' {
+): 'BLOCKED' | 'READY_TO_DISPENSE' | 'EXPIRED' {
   const ready =
-    input.tariffListed === true &&
-    input.enablementStatus === 'HABILITADO' &&
-    ((input.coverageType === 'PBS' && input.directionStatus === 'NO_APLICA') ||
-      (input.coverageType === 'NO_PBS' && input.directionStatus === 'CONFIRMADO'));
-  if (!ready) return 'BLOQUEADO';
+    input.enablementStatus === 'ENABLED' &&
+    ((input.coverageType === 'PBS' && input.directionStatus === 'NOT_APPLICABLE') ||
+      (input.coverageType === 'NO_PBS' && input.directionStatus === 'CONFIRMED'));
+  if (!ready) return 'BLOCKED';
+  // La autorización venció si la fecha del sistema supera FECHA_FINAL_VIGENCIA.
+  // Sin valor de vigencia verificable no se aplica la regla.
   const vigencia = parseVigenciaDate(input.fechaFinalVigencia);
-  if (input.today && vigencia && input.today > vigencia) {
-    // DEC-018: si ya hubo intervención operativa se preserva trazabilidad.
-    if (input.hasOperationalIntervention) return 'LISTO_PARA_DISPENSAR';
-    return 'VENCIDO';
-  }
-  return 'LISTO_PARA_DISPENSAR';
+  if (input.today && vigencia && input.today > vigencia) return 'EXPIRED';
+  return 'READY_TO_DISPENSE';
 }
 
 export function deriveAuthorizationClassification(

@@ -47,111 +47,72 @@ describe('authorization classification', () => {
   });
 
   it('derives enablement and direction without external calls', () => {
-    expect(deriveEnablementStatus(5)).toBe('HABILITADO');
-    expect(deriveEnablementStatus('4')).toBe('BLOQUEADO_POR_ESTADO_ORIGEN');
-    expect(deriveDirectionStatus('PBS')).toBe('NO_APLICA');
-    expect(deriveDirectionStatus('NO_PBS')).toBe('PENDIENTE');
+    expect(deriveEnablementStatus(5)).toBe('ENABLED');
+    expect(deriveEnablementStatus('4')).toBe('BLOCKED_SOURCE_STATUS');
+    expect(deriveDirectionStatus('PBS')).toBe('NOT_APPLICABLE');
+    expect(deriveDirectionStatus('NO_PBS')).toBe('PENDING');
   });
 
   it('derives a safe operational status from readiness dimensions', () => {
     expect(
       deriveOperationStatus({
-        enablementStatus: 'HABILITADO',
+        enablementStatus: 'ENABLED',
         coverageType: 'PBS',
-        directionStatus: 'NO_APLICA',
-        tariffListed: true,
+        directionStatus: 'NOT_APPLICABLE',
       }),
-    ).toBe('LISTO_PARA_DISPENSAR');
+    ).toBe('READY_TO_DISPENSE');
     expect(
       deriveOperationStatus({
-        enablementStatus: 'HABILITADO',
+        enablementStatus: 'ENABLED',
         coverageType: 'NO_PBS',
-        directionStatus: 'CONFIRMADO',
-        tariffListed: true,
+        directionStatus: 'CONFIRMED',
       }),
-    ).toBe('LISTO_PARA_DISPENSAR');
+    ).toBe('READY_TO_DISPENSE');
     expect(
       deriveOperationStatus({
-        enablementStatus: 'BLOQUEADO_POR_ESTADO_ORIGEN',
+        enablementStatus: 'BLOCKED_SOURCE_STATUS',
         coverageType: 'PBS',
-        directionStatus: 'NO_APLICA',
-        tariffListed: true,
+        directionStatus: 'NOT_APPLICABLE',
       }),
-    ).toBe('BLOQUEADO');
+    ).toBe('BLOCKED');
     expect(
       deriveOperationStatus({
-        enablementStatus: 'HABILITADO',
+        enablementStatus: 'ENABLED',
         coverageType: 'NO_PBS',
-        directionStatus: 'PENDIENTE',
-        tariffListed: true,
+        directionStatus: 'PENDING',
       }),
-    ).toBe('BLOQUEADO');
-  });
-
-  it('blocks readiness when the product is not in the tariff annex (SPEC-014)', () => {
-    const base = {
-      enablementStatus: 'HABILITADO',
-      coverageType: 'PBS',
-      directionStatus: 'NO_APLICA',
-    } as const;
-    expect(deriveOperationStatus({ ...base, tariffListed: false })).toBe('BLOQUEADO');
-    expect(deriveOperationStatus({ ...base, tariffListed: true })).toBe('LISTO_PARA_DISPENSAR');
-    expect(
-      deriveOperationStatus({
-        ...base,
-        coverageType: 'NO_PBS',
-        directionStatus: 'CONFIRMADO',
-        tariffListed: false,
-      }),
-    ).toBe('BLOQUEADO');
+    ).toBe('BLOCKED');
   });
 
   it('expires authorizations whose vigencia is before the system date', () => {
     const base = {
-      enablementStatus: 'HABILITADO',
+      enablementStatus: 'ENABLED',
       coverageType: 'PBS',
-      directionStatus: 'NO_APLICA',
-      tariffListed: true,
+      directionStatus: 'NOT_APPLICABLE',
     } as const;
     expect(
       deriveOperationStatus({ ...base, fechaFinalVigencia: '20261001', today: '2026-10-01' }),
-    ).toBe('LISTO_PARA_DISPENSAR');
+    ).toBe('READY_TO_DISPENSE');
     expect(
       deriveOperationStatus({ ...base, fechaFinalVigencia: '20261001', today: '2026-10-02' }),
-    ).toBe('VENCIDO');
+    ).toBe('EXPIRED');
     expect(
       deriveOperationStatus({ ...base, fechaFinalVigencia: '2026-10-01', today: '2026-10-02' }),
-    ).toBe('VENCIDO');
+    ).toBe('EXPIRED');
     expect(
       deriveOperationStatus({ ...base, fechaFinalVigencia: 'no-date', today: '2026-10-02' }),
-    ).toBe('LISTO_PARA_DISPENSAR');
+    ).toBe('READY_TO_DISPENSE');
     expect(
       deriveOperationStatus({ ...base, fechaFinalVigencia: '20269999', today: '2026-10-02' }),
-    ).toBe('LISTO_PARA_DISPENSAR');
+    ).toBe('READY_TO_DISPENSE');
     expect(
       deriveOperationStatus({
         ...base,
-        enablementStatus: 'BLOQUEADO_POR_ESTADO_ORIGEN',
+        enablementStatus: 'BLOCKED_SOURCE_STATUS',
         fechaFinalVigencia: '20201001',
         today: '2026-10-02',
       }),
-    ).toBe('BLOQUEADO');
-  });
-
-  it('preserves LISTO_PARA_DISPENSAR when vigencia expired but record has operational intervention (DEC-018)', () => {
-    const base = {
-      enablementStatus: 'HABILITADO',
-      coverageType: 'PBS',
-      directionStatus: 'NO_APLICA',
-      tariffListed: true,
-      fechaFinalVigencia: '20261001',
-      today: '2026-10-02',
-    } as const;
-    expect(deriveOperationStatus({ ...base })).toBe('VENCIDO');
-    expect(deriveOperationStatus({ ...base, hasOperationalIntervention: false })).toBe('VENCIDO');
-    expect(deriveOperationStatus({ ...base, hasOperationalIntervention: true })).toBe(
-      'LISTO_PARA_DISPENSAR',
-    );
+    ).toBe('BLOCKED');
   });
 
   it('parses vigencia dates only when they represent a real date', () => {
@@ -210,8 +171,8 @@ describe('authorization classification', () => {
       }),
     ).toMatchObject({
       coverageType: 'NO_PBS',
-      enablementStatus: 'HABILITADO',
-      directionStatus: 'PENDIENTE',
+      enablementStatus: 'ENABLED',
+      directionStatus: 'PENDING',
       prescripcionNormalized: '20260915123',
       noPrescripcion: '20260915',
       operationStatus: null,
@@ -225,8 +186,8 @@ describe('authorization classification', () => {
       }),
     ).toMatchObject({
       coverageType: 'PBS',
-      enablementStatus: 'HABILITADO',
-      directionStatus: 'NO_APLICA',
+      enablementStatus: 'ENABLED',
+      directionStatus: 'NOT_APPLICABLE',
       prescripcionNormalized: '',
       noPrescripcion: '',
       operationStatus: null,

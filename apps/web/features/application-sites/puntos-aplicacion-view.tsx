@@ -34,12 +34,12 @@ export function PuntosAplicacionView() {
 
   const { data: indicators } = useApiData(() => getIndicators(organizationId), [organizationId]);
   const siteFilter =
-    tab === 0 ? ('PENDIENTE_ASIGNACION' as const) : tab === 1 ? ('ASIGNADO' as const) : undefined;
+    tab === 0 ? ('PENDING_ASSIGNMENT' as const) : tab === 1 ? ('ASSIGNED' as const) : undefined;
   const list = usePaginatedList<AuthorizationItemResponse>(
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        operationStatus: 'LISTO_PARA_DISPENSAR',
+        operationStatus: 'READY_TO_DISPENSE',
         ...(siteFilter ? { applicationSiteStatus: siteFilter } : {}),
         ...(cursor ? { cursor } : {}),
       }),
@@ -140,7 +140,7 @@ export function PuntosAplicacionView() {
         <KpiCard
           label="En esta página"
           value={items.length}
-           foot="LISTO_PARA_DISPENSAR en la página actual"
+          foot="READY_TO_DISPENSE en la página actual"
           icon="Σ"
           iconBg="#f3f0ff"
           iconColor="#6941c6"
@@ -176,7 +176,7 @@ export function PuntosAplicacionView() {
             emptyDescription={
               loading
                 ? 'Consultando la API…'
-                 : 'Los registros LISTO_PARA_DISPENSAR aparecen aquí; la asignación se realiza por archivo tipado.'
+                : 'Los registros READY_TO_DISPENSE aparecen aquí; la asignación se realiza por archivo tipado.'
             }
           />
           <TablePagination

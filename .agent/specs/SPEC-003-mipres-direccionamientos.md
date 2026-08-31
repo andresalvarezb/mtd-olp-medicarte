@@ -11,10 +11,10 @@ Solo consultar cuando:
 ```text
 coverage_type = NO_PBS
 AND
-enablement_status = HABILITADO
+enablement_status = ENABLED
 ```
 
-Los registros que no cumplan ambas condiciones no generan consulta al proveedor. PBS usa `direction_status = NO_APLICA`.
+Los registros que no cumplan ambas condiciones no generan consulta al proveedor. PBS usa `direction_status = NOT_APPLICABLE`.
 
 ## Arquitectura
 
@@ -71,9 +71,9 @@ Campos oficiales requeridos: `ID`, `IDDireccionamiento`, `NoPrescripcion`, `Tipo
 ## Resultados internos
 
 - `PENDING`: no existen direccionamientos, o existen pero ninguno vigente.
-- `CONFIRMADO`: existe al menos un direccionamiento no anulado con `current_date(America/Bogota) < fecha_maxima`.
-- `ERROR_DE_CONSULTA`: fallo técnico (timeout, red, token inválido no recuperable, respuesta no interpretable, 5xx).
-- `NO_APLICA`: PBS.
+- `CONFIRMED`: existe al menos un direccionamiento no anulado con `current_date(America/Bogota) < fecha_maxima`.
+- `QUERY_ERROR`: fallo técnico (timeout, red, token inválido no recuperable, respuesta no interpretable, 5xx).
+- `NOT_APPLICABLE`: PBS.
 
 Un error técnico nunca se interpreta como ausencia de direccionamiento.
 
@@ -107,4 +107,4 @@ Timeout, retry solo recuperable, exponential backoff+jitter, circuit breaker, co
 
 ## Aceptación
 
-Casos: timeout, 401/403, 500, respuesta inválida, sin direccionamientos (`PENDIENTE`), direccionamiento anulado (`PENDIENTE`), vigente (`CONFIRMADO`), igualdad con `FecMaxEnt` (`PENDIENTE`), reintento duplicado sin checks duplicados, evidencia histórica sin tokens, dominio sin nombres del proveedor.
+Casos: timeout, 401/403, 500, respuesta inválida, sin direccionamientos (`PENDING`), direccionamiento anulado (`PENDING`), vigente (`CONFIRMED`), igualdad con `FecMaxEnt` (`PENDING`), reintento duplicado sin checks duplicados, evidencia histórica sin tokens, dominio sin nombres del proveedor.

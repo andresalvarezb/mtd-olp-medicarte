@@ -296,19 +296,19 @@ directions =
     mipres.getDirectionsByPrescription(noPrescripcion)
 
 if directions is empty:
-    result = PENDIENTE
+    result = PENDING
 
 else if any direction is current:
-    result = CONFIRMADO
+    result = CONFIRMED
 
 else:
-    result = PENDIENTE
+    result = PENDING
 ```
 
 Un fallo técnico de comunicación con MIPRES produce:
 
 ```text
-ERROR_DE_CONSULTA
+QUERY_ERROR
 ```
 
 Nunca debe interpretarse un error técnico como ausencia de direccionamiento.
@@ -322,7 +322,7 @@ La consulta MIPRES solamente se ejecuta cuando el registro cumple:
 ```text
 coverage_type = NO_PBS
 AND
-enablement_status = HABILITADO
+enablement_status = ENABLED
 ```
 
 Los registros que no cumplan ambas condiciones no generan consulta al proveedor.
@@ -334,12 +334,12 @@ Los registros que no cumplan ambas condiciones no generan consulta al proveedor.
 Para este alcance únicamente se requieren:
 
 ```text
-PENDIENTE
-CONFIRMADO
-ERROR_DE_CONSULTA
+PENDING
+CONFIRMED
+QUERY_ERROR
 ```
 
-### CONFIRMADO
+### CONFIRMED
 
 Existe al menos un direccionamiento no anulado que cumple:
 
@@ -347,7 +347,7 @@ Existe al menos un direccionamiento no anulado que cumple:
 current_date(America/Bogota) < fecha_maxima
 ```
 
-### PENDIENTE
+### PENDING
 
 Se presenta cualquiera de estas condiciones:
 
@@ -362,7 +362,7 @@ existen direccionamientos,
 pero ninguno se encuentra vigente
 ```
 
-### ERROR_DE_CONSULTA
+### QUERY_ERROR
 
 No fue posible determinar el resultado debido a un fallo técnico de la integración.
 
@@ -502,13 +502,13 @@ con fecha actual America/Bogota
  vigente     vigente
       │        │
       ▼        ▼
-  CONFIRMADO  PENDIENTE
+ CONFIRMED   PENDING
 ```
 
 Si ocurre un fallo técnico:
 
 ```text
-ERROR_DE_CONSULTA
+QUERY_ERROR
 ```
 
 ---

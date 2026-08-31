@@ -156,24 +156,6 @@ describe('Gate F7 — Gestión de usuarios', () => {
   const password = `F7-Temporary-${suffix}`;
   let userId: string;
 
-  it('solo permite asignar MTD_AUDITOR dentro de MTD', async () => {
-    const response = await fetch(`${apiUrl}/api/v1/users`, {
-      method: 'POST',
-      headers: authHeaders(adminToken),
-      body: JSON.stringify({
-        email: `f7-invalid-auditor-${suffix}@example.test`,
-        displayName: 'F7 Invalid Auditor',
-        password,
-        organizationId: olpOrganizationId,
-        roleCode: 'MTD_AUDITOR',
-      }),
-    });
-    expect(response.status).toBe(400);
-    expect((await response.json()) as { code: string }).toMatchObject({
-      code: 'ROLE_ORGANIZATION_MISMATCH',
-    });
-  });
-
   it('requires users.manage permission', async () => {
     const result = await login('olp-operator', 'olp-operator');
     if (!result.token) throw new Error('olp-operator login failed');

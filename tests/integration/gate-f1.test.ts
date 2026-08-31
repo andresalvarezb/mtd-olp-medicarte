@@ -281,7 +281,7 @@ describe('Gate F1', () => {
         'select status from outbox_events where id = $1',
         [accepted.eventId],
       );
-      if (result.rows[0]?.status === 'PROCESADO') {
+      if (result.rows[0]?.status === 'PROCESSED') {
         processed = true;
         break;
       }
@@ -349,7 +349,7 @@ describe('Gate F1', () => {
         'select status from outbox_events where id = $1',
         [poisonId],
       );
-      if (result.rows[0]?.status === 'FALLIDO') {
+      if (result.rows[0]?.status === 'FAILED') {
         failed = true;
         break;
       }
@@ -372,7 +372,7 @@ describe('Gate F1', () => {
     const payload = { eventId, message: 'Reconciled delivery', correlationId, idempotencyKey };
     await database.query(
       `insert into outbox_events (id, event_type, version, payload, correlation_id, organization_id, idempotency_key, status, dispatched_at)
-       values ($1, 'foundation.event', 1, $2, $3, $4, $5, 'DESPACHADO', now() - interval '1 minute')`,
+       values ($1, 'foundation.event', 1, $2, $3, $4, $5, 'DISPATCHED', now() - interval '1 minute')`,
       [eventId, payload, correlationId, organizationId, idempotencyKey],
     );
     const deadline = Date.now() + 10_000;
@@ -382,7 +382,7 @@ describe('Gate F1', () => {
         'select status from outbox_events where id = $1',
         [eventId],
       );
-      if (result.rows[0]?.status === 'PROCESADO') {
+      if (result.rows[0]?.status === 'PROCESSED') {
         processed = true;
         break;
       }
