@@ -58,7 +58,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Principal',
     items: [
       { view: 'dashboard', href: '/', title: 'Resumen ejecutivo', icon: '01', roles: ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'] },
-      { view: 'authorizations', href: '/autorizaciones', title: 'Autorizaciones', icon: '02', roles: ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'] },
+      { view: 'authorizations', href: '/autorizaciones', title: 'Autorizaciones', icon: '02', roles: ['MTD', 'COMPENSAR'] },
     ],
   },
   {
