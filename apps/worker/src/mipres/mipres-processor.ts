@@ -23,6 +23,7 @@ type ItemRow = {
   coverage_type: string;
   direction_status: string | null;
   operation_status: string | null;
+  fecha_final_vigencia: string | null;
 };
 
 export type MipresProcessingResult = Readonly<{
@@ -150,6 +151,8 @@ export class MipresProcessor {
         enablementStatus: item.enablement_status as 'ENABLED' | 'BLOCKED_SOURCE_STATUS',
         coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
         directionStatus: outcome,
+        fechaFinalVigencia: item.fecha_final_vigencia,
+        today: checkDate,
       });
       if (operationStatus !== item.operation_status) {
         const materialized = await client.query<{ version: number }>(
@@ -264,7 +267,8 @@ export class MipresProcessor {
 
   private async loadItem(itemId: string): Promise<ItemRow | undefined> {
     const result = await this.database.pool.query<ItemRow>(
-      `select id, no_prescripcion, enablement_status, coverage_type, direction_status, operation_status
+      `select id, no_prescripcion, enablement_status, coverage_type, direction_status, operation_status,
+              source_data->>'FECHA_FINAL_VIGENCIA' as fecha_final_vigencia
        from authorization_items where id = $1`,
       [itemId],
     );

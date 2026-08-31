@@ -13,6 +13,8 @@ export {
   deriveOperationStatus,
   derivePrescripcion,
   normalizeSourceText,
+  parseAuthorizationKeyInput,
+  parseVigenciaDate,
 } from './authorization-classification';
 export type {
   AuthorizationClassificationInput,

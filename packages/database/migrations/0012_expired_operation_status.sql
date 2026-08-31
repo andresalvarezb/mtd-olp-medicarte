@@ -1,0 +1,2 @@
+ALTER TABLE "authorization_items" DROP CONSTRAINT "authorization_items_operation_status_check";--> statement-breakpoint
+ALTER TABLE "authorization_items" ADD CONSTRAINT "authorization_items_operation_status_check" CHECK ("authorization_items"."operation_status" IS NULL OR "authorization_items"."operation_status" IN ('BLOCKED', 'READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED', 'EXPIRED'));

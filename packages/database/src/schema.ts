@@ -193,7 +193,7 @@ export const authorizationItems = pgTable(
     ),
     check(
       'authorization_items_operation_status_check',
-      sql`${table.operationStatus} IS NULL OR ${table.operationStatus} IN ('BLOCKED', 'READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED')`,
+      sql`${table.operationStatus} IS NULL OR ${table.operationStatus} IN ('BLOCKED', 'READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED', 'EXPIRED')`,
     ),
     check(
       'authorization_items_ready_prerequisites_check',

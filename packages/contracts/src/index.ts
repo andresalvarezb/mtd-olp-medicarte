@@ -157,6 +157,7 @@ export const operationStatusSchema = z.enum([
   'READY_TO_DISPENSE',
   'DISPENSATION_REPORTED',
   'DISPENSED',
+  'EXPIRED',
 ]);
 export const auditStatusSchema = z.enum([
   'NOT_STARTED',

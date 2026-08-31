@@ -49,6 +49,41 @@ export function buildAuthorizationKey(
   };
 }
 
+export function parseAuthorizationKeyInput(
+  value: unknown,
+): {
+  numeroAutorizacion: string;
+  codigoMedicamento: string;
+  authorizationKey: string;
+} | null {
+  const text =
+    typeof value === 'string' || typeof value === 'number' ? `${value}`.trim() : '';
+  if (!text) return null;
+  const components: string[] = [];
+  let current = '';
+  let escaped = false;
+  for (const character of text) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+    } else if (character === '\\') {
+      current += character;
+      escaped = true;
+    } else if (character === ':') {
+      components.push(current);
+      current = '';
+    } else {
+      current += character;
+    }
+  }
+  components.push(current);
+  if (components.length !== 2) return null;
+  const [numeroAutorizacion, codigoMedicamento] = components.map((component) =>
+    component.replace(/\\([\\:])/g, '$1'),
+  );
+  return buildAuthorizationKey(numeroAutorizacion, codigoMedicamento);
+}
+
 export function deriveEnablementStatus(value: unknown): 'ENABLED' | 'BLOCKED_SOURCE_STATUS' {
   return normalizeSourceText(value) === '5' ? 'ENABLED' : 'BLOCKED_SOURCE_STATUS';
 }
@@ -91,16 +126,37 @@ export type OperationStatusInput = Readonly<{
   enablementStatus: 'ENABLED' | 'BLOCKED_SOURCE_STATUS';
   coverageType: 'PBS' | 'NO_PBS';
   directionStatus: 'NOT_APPLICABLE' | 'PENDING' | 'CONFIRMED' | 'QUERY_ERROR';
+  /** Valor original de FECHA_FINAL_VIGENCIA (ej. 20261001 o 2026-10-01). */
+  fechaFinalVigencia?: unknown;
+  /** Fecha del sistema (America/Bogota) contra la que se evalúa la vigencia. */
+  today?: string;
 }>;
+
+/**
+ * Normaliza FECHA_FINAL_VIGENCIA a YYYY-MM-DD. Acepta 20261001 y 2026-10-01;
+ * devuelve null cuando el valor no representa una fecha válida.
+ */
+export function parseVigenciaDate(value: unknown): string | null {
+  const digits = normalizeSourceText(value).replace(/\D/g, '');
+  if (digits.length !== 8) return null;
+  const iso = `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+  const date = new Date(`${iso}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === iso ? iso : null;
+}
 
 export function deriveOperationStatus(
   input: OperationStatusInput,
-): 'BLOCKED' | 'READY_TO_DISPENSE' {
+): 'BLOCKED' | 'READY_TO_DISPENSE' | 'EXPIRED' {
   const ready =
     input.enablementStatus === 'ENABLED' &&
     ((input.coverageType === 'PBS' && input.directionStatus === 'NOT_APPLICABLE') ||
       (input.coverageType === 'NO_PBS' && input.directionStatus === 'CONFIRMED'));
-  return ready ? 'READY_TO_DISPENSE' : 'BLOCKED';
+  if (!ready) return 'BLOCKED';
+  // La autorización venció si la fecha del sistema supera FECHA_FINAL_VIGENCIA.
+  // Sin valor de vigencia verificable no se aplica la regla.
+  const vigencia = parseVigenciaDate(input.fechaFinalVigencia);
+  if (input.today && vigencia && input.today > vigencia) return 'EXPIRED';
+  return 'READY_TO_DISPENSE';
 }
 
 export function deriveAuthorizationClassification(

@@ -6,8 +6,10 @@ import {
   deriveDirectionStatus,
   deriveEnablementStatus,
   deriveOperationStatus,
+  parseVigenciaDate,
   derivePrescripcion,
   normalizeSourceText,
+  parseAuthorizationKeyInput,
 } from './authorization-classification';
 
 describe('authorization classification', () => {
@@ -82,6 +84,47 @@ describe('authorization classification', () => {
     ).toBe('BLOCKED');
   });
 
+  it('expires authorizations whose vigencia is before the system date', () => {
+    const base = {
+      enablementStatus: 'ENABLED',
+      coverageType: 'PBS',
+      directionStatus: 'NOT_APPLICABLE',
+    } as const;
+    expect(
+      deriveOperationStatus({ ...base, fechaFinalVigencia: '20261001', today: '2026-10-01' }),
+    ).toBe('READY_TO_DISPENSE');
+    expect(
+      deriveOperationStatus({ ...base, fechaFinalVigencia: '20261001', today: '2026-10-02' }),
+    ).toBe('EXPIRED');
+    expect(
+      deriveOperationStatus({ ...base, fechaFinalVigencia: '2026-10-01', today: '2026-10-02' }),
+    ).toBe('EXPIRED');
+    expect(
+      deriveOperationStatus({ ...base, fechaFinalVigencia: 'no-date', today: '2026-10-02' }),
+    ).toBe('READY_TO_DISPENSE');
+    expect(
+      deriveOperationStatus({ ...base, fechaFinalVigencia: '20269999', today: '2026-10-02' }),
+    ).toBe('READY_TO_DISPENSE');
+    expect(
+      deriveOperationStatus({
+        ...base,
+        enablementStatus: 'BLOCKED_SOURCE_STATUS',
+        fechaFinalVigencia: '20201001',
+        today: '2026-10-02',
+      }),
+    ).toBe('BLOCKED');
+  });
+
+  it('parses vigencia dates only when they represent a real date', () => {
+    expect(parseVigenciaDate('20261001')).toBe('2026-10-01');
+    expect(parseVigenciaDate(' 2026-10-01 ')).toBe('2026-10-01');
+    expect(parseVigenciaDate(20261001)).toBe('2026-10-01');
+    expect(parseVigenciaDate('')).toBeNull();
+    expect(parseVigenciaDate('2026-10')).toBeNull();
+    expect(parseVigenciaDate('20261332')).toBeNull();
+    expect(parseVigenciaDate('abcdef')).toBeNull();
+  });
+
   it('builds a stable, delimited identity key', () => {
     expect(buildAuthorizationKey(' a-1 ', ' med-2 ')).toEqual({
       numeroAutorizacion: 'A-1',
@@ -101,6 +144,21 @@ describe('authorization classification', () => {
 
   it('rejects oversized identity components instead of producing an unpersistable key', () => {
     expect(buildAuthorizationKey('X'.repeat(251), 'MED-2')).toBeNull();
+  });
+
+  it('parses an authorization_key input back into a normalized key', () => {
+    expect(parseAuthorizationKeyInput(' A-1:MED-2 ')).toEqual({
+      numeroAutorizacion: 'A-1',
+      codigoMedicamento: 'MED-2',
+      authorizationKey: 'A-1:MED-2',
+    });
+    expect(parseAuthorizationKeyInput('A\\:B:C')?.authorizationKey).toBe(
+      buildAuthorizationKey('A:B', 'C')?.authorizationKey,
+    );
+    expect(parseAuthorizationKeyInput('')).toBeNull();
+    expect(parseAuthorizationKeyInput('A-1')).toBeNull();
+    expect(parseAuthorizationKeyInput('A-1:MED-2:EXTRA')).toBeNull();
+    expect(parseAuthorizationKeyInput(null)).toBeNull();
   });
 
   it('returns the complete phase two classification', () => {

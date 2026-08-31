@@ -116,8 +116,11 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private timer?: NodeJS.Timeout;
   private autoRevalidationTimer?: NodeJS.Timeout;
   private dailyReportTimer?: NodeJS.Timeout;
+  private expirationSweepTimer?: NodeJS.Timeout;
   private lastDailyReportDate: string | null = null;
+  private lastExpirationSweepDate: string | null = null;
   private autoRevalidating = false;
+  private expirationSweeping = false;
   private dispatching = false;
   private lastIdempotencyCleanupAt = 0;
 
@@ -320,6 +323,11 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         60_000,
       );
       void this.scheduleDailyReport();
+      this.expirationSweepTimer = setInterval(
+        () => void this.runExpirationSweep(),
+        60_000,
+      );
+      void this.runExpirationSweep();
       if (this.config.MIPRES_AUTO_REVALIDATION_INTERVAL_MS > 0) {
         this.autoRevalidationTimer = setInterval(
           () => void this.runAutoRevalidation(),
@@ -768,8 +776,39 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private async runAutoRevalidation(): Promise<void> {
-    if (this.autoRevalidating) return;
+  /**
+   * Vencimiento por FECHA_FINAL_VIGENCIA: los registros READY_TO_DISPENSE cuya
+   * vigencia ya pasó (comparada contra la fecha del sistema en America/Bogota)
+   * pasan a EXPIRED. Se ejecuta una vez por día calendario.
+   */
+  private async runExpirationSweep(): Promise<void> {
+    if (this.expirationSweeping) return;
+    this.expirationSweeping = true;
+    try {
+      const today = currentBogotaDate();
+      if (this.lastExpirationSweepDate === today) return;
+      const result = await this.database.pool.query<{ id: string }>(
+        `update authorization_items
+         set operation_status = 'EXPIRED', version = version + 1, updated_at = now()
+         where operation_status = 'READY_TO_DISPENSE'
+           and (source_data->>'FECHA_FINAL_VIGENCIA') ~ '^[0-9]{8}$'
+           and to_date(source_data->>'FECHA_FINAL_VIGENCIA', 'YYYYMMDD') < $1::date
+         returning id`,
+        [today],
+      );
+      this.lastExpirationSweepDate = today;
+      if (result.rowCount) {
+        this.logger.info({ expired: result.rowCount, today }, 'vigencia expiration sweep applied');
+      }
+    } catch (error) {
+      this.logger.error({ error }, 'vigencia expiration sweep failed');
+      Sentry.captureException(error);
+    } finally {
+      this.expirationSweeping = false;
+    }
+  }
+
+  private async runAutoRevalidation(): Promise<void> {    if (this.autoRevalidating) return;
     this.autoRevalidating = true;
     try {
       const client = await this.database.pool.connect();
@@ -886,6 +925,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     if (this.timer) clearInterval(this.timer);
     if (this.autoRevalidationTimer) clearInterval(this.autoRevalidationTimer);
     if (this.dailyReportTimer) clearInterval(this.dailyReportTimer);
+    if (this.expirationSweepTimer) clearInterval(this.expirationSweepTimer);
     await Promise.all([
       this.foundationWorker.close(),
       this.importWorker.close(),

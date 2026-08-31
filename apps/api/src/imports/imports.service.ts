@@ -475,10 +475,13 @@ export class ImportsService {
       const epsPendingItemIds: string[] = [];
       for (const row of rows.rows) {
         const classification = authorizationClassificationSchema.parse(row.normalized_data);
+        const rawSource = (row.raw_data ?? {}) as Record<string, unknown>;
         const operationStatus = deriveOperationStatus({
           enablementStatus: classification.enablementStatus,
           coverageType: classification.coverageType,
           directionStatus: classification.directionStatus,
+          fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
+          today: currentBogotaDate(),
         });
         const item = await client.query<{ id: string; version: number }>(
           `insert into authorization_items
