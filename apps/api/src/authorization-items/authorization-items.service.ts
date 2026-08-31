@@ -177,6 +177,12 @@ export class AuthorizationItemsService {
       conditions.push(`i.direction_status = ${add(query.directionStatus)}`);
     if (query.operationStatus)
       conditions.push(`i.operation_status = ${add(query.operationStatus)}`);
+    if (query.applicationSiteStatus)
+      conditions.push(
+        query.applicationSiteStatus === 'ASSIGNED'
+          ? `i.lugar_dispensacion is not null and i.lugar_dispensacion <> ''`
+          : `(i.lugar_dispensacion is null or i.lugar_dispensacion = '')`,
+      );
     if (query.auditStatus) conditions.push(`i.audit_status = ${add(query.auditStatus)}`);
     if (query.authorizationKey)
       conditions.push(
@@ -191,7 +197,7 @@ export class AuthorizationItemsService {
     }
     const limit = add(query.limit + 1);
     const result = await this.database.pool.query<ItemRow>(
-      `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, null::jsonb as source_data,
+      `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
               i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
                i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
@@ -204,7 +210,7 @@ export class AuthorizationItemsService {
     );
     const hasNext = result.rows.length > query.limit;
     const rows = hasNext ? result.rows.slice(0, query.limit) : result.rows;
-    const items = rows.map((row) => toItemResponse(row, false));
+    const items = rows.map((row) => toItemResponse(row, input.scope.readSensitive));
     const last = rows.at(-1);
     return {
       items,
@@ -424,10 +430,13 @@ export class AuthorizationItemsService {
       const previousEvidenceRow = previousEvidence.rows[0];
       if (!previousEvidenceRow) throw new Error('Previous source evidence was not found');
 
+      const rawSource = (row.raw_data ?? {}) as Record<string, unknown>;
       const operationStatus = deriveOperationStatus({
         enablementStatus: classification.data.enablementStatus,
         coverageType: classification.data.coverageType,
         directionStatus: classification.data.directionStatus,
+        fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
+        today: currentBogotaDate(),
       });
       const updated = await client.query<ItemRow>(
         `update authorization_items set
