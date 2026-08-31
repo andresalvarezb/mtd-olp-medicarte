@@ -38,7 +38,7 @@ export function ConsolidadoView() {
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        auditStatus: 'APPROVED',
+        auditStatus: 'APROBADO',
         ...(applied !== 'todos' ? { coverageType: applied } : {}),
         ...(cursor ? { cursor } : {}),
       }),
@@ -122,7 +122,7 @@ export function ConsolidadoView() {
           emptyDescription={
             loading
               ? 'Consultando la API…'
-              : 'Los ítems se habilitan para consolidado cuando la auditoría humana los aprueba (DISPENSED).'
+               : 'Los ítems se habilitan para consolidado cuando la auditoría humana los aprueba (DISPENSADO).'
           }
         />
         <TablePagination

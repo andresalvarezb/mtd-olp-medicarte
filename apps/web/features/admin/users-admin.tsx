@@ -27,7 +27,8 @@ const ORGANIZATIONS: Array<{ id: string; code: string; label: string }> = [
 
 const ROLES: Array<{ code: string; label: string }> = [
   { code: 'MTD_ADMIN', label: 'MTD Admin' },
-  { code: 'MTD_OPERATOR', label: 'MTD Operación' },
+  { code: 'MTD_AUTORIZACIONES', label: 'MTD Autorizaciones' },
+  { code: 'MTD_AUDITOR', label: 'MTD Auditoría' },
   { code: 'COMPENSAR_VIEWER', label: 'Compensar Consulta' },
   { code: 'OLP_OPERATOR', label: 'OLP Operador' },
   { code: 'MEDICARTE_OPERATOR', label: 'Medicarte Operador' },

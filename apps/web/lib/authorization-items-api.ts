@@ -7,11 +7,18 @@ import type {
 
 export interface AuthorizationItemListQuery {
   coverageType?: 'PBS' | 'NO_PBS';
-  enablementStatus?: 'ENABLED' | 'BLOCKED_SOURCE_STATUS';
-  directionStatus?: 'NOT_APPLICABLE' | 'PENDING' | 'CONFIRMED' | 'QUERY_ERROR';
-  operationStatus?: 'BLOCKED' | 'READY_TO_DISPENSE' | 'DISPENSATION_REPORTED' | 'DISPENSED' | 'EXPIRED';
-  applicationSiteStatus?: 'PENDING_ASSIGNMENT' | 'ASSIGNED';
-  auditStatus?: 'NOT_STARTED' | 'READY' | 'IN_REVIEW' | 'REJECTED' | 'APPROVED';
+  enablementStatus?: 'HABILITADO' | 'BLOQUEADO_POR_ESTADO_ORIGEN';
+  directionStatus?: 'NO_APLICA' | 'PENDIENTE' | 'CONFIRMADO' | 'ERROR_DE_CONSULTA';
+  operationStatus?:
+    | 'BLOQUEADO'
+    | 'LISTO_PARA_DISPENSAR'
+    | 'DISPENSACION_REPORTADA'
+    | 'DISPENSADO'
+    | 'VENCIDO';
+  tariffMembershipStatus?: 'NO_EVALUADO' | 'LISTADO' | 'NO_LISTADO';
+  applicationSiteStatus?: 'PENDIENTE_ASIGNACION' | 'ASIGNADO';
+  applicationDateStatus?: 'FALTANTE' | 'PRESENTE';
+  auditStatus?: 'NO_INICIADO' | 'LISTO' | 'EN_REVISION' | 'RECHAZADO' | 'APROBADO';
   authorizationKey?: string;
   cursor?: string;
   limit?: number;
@@ -36,7 +43,10 @@ export function listAuthorizationItems(
   signal?: AbortSignal,
 ): Promise<PaginatedItems> {
   const qs = toQuery({ limit: 25, ...query });
-  return apiRequest<PaginatedItems>(`/authorization-items${qs ? `?${qs}` : ''}`, { organizationId, signal });
+  return apiRequest<PaginatedItems>(`/authorization-items${qs ? `?${qs}` : ''}`, {
+    organizationId,
+    signal,
+  });
 }
 
 export function getAuthorizationItemDetail(
@@ -44,23 +54,32 @@ export function getAuthorizationItemDetail(
   organizationId: string,
   signal?: AbortSignal,
 ): Promise<AuthorizationItemDetailResponse> {
-  return apiRequest<AuthorizationItemDetailResponse>(`/authorization-items/${id}`, { organizationId, signal });
+  return apiRequest<AuthorizationItemDetailResponse>(`/authorization-items/${id}`, {
+    organizationId,
+    signal,
+  });
 }
 
-export function requestMipresRecheck(id: string, organizationId: string): Promise<{ itemId: string; status: string }> {
-  return apiRequest<{ itemId: string; status: string }>(`/authorization-items/${id}/mipres-rechecks`, {
-    method: 'POST',
-    organizationId,
-    idempotencyKey: crypto.randomUUID(),
-    body: '{}',
-  });
+export function requestMipresRecheck(
+  id: string,
+  organizationId: string,
+): Promise<{ itemId: string; status: string }> {
+  return apiRequest<{ itemId: string; status: string }>(
+    `/authorization-items/${id}/mipres-rechecks`,
+    {
+      method: 'POST',
+      organizationId,
+      idempotencyKey: crypto.randomUUID(),
+      body: '{}',
+    },
+  );
 }
 
 export interface AuditReview {
   id: string;
   authorizationItemId: string;
   reviewNumber: number;
-  status: 'IN_REVIEW' | 'APPROVED' | 'REJECTED';
+  status: 'EN_REVISION' | 'APROBADO' | 'RECHAZADO';
   observations: string | null;
   decidedBy: string | null;
   decidedAt: string | null;

@@ -9,7 +9,7 @@ Permitir que MEDICARTE defina masivamente `lugar_dispensacion`, la dirección a 
 ## Flujo
 
 ```text
-READY_TO_DISPENSE
+LISTO_PARA_DISPENSAR
     -> notificar OLP + MEDICARTE
     -> MEDICARTE descarga base completa permitida
     -> carga llave + lugar_dispensacion
@@ -25,8 +25,8 @@ READY_TO_DISPENSE
 
 `application_site_status` deja de ser persistido y se deriva:
 
-- valor nulo: `PENDING_ASSIGNMENT`;
-- valor presente: `ASSIGNED`.
+- valor nulo: `PENDIENTE_ASIGNACION`;
+- valor presente: `ASIGNADO`.
 
 ## Reglas
 

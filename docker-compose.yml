@@ -92,6 +92,7 @@ services:
       API_PORT: 3001
       IMPORT_MAX_FILE_BYTES: 20971520
       IMPORT_PROCESSOR_VERSION: 2
+      API_THROTTLE_LIMIT: 600
       MIPRES_BASE_URL: http://mipres-mock:8090
       MIPRES_NIT: 900123456
       MIPRES_INITIAL_TOKEN: initial-secret

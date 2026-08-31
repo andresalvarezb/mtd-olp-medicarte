@@ -31,7 +31,7 @@ type NotificationContent = {
 };
 
 export type NotificationProcessingResult = Readonly<{
-  status: 'SENT' | 'SKIPPED' | 'DEDUPLICATED';
+  status: 'ENVIADO' | 'OMITIDO' | 'DEDUPLICADO';
   notificationId: string | null;
   skipReason?: string;
 }>;
@@ -68,7 +68,7 @@ export class NotificationProcessor {
     const job = notificationJobSchema.parse(rawJob);
     const content = await this.buildContent(job);
     if (!content) {
-      return { status: 'SKIPPED', notificationId: null, skipReason: 'NO_CONTENT' };
+      return { status: 'OMITIDO', notificationId: null, skipReason: 'NO_CONTENT' };
     }
     const existing = await this.database.pool.query<{
       id: string;
@@ -78,8 +78,8 @@ export class NotificationProcessor {
       [content.idempotencyKey],
     );
     const previous = existing.rows[0];
-    if (previous?.status === 'SENT') {
-      return { status: 'DEDUPLICATED', notificationId: previous.id };
+    if (previous?.status === 'ENVIADO') {
+      return { status: 'DEDUPLICADO', notificationId: previous.id };
     }
 
     let notificationId: string;
@@ -103,7 +103,7 @@ export class NotificationProcessor {
         `insert into notifications
            (notification_type, recipient_organization_id, item_id, period, item_set_hash,
             template_version, subject, body, recipients, params, payload, status, correlation_id, idempotency_key)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 'PENDING', $12, $13)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 'PENDIENTE', $12, $13)
          returning id`,
         [
           content.notificationType,
@@ -128,10 +128,10 @@ export class NotificationProcessor {
 
     if (content.recipients.length === 0) {
       await this.database.pool.query(
-        `update notifications set status = 'SKIPPED', last_error = $2, attempts = attempts + 1 where id = $1`,
+         `update notifications set status = 'OMITIDO', last_error = $2, attempts = attempts + 1 where id = $1`,
         [notificationId, 'No hay destinatarios activos configurados para esta notificación.'],
       );
-      return { status: 'SKIPPED', notificationId, skipReason: 'NO_RECIPIENTS' };
+      return { status: 'OMITIDO', notificationId, skipReason: 'NO_RECIPIENTS' };
     }
 
     let messageId: string;
@@ -155,12 +155,12 @@ export class NotificationProcessor {
 
     await this.database.pool.query(
       `update notifications
-       set status = 'SENT', gmail_message_id = $2, sent_at = now(), attempts = attempts + 1, last_error = null
+       set status = 'ENVIADO', gmail_message_id = $2, sent_at = now(), attempts = attempts + 1, last_error = null
        where id = $1`,
       [notificationId, messageId],
     );
     await this.auditSent(job, notificationId);
-    return { status: 'SENT', notificationId };
+    return { status: 'ENVIADO', notificationId };
   }
 
   private async auditSent(job: NotificationJob, notificationId: string): Promise<void> {
@@ -339,8 +339,8 @@ export class NotificationProcessor {
     if (!template) return null;
     const pending = await this.database.pool.query<{ authorization_key: string }>(
       `select authorization_key from authorization_items
-       where coverage_type = 'NO_PBS' and enablement_status = 'ENABLED'
-         and direction_status = 'PENDING'
+       where coverage_type = 'NO_PBS' and enablement_status = 'HABILITADO'
+          and direction_status = 'PENDIENTE'
        order by authorization_key`,
     );
     const keys = pending.rows.map((row) => row.authorization_key);
@@ -426,7 +426,7 @@ export class NotificationProcessor {
     };
     const summary = [
       `\nAutorizaciones creadas: ${summaryValues.createdCount}`,
-      `\nEntradas a READY_TO_DISPENSE: ${summaryValues.readyCount}`,
+      `\nEntradas a LISTO_PARA_DISPENSAR: ${summaryValues.readyCount}`,
       `\nCambios de lugar de dispensacion: ${summaryValues.locationChangesCount}`,
       `\nLotes masivos completados: ${summaryValues.bulkBatchesCount}`,
     ].join('');

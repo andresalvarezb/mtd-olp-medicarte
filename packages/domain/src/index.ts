@@ -21,6 +21,16 @@ export type {
   DerivedPrescripcion,
   OperationStatusInput,
 } from './authorization-classification';
+export {
+  TARIFF_ANNEX_RULE_VERSION,
+  MAX_TARIFF_PRODUCT_CODE_LENGTH,
+  deriveEpsNovedadCausales,
+  deriveTariffMembershipStatus,
+  epsNovedadCausalMessages,
+  isValidTariffProductCode,
+  normalizeTariffProductCode,
+} from './tariff-annex';
+export type { EpsNovedadCausal, EpsNovedadInput, TariffMembershipStatus } from './tariff-annex';
 export { MIPRES_VIGENCIA_RULE_VERSION, currentBogotaDate, evaluateMipresVigencia } from './mipres';
 export type {
   MipresDirection,

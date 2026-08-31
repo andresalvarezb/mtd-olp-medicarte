@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { registerAnnexProduct } from './helpers/annex';
 import { mipresRecheckRequestResponseSchema } from '../../packages/contracts/src/index.js';
 
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
@@ -142,7 +143,7 @@ async function waitForBatch(
         validRows: number;
         rejectedRows: number;
       };
-      if (batch.status === 'READY_TO_CONFIRM' || batch.status === 'COMPLETED') return batch;
+       if (batch.status === 'LISTO_PARA_CONFIRMAR' || batch.status === 'COMPLETADO') return batch;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -181,7 +182,7 @@ async function importNoPbsItem(suffix: string): Promise<{ itemId: string; prescr
   );
   const item = items.rows[0];
   if (!item) throw new Error('Expected NO_PBS item to be confirmed');
-  expect(item.direction_status).toBe('PENDING');
+   expect(item.direction_status).toBe('PENDIENTE');
   return { itemId: item.id, prescription };
 }
 
@@ -226,6 +227,7 @@ async function manualCheckCount(itemId: string): Promise<number> {
   return Number.parseInt(rows.rows[0]?.count ?? '0', 10);
 }
 
+
 describe('Gate F3', () => {
   beforeAll(async () => {
     await database.connect();
@@ -233,20 +235,22 @@ describe('Gate F3', () => {
       login('foundation-admin', 'foundation-admin'),
       login('olp-operator', 'olp-operator'),
     ]);
+    // DEC-018: el cargue de autorizaciones exige un Anexo Tarifario cargado.
+    await registerAnnexProduct(adminToken, 'MED-F3-SEED');
   });
 
   afterAll(async () => database.end());
 
   it('validates MIPRES directions end to end with stable outcomes and redacted evidence', async () => {
     const cases = [
-      { suffix: '0', expected: 'CONFIRMED', expectedHttpStatus: 200, current: true },
-      { suffix: '1', expected: 'PENDING', expectedHttpStatus: 200, current: null },
-      { suffix: '2', expected: 'PENDING', expectedHttpStatus: 200, current: null },
-      { suffix: '3', expected: 'PENDING', expectedHttpStatus: 200, current: null },
-      { suffix: '4', expected: 'PENDING', expectedHttpStatus: 200, current: null },
-      { suffix: '5', expected: 'QUERY_ERROR', expectedHttpStatus: 500, current: null },
-      { suffix: '6', expected: 'QUERY_ERROR', expectedHttpStatus: 401, current: null },
-      { suffix: '7', expected: 'QUERY_ERROR', expectedHttpStatus: 200, current: null },
+      { suffix: '0', expected: 'CONFIRMADO', expectedHttpStatus: 200, current: true },
+      { suffix: '1', expected: 'PENDIENTE', expectedHttpStatus: 200, current: null },
+      { suffix: '2', expected: 'PENDIENTE', expectedHttpStatus: 200, current: null },
+      { suffix: '3', expected: 'PENDIENTE', expectedHttpStatus: 200, current: null },
+      { suffix: '4', expected: 'PENDIENTE', expectedHttpStatus: 200, current: null },
+      { suffix: '5', expected: 'ERROR_DE_CONSULTA', expectedHttpStatus: 500, current: null },
+      { suffix: '6', expected: 'ERROR_DE_CONSULTA', expectedHttpStatus: 401, current: null },
+      { suffix: '7', expected: 'ERROR_DE_CONSULTA', expectedHttpStatus: 200, current: null },
     ] as const;
 
     for (const testCase of cases) {
@@ -256,7 +260,7 @@ describe('Gate F3', () => {
       const body = mipresRecheckRequestResponseSchema.parse(await response.json());
       expect(body).toMatchObject({
         itemId,
-        status: 'QUEUED',
+         status: 'EN_COLA',
         queryType: 'MANUAL',
         correlationId: body.correlationId,
       });
@@ -306,7 +310,7 @@ describe('Gate F3', () => {
         'select enablement_status, coverage_type from authorization_items where id = $1',
         [itemId],
       );
-      expect(item.rows[0]).toMatchObject({ enablement_status: 'ENABLED', coverage_type: 'NO_PBS' });
+       expect(item.rows[0]).toMatchObject({ enablement_status: 'HABILITADO', coverage_type: 'NO_PBS' });
       expect(prescription).toMatch(/^\d+$/);
     }
 
@@ -376,7 +380,7 @@ describe('Gate F3', () => {
     expect(before).toBe(1);
 
     const redelivered = await database.query<{ id: string }>(
-      `update outbox_events set status = 'PENDING', dispatched_at = null
+       `update outbox_events set status = 'PENDIENTE', dispatched_at = null
        where event_type = 'authorization.mipres-recheck' and payload->>'itemId' = $1
        returning id`,
       [itemId],
@@ -388,7 +392,7 @@ describe('Gate F3', () => {
         `select status from outbox_events where event_type = 'authorization.mipres-recheck' and payload->>'itemId' = $1`,
         [itemId],
       );
-      if (events.rows.every((row) => row.status === 'PROCESSED')) break;
+       if (events.rows.every((row) => row.status === 'PROCESADO')) break;
       if (Date.now() > deadline) throw new Error('Outbox event never settled after redelivery');
       await new Promise((resolve) => setTimeout(resolve, 300));
     }

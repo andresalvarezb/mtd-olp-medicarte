@@ -15,7 +15,7 @@ Cargar CSV/XLSX de forma idempotente, conservar evidencia por fila y confirmar �
 
 ## Diccionario F2 recibido
 
-El archivo de autorizaciones contiene 26 columnas según el diccionario (versión 2, DEC-016). Las cuatro columnas marcadas como de negocio tienen validación explícita en Fase 2. Las demás se conservan en la evidencia de la fila y del ítem como valores escalares del archivo; no se les asignan obligatoriedad ni reglas semánticas adicionales hasta que exista una decisión documentada.
+El archivo de autorizaciones contiene 28 columnas según el diccionario (versión 3). Las cuatro columnas marcadas como de negocio tienen validación explícita en Fase 2. Las demás se conservan en la evidencia de la fila y del ítem como valores escalares del archivo; no se les asignan obligatoriedad ni reglas semánticas adicionales hasta que exista una decisión documentada. `CPRG` se conserva, pero se excluye de las descargas posteriores; `CDGN001` se incluye después de `NOMBRE_PACIENTE`.
 
 El contrato normativo de tipo, obligatoriedad, normalización, validaciones, llave y causales está en `../contracts/AUTHORIZATION_IMPORT_DATA_DICTIONARY.md`. Esta sección es su resumen funcional y no debe evolucionar de forma independiente.
 
@@ -26,6 +26,8 @@ El contrato normativo de tipo, obligatoriedad, normalización, validaciones, lla
 | `TIP_DOCUMENTO`          | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `NUM_DOCUMENTO`          | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `NOMBRE_PACIENTE`        | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
+| `CPRG`                   | Evidencia | Se conserva en la evidencia del cargue, pero se omite en las descargas posteriores.                                                                                      |
+| `CDGN001`                | Evidencia | Se conserva en la evidencia del cargue y se incluye en descargas después de `NOMBRE_PACIENTE`.                                                                          |
 | `NUMERO_TELEFONO`        | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `COD_CUPS_PRINCIPAL`     | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `CUPS_PRINCIPAL`         | Evidencia | Desde DEC-016 se conserva sin validación semántica; ya no clasifica cobertura.                                                                                            |
@@ -48,7 +50,7 @@ El contrato normativo de tipo, obligatoriedad, normalización, validaciones, lla
 | `FPRO`                   | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `VALOR CUOTA MODERADORA` | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 
-La lista del archivo contiene 26 columnas con el diccionario versión 2; encabezados desconocidos, si aparecen, también se conservan como evidencia sin convertirlos en reglas de negocio.
+La lista del archivo contiene 28 columnas con el diccionario versión 3; encabezados desconocidos, si aparecen, también se conservan como evidencia sin convertirlos en reglas de negocio.
 
 ## Catálogo estable de resultados por fila
 
@@ -59,7 +61,7 @@ La lista del archivo contiene 26 columnas con el diccionario versión 2; encabez
 | `INVALID_FIELD_FORMAT`          | El archivo o valor no cumple el formato técnico definido para F2.                                      |
 | `DUPLICATE_IN_FILE`             | La llave aparece más de una vez dentro del mismo archivo.                                              |
 | `EXISTING_ITEM_REVIEW_REQUIRED` | La llave ya existe y requiere verificación humana; no se actualiza automáticamente.                    |
-| `EXPLICIT_UPDATE_NOT_ALLOWED`   | Una actualización explícita fue intentada fuera de `READY_TO_DISPENSE`.                                |
+| `EXPLICIT_UPDATE_NOT_ALLOWED`   | Una actualización explícita fue intentada fuera de `LISTO_PARA_DISPENSAR`.                                |
 | `ITEM_CREATED`                  | La fila válida creó un ítem durante la confirmación.                                                   |
 | `ITEM_UPDATED`                  | Una actualización explícita autorizada terminó correctamente.                                          |
 | `PROCESSING_ERROR`              | Error técnico estable de procesamiento, sin exponer la excepción interna.                              |
@@ -71,18 +73,30 @@ La lista del archivo contiene 26 columnas con el diccionario versión 2; encabez
 - Un duplicado dentro del archivo no crea dos ítems.
 - Si la llave ya existe, la fila se reporta para verificación humana y no se actualiza automáticamente.
 - Debe existir una acción explícita de actualización.
-- Solo se habilita si `operation_status = READY_TO_DISPENSE`.
+- Solo se habilita si `operation_status = LISTO_PARA_DISPENSAR`.
 - La actualización reemplaza la evidencia y reevalúa las cuatro columnas de negocio (`NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `ESTADO_AUTORIZACION`, `No.PRESCRIPCION`) de la fila aprobada. `NUMERO_AUTORIZACION + COD_COMERCIAL` debe coincidir con la llave existente y sus componentes de identidad no cambian.
-- Después de clasificar la fila nueva, `operation_status` conserva `READY_TO_DISPENSE` solo si la combinación habilitación/cobertura/direccionamiento sigue siendo elegible; en cualquier otra combinación se persiste `BLOCKED`.
-- En Fase 2, `NO_PBS + ENABLED + PENDING` queda `BLOCKED` y no invoca MIPRES.
-- Se bloquea para `DISPENSATION_REPORTED`, `DISPENSED` y estados posteriores.
+- Después de clasificar la fila nueva, `operation_status` conserva `LISTO_PARA_DISPENSAR` solo si la combinación habilitación/cobertura/direccionamiento sigue siendo elegible; en cualquier otra combinación se persiste `BLOQUEADO`.
+- En Fase 2, `NO_PBS + HABILITADO + PENDIENTE` queda `BLOQUEADO` y no invoca MIPRES.
+- Se bloquea para `DISPENSACION_REPORTADA`, `DISPENSADO` y estados posteriores.
 - La auditoría de la actualización registra antes/después de `NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `ESTADO_AUTORIZACION` y `No.PRESCRIPCION` normalizados, referencias y hashes de la evidencia anterior/nueva, y el registro idempotente asociado; no duplica la evidencia cruda con datos sensibles en auditoría ni en la respuesta idempotente persistida.
 - Los mensajes de excepción técnicos no son causales de negocio.
 
 ## Flujo
 
-`UPLOADED -> VALIDATING -> READY_TO_CONFIRM -> CONFIRMING -> COMPLETED`.
-Excepciones: `FAILED`, `CANCELLED`.
+`CARGADO -> VALIDANDO -> LISTO_PARA_CONFIRMAR -> CONFIRMANDO -> COMPLETADO`.
+Excepciones: `FALLIDO`, `CANCELADO`.
+
+## Reversión del cargue (ADR-023 / DEC-017)
+
+Un usuario con `imports.revert` (solo MTD_ADMIN) puede eliminar las autorizaciones creadas por un lote `COMPLETADO`, identificando el lote únicamente por `import_batch_id`. El flujo de estados se extiende con `COMPLETADO -> REVIRTIENDO -> REVERTIDO`; el lote nunca se elimina y conserva `reverted_at`, `reverted_by`, `reverted_removed_items` y `reverted_blocked_items`.
+
+- Modelo: hard delete controlado dentro de una transacción única (plan, borrados, estado, auditoría, idempotencia); fallo técnico produce rollback total y el lote permanece `COMPLETADO`.
+- Selección: exclusivamente `authorization_items.created_from_batch_id`; los ítems preexistentes detectados o actualizados por el cargue nunca se eliminan.
+- Bloqueo por actividad posterior con causales estables: `ITEM_HAS_AUDIT_ACTIVITY`, `ITEM_HAS_MIPRES_ACTIVITY`, `ITEM_HAS_OPERATIONAL_UPDATES`, `ITEM_HAS_NOTIFICATIONS`, `ITEM_HAS_UPDATED_SOURCE_EVIDENCE`, `ITEM_REFERENCED_BY_LATER_IMPORT` (detalles y excepciones aprobadas en DEC-017).
+- Antes de ejecutar, `GET /imports/:id/reversal-preview` entrega el impacto (lote, archivo, fecha, usuario, filas, creadas, rechazadas, eliminables, bloqueadas con causal). `POST /imports/:id/revert` requiere `Idempotency-Key` y es idempotente: repetir sobre un lote revertido devuelve un resultado estable `alreadyReverted` sin nuevos efectos.
+- La acción en UI se limita a los lotes de la sesión vigente; no existe reversión de sesiones anteriores.
+- Escrituras derivadas explícitas por ítem eliminado: outbox `PENDIENTE` del propio cargue, puntero `import_rows.authorization_item_id` del propio lote, notificaciones de creación exentas, `coverage_evaluations` de creación y `authorization_item_organizations`.
+- Auditoría inmutable que sobrevive al borrado: `IMPORT_BATCH_REVERTED` (lote) y `AUTHORIZATION_ITEM_REMOVED_BY_IMPORT_ROLLBACK` (por ítem), con correlation ID.
 
 ## Persistencia
 
@@ -96,3 +110,4 @@ Excepciones: `FAILED`, `CANCELLED`.
 - se puede consultar progreso y reporte paginado;
 - confirmación es transaccional.
 - actualización explícita, auditoría, consumo de la fila e idempotencia confirman o revierten como una sola unidad.
+- la reversión solo elimina lo creado por el lote, conserva preexistentes y rechazadas, bloquea con causal los ítems con actividad posterior, es idempotente, deja el lote consultable como `REVERTIDO` y conserva la auditoría tras el borrado (gate F8).

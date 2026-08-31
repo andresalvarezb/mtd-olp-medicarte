@@ -6,26 +6,26 @@ export function formatNumber(value: number): string {
 }
 
 export const OPERATION_STATUS_LABELS: Record<string, string> = {
-  BLOCKED: 'Bloqueada',
-  READY_TO_DISPENSE: 'Lista para dispensar',
-  DISPENSATION_REPORTED: 'Dispensación reportada',
-  DISPENSED: 'Dispensada',
-  EXPIRED: 'Vencido',
+  BLOQUEADO: 'Bloqueada',
+  LISTO_PARA_DISPENSAR: 'Lista para dispensar',
+  DISPENSACION_REPORTADA: 'Dispensación reportada',
+  DISPENSADO: 'Dispensada',
+  VENCIDO: 'Vencido',
 };
 
 export const AUDIT_STATUS_LABELS: Record<string, string> = {
-  NOT_STARTED: 'No iniciada',
-  READY: 'Lista para auditar',
-  IN_REVIEW: 'En revisión',
-  REJECTED: 'Rechazada',
-  APPROVED: 'Aprobada',
+  NO_INICIADO: 'No iniciada',
+  LISTO: 'Lista para auditar',
+  EN_REVISION: 'En revisión',
+  RECHAZADO: 'Rechazada',
+  APROBADO: 'Visto bueno · lista para admisión',
 };
 
 export const DIRECTION_STATUS_LABELS: Record<string, string> = {
-  NOT_APPLICABLE: 'No aplica (PBS)',
-  PENDING: 'Pendiente',
-  CONFIRMED: 'Confirmado',
-  QUERY_ERROR: 'Error de consulta',
+  NO_APLICA: 'No aplica (PBS)',
+  PENDIENTE: 'Pendiente',
+  CONFIRMADO: 'Confirmado',
+  ERROR_DE_CONSULTA: 'Error de consulta',
 };
 
 export const COVERAGE_LABELS: Record<string, string> = {
@@ -35,22 +35,38 @@ export const COVERAGE_LABELS: Record<string, string> = {
 };
 
 export const ENABLEMENT_LABELS: Record<string, string> = {
-  ENABLED: 'Habilitada',
-  BLOCKED_SOURCE_STATUS: 'Bloqueada por estado fuente',
+  HABILITADO: 'Habilitada',
+  BLOQUEADO_POR_ESTADO_ORIGEN: 'Bloqueada por estado fuente',
+};
+
+/** Resultado de la validación del Anexo Tarifario por ítem (SPEC-014). */
+export const TARIFF_MEMBERSHIP_LABELS: Record<string, string> = {
+  NO_EVALUADO: 'Sin evaluar',
+  LISTADO: 'En Anexo Tarifario',
+  NO_LISTADO: 'Fuera del Anexo Tarifario',
+};
+
+/** Causales estables de la base de novedades EPS. */
+export const EPS_NOVEDAD_CAUSAL_LABELS: Record<string, string> = {
+  SOURCE_STATUS_BLOCKED: 'Estado de autorización no habilita',
+  AUTHORIZATION_EXPIRED: 'Autorización vencida',
+  DIRECTION_PENDING: 'Direccionamiento MIPRES pendiente',
+  DIRECTION_QUERY_ERROR: 'Error de consulta MIPRES',
+  PRODUCT_NOT_IN_TARIFF_ANNEX: 'Producto no incluido en el Anexo Tarifario',
 };
 
 export const SITE_STATUS_LABELS: Record<string, string> = {
-  PENDING_ASSIGNMENT: 'Pendiente',
-  ASSIGNED: 'Asignado',
+  PENDIENTE_ASIGNACION: 'Pendiente',
+  ASIGNADO: 'Asignado',
 };
 
 /** Estados de un lote de actualización masiva. */
 export const BULK_BATCH_STATUS_LABELS: Record<string, string> = {
-  UPLOADED: 'Recibido',
-  QUEUED: 'En cola',
-  PROCESSING: 'Procesando',
-  COMPLETED: 'Completado',
-  FAILED: 'Fallido',
+  CARGADO: 'Recibido',
+  EN_COLA: 'En cola',
+  PROCESANDO: 'Procesando',
+  COMPLETADO: 'Completado',
+  FALLIDO: 'Fallido',
 };
 
 /** Causales por fila del importador de autorizaciones. */
@@ -63,6 +79,17 @@ const IMPORT_ROW_RESULT_LABELS: Record<string, string> = {
   EXPLICIT_UPDATE_NOT_ALLOWED: 'Actualización explícita no permitida',
   ITEM_CREATED: 'Autorización creada',
   ITEM_UPDATED: 'Autorización actualizada',
+  PROCESSING_ERROR: 'Error de procesamiento',
+};
+
+/** Causales por fila del cargue del Anexo Tarifario (SPEC-014). */
+const TARIFF_ROW_RESULT_LABELS: Record<string, string> = {
+  PRODUCT_CREATED: 'Creado: agregado al Anexo Tarifario',
+  PRODUCT_REACTIVATED: 'Reactivado en el Anexo Tarifario',
+  PRODUCT_EXISTING: 'Existente: ya se encontraba registrado',
+  INVALID_PRODUCT_CODE: 'Código obligatorio o inválido',
+  DUPLICATE_IN_FILE: 'Duplicado en el archivo',
+  INVALID_FILE_FORMAT: 'Estructura de archivo inválida',
   PROCESSING_ERROR: 'Error de procesamiento',
 };
 
@@ -87,6 +114,7 @@ const BULK_ROW_RESULT_LABELS: Record<string, string> = {
 const RESULT_CODE_LABELS: Record<string, string> = {
   ...IMPORT_ROW_RESULT_LABELS,
   ...BULK_ROW_RESULT_LABELS,
+  ...TARIFF_ROW_RESULT_LABELS,
 };
 
 /** Etiqueta en español para un código de resultado o error; si es desconocido, se muestra tal cual. */
@@ -97,26 +125,26 @@ export function resultLabel(code: string): string {
 type Tone = 'gray' | 'blue' | 'green' | 'orange' | 'red' | 'purple';
 
 const AUDIT_PILL: Record<string, Tone> = {
-  NOT_STARTED: 'gray',
-  READY: 'orange',
-  IN_REVIEW: 'purple',
-  REJECTED: 'red',
-  APPROVED: 'green',
+  NO_INICIADO: 'gray',
+  LISTO: 'orange',
+  EN_REVISION: 'purple',
+  RECHAZADO: 'red',
+  APROBADO: 'green',
 };
 
 const OPERATION_PILL: Record<string, Tone> = {
-  BLOCKED: 'red',
-  READY_TO_DISPENSE: 'orange',
-  DISPENSATION_REPORTED: 'purple',
-  DISPENSED: 'green',
-  EXPIRED: 'red',
+  BLOQUEADO: 'red',
+  LISTO_PARA_DISPENSAR: 'orange',
+  DISPENSACION_REPORTADA: 'purple',
+  DISPENSADO: 'green',
+  VENCIDO: 'red',
 };
 
 const DIRECTION_PILL: Record<string, Tone> = {
-  NOT_APPLICABLE: 'gray',
-  PENDING: 'orange',
-  CONFIRMED: 'green',
-  QUERY_ERROR: 'red',
+  NO_APLICA: 'gray',
+  PENDIENTE: 'orange',
+  CONFIRMADO: 'green',
+  ERROR_DE_CONSULTA: 'red',
 };
 
 export function auditPill(status: string): Tone {

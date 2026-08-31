@@ -54,6 +54,15 @@ function toIso(value: Date): string {
   return value.toISOString();
 }
 
+function assertRoleOrganization(roleCode: string, organizationCode: string): void {
+  if (roleCode === 'MTD_AUDITOR' && organizationCode !== 'MTD') {
+    throw new BadRequestException({
+      code: 'ROLE_ORGANIZATION_MISMATCH',
+      message: 'El rol MTD_AUDITOR solo puede asignarse a la organización MTD.',
+    });
+  }
+}
+
 function rowToPending(row: PendingRow): PendingUserRequest {
   return {
     id: row.id,
@@ -164,7 +173,7 @@ export class UsersService {
 
   async create(input: { body: CreateUserRequest; scope: Scope }): Promise<UserResponse> {
     const { body, scope } = input;
-    const organization = await this.database.pool.query(
+    const organization = await this.database.pool.query<{ id: string; code: string; name: string }>(
       `select id, code, name from organizations where id = $1 and active = true`,
       [body.organizationId],
     );
@@ -181,6 +190,7 @@ export class UsersService {
     if (!roleRow) {
       throw new BadRequestException({ code: 'ROLE_NOT_FOUND', message: 'Role not found' });
     }
+    assertRoleOrganization(body.roleCode, organization.rows[0].code);
 
     const subject = await this.keycloakAdmin.createUser({
       email: body.email,
@@ -267,8 +277,8 @@ export class UsersService {
     scope: Scope;
   }): Promise<UserResponse> {
     const user = await this.getUserRow(input.userId);
-    const organization = await this.database.pool.query(
-      `select id from organizations where id = $1 and active = true`,
+    const organization = await this.database.pool.query<{ id: string; code: string }>(
+      `select id, code from organizations where id = $1 and active = true`,
       [input.body.organizationId],
     );
     if (!organization.rows[0]) {
@@ -284,6 +294,7 @@ export class UsersService {
     if (!roleRow) {
       throw new BadRequestException({ code: 'ROLE_NOT_FOUND', message: 'Role not found' });
     }
+    assertRoleOrganization(input.body.roleCode, organization.rows[0].code);
     await this.database.pool.query(
       `insert into user_organization_roles (user_id, organization_id, role_id, active)
        values ($1, $2, $3, true)
@@ -326,8 +337,8 @@ export class UsersService {
 
   async listPendingRequests(): Promise<{ items: PendingUserRequest[] }> {
     const rows = await this.database.pool.query<PendingRow>(
-      `select id, oidc_subject, email, display_name, status, requested_at, resolved_at
-       from pending_user_requests where status = 'PENDING'
+       `select id, oidc_subject, email, display_name, status, requested_at, resolved_at
+        from pending_user_requests where status = 'PENDIENTE'
        order by requested_at`,
     );
     return { items: rows.rows.map(rowToPending) };
@@ -350,14 +361,14 @@ export class UsersService {
         message: 'Pending request not found',
       });
     }
-    if (request.status !== 'PENDING') {
+    if (request.status !== 'PENDIENTE') {
       throw new ConflictException({
         code: 'PENDING_REQUEST_ALREADY_RESOLVED',
         message: 'Pending request already resolved',
       });
     }
-    const organization = await this.database.pool.query(
-      `select id from organizations where id = $1 and active = true`,
+    const organization = await this.database.pool.query<{ id: string; code: string }>(
+      `select id, code from organizations where id = $1 and active = true`,
       [input.body.organizationId],
     );
     if (!organization.rows[0]) {
@@ -373,6 +384,7 @@ export class UsersService {
     if (!roleRow) {
       throw new BadRequestException({ code: 'ROLE_NOT_FOUND', message: 'Role not found' });
     }
+    assertRoleOrganization(input.body.roleCode, organization.rows[0].code);
 
     const client = await this.database.pool.connect();
     try {
@@ -403,7 +415,7 @@ export class UsersService {
       );
       await client.query(
         `update pending_user_requests
-         set status = 'APPROVED', resolved_at = now(), resolved_by = $2
+          set status = 'APROBADO', resolved_at = now(), resolved_by = $2
          where id = $1`,
         [request.id, input.scope.userId],
       );
@@ -433,8 +445,8 @@ export class UsersService {
   async rejectPendingRequest(input: { requestId: string; scope: Scope }): Promise<void> {
     const result = await this.database.pool.query(
       `update pending_user_requests
-       set status = 'REJECTED', resolved_at = now(), resolved_by = $2
-       where id = $1 and status = 'PENDING'`,
+       set status = 'RECHAZADO', resolved_at = now(), resolved_by = $2
+       where id = $1 and status = 'PENDIENTE'`,
       [input.requestId, input.scope.userId],
     );
     if (result.rowCount === 0) {

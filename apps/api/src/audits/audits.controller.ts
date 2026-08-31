@@ -69,7 +69,7 @@ const auditReviewResponseSchema = {
     id: { type: 'string', format: 'uuid' },
     authorizationItemId: { type: 'string', format: 'uuid' },
     reviewNumber: { type: 'integer' },
-    status: { type: 'string', enum: ['IN_REVIEW', 'APPROVED', 'REJECTED'] },
+     status: { type: 'string', enum: ['EN_REVISION', 'APROBADO', 'RECHAZADO'] },
     observations: { type: 'string', nullable: true },
     decidedBy: { type: 'string', format: 'uuid', nullable: true },
     decidedAt: { type: 'string', format: 'date-time', nullable: true },
@@ -106,11 +106,11 @@ const authorizationItemSummarySchema = {
     authorizationKey: { type: 'string' },
     auditStatus: {
       type: 'string',
-      enum: ['NOT_STARTED', 'READY', 'IN_REVIEW', 'REJECTED', 'APPROVED'],
+       enum: ['NO_INICIADO', 'LISTO', 'EN_REVISION', 'RECHAZADO', 'APROBADO'],
     },
     admissionStatus: {
       type: 'string',
-      enum: ['NOT_READY', 'READY'],
+       enum: ['NO_LISTO', 'LISTO'],
     },
     operationStatus: { type: 'string', nullable: true },
     version: { type: 'integer' },
@@ -142,7 +142,7 @@ export class AuditsController {
     },
   })
   @ApiCreatedResponse({
-    description: 'Human audit review started from READY or REJECTED',
+     description: 'Human audit review started from LISTO or RECHAZADO',
     schema: {
       type: 'object',
       required: ['review', 'item'],
@@ -220,7 +220,7 @@ export class AuditsController {
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'audit.start',
+      'audit.findings.create',
     );
     const scope = scopeFromProfile(profile, organization, request);
     return this.audits.addFinding({ reviewId, body, idempotencyKey, scope });
@@ -242,7 +242,7 @@ export class AuditsController {
     },
   })
   @ApiOkResponse({
-    description: 'Human rejection with observations; item returns to REJECTED',
+     description: 'Human rejection with observations; item returns to RECHAZADO',
     schema: {
       type: 'object',
       required: ['review', 'item'],
@@ -289,7 +289,7 @@ export class AuditsController {
     },
   })
   @ApiOkResponse({
-    description: 'Human approval; item becomes APPROVED, DISPENSED and admission READY',
+     description: 'Human approval; item becomes APROBADO, DISPENSADO and admission LISTO',
     schema: {
       type: 'object',
       required: ['review', 'item'],

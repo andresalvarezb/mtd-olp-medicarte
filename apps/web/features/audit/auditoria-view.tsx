@@ -20,7 +20,13 @@ import {
   startAuditReview,
   type AuditReview,
 } from '@/lib/authorization-items-api';
-import { auditPill, AUDIT_STATUS_LABELS, patientName, patientDocument, medicationName } from '@/lib/labels';
+import {
+  auditPill,
+  AUDIT_STATUS_LABELS,
+  patientName,
+  patientDocument,
+  medicationName,
+} from '@/lib/labels';
 import type { AuthorizationItemResponse } from '@authorization/contracts';
 
 const COLUMNS = [
@@ -34,26 +40,28 @@ const COLUMNS = [
   { label: 'Acciones' },
 ];
 
-type TabFilter = 'READY' | 'IN_REVIEW' | 'REJECTED' | 'APPROVED';
+type TabFilter = 'LISTO' | 'EN_REVISION' | 'RECHAZADO' | 'APROBADO';
 
 export function AuditoriaView() {
-  const { organizationId, hasPermission } = useRole();
+  const { organizationId, hasPermission, roles } = useRole();
   const [tab, setTab] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionInfo, setActionInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
+  const isAuditor = roles.includes('MTD_AUDITOR');
   const canStart = hasPermission('audit.start');
-  const canDecide = hasPermission('audit.reject') && hasPermission('audit.approve');
+  const canApprove = hasPermission('audit.approve');
+  const canReject = hasPermission('audit.reject');
 
   const { data: indicators } = useApiData(() => getIndicators(organizationId), [organizationId]);
 
-  const tabs: TabFilter[] = ['READY', 'IN_REVIEW', 'REJECTED', 'APPROVED'];
+  const tabs: TabFilter[] = ['LISTO', 'EN_REVISION', 'RECHAZADO', 'APROBADO'];
   const ready = usePaginatedList<AuthorizationItemResponse>(
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        auditStatus: 'READY',
+        auditStatus: 'LISTO',
         ...(cursor ? { cursor } : {}),
       }),
     [organizationId],
@@ -62,7 +70,7 @@ export function AuditoriaView() {
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        auditStatus: 'IN_REVIEW',
+        auditStatus: 'EN_REVISION',
         ...(cursor ? { cursor } : {}),
       }),
     [organizationId],
@@ -71,7 +79,7 @@ export function AuditoriaView() {
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        auditStatus: 'REJECTED',
+        auditStatus: 'RECHAZADO',
         ...(cursor ? { cursor } : {}),
       }),
     [organizationId],
@@ -80,26 +88,26 @@ export function AuditoriaView() {
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        auditStatus: 'APPROVED',
+        auditStatus: 'APROBADO',
         ...(cursor ? { cursor } : {}),
       }),
     [organizationId],
   );
 
   const pages = {
-    READY: { items: ready.items },
-    IN_REVIEW: { items: inReview.items },
-    REJECTED: { items: rejected.items },
-    APPROVED: { items: approved.items },
+    LISTO: { items: ready.items },
+    EN_REVISION: { items: inReview.items },
+    RECHAZADO: { items: rejected.items },
+    APROBADO: { items: approved.items },
   };
   const hooks = [ready, inReview, rejected, approved];
-  const currentFilter = tabs[tab] ?? 'READY';
+  const currentFilter = tabs[tab] ?? 'LISTO';
   const reloadCurrent = (hooks[tab] ?? ready).reload;
 
   const findOpenReview = async (itemId: string): Promise<AuditReview | null> => {
     const detail = await getAuthorizationItemDetail(itemId, organizationId);
     const reviews = detail.auditReviews ?? [];
-    return reviews.find((review) => review.status === 'IN_REVIEW') ?? null;
+    return reviews.find((review) => review.status === 'EN_REVISION') ?? null;
   };
 
   const runAction = async (key: string, action: () => Promise<void>, message: string) => {
@@ -124,6 +132,22 @@ export function AuditoriaView() {
         await startAuditReview(itemId, organizationId, version);
       },
       `Auditoría iniciada para ${numero}.`,
+    );
+
+  const handleAuditorCheck = (itemId: string, version: number, numero: string) =>
+    runAction(
+      `approve-${itemId}`,
+      async () => {
+        const started = await startAuditReview(itemId, organizationId, version);
+        const observations = window.prompt('Observaciones del visto bueno (opcional):')?.trim();
+        await approveAuditReview(
+          started.review.id,
+          organizationId,
+          started.item.version,
+          observations || undefined,
+        );
+      },
+      `${numero}: visto bueno registrado; listo para admisión.`,
     );
 
   const handleDecision = (
@@ -151,28 +175,37 @@ export function AuditoriaView() {
           await approveAuditReview(review.id, organizationId, version, observations || undefined);
         }
       },
-      `${numero}: ${decision === 'approve' ? 'aprobada (DISPENSED)' : 'rechazada'}.`,
+      `${numero}: ${decision === 'approve' ? 'aprobada (DISPENSADO)' : 'rechazada'}.`,
     );
 
   const buildRows = (filter: TabFilter) =>
     (pages[filter]?.items ?? []).map((item) => {
       const actions: React.ReactNode[] = [];
-      if (filter === 'READY' && canStart) {
+      const readyActionKey = isAuditor && canApprove ? `approve-${item.id}` : `start-${item.id}`;
+      if (filter === 'LISTO' && canStart) {
         actions.push(
           <button
-            key={`start-${item.id}`}
+            key={readyActionKey}
             type="button"
             className="btn"
-            disabled={busy === `start-${item.id}`}
+            disabled={busy === readyActionKey}
             onClick={() => {
-              void handleStart(item.id, item.version, item.numeroAutorizacion);
+              if (isAuditor && canApprove) {
+                void handleAuditorCheck(item.id, item.version, item.numeroAutorizacion);
+              } else {
+                void handleStart(item.id, item.version, item.numeroAutorizacion);
+              }
             }}
           >
-            {busy === `start-${item.id}` ? 'Iniciando…' : 'Iniciar auditoría'}
+            {busy === readyActionKey
+              ? 'Procesando…'
+              : isAuditor && canApprove
+                ? 'Dar visto bueno'
+                : 'Iniciar auditoría'}
           </button>,
         );
       }
-      if (filter === 'IN_REVIEW' && canDecide) {
+      if (filter === 'EN_REVISION' && canApprove) {
         actions.push(
           <button
             key={`approve-${item.id}`}
@@ -183,8 +216,12 @@ export function AuditoriaView() {
               void handleDecision(item.id, item.version, item.numeroAutorizacion, 'approve');
             }}
           >
-            Aprobar
+            {isAuditor ? 'Dar visto bueno' : 'Aprobar'}
           </button>,
+        );
+      }
+      if (filter === 'EN_REVISION' && canReject) {
+        actions.push(
           <button
             key={`reject-${item.id}`}
             type="button"
@@ -219,11 +256,17 @@ export function AuditoriaView() {
     <>
       <PageHeader
         title="Auditoría de soportes"
-        description="La aprobación explícita marca el ítem como DISPENSED y habilita su descarga en el consolidado."
+        description="El visto bueno explícito marca el registro como DISPENSADO y lo deja listo para admisión."
         actions={
           <span className="pill blue">{indicators?.readyForReview ?? 0} listas para revisar</span>
         }
       />
+      {isAuditor ? (
+        <div className="note" style={{ marginBottom: 14 }}>
+          Este perfil solo puede revisar soportes y dar visto bueno. No puede rechazar, registrar
+          hallazgos, importar, exportar ni administrar usuarios.
+        </div>
+      ) : null}
       {actionError ? (
         <div className="login-error" role="alert" style={{ marginBottom: 14 }}>
           {actionError}
@@ -237,15 +280,15 @@ export function AuditoriaView() {
       <KpiGrid>
         <KpiCard
           label="Listas para auditar"
-          value={indicators?.byAuditStatus.READY ?? 0}
-          foot="Soportes completos"
+          value={indicators?.byAuditStatus.LISTO ?? 0}
+          foot="Listas para revisión"
           icon="LA"
           iconBg="#eef4ff"
           iconColor="#2456c7"
         />
         <KpiCard
           label="En revisión"
-          value={indicators?.byAuditStatus.IN_REVIEW ?? 0}
+          value={indicators?.byAuditStatus.EN_REVISION ?? 0}
           foot="Auditoría humana activa"
           icon="ER"
           iconBg="#fff4e5"
@@ -253,7 +296,7 @@ export function AuditoriaView() {
         />
         <KpiCard
           label="Rechazadas"
-          value={indicators?.byAuditStatus.REJECTED ?? 0}
+          value={indicators?.byAuditStatus.RECHAZADO ?? 0}
           foot="Requieren corrección"
           icon="RJ"
           iconBg="#fff0ee"
@@ -261,8 +304,8 @@ export function AuditoriaView() {
         />
         <KpiCard
           label="Aprobadas"
-          value={indicators?.byAuditStatus.APPROVED ?? 0}
-          foot="DISPENSED"
+          value={indicators?.byAuditStatus.APROBADO ?? 0}
+          foot="Listas para admisión"
           icon="AP"
           iconBg="#eaf8f2"
           iconColor="#16835d"

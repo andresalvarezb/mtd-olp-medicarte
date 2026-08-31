@@ -21,6 +21,7 @@ import { UsersService } from './identity/users.service';
 import { OperationsController } from './operations/operations.controller';
 import { ImportsController } from './imports/imports.controller';
 import { ImportsService } from './imports/imports.service';
+import { ImportsReversalService } from './imports/imports-reversal.service';
 import { AuthorizationItemsController } from './authorization-items/authorization-items.controller';
 import { AuthorizationItemsService } from './authorization-items/authorization-items.service';
 import { BulkUpdatesController } from './bulk-updates/bulk-updates.controller';
@@ -34,6 +35,10 @@ import { AuditsService } from './audits/audits.service';
 import { ConsolidationController } from './consolidation/consolidation.controller';
 import { ConsolidationService } from './consolidation/consolidation.service';
 import { IndicatorsController } from './consolidation/indicators.controller';
+import { TariffAnnexController } from './tariff-annex/tariff-annex.controller';
+import { TariffAnnexService } from './tariff-annex/tariff-annex.service';
+import { EpsExportsController } from './eps-exports/eps-exports.controller';
+import { EpsExportsService } from './eps-exports/eps-exports.service';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
 
 const config = parseApiConfig(process.env);
@@ -67,7 +72,7 @@ new Gauge({
         redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
       },
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: config.API_THROTTLE_LIMIT }]),
   ],
   controllers: [
     MeController,
@@ -82,6 +87,8 @@ new Gauge({
     AuditsController,
     ConsolidationController,
     IndicatorsController,
+    TariffAnnexController,
+    EpsExportsController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -91,12 +98,15 @@ new Gauge({
     UsersService,
     FoundationService,
     ImportsService,
+    ImportsReversalService,
     AuthorizationItemsService,
     BulkUpdatesService,
     OperationalExportsService,
     NotificationsAdminService,
     AuditsService,
     ConsolidationService,
+    TariffAnnexService,
+    EpsExportsService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

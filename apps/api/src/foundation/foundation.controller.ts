@@ -57,7 +57,7 @@ export class FoundationController {
       required: ['eventId', 'status'],
       properties: {
         eventId: { type: 'string', format: 'uuid' },
-        status: { type: 'string', enum: ['accepted'] },
+        status: { type: 'string', enum: ['ACEPTADO'] },
       },
     },
   })
@@ -68,7 +68,7 @@ export class FoundationController {
     @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
-  ): Promise<{ eventId: string; status: 'accepted' }> {
+  ): Promise<{ eventId: string; status: 'ACEPTADO' }> {
     const body = requestSchema.parse(rawBody);
     const idempotencyKey = idempotencyKeySchema.parse(rawIdempotencyKey);
     const profile = await this.access.requirePermission(

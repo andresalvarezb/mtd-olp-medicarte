@@ -35,23 +35,23 @@ Formato CSV o XLSX, máximo 20 MB, sin columnas adicionales, alias ni campos arb
 
 ## Precondiciones por operación
 
-- Las tres operaciones exigen un ítem visible para la organización y `operation_status` distinto de `BLOCKED`.
-- `ASSIGN_DISPENSATION_LOCATION`: ítem en `READY_TO_DISPENSE` o posterior.
-- `REPORT_DISPENSATION_DATE`: `lugar_dispensacion` definido (asignado previamente por MEDICARTE) y estado `READY_TO_DISPENSE` o `DISPENSATION_REPORTED`.
-- `REPORT_APPLICATION_DATE`: `lugar_dispensacion` definido y auditoría no aprobada. Una vez `audit_status = APPROVED` el campo queda inmutable y la fila se rechaza con `OPERATION_NOT_ALLOWED`.
+- Las tres operaciones exigen un ítem visible para la organización y `operation_status` distinto de `BLOQUEADO`.
+- `ASSIGN_DISPENSATION_LOCATION`: ítem en `LISTO_PARA_DISPENSAR` o posterior.
+- `REPORT_DISPENSATION_DATE`: `lugar_dispensacion` definido (asignado previamente por MEDICARTE) y estado `LISTO_PARA_DISPENSAR` o `DISPENSACION_REPORTADA`.
+- `REPORT_APPLICATION_DATE`: `lugar_dispensacion` definido y auditoría no aprobada. Una vez `audit_status = APROBADO` el campo queda inmutable y la fila se rechaza con `OPERATION_NOT_ALLOWED`.
 
 ## Cadena operativa de referencia
 
 ```text
 MEDICARTE asigna lugar -> OLP reporta fecha de dispensación -> MEDICARTE reporta fecha de aplicación
-        (READY_TO_DISPENSE)         (DISPENSATION_REPORTED)         (ambas fechas derivan audit_status = READY)
+         (LISTO_PARA_DISPENSAR)         (DISPENSACION_REPORTADA)         (ambas fechas derivan audit_status = LISTO)
 ```
 
-Con ambas fechas el registro queda habilitado para revisión del auditor MTD; solo una decisión humana produce `APPROVED` e ingresa el registro al consolidado (SPEC-006).
+Con ambas fechas el registro queda habilitado para revisión del auditor MTD; solo una decisión humana produce `APROBADO` e ingresa el registro al consolidado (SPEC-006).
 
 ## Ciclo de vida del lote
 
-`UPLOADED -> QUEUED -> PROCESSING -> COMPLETED | FAILED`
+`CARGADO -> EN_COLA -> PROCESANDO -> COMPLETADO | FALLIDO`
 
 - Una fila inválida no revierte las demás; las filas válidas se aplican.
 - Reprocesar el mismo archivo no duplica efectos ni notificaciones (idempotencia por lote y por fila).

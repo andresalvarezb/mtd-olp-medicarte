@@ -24,7 +24,7 @@ export type MipresQueryResult = Readonly<{
   rawPayload: unknown;
 }>;
 
-export type MipresQueryOutcome = 'PENDING' | 'CONFIRMED';
+export type MipresQueryOutcome = 'PENDIENTE' | 'CONFIRMADO';
 
 /**
  * Puerto del dominio hacia MIPRES. DEC-013: exclusivamente lectura de
@@ -65,7 +65,7 @@ export function evaluateMipresVigencia(
     (direction) => !direction.annulled && todayBogota < direction.maximumDeliveryDate,
   );
   return {
-    outcome: hasCurrent ? 'CONFIRMED' : 'PENDING',
+    outcome: hasCurrent ? 'CONFIRMADO' : 'PENDIENTE',
     hasCurrent,
     directionCount: directions.length,
     ruleVersion: MIPRES_VIGENCIA_RULE_VERSION,

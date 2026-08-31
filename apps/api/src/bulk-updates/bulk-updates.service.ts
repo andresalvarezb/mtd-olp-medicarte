@@ -251,7 +251,7 @@ export class BulkUpdatesService {
         `insert into bulk_update_batches
            (id, organization_id, created_by, operation_type, contract_version, original_filename,
             mime_type, size_bytes, sha256, status, correlation_id, idempotency_key)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'UPLOADED', $10, $11)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'CARGADO', $10, $11)
          returning id, organization_id, operation_type, contract_version, original_filename, mime_type,
                    size_bytes, sha256, status, total_rows, processed_rows, updated_rows, unchanged_rows,
                    rejected_rows, last_error_code, created_at, completed_at`,
@@ -349,12 +349,11 @@ export class BulkUpdatesService {
     return toBatchResponse(row);
   }
 
-  async getRows(input: {
-    batchId: string;
-    cursor?: string;
-    limit: number;
-    scope: Scope;
-  }): Promise<{ items: BulkUpdateRowResponse[]; nextCursor: string | null }> {
+  async getRows(input: { batchId: string; cursor?: string; limit: number; scope: Scope }): Promise<{
+    items: BulkUpdateRowResponse[];
+    nextCursor: string | null;
+    resultCodeCounts: Record<string, number>;
+  }> {
     const batchId = parseUuid(input.batchId, 'batchId');
     const batch = await this.findBatch(batchId, input.scope);
     if (!batch) {
@@ -371,15 +370,22 @@ export class BulkUpdatesService {
       where += ` and r.row_number > $${values.length}`;
     }
     values.push(input.limit + 1);
-    const result = await this.database.pool.query<RowRecord>(
-      `select r.id, r.row_number, r.result_code, r.result_message, r.authorization_key,
+    const [result, countResult] = await Promise.all([
+      this.database.pool.query<RowRecord>(
+        `select r.id, r.row_number, r.result_code, r.result_message, r.authorization_key,
               r.authorization_item_id, r.field_name, r.previous_value, r.new_value, r.field_version, r.created_at
        from bulk_update_rows r
        where ${where}
        order by r.row_number asc
        limit $${values.length}`,
-      values,
-    );
+        values,
+      ),
+      this.database.pool.query<{ result_code: string; count: string }>(
+        `select result_code, count(*)::text as count
+         from bulk_update_rows where batch_id = $1 group by result_code`,
+        [batchId],
+      ),
+    ]);
     const hasNext = result.rows.length > input.limit;
     const rows = (hasNext ? result.rows.slice(0, input.limit) : result.rows).map((row) => {
       const resultCode = bulkUpdateRowResultCodeSchema.parse(row.result_code);
@@ -398,7 +404,13 @@ export class BulkUpdatesService {
       } satisfies BulkUpdateRowResponse;
     });
     const last = rows.at(-1);
-    return { items: rows, nextCursor: hasNext && last ? encodeRowCursor(last.rowNumber) : null };
+    return {
+      items: rows,
+      nextCursor: hasNext && last ? encodeRowCursor(last.rowNumber) : null,
+      resultCodeCounts: Object.fromEntries(
+        countResult.rows.map((row) => [row.result_code, Number(row.count)]),
+      ),
+    };
   }
 
   async getReport(input: {

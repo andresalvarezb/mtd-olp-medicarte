@@ -20,15 +20,15 @@ export async function persistTerminalImportFailure(
       [input.batchId],
     );
     const status = lockedBatch.rows[0]?.status;
-    if (status === 'UPLOADED' || status === 'VALIDATING') {
+    if (status === 'CARGADO' || status === 'VALIDANDO') {
       await client.query(
         `update import_batches
-         set status = 'FAILED', completed_at = now(), last_error_code = $2
-         where id = $1 and status in ('UPLOADED', 'VALIDATING')`,
+         set status = 'FALLIDO', completed_at = now(), last_error_code = $2
+         where id = $1 and status in ('CARGADO', 'VALIDANDO')`,
         [input.batchId, input.classification],
       );
     }
-    if (status === 'UPLOADED' || status === 'VALIDATING' || status === 'FAILED') {
+    if (status === 'CARGADO' || status === 'VALIDANDO' || status === 'FALLIDO') {
       await client.query(
         `update import_source_files
          set content = null, processed_at = now()
@@ -38,8 +38,8 @@ export async function persistTerminalImportFailure(
     }
     await client.query(
       `update outbox_events
-       set status = 'FAILED', attempts = $2, last_error = $3
-       where id = $1 and status <> 'PROCESSED'`,
+       set status = 'FALLIDO', attempts = $2, last_error = $3
+       where id = $1 and status <> 'PROCESADO'`,
       [input.eventId, input.attemptsMade, input.classification],
     );
     await client.query('commit');

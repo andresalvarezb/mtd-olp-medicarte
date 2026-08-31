@@ -64,6 +64,17 @@ describe('parseImportFile', () => {
     });
   });
 
+  it('preserves CPRG and CDGN001 as source evidence', () => {
+    const content = Buffer.from(
+      'NUMERO_AUTORIZACION,COD_COMERCIAL,ESTADO_AUTORIZACION,No.PRESCRIPCION,CPRG,CDGN001\n' +
+        'AUTH-1,MED-1,5,,CPRG-1,CDGN-1\n',
+    );
+
+    const parsed = parseImportFile(content, 'authorizations.csv', 'text/csv');
+
+    expect(parsed.rows[0]?.rawData).toMatchObject({ CPRG: 'CPRG-1', CDGN001: 'CDGN-1' });
+  });
+
   it('rejects unsupported formats and duplicate headers', () => {
     expect(() => parseImportFile(Buffer.from('data'), 'authorizations.txt', 'text/plain')).toThrow(
       'Solo se admiten',

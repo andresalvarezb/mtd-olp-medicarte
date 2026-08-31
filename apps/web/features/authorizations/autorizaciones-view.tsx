@@ -27,6 +27,7 @@ import {
   operationPill,
   OPERATION_STATUS_LABELS,
   SITE_STATUS_LABELS,
+  TARIFF_MEMBERSHIP_LABELS,
   patientName,
   patientDocument,
   medicationName,
@@ -41,15 +42,17 @@ const COLUMNS = [
   { label: 'Direccionamiento' },
   { label: 'Punto aplicación' },
   { label: 'Operación' },
+  { label: 'Anexo Tarifario' },
   { label: 'Auditoría' },
 ];
 
 type EstadoProceso = 'todos' | 'listo' | 'pendiente-punto' | 'pendiente-auditoria';
+type TariffFilter = 'todos' | 'LISTADO' | 'NO_LISTADO';
 
 const ESTADO_PROCESO_PARAMS: Record<Exclude<EstadoProceso, 'todos'>, AuthorizationItemListQuery> = {
-  listo: { operationStatus: 'READY_TO_DISPENSE' },
-  'pendiente-punto': { operationStatus: 'READY_TO_DISPENSE', auditStatus: 'NOT_STARTED' },
-  'pendiente-auditoria': { auditStatus: 'READY' },
+  listo: { operationStatus: 'LISTO_PARA_DISPENSAR' },
+  'pendiente-punto': { operationStatus: 'LISTO_PARA_DISPENSAR', auditStatus: 'NO_INICIADO' },
+  'pendiente-auditoria': { auditStatus: 'LISTO' },
 };
 
 export function AutorizacionesView() {
@@ -57,10 +60,12 @@ export function AutorizacionesView() {
   const [search, setSearch] = useState('');
   const [coverage, setCoverage] = useState<'todos' | 'PBS' | 'NO_PBS'>('todos');
   const [estado, setEstado] = useState<EstadoProceso>('todos');
+  const [tariff, setTariff] = useState<TariffFilter>('todos');
   const [applied, setApplied] = useState<{
     key: string;
     coverage: 'todos' | 'PBS' | 'NO_PBS';
     estado: EstadoProceso;
+    tariff: TariffFilter;
   } | null>(null);
 
   const query: AuthorizationItemListQuery = {
@@ -68,9 +73,10 @@ export function AutorizacionesView() {
     ...(applied?.key ? { authorizationKey: applied.key } : {}),
     ...(applied && applied.coverage !== 'todos' ? { coverageType: applied.coverage } : {}),
     ...(applied && applied.estado !== 'todos' ? ESTADO_PROCESO_PARAMS[applied.estado] : {}),
+    ...(applied && applied.tariff !== 'todos' ? { tariffMembershipStatus: applied.tariff } : {}),
   };
 
-  const querySignature = `${applied?.key ?? ''}|${applied?.coverage ?? 'todos'}|${applied?.estado ?? 'todos'}`;
+  const querySignature = `${applied?.key ?? ''}|${applied?.coverage ?? 'todos'}|${applied?.estado ?? 'todos'}|${applied?.tariff ?? 'todos'}`;
   const list = usePaginatedList<AuthorizationItemResponse>(
     (cursor) =>
       listAuthorizationItems(organizationId, {
@@ -123,6 +129,12 @@ export function AutorizacionesView() {
     ) : (
       '—'
     ),
+    <StatusBadge
+      key="tariff"
+       tone={item.tariffMembershipStatus === 'LISTADO' ? 'green' : 'red'}
+    >
+      {TARIFF_MEMBERSHIP_LABELS[item.tariffMembershipStatus]}
+    </StatusBadge>,
     <StatusBadge key="audit" tone={auditPill(item.auditStatus)}>
       {AUDIT_STATUS_LABELS[item.auditStatus]}
     </StatusBadge>,
@@ -140,7 +152,7 @@ export function AutorizacionesView() {
                 {exporting ? 'Exportando…' : 'Exportar aprobados (CSV)'}
               </button>
             ) : null}
-            <RoleActionButton allowedRole="MTD">
+            <RoleActionButton requiredPermission="imports.create">
               <Link
                 href="/cargas"
                 className="btn primary"
@@ -190,11 +202,22 @@ export function AutorizacionesView() {
               <option value="pendiente-auditoria">Pendiente auditoría</option>
             </select>
           </FilterField>
+          <FilterField label="Anexo Tarifario">
+            <select
+              className="control"
+              value={tariff}
+              onChange={(event) => setTariff(event.target.value as TariffFilter)}
+            >
+              <option value="todos">Todos</option>
+               <option value="LISTADO">En Anexo Tarifario</option>
+               <option value="NO_LISTADO">Fuera del Anexo Tarifario</option>
+            </select>
+          </FilterField>
           <FilterActions>
             <button
               type="button"
               className="btn soft"
-              onClick={() => setApplied({ key: search.trim(), coverage, estado })}
+              onClick={() => setApplied({ key: search.trim(), coverage, estado, tariff })}
             >
               Filtrar
             </button>

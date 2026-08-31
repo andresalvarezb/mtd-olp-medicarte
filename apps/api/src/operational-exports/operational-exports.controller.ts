@@ -65,6 +65,8 @@ export class OperationalExportsController {
   })
   @ApiQuery({
     name: 'operationType',
+    description:
+      'REPORT_APPLICATION_DATE exports authorization_key and fecha_aplicacion_medicamento; the upload contract accepts exactly those two columns.',
     enum: ['ASSIGN_DISPENSATION_LOCATION', 'REPORT_DISPENSATION_DATE', 'REPORT_APPLICATION_DATE'],
   })
   @ApiQuery({ name: 'format', enum: ['csv', 'xlsx'], required: false })

@@ -58,40 +58,103 @@
       "tag": "0007_phase6_audit_consolidation",
       "breakpoints": true
     },
-        {
-            "idx": 8,
-            "version": "7",
-            "when": 1788103695268,
-            "tag": "0008_phase6_admission_scope",
-            "breakpoints": true
-        },
-        {
-            "idx": 9,
-            "version": "7",
-            "when": 1788556020663,
-            "tag": "0009_user_management",
-            "breakpoints": true
-        },
-        {
-            "idx": 10,
-            "version": "7",
-            "when": 1788642420663,
-            "tag": "0010_mtd_admin_full_access",
-            "breakpoints": true
-        },
-        {
-            "idx": 11,
-            "version": "7",
-            "when": 1788728820663,
-            "tag": "0011_tenant_sensitive_read",
-            "breakpoints": true
-        },
-        {
-            "idx": 12,
-            "version": "7",
-            "when": 1788815220663,
-            "tag": "0012_expired_operation_status",
-            "breakpoints": true
-        }
-    ]
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788103695268,
+      "tag": "0008_phase6_admission_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788556020663,
+      "tag": "0009_user_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788642420663,
+      "tag": "0010_mtd_admin_full_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788728820663,
+      "tag": "0011_tenant_sensitive_read",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788815220663,
+      "tag": "0012_expired_operation_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788901620663,
+      "tag": "0013_import_batch_reversal",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788988020663,
+      "tag": "0014_mtd_auditor_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1789074420663,
+      "tag": "0015_tariff_annex",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1789160820663,
+      "tag": "0016_anexo_tarifario_resolucion",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788209913144,
+      "tag": "0017_glorious_dagger",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789160820664,
+      "tag": "0018_estados_espanol",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789160820665,
+      "tag": "0019_estados_defaults_espanol",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789160820666,
+      "tag": "0020_normalized_data_estados_espanol",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788214089537,
+      "tag": "0021_skinny_fenris",
+      "breakpoints": true
+    }
+  ]
 }

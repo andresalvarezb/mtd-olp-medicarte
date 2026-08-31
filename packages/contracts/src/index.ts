@@ -101,20 +101,27 @@ export type MipresRecheckJob = z.infer<typeof mipresRecheckJobSchema>;
 
 export const mipresRecheckRequestResponseSchema = z.object({
   itemId: z.string().uuid(),
-  status: z.literal('QUEUED'),
+  status: z.literal('EN_COLA'),
   queryType: mipresQueryTypeSchema,
   correlationId: correlationIdSchema,
 });
 export type MipresRecheckRequestResponse = z.infer<typeof mipresRecheckRequestResponseSchema>;
 
+/**
+ * Estados de negocio y de procesamiento expuestos por la API.
+ * Los valores son identificadores ASCII en español; códigos de error, eventos,
+ * colas y tipos de operación permanecen como identificadores técnicos.
+ */
 export const importBatchStatusSchema = z.enum([
-  'UPLOADED',
-  'VALIDATING',
-  'READY_TO_CONFIRM',
-  'CONFIRMING',
-  'COMPLETED',
-  'FAILED',
-  'CANCELLED',
+  'CARGADO',
+  'VALIDANDO',
+  'LISTO_PARA_CONFIRMAR',
+  'CONFIRMANDO',
+  'COMPLETADO',
+  'FALLIDO',
+  'CANCELADO',
+  'REVIRTIENDO',
+  'REVERTIDO',
 ]);
 export type ImportBatchStatus = z.infer<typeof importBatchStatusSchema>;
 
@@ -144,40 +151,50 @@ export const importRowResultMessages: Record<ImportRowResultCode, string> = {
   PROCESSING_ERROR: 'No fue posible procesar la fila.',
 };
 
-export const enablementStatusSchema = z.enum(['ENABLED', 'BLOCKED_SOURCE_STATUS']);
+export const enablementStatusSchema = z.enum(['HABILITADO', 'BLOQUEADO_POR_ESTADO_ORIGEN']);
 export const coverageTypeSchema = z.enum(['UNCLASSIFIED', 'PBS', 'NO_PBS']);
 export const directionStatusSchema = z.enum([
-  'NOT_APPLICABLE',
-  'PENDING',
-  'CONFIRMED',
-  'QUERY_ERROR',
+  'NO_APLICA',
+  'PENDIENTE',
+  'CONFIRMADO',
+  'ERROR_DE_CONSULTA',
 ]);
 export const operationStatusSchema = z.enum([
-  'BLOCKED',
-  'READY_TO_DISPENSE',
-  'DISPENSATION_REPORTED',
-  'DISPENSED',
-  'EXPIRED',
+  'BLOQUEADO',
+  'LISTO_PARA_DISPENSAR',
+  'DISPENSACION_REPORTADA',
+  'DISPENSADO',
+  'VENCIDO',
 ]);
 export const auditStatusSchema = z.enum([
-  'NOT_STARTED',
-  'READY',
-  'IN_REVIEW',
-  'REJECTED',
-  'APPROVED',
+  'NO_INICIADO',
+  'LISTO',
+  'EN_REVISION',
+  'RECHAZADO',
+  'APROBADO',
 ]);
 export type AuditStatus = z.infer<typeof auditStatusSchema>;
 
 /** SPEC-002/ADR-009: admisión derivada por reglas de dominio; nunca editable por UI.
- * READY habilita la descarga de la base para el proceso externo de admisiones;
+ * LISTO habilita la descarga de la base para el proceso externo de admisiones;
  * no existen estados de handoff en el núcleo (el alcance de Fase 6 cierra la plataforma). */
-export const admissionStatusSchema = z.enum(['NOT_READY', 'READY']);
+export const admissionStatusSchema = z.enum(['NO_LISTO', 'LISTO']);
 export type AdmissionStatus = z.infer<typeof admissionStatusSchema>;
 export const operationalDateSchema = z.string().date();
 
+/** SPEC-014: resultado de la validación del Anexo Tarifario por ítem. */
+export const tariffMembershipStatusSchema = z.enum([
+  'NO_EVALUADO',
+  'LISTADO',
+  'NO_LISTADO',
+]);
+export type TariffMembershipStatus = z.infer<typeof tariffMembershipStatusSchema>;
+
 /** Fase 4 (SPEC-011/ADR-020): estado de sitio derivado, nunca persistido. */
-export const applicationSiteStatusSchema = z.enum(['PENDING_ASSIGNMENT', 'ASSIGNED']);
+export const applicationSiteStatusSchema = z.enum(['PENDIENTE_ASIGNACION', 'ASIGNADO']);
 export type ApplicationSiteStatus = z.infer<typeof applicationSiteStatusSchema>;
+export const applicationDateStatusSchema = z.enum(['FALTANTE', 'PRESENTE']);
+export type ApplicationDateStatus = z.infer<typeof applicationDateStatusSchema>;
 
 export const authorizationSourceColumns = [
   'CODEPS',
@@ -185,6 +202,8 @@ export const authorizationSourceColumns = [
   'TIP_DOCUMENTO',
   'NUM_DOCUMENTO',
   'NOMBRE_PACIENTE',
+  'CPRG',
+  'CDGN001',
   'NUMERO_TELEFONO',
   'COD_CUPS_PRINCIPAL',
   'CUPS_PRINCIPAL',
@@ -268,12 +287,93 @@ export type ImportBatchResponse = z.infer<typeof importBatchResponseSchema>;
 
 export const confirmImportResponseSchema = z.object({
   batchId: z.string().uuid(),
-  status: z.literal('COMPLETED'),
+  status: z.literal('COMPLETADO'),
   createdRows: z.number().int().nonnegative(),
   existingRows: z.number().int().nonnegative(),
   confirmedAt: isoDateTimeSchema,
 });
 export type ConfirmImportResponse = z.infer<typeof confirmImportResponseSchema>;
+
+/**
+ * ADR-023 / DEC-017: causales estables de bloqueo para la reversión de un cargue.
+ * La selección de ítems es exclusivamente por created_from_batch_id; el causal
+ * ITEM_NOT_CREATED_BY_BATCH es un invariante estructural del pipeline y no se
+ * produce en tiempo de ejecución.
+ */
+export const importReversalBlockReasonSchema = z.enum([
+  'ITEM_HAS_AUDIT_ACTIVITY',
+  'ITEM_HAS_MIPRES_ACTIVITY',
+  'ITEM_HAS_OPERATIONAL_UPDATES',
+  'ITEM_HAS_NOTIFICATIONS',
+  'ITEM_HAS_UPDATED_SOURCE_EVIDENCE',
+  'ITEM_REFERENCED_BY_LATER_IMPORT',
+]);
+export type ImportReversalBlockReason = z.infer<typeof importReversalBlockReasonSchema>;
+
+export const importReversalBlockReasonMessages: Record<ImportReversalBlockReason, string> = {
+  ITEM_HAS_AUDIT_ACTIVITY:
+    'Tiene actividad de auditoría (revisión iniciada o estado posterior a NO_INICIADO).',
+  ITEM_HAS_MIPRES_ACTIVITY: 'Tiene consultas o direccionamientos MIPRES registrados.',
+  ITEM_HAS_OPERATIONAL_UPDATES:
+    'Tiene actualizaciones operativas o datos logísticos (lugar, dispensación o aplicación).',
+  ITEM_HAS_NOTIFICATIONS: 'Tiene notificaciones operativas posteriores a la creación del cargue.',
+  ITEM_HAS_UPDATED_SOURCE_EVIDENCE:
+    'Su evidencia de origen fue reemplazada por una actualización explícita.',
+  ITEM_REFERENCED_BY_LATER_IMPORT: 'Otro cargue posterior detectó o actualizó esta llave.',
+};
+
+export const importReversalBlockedItemSchema = z.object({
+  itemId: z.string().uuid(),
+  authorizationKey: z.string(),
+  reasons: z.array(importReversalBlockReasonSchema).min(1),
+});
+export type ImportReversalBlockedItem = z.infer<typeof importReversalBlockedItemSchema>;
+
+const importReversalSummaryFields = {
+  itemsCreatedByBatch: z.number().int().nonnegative(),
+  itemsEligibleForRemoval: z.number().int().nonnegative(),
+  itemsBlocked: z.number().int().nonnegative(),
+  blockedReasonCounts: z.array(
+    z.object({ reason: importReversalBlockReasonSchema, count: z.number().int().nonnegative() }),
+  ),
+  /** Detalle acotado; truncated indica que la lista completa excede el límite. */
+  blockedItems: z.array(importReversalBlockedItemSchema),
+  blockedItemsTruncated: z.boolean(),
+} as const;
+
+export const importReversalPreviewResponseSchema = z.object({
+  batchId: z.string().uuid(),
+  batchStatus: importBatchStatusSchema,
+  originalFilename: z.string(),
+  createdAt: isoDateTimeSchema,
+  createdBy: z.string().uuid(),
+  createdByEmail: z.string(),
+  createdByName: z.string().nullable(),
+  totalRows: z.number().int().nonnegative(),
+  confirmedRows: z.number().int().nonnegative(),
+  rejectedRows: z.number().int().nonnegative(),
+  duplicateRows: z.number().int().nonnegative(),
+  existingRows: z.number().int().nonnegative(),
+  alreadyReverted: z.boolean(),
+  revertedAt: isoDateTimeSchema.nullable(),
+  revertedRemovedItems: z.number().int().nonnegative(),
+  revertedBlockedItems: z.number().int().nonnegative(),
+  ...importReversalSummaryFields,
+});
+export type ImportReversalPreviewResponse = z.infer<typeof importReversalPreviewResponseSchema>;
+
+export const revertImportResponseSchema = z.object({
+  batchId: z.string().uuid(),
+  status: z.literal('REVERTIDO'),
+  alreadyReverted: z.boolean(),
+  evaluatedItems: z.number().int().nonnegative(),
+  removedItems: z.number().int().nonnegative(),
+  blockedItems: z.number().int().nonnegative(),
+  blockedItemsDetail: z.array(importReversalBlockedItemSchema),
+  blockedItemsTruncated: z.boolean(),
+  revertedAt: isoDateTimeSchema,
+});
+export type RevertImportResponse = z.infer<typeof revertImportResponseSchema>;
 
 export const importRowResponseSchema = z.object({
   id: z.string().uuid(),
@@ -298,7 +398,9 @@ export const authorizationItemListQuerySchema = z.object({
   enablementStatus: enablementStatusSchema.optional(),
   directionStatus: directionStatusSchema.optional(),
   operationStatus: operationStatusSchema.optional(),
+  tariffMembershipStatus: tariffMembershipStatusSchema.optional(),
   applicationSiteStatus: applicationSiteStatusSchema.optional(),
+  applicationDateStatus: applicationDateStatusSchema.optional(),
   auditStatus: auditStatusSchema.optional(),
   authorizationKey: z.string().trim().min(1).max(300).optional(),
   cursor: z.string().min(1).max(500).optional(),
@@ -326,6 +428,7 @@ export const authorizationItemResponseSchema = z.object({
   applicationSiteStatus: applicationSiteStatusSchema,
   operationalVersion: z.number().int().nonnegative(),
   coverageRuleVersion: z.string(),
+  tariffMembershipStatus: tariffMembershipStatusSchema,
   version: z.number().int().positive(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -343,7 +446,7 @@ export const authorizationItemHistorySchema = z.object({
 // Fase 6 — Auditoría humana, hallazgos y decisiones (SPEC-006, SPEC-002, ADR-009).
 // ---------------------------------------------------------------------------
 
-export const auditReviewStatusSchema = z.enum(['IN_REVIEW', 'APPROVED', 'REJECTED']);
+export const auditReviewStatusSchema = z.enum(['EN_REVISION', 'APROBADO', 'RECHAZADO']);
 export type AuditReviewStatus = z.infer<typeof auditReviewStatusSchema>;
 
 export const auditReviewResponseSchema = z.object({
@@ -454,19 +557,22 @@ export const bulkUpdateOperationContracts = {
     actorOrganizationCode: 'MEDICARTE',
     permission: 'bulk_updates.dispensation_location',
     mutableField: 'lugar_dispensacion',
+    valueColumn: 'lugar_dispensacion',
     requiredColumns: ['authorization_key', 'lugar_dispensacion'],
   },
   REPORT_DISPENSATION_DATE: {
     actorOrganizationCode: 'OLP',
     permission: 'bulk_updates.dispensation_date',
     mutableField: 'fecha_dispensacion',
+    valueColumn: 'fecha_dispensacion',
     requiredColumns: ['authorization_key', 'fecha_dispensacion'],
   },
   REPORT_APPLICATION_DATE: {
     actorOrganizationCode: 'MEDICARTE',
     permission: 'bulk_updates.application_date',
     mutableField: 'fecha_aplicacion',
-    requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'fecha_aplicacion'],
+    valueColumn: 'fecha_aplicacion_medicamento',
+    requiredColumns: ['authorization_key', 'fecha_aplicacion_medicamento'],
   },
 } as const satisfies Record<
   BulkUpdateOperationType,
@@ -474,6 +580,7 @@ export const bulkUpdateOperationContracts = {
     actorOrganizationCode: string;
     permission: string;
     mutableField: string;
+    valueColumn: string;
     requiredColumns: readonly string[];
   }
 >;
@@ -483,11 +590,11 @@ export const enabledBulkUpdateOperationTypes = bulkUpdateOperationTypeSchema.opt
 export const enabledBulkUpdateOperationTypeSchema = bulkUpdateOperationTypeSchema;
 
 export const bulkUpdateBatchStatusSchema = z.enum([
-  'UPLOADED',
-  'QUEUED',
-  'PROCESSING',
-  'COMPLETED',
-  'FAILED',
+  'CARGADO',
+  'EN_COLA',
+  'PROCESANDO',
+  'COMPLETADO',
+  'FALLIDO',
 ]);
 export type BulkUpdateBatchStatus = z.infer<typeof bulkUpdateBatchStatusSchema>;
 
@@ -538,12 +645,13 @@ export const BULK_UPDATE_JOB_OPTIONS = {
   removeOnComplete: { age: 3600, count: 1000 },
   removeOnFail: false,
 };
-export const BULK_UPDATE_CONTRACT_VERSION = 2;
+export const BULK_UPDATE_CONTRACT_VERSION = 3;
+const supportedBulkUpdateJobContractVersionSchema = z.union([z.literal(2), z.literal(3)]);
 
 export const bulkUpdateJobPayloadSchema = z.object({
   eventId: z.string().uuid(),
   batchId: z.string().uuid(),
-  contractVersion: z.literal(BULK_UPDATE_CONTRACT_VERSION),
+  contractVersion: supportedBulkUpdateJobContractVersionSchema,
   correlationId: correlationIdSchema,
   idempotencyKey: idempotencyKeySchema,
 });
@@ -551,7 +659,7 @@ export type BulkUpdateJobPayload = z.infer<typeof bulkUpdateJobPayloadSchema>;
 
 export const bulkUpdateJobSchema = z.object({
   name: z.literal('authorization.bulk-update'),
-  version: z.literal(BULK_UPDATE_CONTRACT_VERSION),
+  version: supportedBulkUpdateJobContractVersionSchema,
   payload: bulkUpdateJobPayloadSchema,
   correlationId: correlationIdSchema,
   idempotencyKey: idempotencyKeySchema,
@@ -596,6 +704,7 @@ export type BulkUpdateRowResponse = z.infer<typeof bulkUpdateRowResponseSchema>;
 export const paginatedBulkUpdateRowsResponseSchema = z.object({
   items: z.array(bulkUpdateRowResponseSchema),
   nextCursor: z.string().nullable(),
+  resultCodeCounts: z.record(z.string(), z.number().int().nonnegative()),
 });
 
 export const notificationTypeSchema = z.enum([
@@ -650,7 +759,7 @@ export const notificationJobSchema = z.object({
 });
 export type NotificationJob = z.infer<typeof notificationJobSchema>;
 
-export const notificationStatusSchema = z.enum(['PENDING', 'SENT', 'FAILED', 'SKIPPED']);
+export const notificationStatusSchema = z.enum(['PENDIENTE', 'ENVIADO', 'FALLIDO', 'OMITIDO']);
 export type NotificationStatus = z.infer<typeof notificationStatusSchema>;
 
 export const notificationResponseSchema = z.object({
@@ -731,7 +840,7 @@ export const operationalIndicatorsResponseSchema = z.object({
 });
 export type OperationalIndicatorsResponse = z.infer<typeof operationalIndicatorsResponseSchema>;
 
-/** Consolidado on-demand (ADR-018): solo APPROVED es elegible (SPEC-006). */
+/** Consolidado on-demand (ADR-018): solo APROBADO es elegible (SPEC-006). */
 export const consolidatedExportQuerySchema = z.object({
   format: operationalExportFormatSchema.default('csv'),
   coverageType: coverageTypeSchema.exclude(['UNCLASSIFIED']).optional(),
@@ -787,7 +896,7 @@ export const createAssignmentRequestSchema = z.object({
 });
 export type CreateAssignmentRequest = z.infer<typeof createAssignmentRequestSchema>;
 
-export const pendingUserStatusSchema = z.enum(['PENDING', 'APPROVED', 'REJECTED']);
+export const pendingUserStatusSchema = z.enum(['PENDIENTE', 'APROBADO', 'RECHAZADO']);
 export type PendingUserStatus = z.infer<typeof pendingUserStatusSchema>;
 
 export const pendingUserRequestSchema = z.object({
@@ -809,3 +918,202 @@ export type ApprovePendingUserRequest = z.infer<typeof approvePendingUserRequest
 
 export const rejectPendingUserRequestSchema = z.object({}).strict();
 export type RejectPendingUserRequest = z.infer<typeof rejectPendingUserRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// SPEC-014 / ADR-024 — Anexo Tarifario (configuración administrativa MTD).
+// Contratos compartidos web/api/worker (GLOBAL_RULES: no duplicar DTO/enums).
+// ---------------------------------------------------------------------------
+
+export const TARIFF_ANNEX_QUEUE = 'tariff-annex';
+export const TARIFF_ANNEX_DEAD_LETTER_QUEUE = 'tariff-annex.dead-letter';
+export const TARIFF_ANNEX_JOB_NAME = 'tariff.annex-revalidation.v1';
+export const TARIFF_ANNEX_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 1000 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail: false,
+};
+
+export const createTariffProductRequestSchema = z.object({
+  codigoProducto: z.string().trim().min(1).max(255),
+});
+export type CreateTariffProductRequest = z.infer<typeof createTariffProductRequestSchema>;
+
+export const updateTariffProductRequestSchema = z.object({
+  active: z.boolean(),
+});
+export type UpdateTariffProductRequest = z.infer<typeof updateTariffProductRequestSchema>;
+
+export const tariffProductResponseSchema = z.object({
+  id: z.string().uuid(),
+  codigoProducto: z.string(),
+  active: z.boolean(),
+  version: z.number().int().positive(),
+  createdBy: z.string().uuid(),
+  /** Evidencia de la fila mapeada del cargue (columnas del contrato comercial). */
+  sourceData: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type TariffProductResponse = z.infer<typeof tariffProductResponseSchema>;
+
+export const tariffProductListQuerySchema = z.object({
+  active: z.enum(['true', 'false']).optional(),
+  codigo: z.string().trim().min(1).max(300).optional(),
+  cursor: z.string().min(1).max(500).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type TariffProductListQuery = z.infer<typeof tariffProductListQuerySchema>;
+
+export const paginatedTariffProductsResponseSchema = z.object({
+  items: z.array(tariffProductResponseSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const createTariffProductResponseSchema = z.object({
+  product: tariffProductResponseSchema,
+  /** CREADO | EXISTENTE | REACTIVADO — resultado estable de la operación. */
+  resultCode: z.enum(['PRODUCT_CREATED', 'PRODUCT_EXISTING', 'PRODUCT_REACTIVATED']),
+});
+
+/**
+ * SPEC-014 §5 (DEC-019): contrato del cargue masivo del Anexo Tarifario.
+ * Los encabezados son exactamente los del formato comercial acordado y la
+ * igualdad de validación es `Código Interno Medicamento = COD_COMERCIAL`
+ * (authorization_items.codigo_medicamento). Los códigos se intercambian como
+ * TEXTO (nunca numéricos) para no perder ceros a la izquierda; las demás
+ * columnas se conservan como evidencia del producto.
+ */
+export const tariffAnnexCodeColumn = 'Código Interno Medicamento' as const;
+
+export const requiredTariffImportColumns = [
+  'Código Interno Medicamento',
+  'Tarifa de la unidad Farmacéutica',
+  'Número de Expediente del INVIMA',
+  'Consecutivo INVIMA (Presentación)',
+  'Descripción Genérica del Medicamento (DCI)',
+  'Descripción Comercial del Medicamento',
+  'Laboratorio del Medicamento',
+  'Tipo de Inclusion del Medicamento (PBS/NOPBS)',
+] as const;
+
+export const tariffImportBatchStatusSchema = z.enum([
+  'CARGADO',
+  'VALIDANDO',
+  'COMPLETADO',
+  'FALLIDO',
+]);
+export type TariffImportBatchStatus = z.infer<typeof tariffImportBatchStatusSchema>;
+
+/** Catálogo cerrado de resultados por fila del cargue del Anexo Tarifario. */
+export const tariffImportRowResultCodeSchema = z.enum([
+  'PRODUCT_CREATED',
+  'PRODUCT_REACTIVATED',
+  'PRODUCT_EXISTING',
+  'INVALID_PRODUCT_CODE',
+  'DUPLICATE_IN_FILE',
+  'INVALID_FILE_FORMAT',
+  'PROCESSING_ERROR',
+]);
+export type TariffImportRowResultCode = z.infer<typeof tariffImportRowResultCodeSchema>;
+
+export const tariffImportRowResultMessages: Record<TariffImportRowResultCode, string> = {
+  PRODUCT_CREATED: 'Producto agregado al Anexo Tarifario.',
+  PRODUCT_REACTIVATED: 'Producto reactivado en el Anexo Tarifario.',
+  PRODUCT_EXISTING: 'Ya se encontraba registrado y activo.',
+  INVALID_PRODUCT_CODE: 'Código de producto obligatorio o con formato inválido.',
+  DUPLICATE_IN_FILE: 'Código repetido dentro del archivo.',
+  INVALID_FILE_FORMAT: 'Estructura de archivo inválida.',
+  PROCESSING_ERROR: 'No fue posible procesar la fila.',
+};
+
+export const tariffImportBatchResponseSchema = z.object({
+  id: z.string().uuid(),
+  status: tariffImportBatchStatusSchema,
+  originalFilename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  sha256: z.string().length(64),
+  totalRows: z.number().int().nonnegative(),
+  createdRows: z.number().int().nonnegative(),
+  reactivatedRows: z.number().int().nonnegative(),
+  existingRows: z.number().int().nonnegative(),
+  rejectedRows: z.number().int().nonnegative(),
+  duplicateRows: z.number().int().nonnegative(),
+  lastErrorCode: z.string().min(1).max(80).nullable(),
+  createdAt: isoDateTimeSchema,
+  completedAt: isoDateTimeSchema.nullable(),
+});
+export type TariffImportBatchResponse = z.infer<typeof tariffImportBatchResponseSchema>;
+
+export const tariffImportRowResponseSchema = z.object({
+  id: z.string().uuid(),
+  rowNumber: z.number().int().positive(),
+  codigoProducto: z.string().nullable(),
+  resultCode: tariffImportRowResultCodeSchema,
+  resultMessage: z.string(),
+  productId: z.string().uuid().nullable(),
+  createdAt: isoDateTimeSchema,
+});
+export type TariffImportRowResponse = z.infer<typeof tariffImportRowResponseSchema>;
+
+export const paginatedTariffImportRowsResponseSchema = z.object({
+  items: z.array(tariffImportRowResponseSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const tariffImportPayloadSchema = z.object({
+  eventId: z.string().uuid(),
+  batchId: z.string().uuid(),
+  sourceFileId: z.string().uuid(),
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+
+export const tariffImportJobSchema = z.object({
+  name: z.literal('tariff.import'),
+  version: z.literal(1),
+  payload: tariffImportPayloadSchema,
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type TariffImportJob = z.infer<typeof tariffImportJobSchema>;
+
+/**
+ * SPEC-014 §16: evento de dominio por producto creado o reactivado. Provoca la
+ * revalidación dirigida de autorizaciones bloqueadas por
+ * PRODUCT_NOT_IN_TARIFF_ANNEX con ese código de medicamento.
+ */
+export const tariffAnnexRevalidationPayloadSchema = z.object({
+  eventId: z.string().uuid(),
+  tariffProductId: z.string().uuid(),
+  codigoProducto: z.string().min(1).max(255),
+  actorId: z.string().uuid().nullable(),
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+
+export const tariffAnnexRevalidationJobSchema = z.object({
+  name: z.literal('tariff.product.activated'),
+  version: z.literal(1),
+  payload: tariffAnnexRevalidationPayloadSchema,
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type TariffAnnexRevalidationJob = z.infer<typeof tariffAnnexRevalidationJobSchema>;
+
+export type TariffRevalidationResult = Readonly<{
+  tariffProductId: string;
+  codigoProducto: string;
+  outcome: 'COMPLETADO' | 'OMITIDO' | 'DEDUPLICADO';
+  skipReason?: string;
+  evaluatedItems: number;
+  revalidatedItems: number;
+  becameReadyItems: number;
+}>;
+
+/** Descarga on-demand de novedades EPS (MTD): registros sin LISTO_PARA_DISPENSAR. */
+export const epsNovedadesExportQuerySchema = z.object({
+  format: operationalExportFormatSchema.default('csv'),
+});
+export type EpsNovedadesExportQuery = z.infer<typeof epsNovedadesExportQuerySchema>;

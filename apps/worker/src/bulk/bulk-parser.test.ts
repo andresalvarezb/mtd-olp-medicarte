@@ -87,8 +87,8 @@ describe('parseBulkFile', () => {
 
   it('normaliza una fecha calendario nativa de XLSX sin convertirla en timestamp', () => {
     const sheet = XLSX.utils.aoa_to_sheet([
-      ['numero_autorizacion', 'codigo_medicamento', 'fecha_dispensacion'],
-      ['A', 'M', new Date(2026, 7, 30)],
+      ['authorization_key', 'fecha_aplicacion_medicamento'],
+      ['A:M', new Date(2026, 7, 30)],
     ]);
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, sheet, 'actualizacion');
@@ -99,8 +99,8 @@ describe('parseBulkFile', () => {
       content,
       'bulk.xlsx',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      ['numero_autorizacion', 'codigo_medicamento', 'fecha_dispensacion'],
+      ['authorization_key', 'fecha_aplicacion_medicamento'],
     );
-    expect(parsed.rows[0]?.rawData['fecha_dispensacion']).toBe('2026-08-30');
+    expect(parsed.rows[0]?.rawData['fecha_aplicacion_medicamento']).toBe('2026-08-30');
   });
 });

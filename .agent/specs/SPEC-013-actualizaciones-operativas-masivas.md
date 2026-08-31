@@ -8,13 +8,13 @@ Permitir descargas completas según alcance y tres actualizaciones masivas segur
 
 ## Tipos y contratos de columnas
 
-| Tipo                           | Actor     | Encabezados exactos                                       |
-| ------------------------------ | --------- | ---------------------------------------------------------- |
-| `ASSIGN_DISPENSATION_LOCATION` | MEDICARTE | `authorization_key,lugar_dispensacion`                     |
-| `REPORT_DISPENSATION_DATE`     | OLP       | `authorization_key,fecha_dispensacion`                     |
-| `REPORT_APPLICATION_DATE`      | MEDICARTE | `numero_autorizacion,codigo_medicamento,fecha_aplicacion`  |
+| Tipo                           | Actor     | Encabezados exactos                              |
+| ------------------------------ | --------- | ------------------------------------------------ |
+| `ASSIGN_DISPENSATION_LOCATION` | MEDICARTE | `authorization_key,lugar_dispensacion`           |
+| `REPORT_DISPENSATION_DATE`     | OLP       | `authorization_key,fecha_dispensacion`           |
+| `REPORT_APPLICATION_DATE`      | MEDICARTE | `authorization_key,fecha_aplicacion_medicamento` |
 
-No se aceptan columnas adicionales, alias ni campos arbitrarios. Para lugar y fecha de dispensación la única llave de negocio es `authorization_key`: la pareja normalizada `numero_autorizacion + codigo_medicamento` (separador `:`, con escape de `\` y `:`) que entrega la descarga operativa. `lugar_dispensacion` es texto libre: el sistema solo exige valor no vacío y normalización de espacios; no valida estructura de dirección. Las fechas usan el formato canónico `YYYY-MM-DD`; no se inventan restricciones temporales adicionales mientras no exista una decisión de negocio. El cambio de esquema de los dos primeros tipos versiona el contrato (`BULK_UPDATE_CONTRACT_VERSION = 2`).
+No se aceptan columnas adicionales, alias ni campos arbitrarios. Para las tres operaciones la única llave de negocio es `authorization_key`: la pareja normalizada `numero_autorizacion + codigo_medicamento` (separador `:`, con escape de `\` y `:`) que entrega la descarga operativa. `fecha_aplicacion_medicamento` es el nombre del archivo y mapea exclusivamente al campo persistido `fecha_aplicacion DATE`. `lugar_dispensacion` es texto libre: el sistema solo exige valor no vacío y normalización de espacios; no valida estructura de dirección. Las fechas usan el formato canónico `YYYY-MM-DD`; no se inventan restricciones temporales adicionales mientras no exista una decisión de negocio. Este cambio versiona el contrato (`BULK_UPDATE_CONTRACT_VERSION = 3`).
 
 ## Pipeline
 
@@ -47,14 +47,16 @@ Una fila no válida no revierte otras filas válidas. Reprocesar el mismo lote o
 
 `UNCHANGED_VALUE` se reporta como procesada sin actualización y no emite evento. Los mensajes humanos pueden evolucionar; los códigos no cambian sin versionar el contrato.
 
+`VERSION_CONFLICT` también evita actualizar cuando el prefijo de protección contra fórmulas de una hoja de cálculo puede representar dos llaves existentes; el caso se remite a revisión humana.
+
 ## Precondiciones
 
-- Las tres operaciones exigen un ítem visible para la organización y `operation_status` no igual a `BLOCKED`.
-- `ASSIGN_DISPENSATION_LOCATION` requiere que el ítem haya alcanzado `READY_TO_DISPENSE` o un estado operacional posterior.
-- `REPORT_DISPENSATION_DATE` requiere `lugar_dispensacion` definido y estado `READY_TO_DISPENSE` o `DISPENSATION_REPORTED`.
-- `REPORT_APPLICATION_DATE` requiere `lugar_dispensacion` definido y `audit_status` distinto de `APPROVED` (equivalente a `operation_status` distinto de `DISPENSED`).
+- Las tres operaciones exigen un ítem visible para la organización y `operation_status` no igual a `BLOQUEADO`.
+- `ASSIGN_DISPENSATION_LOCATION` requiere que el ítem haya alcanzado `LISTO_PARA_DISPENSAR` o un estado operacional posterior.
+- `REPORT_DISPENSATION_DATE` requiere `lugar_dispensacion` definido y estado `LISTO_PARA_DISPENSAR` o `DISPENSACION_REPORTADA`.
+- `REPORT_APPLICATION_DATE` requiere `lugar_dispensacion` definido y `audit_status` distinto de `APROBADO` (equivalente a `operation_status` distinto de `DISPENSADO`).
 - Una corrección por el mismo actor autorizado se permite y siempre crea historial si cambia el valor.
-- `fecha_aplicacion` puede corregirse siempre que la auditoría del registro no esté aprobada; una vez `audit_status = APPROVED` el campo queda inmutable y la fila se rechaza con `OPERATION_NOT_ALLOWED`.
+- `fecha_aplicacion` puede corregirse siempre que la auditoría del registro no esté aprobada; una vez `audit_status = APROBADO` el campo queda inmutable y la fila se rechaza con `OPERATION_NOT_ALLOWED`.
 
 Estas precondiciones ordenan el flujo solicitado; no validan automáticamente soportes ni deciden auditoría.
 
@@ -75,7 +77,7 @@ Estas precondiciones ordenan el flujo solicitado; no validan automáticamente so
 
 `POST` responde `202` con `batchId`, estado y URL de consulta. Consultas y reportes vuelven a validar organización, permiso y alcance. El reporte de resultados no habilita modificar el lote.
 
-`operationType` es obligatorio en la descarga para aplicar el alcance de etapa y actor. No reduce las columnas consultables: la descarga conserva la vista completa permitida, mientras la plantilla de carga de dispensación queda limitada a `authorization_key` + columna mutable (la de `REPORT_APPLICATION_DATE` conserva tres columnas).
+`operationType` es obligatorio en la descarga para aplicar el alcance de etapa y actor. No reduce las columnas consultables: la descarga conserva la vista completa permitida, mientras cada carga queda limitada a `authorization_key` + una columna mutable.
 
 ## Aceptación
 

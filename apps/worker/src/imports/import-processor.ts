@@ -30,7 +30,7 @@ type SourceFileRow = {
 type ExistingItem = { id: string; authorization_key: string };
 
 export type ImportProcessingResult = Readonly<{
-  status: 'READY_TO_CONFIRM' | 'COMPLETED' | 'FAILED';
+  status: 'LISTO_PARA_CONFIRMAR' | 'COMPLETADO' | 'FALLIDO';
   totalRows: number;
   validRows: number;
   rejectedRows: number;
@@ -80,16 +80,16 @@ export class ImportProcessor {
       );
     }
 
-    if (source.batch_status === 'READY_TO_CONFIRM' || source.batch_status === 'COMPLETED') {
+    if (source.batch_status === 'LISTO_PARA_CONFIRMAR' || source.batch_status === 'COMPLETADO') {
       return this.getResult(
         source.batch_id,
-        source.batch_status === 'COMPLETED' ? 'COMPLETED' : 'READY_TO_CONFIRM',
+        source.batch_status === 'COMPLETADO' ? 'COMPLETADO' : 'LISTO_PARA_CONFIRMAR',
       );
     }
     if (!source.content) {
       await this.markFailed(source.batch_id, 'PROCESSING_ERROR');
       return {
-        status: 'FAILED',
+         status: 'FALLIDO',
         totalRows: 0,
         validRows: 0,
         rejectedRows: 0,
@@ -104,7 +104,7 @@ export class ImportProcessor {
     ) {
       await this.markFailed(source.batch_id, 'INVALID_FIELD_FORMAT');
       return {
-        status: 'FAILED',
+         status: 'FALLIDO',
         totalRows: 0,
         validRows: 0,
         rejectedRows: 0,
@@ -120,7 +120,7 @@ export class ImportProcessor {
       if (!(error instanceof ImportFileError)) throw error;
       await this.markFailed(source.batch_id, error.code);
       return {
-        status: 'FAILED',
+         status: 'FALLIDO',
         totalRows: 0,
         validRows: 0,
         rejectedRows: 0,
@@ -146,18 +146,18 @@ export class ImportProcessor {
           importTerminalErrorClassifications.processorVersionMismatch,
         );
       }
-      if (batch.status === 'READY_TO_CONFIRM' || batch.status === 'COMPLETED') {
+       if (batch.status === 'LISTO_PARA_CONFIRMAR' || batch.status === 'COMPLETADO') {
         await client.query('commit');
         return this.getResult(
           source.batch_id,
-          batch.status === 'COMPLETED' ? 'COMPLETED' : 'READY_TO_CONFIRM',
+           batch.status === 'COMPLETADO' ? 'COMPLETADO' : 'LISTO_PARA_CONFIRMAR',
         );
       }
 
       await client.query('delete from import_rows where import_batch_id = $1', [source.batch_id]);
       await client.query(
         `update import_batches
-         set status = 'VALIDATING', started_at = coalesce(started_at, now()), last_error_code = null
+          set status = 'VALIDANDO', started_at = coalesce(started_at, now()), last_error_code = null
          where id = $1`,
         [source.batch_id],
       );
@@ -241,7 +241,7 @@ export class ImportProcessor {
 
       await client.query(
         `update import_batches
-         set status = 'READY_TO_CONFIRM', total_rows = $2, valid_rows = $3, rejected_rows = $4,
+          set status = 'LISTO_PARA_CONFIRMAR', total_rows = $2, valid_rows = $3, rejected_rows = $4,
              duplicate_rows = $5, existing_rows = $6, completed_at = null, last_error_code = null
          where id = $1`,
         [source.batch_id, parsed.rows.length, validRows, rejectedRows, duplicateRows, existingRows],
@@ -252,7 +252,7 @@ export class ImportProcessor {
       );
       await client.query('commit');
       return {
-        status: 'READY_TO_CONFIRM',
+         status: 'LISTO_PARA_CONFIRMAR',
         totalRows: parsed.rows.length,
         validRows,
         rejectedRows,
@@ -331,8 +331,8 @@ export class ImportProcessor {
       await client.query('begin');
       const failedBatch = await client.query(
         `update import_batches
-         set status = 'FAILED', completed_at = now(), last_error_code = $2
-         where id = $1 and status in ('UPLOADED', 'VALIDATING')
+          set status = 'FALLIDO', completed_at = now(), last_error_code = $2
+          where id = $1 and status in ('CARGADO', 'VALIDANDO')
          returning id`,
         [batchId, code],
       );
@@ -353,7 +353,7 @@ export class ImportProcessor {
 
   private async getResult(
     batchId: string,
-    status: 'READY_TO_CONFIRM' | 'COMPLETED',
+     status: 'LISTO_PARA_CONFIRMAR' | 'COMPLETADO',
   ): Promise<ImportProcessingResult> {
     const result = await this.database.pool.query<{
       total_rows: number;

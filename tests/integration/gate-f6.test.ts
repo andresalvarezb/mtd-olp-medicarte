@@ -43,12 +43,12 @@ async function seedItem(
   const medication = `MED-F6-${label}`.toUpperCase();
   const itemId = randomUUID();
   const withDates = options.withDates ?? true;
-  const auditStatus = options.auditStatus ?? (withDates ? 'READY' : 'NOT_STARTED');
+  const auditStatus = options.auditStatus ?? (withDates ? 'LISTO' : 'NO_INICIADO');
   await database.query(
     `insert into import_batches
        (id, organization_id, created_by, original_filename, mime_type, size_bytes, sha256,
         processor_version, status, total_rows, valid_rows, confirmed_rows)
-     values ($1, $2, $3, 'phase6.csv', 'text/csv', 1, $4, 1, 'COMPLETED', 1, 1, 1)`,
+      values ($1, $2, $3, 'phase6.csv', 'text/csv', 1, $4, 1, 'COMPLETADO', 1, 1, 1)`,
     [batchId, mtdOrganizationId, adminUserId, randomUUID().replaceAll('-', '').padEnd(64, '0')],
   );
   await database.query(
@@ -56,16 +56,16 @@ async function seedItem(
        (id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
         source_status_normalized, source_prescripcion_normalized, no_prescripcion,
         enablement_status, coverage_type, direction_status, operation_status,
-        coverage_rule_version, lugar_dispensacion, fecha_dispensacion, fecha_aplicacion,
+        coverage_rule_version, tariff_membership_status, lugar_dispensacion, fecha_dispensacion, fecha_aplicacion,
         audit_status, operational_version, created_from_batch_id)
-     values ($1, $2, $3, $4, '{}'::jsonb, '5', '', '', 'ENABLED', 'PBS', 'NOT_APPLICABLE',
-             $5, 'F2-COVERAGE-2', $6, $7, $8, $9, $10, $11)`,
+      values ($1, $2, $3, $4, '{}'::jsonb, '5', '', '', 'HABILITADO', 'PBS', 'NO_APLICA',
+              $5, 'F2-COVERAGE-2', 'LISTADO', $6, $7, $8, $9, $10, $11)`,
     [
       itemId,
       authorization,
       medication,
       `${authorization}:${medication}`,
-      withDates ? 'DISPENSATION_REPORTED' : 'READY_TO_DISPENSE',
+      withDates ? 'DISPENSACION_REPORTADA' : 'LISTO_PARA_DISPENSAR',
       withDates ? 'Sede F6' : null,
       withDates ? '2026-08-29' : null,
       withDates ? '2026-08-30' : null,
@@ -113,6 +113,24 @@ describe('Gate F6', () => {
 
   afterAll(async () => database.end());
 
+  it('siembra un rol MTD de auditoria con permisos limitados', async () => {
+    const result = await database.query<{ role_id: string; permission_code: string }>(
+      `select r.id as role_id, p.code as permission_code
+       from roles r
+       left join role_permissions rp on rp.role_id = r.id
+       left join permissions p on p.id = rp.permission_id
+       where r.code = 'MTD_AUDITOR'
+       order by p.code`,
+    );
+    expect(result.rows.length).toBeGreaterThan(0);
+    expect(result.rows.map((row) => row.permission_code)).toEqual([
+      'audit.approve',
+      'audit.start',
+      'authorizations.read',
+      'authorizations.read_sensitive',
+    ]);
+  });
+
   it('ambas fechas habilitan revision pero jamas aprueban automaticamente', async () => {
     const item = await seedItem('READY-DERIVATION');
     const row = await database.query<{ audit_status: string; operation_status: string }>(
@@ -120,8 +138,8 @@ describe('Gate F6', () => {
       [item.id],
     );
     expect(row.rows[0]).toMatchObject({
-      audit_status: 'READY',
-      operation_status: 'DISPENSATION_REPORTED',
+      audit_status: 'LISTO',
+      operation_status: 'DISPENSACION_REPORTADA',
     });
 
     const blocked = await seedItem('NOT-READY', { withDates: false });
@@ -150,8 +168,8 @@ describe('Gate F6', () => {
       review: { id: string; reviewNumber: number; status: string };
       item: { auditStatus: string; version: number };
     };
-    expect(startBody.review).toMatchObject({ reviewNumber: 1, status: 'IN_REVIEW' });
-    expect(startBody.item.auditStatus).toBe('IN_REVIEW');
+    expect(startBody.review).toMatchObject({ reviewNumber: 1, status: 'EN_REVISION' });
+    expect(startBody.item.auditStatus).toBe('EN_REVISION');
 
     const finding = await auditPost(
       adminToken,
@@ -189,11 +207,11 @@ describe('Gate F6', () => {
         version: number;
       };
     };
-    expect(rejectBody.review.status).toBe('REJECTED');
+    expect(rejectBody.review.status).toBe('RECHAZADO');
     expect(rejectBody.item).toMatchObject({
-      auditStatus: 'REJECTED',
-      operationStatus: 'DISPENSATION_REPORTED',
-      admissionStatus: 'NOT_READY',
+      auditStatus: 'RECHAZADO',
+      operationStatus: 'DISPENSACION_REPORTADA',
+      admissionStatus: 'NO_LISTO',
     });
 
     const second = await auditPost(
@@ -231,9 +249,9 @@ describe('Gate F6', () => {
       item: { auditStatus: string; operationStatus: string; admissionStatus: string };
     };
     expect(approveBody.item).toMatchObject({
-      auditStatus: 'APPROVED',
-      operationStatus: 'DISPENSED',
-      admissionStatus: 'READY',
+      auditStatus: 'APROBADO',
+      operationStatus: 'DISPENSADO',
+      admissionStatus: 'LISTO',
     });
 
     const replay = await auditPost(
@@ -265,9 +283,9 @@ describe('Gate F6', () => {
       [item.id],
     );
     expect(persisted.rows[0]).toMatchObject({
-      audit_status: 'APPROVED',
-      operation_status: 'DISPENSED',
-      admission_status: 'READY',
+      audit_status: 'APROBADO',
+      operation_status: 'DISPENSADO',
+      admission_status: 'LISTO',
     });
 
     const events = await database.query<{
@@ -304,8 +322,8 @@ describe('Gate F6', () => {
       [item.id],
     );
     expect(reviews.rows).toEqual([
-      { review_number: 1, status: 'REJECTED', decided_by: adminUserId },
-      { review_number: 2, status: 'APPROVED', decided_by: adminUserId },
+      { review_number: 1, status: 'RECHAZADO', decided_by: adminUserId },
+      { review_number: 2, status: 'APROBADO', decided_by: adminUserId },
     ]);
   });
 
@@ -400,7 +418,7 @@ describe('Gate F6', () => {
       approvedForAdmission: number;
       readyForReview: number;
     };
-    expect(indicators.byAuditStatus.APPROVED).toBeGreaterThanOrEqual(1);
+    expect(indicators.byAuditStatus.APROBADO).toBeGreaterThanOrEqual(1);
     expect(indicators.approvedForAdmission).toBeGreaterThanOrEqual(1);
   });
 

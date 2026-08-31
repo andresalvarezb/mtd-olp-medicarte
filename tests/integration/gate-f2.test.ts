@@ -161,7 +161,7 @@ async function waitForBatch(
       [batchId],
     );
     const status = result.rows[0]?.status;
-    if (status === 'READY_TO_CONFIRM' || status === 'COMPLETED' || status === 'FAILED') {
+    if (status === 'LISTO_PARA_CONFIRMAR' || status === 'COMPLETADO' || status === 'FALLIDO') {
       const response = await fetch(`${apiUrl}/api/v1/imports/${batchId}`, {
         headers: { authorization: `Bearer ${token}`, 'x-organization-id': organizationId },
       });
@@ -219,6 +219,7 @@ async function withOlpPermissions<T>(
   }
 }
 
+
 describe('Gate F2', () => {
   beforeAll(async () => {
     await database.connect();
@@ -226,6 +227,30 @@ describe('Gate F2', () => {
       login('foundation-admin', 'foundation-admin'),
       login('olp-operator', 'olp-operator'),
     ]);
+    // Restaura el seed de la migración 0011 si otra corrida lo retiró.
+    await database.query(
+      `insert into role_permissions (role_id, permission_id)
+       select r.id, p.id
+       from roles r cross join permissions p
+       where r.code = 'OLP_OPERATOR' and p.code = 'authorizations.read_sensitive'
+       on conflict do nothing`,
+    );
+     // SPEC-014: los medicamentos usados en pruebas de LISTO deben estar en el
+    // Anexo Tarifario (alta idempotente vía la API administrativa).
+    for (const code of ['MED-UPDATE', 'MED-UPDATE-STATUS', 'MED-UPDATE-ROLLBACK', 'MED-REPLAY-SCOPE']) {
+      const response = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/products`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'x-organization-id': mtdOrganizationId,
+          'idempotency-key': randomUUID(),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ codigoProducto: code }),
+      });
+      if (response.status !== 200)
+        throw new Error(`Annex product registration failed for ${code}: ${response.status}`);
+    }
   });
 
   afterAll(async () => database.end());
@@ -240,7 +265,7 @@ describe('Gate F2', () => {
     const batch = await createImport(adminToken, content);
     const ready = await waitForBatch(adminToken, batch.id);
     expect(ready).toMatchObject({
-      status: 'READY_TO_CONFIRM',
+       status: 'LISTO_PARA_CONFIRMAR',
       totalRows: 3,
       validRows: 2,
       duplicateRows: 1,
@@ -259,21 +284,21 @@ describe('Gate F2', () => {
     ]);
     expect(rows.items[0]?.normalized).toMatchObject({
       coverageType: 'PBS',
-      directionStatus: 'NOT_APPLICABLE',
-      enablementStatus: 'ENABLED',
+       directionStatus: 'NO_APLICA',
+       enablementStatus: 'HABILITADO',
     });
     expect(rows.items[1]?.normalized).toMatchObject({
       coverageType: 'NO_PBS',
-      directionStatus: 'PENDING',
-      enablementStatus: 'ENABLED',
+       directionStatus: 'PENDIENTE',
+       enablementStatus: 'HABILITADO',
     });
 
     const confirmed = await confirmImport(adminToken, batch.id);
-    expect(confirmed).toMatchObject({ status: 'COMPLETED', createdRows: 2 });
+    expect(confirmed).toMatchObject({ status: 'COMPLETADO', createdRows: 2 });
     const repeatedBatch = await createImport(adminToken, content);
     const repeatedReady = await waitForBatch(adminToken, repeatedBatch.id);
     expect(repeatedReady).toMatchObject({
-      status: 'READY_TO_CONFIRM',
+      status: 'LISTO_PARA_CONFIRMAR',
       validRows: 0,
       existingRows: 2,
       duplicateRows: 1,
@@ -363,7 +388,7 @@ describe('Gate F2', () => {
       `select o.status, o.event_type from outbox_events o where o.payload->>'batchId' = $1`,
       [batch.id],
     );
-    expect(outbox.rows).toEqual([{ status: 'PROCESSED', event_type: 'authorization.import' }]);
+    expect(outbox.rows).toEqual([{ status: 'PROCESADO', event_type: 'authorization.import' }]);
     const job = await database.query<{ queue: string; job_name: string }>(
       "select queue, job_name from job_results where idempotency_key = (select idempotency_key from outbox_events where payload->>'batchId' = $1)",
       [batch.id],
@@ -408,7 +433,7 @@ describe('Gate F2', () => {
     await waitForBatch(adminToken, batch.id);
     const ready = await waitForBatch(adminToken, batch.id);
     expect(ready).toMatchObject({
-      status: 'READY_TO_CONFIRM',
+      status: 'LISTO_PARA_CONFIRMAR',
       totalRows: 3,
       validRows: 2,
       rejectedRows: 1,
@@ -455,7 +480,7 @@ describe('Gate F2', () => {
         source_prescripcion_normalized: '20260915123',
         no_prescripcion: '20260915',
         coverage_type: 'NO_PBS',
-        direction_status: 'PENDING',
+        direction_status: 'PENDIENTE',
         coverage_rule_version: 'F2-COVERAGE-2',
       },
       {
@@ -463,7 +488,7 @@ describe('Gate F2', () => {
         source_prescripcion_normalized: '',
         no_prescripcion: '',
         coverage_type: 'PBS',
-        direction_status: 'NOT_APPLICABLE',
+        direction_status: 'NO_APLICA',
         coverage_rule_version: 'F2-COVERAGE-2',
       },
     ]);
@@ -491,9 +516,9 @@ describe('Gate F2', () => {
     expect(itemCount.rows[0]?.count).toBe('1');
   });
 
-  it('does not permit an explicit update before READY_TO_DISPENSE', async () => {
+  it('does not permit an explicit update before LISTO_PARA_DISPENSAR', async () => {
     // Fase 4 materializa operation_status en la confirmación: un ítem NO PBS
-    // habilitado queda BLOCKED (direccionamiento pendiente) y no admite la
+     // habilitado queda BLOQUEADO (direccionamiento pendiente) y no admite la
     // actualización explícita de evidencia (DEC-002/ADR-021).
     const authorization = `AUTH-UPDATE-${randomUUID()}`;
     const batch = await createImport(
@@ -536,30 +561,30 @@ describe('Gate F2', () => {
         name: 'keeps a PBS item ready',
         prescripcion: '',
         status: '5',
-        expectedOperationStatus: 'READY_TO_DISPENSE',
-        expectedEnablementStatus: 'ENABLED',
+        expectedOperationStatus: 'LISTO_PARA_DISPENSAR',
+        expectedEnablementStatus: 'HABILITADO',
         expectedCoverageType: 'PBS',
-        expectedDirectionStatus: 'NOT_APPLICABLE',
+        expectedDirectionStatus: 'NO_APLICA',
         expectedNoPrescripcion: '',
       },
       {
         name: 'blocks an item with a blocked source status',
         prescripcion: '',
         status: '4',
-        expectedOperationStatus: 'BLOCKED',
-        expectedEnablementStatus: 'BLOCKED_SOURCE_STATUS',
+        expectedOperationStatus: 'BLOQUEADO',
+        expectedEnablementStatus: 'BLOQUEADO_POR_ESTADO_ORIGEN',
         expectedCoverageType: 'PBS',
-        expectedDirectionStatus: 'NOT_APPLICABLE',
+        expectedDirectionStatus: 'NO_APLICA',
         expectedNoPrescripcion: '',
       },
       {
         name: 'blocks a NO_PBS item pending MIPRES',
         prescripcion: '20260915123',
         status: '5',
-        expectedOperationStatus: 'BLOCKED',
-        expectedEnablementStatus: 'ENABLED',
+        expectedOperationStatus: 'BLOQUEADO',
+        expectedEnablementStatus: 'HABILITADO',
         expectedCoverageType: 'NO_PBS',
-        expectedDirectionStatus: 'PENDING',
+        expectedDirectionStatus: 'PENDIENTE',
         expectedNoPrescripcion: '20260915',
       },
     ] as const;
@@ -616,7 +641,8 @@ describe('Gate F2', () => {
 
       const ready = await database.query<{ version: number }>(
         `update authorization_items
-         set operation_status = 'READY_TO_DISPENSE'
+         set operation_status = 'LISTO_PARA_DISPENSAR', tariff_membership_status = 'LISTADO',
+             tariff_membership_evaluated_at = now()
          where id = $1
          returning version`,
         [row.authorizationItemId],
@@ -748,7 +774,7 @@ describe('Gate F2', () => {
       expect(audit.occurred_at).toBeInstanceOf(Date);
       expect(audit.correlation_id).toMatch(/^[0-9a-f-]{36}$/);
       expect(audit.request_id).toBe(audit.correlation_id);
-      expect(audit.before).toMatchObject({
+       expect(audit.before).toMatchObject({
         version: expectedVersion,
         authorizationKey: updated.item.authorizationKey,
         numeroAutorizacionNormalized: updated.item.numeroAutorizacion,
@@ -760,10 +786,10 @@ describe('Gate F2', () => {
         sourceStatusNormalized: '5',
         sourcePrescripcionNormalized: '',
         noPrescripcion: '',
-        enablementStatus: 'ENABLED',
+         enablementStatus: 'HABILITADO',
         coverageType: 'PBS',
-        directionStatus: 'NOT_APPLICABLE',
-        operationStatus: 'READY_TO_DISPENSE',
+         directionStatus: 'NO_APLICA',
+         operationStatus: 'LISTO_PARA_DISPENSAR',
         coverageRuleVersion: 'F2-COVERAGE-2',
       });
       expect(audit.after).toMatchObject({
@@ -792,11 +818,12 @@ describe('Gate F2', () => {
       });
       expect(JSON.stringify(audit)).not.toContain('Paciente de prueba');
 
-      if (testCase.expectedOperationStatus === 'BLOCKED') {
+       if (testCase.expectedOperationStatus === 'BLOQUEADO') {
         await expect(
           database.query(
             `update authorization_items
-             set operation_status = 'READY_TO_DISPENSE'
+             set operation_status = 'LISTO_PARA_DISPENSAR', tariff_membership_status = 'LISTADO',
+                 tariff_membership_evaluated_at = now()
              where id = $1`,
             [row.authorizationItemId],
           ),
@@ -831,7 +858,8 @@ describe('Gate F2', () => {
     if (!row?.authorizationItemId) throw new Error('Expected rollback update row');
     const ready = await database.query<{ version: number }>(
       `update authorization_items
-       set operation_status = 'READY_TO_DISPENSE'
+       set operation_status = 'LISTO_PARA_DISPENSAR', tariff_membership_status = 'LISTADO',
+           tariff_membership_evaluated_at = now()
        where id = $1
        returning version`,
       [row.authorizationItemId],
@@ -975,7 +1003,8 @@ describe('Gate F2', () => {
         expect(row.resultCode).toBe('EXISTING_ITEM_REVIEW_REQUIRED');
         const ready = await database.query<{ version: number }>(
           `update authorization_items
-           set operation_status = 'READY_TO_DISPENSE'
+           set operation_status = 'LISTO_PARA_DISPENSAR', tariff_membership_status = 'LISTADO',
+               tariff_membership_evaluated_at = now()
            where id = $1
            returning version`,
           [row.authorizationItemId],
@@ -1139,7 +1168,10 @@ describe('Gate F2', () => {
       throw new Error('Expected review row to reference the shared item');
     expect(row.resultCode).toBe('EXISTING_ITEM_REVIEW_REQUIRED');
     const updated = await database.query<{ version: number }>(
-      `update authorization_items set operation_status = 'READY_TO_DISPENSE' where id = $1 returning version`,
+      `update authorization_items
+        set operation_status = 'LISTO_PARA_DISPENSAR', tariff_membership_status = 'LISTADO',
+           tariff_membership_evaluated_at = now()
+       where id = $1 returning version`,
       [row.authorizationItemId],
     );
     const response = await withOlpPermissions([importsConfirmPermissionId], () =>
@@ -1215,7 +1247,7 @@ describe('Gate F2', () => {
     );
     const missingReady = await waitForBatch(adminToken, missingHeaderBatch.id);
     expect(missingReady).toMatchObject({
-      status: 'READY_TO_CONFIRM',
+       status: 'LISTO_PARA_CONFIRMAR',
       totalRows: 1,
       validRows: 0,
       rejectedRows: 1,
@@ -1253,10 +1285,10 @@ describe('Gate F2', () => {
     );
     expect(blockedItems.rows).toHaveLength(1);
     expect(blockedItems.rows[0]).toMatchObject({
-      enablement_status: 'BLOCKED_SOURCE_STATUS',
+       enablement_status: 'BLOQUEADO_POR_ESTADO_ORIGEN',
       coverage_type: 'NO_PBS',
-      direction_status: 'PENDING',
-      operation_status: 'BLOCKED',
+       direction_status: 'PENDIENTE',
+       operation_status: 'BLOQUEADO',
     });
   });
 });

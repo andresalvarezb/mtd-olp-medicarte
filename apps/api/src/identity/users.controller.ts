@@ -96,7 +96,7 @@ const pendingRequestSchema = {
     subject: { type: 'string' },
     email: { type: 'string' },
     displayName: { type: 'string', nullable: true },
-    status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] },
+    status: { type: 'string', enum: ['PENDIENTE', 'APROBADO', 'RECHAZADO'] },
     requestedAt: { type: 'string', format: 'date-time' },
     resolvedAt: { type: 'string', format: 'date-time', nullable: true },
   },

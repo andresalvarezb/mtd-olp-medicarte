@@ -6,7 +6,7 @@ export type { BulkUpdateOperationType };
 export interface BulkUpdateBatch {
   id: string;
   operationType: BulkUpdateOperationType;
-  status: 'UPLOADED' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  status: 'CARGADO' | 'EN_COLA' | 'PROCESANDO' | 'COMPLETADO' | 'FALLIDO';
   originalFilename: string;
   mimeType: string;
   sizeBytes: number;
@@ -53,7 +53,10 @@ export function createBulkUpdate(
   });
 }
 
-export function getBulkUpdateBatch(batchId: string, organizationId: string): Promise<BulkUpdateBatch> {
+export function getBulkUpdateBatch(
+  batchId: string,
+  organizationId: string,
+): Promise<BulkUpdateBatch> {
   return apiRequest<BulkUpdateBatch>(`/bulk-updates/${batchId}`, { organizationId });
 }
 
@@ -61,9 +64,17 @@ export function getBulkUpdateRows(
   batchId: string,
   organizationId: string,
   limit = 50,
-): Promise<{ items: BulkUpdateRow[]; nextCursor: string | null }> {
-  return apiRequest<{ items: BulkUpdateRow[]; nextCursor: string | null }>(
-    `/bulk-updates/${batchId}/rows?limit=${limit}`,
-    { organizationId },
-  );
+  cursor?: string,
+): Promise<{
+  items: BulkUpdateRow[];
+  nextCursor: string | null;
+  resultCodeCounts: Record<string, number>;
+}> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor) query.set('cursor', cursor);
+  return apiRequest<{
+    items: BulkUpdateRow[];
+    nextCursor: string | null;
+    resultCodeCounts: Record<string, number>;
+  }>(`/bulk-updates/${batchId}/rows?${query.toString()}`, { organizationId });
 }

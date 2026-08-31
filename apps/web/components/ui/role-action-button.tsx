@@ -3,18 +3,15 @@
 import type { ReactNode } from 'react';
 import { useRole } from '@/components/layout/role-context';
 
-/**
- * Acción visible solo para un rol según las credenciales del usuario.
- * El alcance real siempre se revalida en el backend.
- */
+/** Acción visible solo cuando el perfil tiene el permiso correspondiente. */
 export function RoleActionButton({
-  allowedRole,
+  requiredPermission,
   children,
 }: {
-  allowedRole: string;
+  requiredPermission: string;
   children: ReactNode;
 }) {
-  const { roles } = useRole();
-  if (!roles.includes(allowedRole as never)) return null;
+  const { hasPermission } = useRole();
+  if (!hasPermission(requiredPermission)) return null;
   return <>{children}</>;
 }

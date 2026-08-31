@@ -25,7 +25,7 @@ function createPool(status: string): { pool: Pool; queries: string[] } {
 
 describe('persistTerminalImportFailure', () => {
   it('fails only retryable processing states and clears source PHI in the same transaction', async () => {
-    const { pool, queries } = createPool('UPLOADED');
+    const { pool, queries } = createPool('CARGADO');
 
     await persistTerminalImportFailure(pool, {
       batchId: 'batch-id',
@@ -36,14 +36,14 @@ describe('persistTerminalImportFailure', () => {
 
     expect(queries[0]).toBe('begin');
     expect(queries[1]).toContain('for update');
-    expect(queries[2]).toContain("status in ('UPLOADED', 'VALIDATING')");
+    expect(queries[2]).toContain("status in ('CARGADO', 'VALIDANDO')");
     expect(queries[3]).toContain('set content = null, processed_at = now()');
-    expect(queries[4]).toContain("status <> 'PROCESSED'");
+    expect(queries[4]).toContain("status <> 'PROCESADO'");
     expect(queries[5]).toBe('commit');
   });
 
   it('does not clear content when the guarded batch transition did not occur', async () => {
-    const { pool, queries } = createPool('READY_TO_CONFIRM');
+    const { pool, queries } = createPool('LISTO_PARA_CONFIRMAR');
 
     await persistTerminalImportFailure(pool, {
       batchId: 'batch-id',
@@ -58,7 +58,7 @@ describe('persistTerminalImportFailure', () => {
   });
 
   it('idempotently clears PHI for a batch that is already terminally failed', async () => {
-    const { pool, queries } = createPool('FAILED');
+    const { pool, queries } = createPool('FALLIDO');
 
     await persistTerminalImportFailure(pool, {
       batchId: 'batch-id',

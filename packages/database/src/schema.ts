@@ -104,7 +104,7 @@ export const importBatches = pgTable(
     sizeBytes: integer('size_bytes').notNull(),
     sha256: varchar('sha256', { length: 64 }).notNull(),
     processorVersion: integer('processor_version').notNull(),
-    status: varchar('status', { length: 30 }).notNull().default('UPLOADED'),
+    status: varchar('status', { length: 30 }).notNull().default('CARGADO'),
     totalRows: integer('total_rows').notNull().default(0),
     validRows: integer('valid_rows').notNull().default(0),
     rejectedRows: integer('rejected_rows').notNull().default(0),
@@ -115,11 +115,16 @@ export const importBatches = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    revertedAt: timestamp('reverted_at', { withTimezone: true }),
+    revertedBy: uuid('reverted_by').references(() => users.id, { onDelete: 'restrict' }),
+    revertedRemovedItems: integer('reverted_removed_items').notNull().default(0),
+    revertedBlockedItems: integer('reverted_blocked_items').notNull().default(0),
     lastErrorCode: varchar('last_error_code', { length: 80 }),
   },
   (table) => [
     index('import_batches_status_idx').on(table.organizationId, table.status, table.createdAt),
     index('import_batches_hash_idx').on(table.sha256),
+    index('import_batches_reverted_idx').on(table.organizationId, table.revertedAt),
     check(
       'import_batches_size_bytes_check',
       sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 20971520`,
@@ -127,8 +132,10 @@ export const importBatches = pgTable(
     check('import_batches_processor_version_check', sql`${table.processorVersion} > 0`),
     check(
       'import_batches_status_check',
-      sql`${table.status} IN ('UPLOADED', 'VALIDATING', 'READY_TO_CONFIRM', 'CONFIRMING', 'COMPLETED', 'FAILED', 'CANCELLED')`,
+      sql`${table.status} IN ('CARGADO', 'VALIDANDO', 'LISTO_PARA_CONFIRMAR', 'CONFIRMANDO', 'COMPLETADO', 'FALLIDO', 'CANCELADO', 'REVIRTIENDO', 'REVERTIDO')`,
     ),
+    check('import_batches_reverted_removed_items_check', sql`${table.revertedRemovedItems} >= 0`),
+    check('import_batches_reverted_blocked_items_check', sql`${table.revertedBlockedItems} >= 0`),
     check('import_batches_total_rows_check', sql`${table.totalRows} >= 0`),
     check('import_batches_valid_rows_check', sql`${table.validRows} >= 0`),
     check('import_batches_rejected_rows_check', sql`${table.rejectedRows} >= 0`),
@@ -158,11 +165,21 @@ export const authorizationItems = pgTable(
     directionStatus: varchar('direction_status', { length: 30 }).notNull(),
     operationStatus: varchar('operation_status', { length: 40 }),
     coverageRuleVersion: varchar('coverage_rule_version', { length: 40 }).notNull(),
+    /** SPEC-014: resultado vigente de la validación del Anexo Tarifario. */
+    tariffMembershipStatus: varchar('tariff_membership_status', { length: 30 })
+      .notNull()
+      .default('NO_EVALUADO'),
+    tariffMembershipEvaluatedAt: timestamp('tariff_membership_evaluated_at', {
+      withTimezone: true,
+    }),
+    tariffRuleVersion: varchar('tariff_rule_version', { length: 40 })
+      .notNull()
+      .default('TARIFF-ANNEX-1'),
     lugarDispensacion: text('lugar_dispensacion'),
     fechaDispensacion: date('fecha_dispensacion'),
     fechaAplicacion: date('fecha_aplicacion'),
-    auditStatus: varchar('audit_status', { length: 30 }).notNull().default('NOT_STARTED'),
-    admissionStatus: varchar('admission_status', { length: 20 }).notNull().default('NOT_READY'),
+    auditStatus: varchar('audit_status', { length: 30 }).notNull().default('NO_INICIADO'),
+    admissionStatus: varchar('admission_status', { length: 20 }).notNull().default('NO_LISTO'),
     operationalVersion: integer('operational_version').notNull().default(0),
     createdFromBatchId: uuid('created_from_batch_id')
       .notNull()
@@ -179,9 +196,14 @@ export const authorizationItems = pgTable(
     index('authorization_items_coverage_idx').on(table.coverageType, table.enablementStatus),
     index('authorization_items_audit_status_idx').on(table.auditStatus, table.createdAt, table.id),
     index('authorization_items_created_idx').on(table.createdAt, table.id),
+    // SPEC-014 §16.2: revalidación dirigida por código de medicamento.
+    index('authorization_items_tariff_membership_idx').on(
+      table.codigoMedicamento,
+      table.tariffMembershipStatus,
+    ),
     check(
       'authorization_items_enablement_status_check',
-      sql`${table.enablementStatus} IN ('ENABLED', 'BLOCKED_SOURCE_STATUS')`,
+      sql`${table.enablementStatus} IN ('HABILITADO', 'BLOQUEADO_POR_ESTADO_ORIGEN')`,
     ),
     check(
       'authorization_items_coverage_type_check',
@@ -189,40 +211,44 @@ export const authorizationItems = pgTable(
     ),
     check(
       'authorization_items_direction_status_check',
-      sql`${table.directionStatus} IN ('NOT_APPLICABLE', 'PENDING', 'CONFIRMED', 'QUERY_ERROR')`,
+      sql`${table.directionStatus} IN ('NO_APLICA', 'PENDIENTE', 'CONFIRMADO', 'ERROR_DE_CONSULTA')`,
     ),
     check(
       'authorization_items_operation_status_check',
-      sql`${table.operationStatus} IS NULL OR ${table.operationStatus} IN ('BLOCKED', 'READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED', 'EXPIRED')`,
+      sql`${table.operationStatus} IS NULL OR ${table.operationStatus} IN ('BLOQUEADO', 'LISTO_PARA_DISPENSAR', 'DISPENSACION_REPORTADA', 'DISPENSADO', 'VENCIDO')`,
+    ),
+    check(
+      'authorization_items_tariff_membership_status_check',
+      sql`${table.tariffMembershipStatus} IN ('NO_EVALUADO', 'LISTADO', 'NO_LISTADO')`,
     ),
     check(
       'authorization_items_ready_prerequisites_check',
-      sql`${table.operationStatus} IS NULL OR ${table.operationStatus} <> 'READY_TO_DISPENSE' OR (
-        ${table.enablementStatus} = 'ENABLED' AND (
-          (${table.coverageType} = 'PBS' AND ${table.directionStatus} = 'NOT_APPLICABLE') OR
-          (${table.coverageType} = 'NO_PBS' AND ${table.directionStatus} = 'CONFIRMED')
+      sql`${table.operationStatus} IS NULL OR ${table.operationStatus} <> 'LISTO_PARA_DISPENSAR' OR (
+        ${table.enablementStatus} = 'HABILITADO' AND ${table.tariffMembershipStatus} = 'LISTADO' AND (
+          (${table.coverageType} = 'PBS' AND ${table.directionStatus} = 'NO_APLICA') OR
+          (${table.coverageType} = 'NO_PBS' AND ${table.directionStatus} = 'CONFIRMADO')
         )
       )`,
     ),
     check(
       'authorization_items_audit_status_check',
-      sql`${table.auditStatus} IN ('NOT_STARTED', 'READY', 'IN_REVIEW', 'REJECTED', 'APPROVED')`,
+      sql`${table.auditStatus} IN ('NO_INICIADO', 'LISTO', 'EN_REVISION', 'RECHAZADO', 'APROBADO')`,
     ),
     check(
       'authorization_items_admission_status_check',
-      sql`${table.admissionStatus} IN ('NOT_READY', 'READY')`,
+      sql`${table.admissionStatus} IN ('NO_LISTO', 'LISTO')`,
     ),
     check(
       'authorization_items_admission_ready_requires_approval_check',
-      sql`${table.admissionStatus} <> 'READY' OR ${table.auditStatus} = 'APPROVED'`,
+      sql`${table.admissionStatus} <> 'LISTO' OR ${table.auditStatus} = 'APROBADO'`,
     ),
     check(
       'authorization_items_dispensed_requires_approval_check',
-      sql`${table.operationStatus} <> 'DISPENSED' OR ${table.auditStatus} = 'APPROVED'`,
+      sql`${table.operationStatus} <> 'DISPENSADO' OR ${table.auditStatus} = 'APROBADO'`,
     ),
     check(
       'authorization_items_approval_requires_dispensed_check',
-      sql`${table.auditStatus} <> 'APPROVED' OR ${table.operationStatus} = 'DISPENSED'`,
+      sql`${table.auditStatus} <> 'APROBADO' OR ${table.operationStatus} = 'DISPENSADO'`,
     ),
     check('authorization_items_version_check', sql`${table.version} > 0`),
   ],
@@ -285,7 +311,7 @@ export const mipresChecks = pgTable(
     check('mipres_checks_query_type_check', sql`${table.queryType} IN ('AUTO', 'MANUAL')`),
     check(
       'mipres_checks_outcome_check',
-      sql`${table.outcome} IN ('PENDING', 'CONFIRMED', 'QUERY_ERROR')`,
+      sql`${table.outcome} IN ('PENDIENTE', 'CONFIRMADO', 'ERROR_DE_CONSULTA')`,
     ),
     check('mipres_checks_direction_count_check', sql`${table.directionCount} >= 0`),
   ],
@@ -448,7 +474,7 @@ export const outboxEvents = pgTable(
       onDelete: 'restrict',
     }),
     idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
-    status: varchar('status', { length: 30 }).notNull().default('PENDING'),
+    status: varchar('status', { length: 30 }).notNull().default('PENDIENTE'),
     attempts: integer('attempts').notNull().default(0),
     availableAt: timestamp('available_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -461,7 +487,7 @@ export const outboxEvents = pgTable(
     index('outbox_events_dispatch_idx').on(table.status, table.availableAt),
     check(
       'outbox_events_status_check',
-      sql`${table.status} IN ('PENDING', 'DISPATCHED', 'PROCESSED', 'FAILED')`,
+      sql`${table.status} IN ('PENDIENTE', 'DESPACHADO', 'PROCESADO', 'FALLIDO')`,
     ),
   ],
 );
@@ -533,7 +559,7 @@ export const bulkUpdateBatches = pgTable(
     mimeType: varchar('mime_type', { length: 160 }).notNull(),
     sizeBytes: integer('size_bytes').notNull(),
     sha256: varchar('sha256', { length: 64 }).notNull(),
-    status: varchar('status', { length: 30 }).notNull().default('UPLOADED'),
+    status: varchar('status', { length: 30 }).notNull().default('CARGADO'),
     totalRows: integer('total_rows').notNull().default(0),
     processedRows: integer('processed_rows').notNull().default(0),
     updatedRows: integer('updated_rows').notNull().default(0),
@@ -561,7 +587,7 @@ export const bulkUpdateBatches = pgTable(
     ),
     check(
       'bulk_update_batches_status_check',
-      sql`${table.status} IN ('UPLOADED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED')`,
+      sql`${table.status} IN ('CARGADO', 'EN_COLA', 'PROCESANDO', 'COMPLETADO', 'FALLIDO')`,
     ),
     check(
       'bulk_update_batches_operation_type_check',
@@ -691,7 +717,7 @@ export const notifications = pgTable(
     recipients: jsonb('recipients').notNull(),
     params: jsonb('params').notNull(),
     payload: jsonb('payload').notNull(),
-    status: varchar('status', { length: 20 }).notNull().default('PENDING'),
+    status: varchar('status', { length: 20 }).notNull().default('PENDIENTE'),
     attempts: integer('attempts').notNull().default(0),
     lastError: text('last_error'),
     gmailMessageId: varchar('gmail_message_id', { length: 255 }),
@@ -706,7 +732,7 @@ export const notifications = pgTable(
     index('notifications_type_idx').on(table.notificationType, table.createdAt),
     check(
       'notifications_status_check',
-      sql`${table.status} IN ('PENDING', 'SENT', 'FAILED', 'SKIPPED')`,
+      sql`${table.status} IN ('PENDIENTE', 'ENVIADO', 'FALLIDO', 'OMITIDO')`,
     ),
     check(
       'notifications_type_check',
@@ -723,7 +749,7 @@ export const auditReviews = pgTable(
       .notNull()
       .references(() => authorizationItems.id, { onDelete: 'restrict' }),
     reviewNumber: integer('review_number').notNull(),
-    status: varchar('status', { length: 20 }).notNull().default('IN_REVIEW'),
+    status: varchar('status', { length: 20 }).notNull().default('EN_REVISION'),
     observations: text('observations'),
     startedBy: uuid('started_by')
       .notNull()
@@ -739,16 +765,16 @@ export const auditReviews = pgTable(
     index('audit_reviews_item_status_idx').on(table.authorizationItemId, table.status),
     check(
       'audit_reviews_status_check',
-      sql`${table.status} IN ('IN_REVIEW', 'APPROVED', 'REJECTED')`,
+      sql`${table.status} IN ('EN_REVISION', 'APROBADO', 'RECHAZADO')`,
     ),
     check('audit_reviews_review_number_check', sql`${table.reviewNumber} > 0`),
     check(
       'audit_reviews_decision_requires_fields_check',
-      sql`${table.status} = 'IN_REVIEW' OR (${table.decidedBy} IS NOT NULL AND ${table.decidedAt} IS NOT NULL)`,
+      sql`${table.status} = 'EN_REVISION' OR (${table.decidedBy} IS NOT NULL AND ${table.decidedAt} IS NOT NULL)`,
     ),
     check(
       'audit_reviews_reject_requires_observations_check',
-      sql`${table.status} <> 'REJECTED' OR ${table.observations} IS NOT NULL`,
+      sql`${table.status} <> 'RECHAZADO' OR ${table.observations} IS NOT NULL`,
     ),
   ],
 );
@@ -794,10 +820,146 @@ export const pendingUserRequests = pgTable(
     oidcSubject: varchar('oidc_subject', { length: 255 }).notNull().unique(),
     email: varchar('email', { length: 320 }).notNull(),
     displayName: varchar('display_name', { length: 160 }),
-    status: varchar('status', { length: 20 }).notNull().default('PENDING'),
+    status: varchar('status', { length: 20 }).notNull().default('PENDIENTE'),
     requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
     resolvedBy: uuid('resolved_by'),
   },
-  (table) => [index('pending_user_requests_status_idx').on(table.status)],
+  (table) => [
+    index('pending_user_requests_status_idx').on(table.status),
+    check(
+      'pending_user_requests_status_check',
+      sql`${table.status} IN ('PENDIENTE', 'APROBADO', 'RECHAZADO')`,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// SPEC-014 / ADR-024 — Anexo Tarifario: catálogo operativo administrado por MTD.
+// ---------------------------------------------------------------------------
+
+export const tariffAnnexProducts = pgTable(
+  'tariff_annex_products',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Normalizado con la misma regla de codigo_medicamento (COD_COMERCIAL). */
+    codigoProducto: varchar('codigo_producto', { length: 255 }).notNull(),
+    /** Desactivación lógica: nunca destruye la trazabilidad histórica. */
+    active: boolean('active').notNull().default(true),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'restrict' }),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Unicidad total sobre el código normalizado: permite reactivar un
+    // producto desactivado sin duplicar registros.
+    uniqueIndex('tariff_annex_products_code_idx').on(table.codigoProducto),
+    index('tariff_annex_products_active_idx').on(table.active, table.codigoProducto),
+    check('tariff_annex_products_version_check', sql`${table.version} > 0`),
+    check('tariff_annex_products_code_length_check', sql`length(${table.codigoProducto}) > 0`),
+  ],
+);
+
+export const tariffAnnexImports = pgTable(
+  'tariff_annex_imports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    originalFilename: varchar('original_filename', { length: 255 }).notNull(),
+    mimeType: varchar('mime_type', { length: 160 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: varchar('sha256', { length: 64 }).notNull(),
+    status: varchar('status', { length: 30 }).notNull().default('CARGADO'),
+    totalRows: integer('total_rows').notNull().default(0),
+    createdRows: integer('created_rows').notNull().default(0),
+    reactivatedRows: integer('reactivated_rows').notNull().default(0),
+    existingRows: integer('existing_rows').notNull().default(0),
+    rejectedRows: integer('rejected_rows').notNull().default(0),
+    duplicateRows: integer('duplicate_rows').notNull().default(0),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    correlationId: uuid('correlation_id').notNull(),
+    idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('tariff_annex_imports_org_idx').on(table.organizationId, table.createdAt),
+    uniqueIndex('tariff_annex_imports_logical_key_idx').on(
+      table.organizationId,
+      table.sha256,
+    ),
+    check(
+      'tariff_annex_imports_size_bytes_check',
+      sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 20971520`,
+    ),
+    check(
+      'tariff_annex_imports_status_check',
+      sql`${table.status} IN ('CARGADO', 'VALIDANDO', 'COMPLETADO', 'FALLIDO')`,
+    ),
+  ],
+);
+
+export const tariffAnnexImportSourceFiles = pgTable(
+  'tariff_annex_import_source_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    importId: uuid('import_id')
+      .notNull()
+      .references(() => tariffAnnexImports.id, { onDelete: 'cascade' }),
+    originalFilename: varchar('original_filename', { length: 255 }).notNull(),
+    mimeType: varchar('mime_type', { length: 160 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: varchar('sha256', { length: 64 }).notNull(),
+    content: bytea('content'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('tariff_annex_import_source_files_import_idx').on(table.importId),
+    check(
+      'tariff_annex_import_source_files_size_bytes_check',
+      sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 20971520`,
+    ),
+  ],
+);
+
+export const tariffAnnexImportRows = pgTable(
+  'tariff_annex_import_rows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    importId: uuid('import_id')
+      .notNull()
+      .references(() => tariffAnnexImports.id, { onDelete: 'cascade' }),
+    rowNumber: integer('row_number').notNull(),
+    rawData: jsonb('raw_data').notNull(),
+    codigoProducto: varchar('codigo_producto', { length: 255 }),
+    resultCode: varchar('result_code', { length: 80 }).notNull(),
+    resultMessage: text('result_message').notNull(),
+    productId: uuid('product_id').references(() => tariffAnnexProducts.id, {
+      onDelete: 'restrict',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('tariff_annex_import_rows_import_row_unique').on(table.importId, table.rowNumber),
+    index('tariff_annex_import_rows_result_idx').on(table.importId, table.resultCode, table.rowNumber),
+    check('tariff_annex_import_rows_row_number_check', sql`${table.rowNumber} > 0`),
+    check(
+      'tariff_annex_import_rows_result_code_check',
+      sql`${table.resultCode} IN ('PRODUCT_CREATED', 'PRODUCT_REACTIVATED', 'PRODUCT_EXISTING', 'INVALID_PRODUCT_CODE', 'DUPLICATE_IN_FILE', 'INVALID_FILE_FORMAT', 'PROCESSING_ERROR')`,
+    ),
+  ],
 );

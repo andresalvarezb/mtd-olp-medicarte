@@ -94,7 +94,7 @@ const bulkBatchResponseSchema = {
   properties: {
     id: { type: 'string', format: 'uuid' },
     operationType: { type: 'string' },
-    status: { type: 'string', enum: ['UPLOADED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED'] },
+    status: { type: 'string', enum: ['CARGADO', 'EN_COLA', 'PROCESANDO', 'COMPLETADO', 'FALLIDO'] },
     originalFilename: { type: 'string' },
     mimeType: { type: 'string' },
     sizeBytes: { type: 'integer' },
@@ -113,7 +113,7 @@ const bulkBatchResponseSchema = {
 
 const bulkRowsResponseSchema = {
   type: 'object',
-  required: ['items', 'nextCursor'],
+  required: ['items', 'nextCursor', 'resultCodeCounts'],
   properties: {
     items: {
       type: 'array',
@@ -136,6 +136,10 @@ const bulkRowsResponseSchema = {
       },
     },
     nextCursor: { type: 'string', nullable: true },
+    resultCodeCounts: {
+      type: 'object',
+      additionalProperties: { type: 'integer', minimum: 0 },
+    },
   },
 };
 
@@ -162,8 +166,17 @@ export class BulkUpdatesController {
       type: 'object',
       required: ['operationType', 'file'],
       properties: {
-        operationType: { type: 'string', enum: bulkUpdateOperationTypeSchema.options },
-        file: { type: 'string', format: 'binary' },
+        operationType: {
+          type: 'string',
+          enum: bulkUpdateOperationTypeSchema.options,
+          description:
+            'REPORT_APPLICATION_DATE is restricted to MEDICARTE and accepts exactly authorization_key,fecha_aplicacion_medicamento.',
+        },
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'CSV or XLSX, maximum 20 MB; headers are exact for the operation type.',
+        },
       },
     },
   })

@@ -53,7 +53,7 @@ type ItemRow = {
 };
 
 export type BulkProcessingResult = Readonly<{
-  status: 'COMPLETED' | 'FAILED';
+  status: 'COMPLETADO' | 'FALLIDO';
   totalRows: number;
   processedRows: number;
   updatedRows: number;
@@ -72,6 +72,12 @@ function hasValue(row: Record<string, unknown>, field: string): boolean {
   );
 }
 
+function spreadsheetAuthorizationKeyFallback(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return /^'[=+\-@]/.test(trimmed) ? trimmed.slice(1) : null;
+}
+
 /**
  * Fases 4/5 (SPEC-013/ADR-022): pipeline genérico de bulk updates. El catálogo
  * cerrado selecciona actor, permiso, columna y efectos de dominio. Cada fila válida actualiza el
@@ -84,21 +90,22 @@ export class BulkUpdateProcessor {
 
   async process(rawJob: BulkUpdateJob): Promise<BulkProcessingResult> {
     const job = bulkUpdateJobSchema.parse(rawJob);
-    if (job.payload.contractVersion !== BULK_UPDATE_CONTRACT_VERSION) {
-      throw new Error('Bulk update contract version mismatch');
-    }
     const source = await this.getSource(job);
     if (!source) throw new Error('Bulk update batch or source file not found');
-    if (source.batch_contract_version !== BULK_UPDATE_CONTRACT_VERSION) {
-      throw new Error('Bulk update contract version mismatch');
+    if (source.batch_status === 'COMPLETADO') {
+      return this.getResult(source.batch_id, 'COMPLETADO');
+    }
+    if (source.batch_status === 'FALLIDO') {
+      return this.getResult(source.batch_id, 'FALLIDO');
+    }
+    if (
+      job.payload.contractVersion !== BULK_UPDATE_CONTRACT_VERSION ||
+      source.batch_contract_version !== BULK_UPDATE_CONTRACT_VERSION
+    ) {
+      await this.markFailed(source.batch_id, 'CONTRACT_VERSION_UNSUPPORTED');
+      return this.emptyFailed();
     }
 
-    if (source.batch_status === 'COMPLETED') {
-      return this.getResult(source.batch_id, 'COMPLETED');
-    }
-    if (source.batch_status === 'FAILED') {
-      return this.getResult(source.batch_id, 'FAILED');
-    }
     if (!source.content) {
       await this.markFailed(source.batch_id, 'INVALID_FILE_FORMAT');
       return this.emptyFailed();
@@ -144,21 +151,22 @@ export class BulkUpdateProcessor {
       );
       const batch = locked.rows[0];
       if (!batch) throw new Error('Bulk update batch not found');
-      if (batch.status === 'COMPLETED') {
+      if (batch.status === 'COMPLETADO') {
         await client.query('commit');
-        return this.getResult(source.batch_id, 'COMPLETED');
+        return this.getResult(source.batch_id, 'COMPLETADO');
       }
 
       await client.query('delete from bulk_update_rows where batch_id = $1', [source.batch_id]);
       await client.query(
         `update bulk_update_batches
-         set status = 'PROCESSING', started_at = coalesce(started_at, now()), last_error_code = null,
+         set status = 'PROCESANDO', started_at = coalesce(started_at, now()), last_error_code = null,
              total_rows = 0, processed_rows = 0, updated_rows = 0, unchanged_rows = 0, rejected_rows = 0
          where id = $1`,
         [source.batch_id],
       );
 
       const mutableField = contract.mutableField;
+      const valueColumn = contract.valueColumn;
       const seenKeys = new Set<string>();
       let updatedRows = 0;
       let unchangedRows = 0;
@@ -175,6 +183,7 @@ export class BulkUpdateProcessor {
           requiredPermission: contract.permission,
           actorOrganizationCode: contract.actorOrganizationCode,
           mutableField,
+          valueColumn,
           seenKeys,
         });
         if (outcome === 'ROW_UPDATED') updatedRows += 1;
@@ -184,7 +193,7 @@ export class BulkUpdateProcessor {
 
       await client.query(
         `update bulk_update_batches
-         set status = 'COMPLETED', completed_at = now(),
+         set status = 'COMPLETADO', completed_at = now(),
              total_rows = $2, processed_rows = $3, updated_rows = $4, unchanged_rows = $5, rejected_rows = $6
          where id = $1`,
         [
@@ -202,7 +211,7 @@ export class BulkUpdateProcessor {
       );
       await client.query('commit');
       return {
-        status: 'COMPLETED',
+        status: 'COMPLETADO',
         totalRows: parsed.rows.length,
         processedRows: parsed.rows.length,
         updatedRows,
@@ -234,6 +243,7 @@ export class BulkUpdateProcessor {
       requiredPermission: string;
       actorOrganizationCode: string;
       mutableField: string;
+      valueColumn: string;
       seenKeys: Set<string>;
     },
   ): Promise<BulkUpdateRowResultCode> {
@@ -272,8 +282,12 @@ export class BulkUpdateProcessor {
     // Los tipos de dispensación traen la llave ya formada (authorization_key);
     // el resto conserva la pareja numero_autorizacion + codigo_medicamento.
     let keyComponents: ReturnType<typeof buildAuthorizationKey> | null = null;
+    let fallbackKeyComponents: ReturnType<typeof buildAuthorizationKey> | null = null;
     if (hasValue(input.row.rawData, 'authorization_key')) {
-      keyComponents = parseAuthorizationKeyInput(input.row.rawData['authorization_key']);
+      const rawAuthorizationKey = input.row.rawData['authorization_key'];
+      keyComponents = parseAuthorizationKeyInput(rawAuthorizationKey);
+      const fallback = spreadsheetAuthorizationKeyFallback(rawAuthorizationKey);
+      if (fallback) fallbackKeyComponents = parseAuthorizationKeyInput(fallback);
     } else if (
       hasValue(input.row.rawData, 'numero_autorizacion') &&
       hasValue(input.row.rawData, 'codigo_medicamento')
@@ -293,8 +307,8 @@ export class BulkUpdateProcessor {
 
     const newValue =
       input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
-        ? normalizeOperationalText(input.row.rawData[input.mutableField])
-        : normalizeOperationalDate(input.row.rawData[input.mutableField]);
+        ? normalizeOperationalText(input.row.rawData[input.valueColumn])
+        : normalizeOperationalDate(input.row.rawData[input.valueColumn]);
     if (!newValue) {
       return await reject('MISSING_VALUE', null, { newValue: null });
     }
@@ -325,7 +339,7 @@ export class BulkUpdateProcessor {
     if (permission.rowCount === 0) {
       return await reject('FORBIDDEN_ITEM_SCOPE', null, { newValue });
     }
-    const itemResult = await client.query<ItemRow>(
+    let itemResult = await client.query<ItemRow>(
       `select i.id, i.authorization_key, i.lugar_dispensacion, i.fecha_dispensacion::text,
               i.fecha_aplicacion::text, i.audit_status, i.operational_version, i.operation_status
        from authorization_items i
@@ -335,7 +349,46 @@ export class BulkUpdateProcessor {
        for update of i`,
       [authorizationKey, input.organizationId],
     );
-    const item = itemResult.rows[0];
+    let item = itemResult.rows[0];
+    if (item && fallbackKeyComponents) {
+      const fallbackExists = await client.query(
+        `select 1 from authorization_items where authorization_key = $1`,
+        [fallbackKeyComponents.authorizationKey],
+      );
+      if (fallbackExists.rowCount) {
+        return await reject('VERSION_CONFLICT', item.id, {
+          fieldName: null,
+          newValue: null,
+        });
+      }
+    }
+    if (!item && fallbackKeyComponents) {
+      const exactExists = await client.query(
+        `select 1 from authorization_items where authorization_key = $1`,
+        [authorizationKey],
+      );
+      if (exactExists.rowCount === 0) {
+        const fallbackAuthorizationKey = fallbackKeyComponents.authorizationKey;
+        if (input.seenKeys.has(fallbackAuthorizationKey)) {
+          return await reject('DUPLICATE_KEY_IN_FILE', null, { fieldName: null, newValue: null });
+        }
+        itemResult = await client.query<ItemRow>(
+          `select i.id, i.authorization_key, i.lugar_dispensacion, i.fecha_dispensacion::text,
+                  i.fecha_aplicacion::text, i.audit_status, i.operational_version, i.operation_status
+           from authorization_items i
+           inner join authorization_item_organizations aio
+             on aio.authorization_item_id = i.id and aio.organization_id = $2
+           where i.authorization_key = $1
+           for update of i`,
+          [fallbackAuthorizationKey, input.organizationId],
+        );
+        item = itemResult.rows[0];
+        if (item) {
+          authorizationKey = fallbackAuthorizationKey;
+          input.seenKeys.add(fallbackAuthorizationKey);
+        }
+      }
+    }
     if (!item) {
       const exists = await client.query(
         `select 1 from authorization_items where authorization_key = $1`,
@@ -362,7 +415,7 @@ export class BulkUpdateProcessor {
       })
     ) {
       const code =
-        input.operationType === 'REPORT_APPLICATION_DATE' && item.audit_status === 'APPROVED'
+        input.operationType === 'REPORT_APPLICATION_DATE' && item.audit_status === 'APROBADO'
           ? 'OPERATION_NOT_ALLOWED'
           : 'INVALID_OPERATION_STATE';
       return await reject(code, item.id, {
@@ -498,6 +551,7 @@ export class BulkUpdateProcessor {
         auditAction,
         item.id,
         JSON.stringify({
+          authorizationKey,
           field: input.mutableField,
           value: previousValue,
           operationalVersion: item.operational_version,
@@ -505,6 +559,7 @@ export class BulkUpdateProcessor {
           auditStatus: item.audit_status,
         }),
         JSON.stringify({
+          authorizationKey,
           field: input.mutableField,
           value: newValue,
           operationalVersion: newOperationalVersion,
@@ -563,8 +618,8 @@ export class BulkUpdateProcessor {
       await client.query('begin');
       const failed = await client.query(
         `update bulk_update_batches
-         set status = 'FAILED', completed_at = now(), last_error_code = $2
-         where id = $1 and status in ('UPLOADED', 'QUEUED', 'PROCESSING')
+         set status = 'FALLIDO', completed_at = now(), last_error_code = $2
+         where id = $1 and status in ('CARGADO', 'EN_COLA', 'PROCESANDO')
          returning id`,
         [batchId, code],
       );
@@ -585,7 +640,7 @@ export class BulkUpdateProcessor {
 
   private async getResult(
     batchId: string,
-    status: 'COMPLETED' | 'FAILED',
+    status: 'COMPLETADO' | 'FALLIDO',
   ): Promise<BulkProcessingResult> {
     const result = await this.database.pool.query<{
       total_rows: number;
@@ -612,7 +667,7 @@ export class BulkUpdateProcessor {
 
   private emptyFailed(): BulkProcessingResult {
     return {
-      status: 'FAILED',
+      status: 'FALLIDO',
       totalRows: 0,
       processedRows: 0,
       updatedRows: 0,

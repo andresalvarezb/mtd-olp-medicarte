@@ -66,6 +66,8 @@ export const apiConfigSchema = commonSchema.extend({
   API_PORT: z.coerce.number().int().positive().default(3001),
   API_PUBLIC_URL: z.string().url(),
   WEB_ORIGIN: z.string().url(),
+  /** SPEC-010: límite global por IP/ruta/minuto; configurable para entornos de prueba. */
+  API_THROTTLE_LIMIT: z.coerce.number().int().positive().default(100),
 });
 
 export const workerConfigSchema = commonSchema.extend({

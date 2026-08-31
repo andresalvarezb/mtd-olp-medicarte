@@ -59,7 +59,7 @@ const notificationResponseSchema = {
     recipientOrganizationId: { type: 'string', format: 'uuid', nullable: true },
     itemId: { type: 'string', format: 'uuid', nullable: true },
     period: { type: 'string', nullable: true },
-    status: { type: 'string', enum: ['PENDING', 'SENT', 'FAILED', 'SKIPPED'] },
+    status: { type: 'string', enum: ['PENDIENTE', 'ENVIADO', 'FALLIDO', 'OMITIDO'] },
     attempts: { type: 'integer' },
     subject: { type: 'string' },
     recipients: { type: 'array', items: { type: 'string' } },
@@ -127,7 +127,7 @@ export class NotificationsAdminController {
       required: ['notificationId', 'status'],
       properties: {
         notificationId: { type: 'string', format: 'uuid' },
-        status: { type: 'string', enum: ['QUEUED'] },
+        status: { type: 'string', enum: ['EN_COLA'] },
       },
     },
   })
@@ -209,7 +209,7 @@ export class NotificationsAdminController {
       required: ['id', 'status'],
       properties: {
         id: { type: 'string', format: 'uuid' },
-        status: { type: 'string', enum: ['INACTIVE'] },
+        status: { type: 'string', enum: ['INACTIVO'] },
       },
     },
   })

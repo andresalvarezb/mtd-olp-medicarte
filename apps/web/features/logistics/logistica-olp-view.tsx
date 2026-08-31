@@ -39,8 +39,8 @@ export function LogisticaOlpView() {
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        operationStatus: 'READY_TO_DISPENSE',
-        applicationSiteStatus: 'ASSIGNED',
+        operationStatus: 'LISTO_PARA_DISPENSAR',
+        applicationSiteStatus: 'ASIGNADO',
         ...(cursor ? { cursor } : {}),
       }),
     [organizationId],
@@ -72,7 +72,7 @@ export function LogisticaOlpView() {
     patientDocument(item.sourceData),
     patientName(item.sourceData),
     medicationName(item.sourceData),
-    <StatusBadge key="site" tone={item.applicationSiteStatus === 'ASSIGNED' ? 'green' : 'orange'}>
+    <StatusBadge key="site" tone={item.applicationSiteStatus === 'ASIGNADO' ? 'green' : 'orange'}>
       {SITE_STATUS_LABELS[item.applicationSiteStatus]}
     </StatusBadge>,
     item.lugarDispensacion ?? '—',

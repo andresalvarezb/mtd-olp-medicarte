@@ -334,6 +334,14 @@ button {
   border-color: #d7e3ff;
   color: var(--primary);
 }
+.btn.danger {
+  background: #fff;
+  border-color: #b3261e;
+  color: #b3261e;
+}
+.btn.danger:hover {
+  background: #fdeceb;
+}
 .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;

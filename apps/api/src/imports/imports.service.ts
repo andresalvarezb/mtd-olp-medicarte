@@ -163,6 +163,10 @@ export class ImportsService {
     idempotencyKey: string;
     scope: Scope;
   }): Promise<ImportBatchResponse> {
+    // DEC-018: mientras no exista un Anexo Tarifario con productos activos no
+    // se puede importar autorizaciones; de lo contrario se saltaría la
+    // validación VALIDACION_ANEXO_TARIFARIO en la fuente.
+    await this.requireTariffAnnex();
     if (input.file.size <= 0) {
       throw new BadRequestException({
         code: 'IMPORT_FILE_EMPTY',
@@ -225,7 +229,7 @@ export class ImportsService {
       const inserted = await client.query<BatchRow>(
         `insert into import_batches
            (id, organization_id, created_by, original_filename, mime_type, size_bytes, sha256, processor_version, status)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, 'UPLOADED')
+          values ($1, $2, $3, $4, $5, $6, $7, $8, 'CARGADO')
          returning id, organization_id, original_filename, mime_type, size_bytes, sha256, status,
                    total_rows, valid_rows, rejected_rows, duplicate_rows, existing_rows, confirmed_rows,
                    last_error_code, created_at, completed_at, confirmed_at`,
@@ -373,6 +377,8 @@ export class ImportsService {
     scope: Scope;
   }): Promise<ConfirmImportResponse> {
     const batchId = parseUuid(input.batchId, 'batchId');
+    // DEC-018: la confirmación del cargue también exige Anexo Tarifario vigente.
+    await this.requireTariffAnnex();
     const idempotencyScope = `imports.confirm:${input.scope.organizationId}:${batchId}`;
     const requestHash = createHash('sha256').update(batchId).digest('hex');
     const client = await this.database.pool.connect();
@@ -419,10 +425,10 @@ export class ImportsService {
           code: 'IMPORT_NOT_FOUND',
           message: 'Import batch not found',
         });
-      if (batch.status === 'COMPLETED') {
+      if (batch.status === 'COMPLETADO') {
         const response: ConfirmImportResponse = {
           batchId,
-          status: 'COMPLETED',
+          status: 'COMPLETADO',
           createdRows: batch.confirmed_rows,
           existingRows: batch.existing_rows,
           confirmedAt: (batch.confirmed_at ?? new Date()).toISOString(),
@@ -437,14 +443,14 @@ export class ImportsService {
         await client.query('commit');
         return response;
       }
-      if (batch.status !== 'READY_TO_CONFIRM') {
+      if (batch.status !== 'LISTO_PARA_CONFIRMAR') {
         throw new ConflictException({
           code: 'IMPORT_NOT_READY',
           message: 'Import batch is not ready to confirm',
         });
       }
 
-      await client.query(`update import_batches set status = 'CONFIRMING' where id = $1`, [
+      await client.query(`update import_batches set status = 'CONFIRMANDO' where id = $1`, [
         batchId,
       ]);
       const organizationIds = await client.query<{ id: string; code: string }>(
@@ -476,10 +482,18 @@ export class ImportsService {
       for (const row of rows.rows) {
         const classification = authorizationClassificationSchema.parse(row.normalized_data);
         const rawSource = (row.raw_data ?? {}) as Record<string, unknown>;
+        // SPEC-014: el producto debe estar incluido y activo en el Anexo
+        // Tarifario vigente para que el ítem pueda alcanzar LISTO_PARA_DISPENSAR.
+        const membership = await client.query<{ active: boolean }>(
+          'select active from tariff_annex_products where codigo_producto = $1',
+          [classification.codigoMedicamento],
+        );
+        const tariffListed = membership.rows[0]?.active === true;
         const operationStatus = deriveOperationStatus({
           enablementStatus: classification.enablementStatus,
           coverageType: classification.coverageType,
           directionStatus: classification.directionStatus,
+          tariffListed,
           fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
           today: currentBogotaDate(),
         });
@@ -487,8 +501,9 @@ export class ImportsService {
           `insert into authorization_items
              (numero_autorizacion, codigo_medicamento, authorization_key, source_data, source_status_normalized,
               source_prescripcion_normalized, no_prescripcion, enablement_status, coverage_type, direction_status,
-              operation_status, coverage_rule_version, created_from_batch_id)
-           values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, 'F2-COVERAGE-2', $12)
+              operation_status, coverage_rule_version, tariff_membership_status, tariff_membership_evaluated_at,
+              tariff_rule_version, created_from_batch_id)
+           values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, 'F2-COVERAGE-2', $12, now(), 'TARIFF-ANNEX-1', $13)
            on conflict (numero_autorizacion, codigo_medicamento) do nothing
            returning id, version`,
           [
@@ -503,6 +518,7 @@ export class ImportsService {
             classification.coverageType,
             classification.directionStatus,
             operationStatus,
+            tariffListed ? 'LISTADO' : 'NO_LISTADO',
             batchId,
           ],
         );
@@ -534,12 +550,12 @@ export class ImportsService {
            on conflict do nothing`,
           [itemId, INITIAL_SCOPE_ORGANIZATION_CODES],
         );
-        if (operationStatus === 'READY_TO_DISPENSE') {
+        if (operationStatus === 'LISTO_PARA_DISPENSAR') {
           readyItemIds.push(itemId);
         }
         if (
-          operationStatus === 'BLOCKED' &&
-          classification.enablementStatus === 'ENABLED' &&
+          operationStatus === 'BLOQUEADO' &&
+          classification.enablementStatus === 'HABILITADO' &&
           classification.coverageType === 'NO_PBS'
         ) {
           epsPendingItemIds.push(itemId);
@@ -567,7 +583,22 @@ export class ImportsService {
           },
           correlationId: input.scope.correlationId,
         });
-        if (classification.enablementStatus === 'BLOCKED_SOURCE_STATUS') {
+        await this.insertAudit(client, {
+          actorId: input.scope.userId,
+          organizationId: input.scope.organizationId,
+          action: tariffListed
+            ? 'TARIFF_ANNEX_VALIDATION_PASSED'
+            : 'TARIFF_ANNEX_VALIDATION_FAILED',
+          resourceType: 'authorization_item',
+          resourceId: itemId,
+          after: {
+            codigoMedicamento: classification.codigoMedicamento,
+            tariffMembershipStatus: tariffListed ? 'LISTADO' : 'NO_LISTADO',
+            ruleVersion: 'TARIFF-ANNEX-1',
+          },
+          correlationId: input.scope.correlationId,
+        });
+        if (classification.enablementStatus === 'BLOQUEADO_POR_ESTADO_ORIGEN') {
           await this.insertAudit(client, {
             actorId: input.scope.userId,
             organizationId: input.scope.organizationId,
@@ -632,7 +663,7 @@ export class ImportsService {
 
       const completed = await client.query<{ confirmed_at: Date }>(
         `update import_batches
-         set status = 'COMPLETED', confirmed_rows = $2, existing_rows = existing_rows + $3, confirmed_at = now(), completed_at = now()
+         set status = 'COMPLETADO', confirmed_rows = $2, existing_rows = existing_rows + $3, confirmed_at = now(), completed_at = now()
          where id = $1
          returning confirmed_at`,
         [batchId, createdRows, concurrentExistingRows],
@@ -650,7 +681,7 @@ export class ImportsService {
       });
       const response: ConfirmImportResponse = {
         batchId,
-        status: 'COMPLETED',
+        status: 'COMPLETADO',
         createdRows,
         existingRows: batch.existing_rows + concurrentExistingRows,
         confirmedAt: confirmedAt.toISOString(),
@@ -722,6 +753,19 @@ export class ImportsService {
           idempotencyKey,
         ],
       );
+    }
+  }
+
+  private async requireTariffAnnex(): Promise<void> {
+    const annex = await this.database.pool.query<{ exists: boolean }>(
+      'select exists(select 1 from tariff_annex_products where active = true) as exists',
+    );
+    if (!annex.rows[0]?.exists) {
+      throw new ConflictException({
+        code: 'TARIFF_ANNEX_REQUIRED',
+        message:
+          'Debe cargar el Anexo Tarifario (al menos un producto activo) antes de importar autorizaciones.',
+      });
     }
   }
 

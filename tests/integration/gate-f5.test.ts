@@ -47,7 +47,7 @@ async function seedReadyItem(label: string): Promise<{
     `insert into import_batches
        (id, organization_id, created_by, original_filename, mime_type, size_bytes, sha256,
         processor_version, status, total_rows, valid_rows, confirmed_rows)
-     values ($1, $2, $3, 'phase5.csv', 'text/csv', 1, $4, 1, 'COMPLETED', 1, 1, 1)`,
+      values ($1, $2, $3, 'phase5.csv', 'text/csv', 1, $4, 1, 'COMPLETADO', 1, 1, 1)`,
     [batchId, mtdOrganizationId, adminUserId, randomUUID().replaceAll('-', '').padEnd(64, '0')],
   );
   await database.query(
@@ -55,9 +55,9 @@ async function seedReadyItem(label: string): Promise<{
        (id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
         source_status_normalized, source_prescripcion_normalized, no_prescripcion,
         enablement_status, coverage_type, direction_status, operation_status,
-        coverage_rule_version, lugar_dispensacion, operational_version, created_from_batch_id)
-     values ($1, $2, $3, $4, '{}'::jsonb, '5', '', '', 'ENABLED', 'PBS',
-             'NOT_APPLICABLE', 'READY_TO_DISPENSE', 'F2-COVERAGE-2', 'Sede logística F5', 1, $5)`,
+        coverage_rule_version, tariff_membership_status, lugar_dispensacion, operational_version, created_from_batch_id)
+     values ($1, $2, $3, $4, '{}'::jsonb, '5', '', '', 'HABILITADO', 'PBS',
+             'NO_APLICA', 'LISTO_PARA_DISPENSAR', 'F2-COVERAGE-2', 'LISTADO', 'Sede logística F5', 1, $5)`,
     [itemId, authorization, medication, `${authorization}:${medication}`, batchId],
   );
   await database.query(
@@ -75,7 +75,9 @@ function dateCsv(
   extraColumn = false,
 ): string {
   const field =
-    operationType === 'REPORT_DISPENSATION_DATE' ? 'fecha_dispensacion' : 'fecha_aplicacion';
+    operationType === 'REPORT_DISPENSATION_DATE'
+      ? 'fecha_dispensacion'
+      : 'fecha_aplicacion_medicamento';
   if (operationType === 'REPORT_DISPENSATION_DATE') {
     return [
       `authorization_key,${field}${extraColumn ? ',campo_extra' : ''}`,
@@ -84,8 +86,8 @@ function dateCsv(
     ].join('\n');
   }
   return [
-    `numero_autorizacion,codigo_medicamento,${field}${extraColumn ? ',campo_extra' : ''}`,
-    `${item.authorization},${item.medication},${value}${extraColumn ? ',no-permitido' : ''}`,
+    `authorization_key,${field}${extraColumn ? ',campo_extra' : ''}`,
+    `${item.authorization}:${item.medication},${value}${extraColumn ? ',no-permitido' : ''}`,
     '',
   ].join('\n');
 }
@@ -134,11 +136,39 @@ async function waitForBatch(
         rejectedRows: number;
         lastErrorCode: string | null;
       };
-      if (batch.status === 'COMPLETED' || batch.status === 'FAILED') return batch;
+       if (batch.status === 'COMPLETADO' || batch.status === 'FALLIDO') return batch;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error('F5 bulk batch never settled');
+}
+
+async function getBatchRows(
+  token: string,
+  organizationId: string,
+  batchId: string,
+): Promise<
+  Array<{
+    resultCode: string;
+    authorizationKey: string | null;
+    previousValue: string | null;
+    newValue: string | null;
+  }>
+> {
+  const response = await fetch(`${apiUrl}/api/v1/bulk-updates/${batchId}/rows?limit=100`, {
+    headers: { authorization: `Bearer ${token}`, 'x-organization-id': organizationId },
+  });
+  expect(response.status).toBe(200);
+  return (
+    (await response.json()) as {
+      items: Array<{
+        resultCode: string;
+        authorizationKey: string | null;
+        previousValue: string | null;
+        newValue: string | null;
+      }>;
+    }
+  ).items;
 }
 
 describe('Gate F5', () => {
@@ -164,7 +194,7 @@ describe('Gate F5', () => {
     expect(dispensing.status).toBe(202);
     const dispensingBatch = (await dispensing.json()) as { id: string };
     expect(await waitForBatch(olpToken, olpOrganizationId, dispensingBatch.id)).toMatchObject({
-      status: 'COMPLETED',
+       status: 'COMPLETADO',
       updatedRows: 1,
       rejectedRows: 0,
     });
@@ -190,8 +220,8 @@ describe('Gate F5', () => {
     );
     expect(afterDispensing.rows[0]).toEqual({
       fecha_dispensacion: '2026-08-29',
-      operation_status: 'DISPENSATION_REPORTED',
-      audit_status: 'NOT_STARTED',
+       operation_status: 'DISPENSACION_REPORTADA',
+       audit_status: 'NO_INICIADO',
     });
 
     const application = await createBulk({
@@ -216,8 +246,8 @@ describe('Gate F5', () => {
     );
     expect(completed.rows[0]).toMatchObject({
       fecha_aplicacion: '2026-08-30',
-      operation_status: 'DISPENSATION_REPORTED',
-      audit_status: 'READY',
+       operation_status: 'DISPENSACION_REPORTADA',
+       audit_status: 'LISTO',
       operational_version: 3,
     });
     const history = await database.query<{
@@ -251,6 +281,159 @@ describe('Gate F5', () => {
     ).toBe(true);
   });
 
+  it('solo lista registros con fecha de aplicación cuando se solicita el filtro', async () => {
+    const withApplicationDate = await seedReadyItem('SUPPORTS-FILTER-VISIBLE');
+    const withoutApplicationDate = await seedReadyItem('SUPPORTS-FILTER-PENDING');
+
+    const dispensing = await createBulk({
+      token: olpToken,
+      organizationId: olpOrganizationId,
+      operationType: 'REPORT_DISPENSATION_DATE',
+      content: dateCsv('REPORT_DISPENSATION_DATE', withApplicationDate, '2026-08-29'),
+    });
+    expect(dispensing.status).toBe(202);
+    const dispensingBatch = (await dispensing.json()) as { id: string };
+    expect(await waitForBatch(olpToken, olpOrganizationId, dispensingBatch.id)).toMatchObject({
+       status: 'COMPLETADO',
+      updatedRows: 1,
+      rejectedRows: 0,
+    });
+
+    const application = await createBulk({
+      token: medicarteToken,
+      organizationId: medicarteOrganizationId,
+      operationType: 'REPORT_APPLICATION_DATE',
+      content: dateCsv('REPORT_APPLICATION_DATE', withApplicationDate, '2026-08-30'),
+    });
+    expect(application.status).toBe(202);
+    const applicationBatch = (await application.json()) as { id: string };
+    expect(
+      await waitForBatch(medicarteToken, medicarteOrganizationId, applicationBatch.id),
+    ).toMatchObject({
+       status: 'COMPLETADO',
+      updatedRows: 1,
+      rejectedRows: 0,
+    });
+
+    const response = await fetch(
+       `${apiUrl}/api/v1/authorization-items?applicationDateStatus=PRESENTE&limit=100`,
+      {
+        headers: {
+          authorization: `Bearer ${medicarteToken}`,
+          'x-organization-id': medicarteOrganizationId,
+        },
+      },
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      items: Array<{ id: string; fechaAplicacion: string | null }>;
+    };
+    expect(body.items.some((item) => item.id === withApplicationDate.id)).toBe(true);
+    expect(body.items.some((item) => item.id === withoutApplicationDate.id)).toBe(false);
+    expect(body.items.every((item) => item.fechaAplicacion !== null)).toBe(true);
+  });
+
+  it('descarga para MEDICARTE solo la base visible con la llave y fecha de aplicación', async () => {
+    const visible = await seedReadyItem('APPLICATION-EXPORT-VISIBLE');
+    const outside = await seedReadyItem('APPLICATION-EXPORT-OUTSIDE');
+    await database.query(
+      `delete from authorization_item_organizations
+       where authorization_item_id = $1 and organization_id = $2`,
+      [outside.id, medicarteOrganizationId],
+    );
+    const response = await fetch(
+      `${apiUrl}/api/v1/operational-exports/authorization-items?operationType=REPORT_APPLICATION_DATE&format=csv`,
+      {
+        headers: {
+          authorization: `Bearer ${medicarteToken}`,
+          'x-organization-id': medicarteOrganizationId,
+        },
+      },
+    );
+    expect(response.status).toBe(200);
+    const csv = await response.text();
+    expect(csv.split('\n')[0]).toContain('authorization_key');
+    expect(csv.split('\n')[0]).toContain('fecha_aplicacion_medicamento');
+    expect(csv).toContain(`${visible.authorization}:${visible.medication}`);
+    expect(csv).not.toContain(`${outside.authorization}:${outside.medication}`);
+
+    const protectedKeyItem = await seedReadyItem('APPLICATION-EXPORT-PROTECTED-KEY');
+    const protectedAuthorization = `-${protectedKeyItem.authorization}`;
+    await database.query(
+      `update authorization_items
+       set numero_autorizacion = $2, authorization_key = $3
+       where id = $1`,
+      [
+        protectedKeyItem.id,
+        protectedAuthorization,
+        `${protectedAuthorization}:${protectedKeyItem.medication}`,
+      ],
+    );
+    const protectedExport = await fetch(
+      `${apiUrl}/api/v1/operational-exports/authorization-items?operationType=REPORT_APPLICATION_DATE&format=csv`,
+      {
+        headers: {
+          authorization: `Bearer ${medicarteToken}`,
+          'x-organization-id': medicarteOrganizationId,
+        },
+      },
+    );
+    expect(await protectedExport.text()).toContain(`'${protectedAuthorization}`);
+    const roundTrip = await createBulk({
+      token: medicarteToken,
+      organizationId: medicarteOrganizationId,
+      operationType: 'REPORT_APPLICATION_DATE',
+      content: [
+        'authorization_key,fecha_aplicacion_medicamento',
+        `'${protectedAuthorization}:${protectedKeyItem.medication},2026-08-30`,
+        '',
+      ].join('\n'),
+    });
+    const roundTripBody = (await roundTrip.json()) as { id: string };
+    expect(
+      await waitForBatch(medicarteToken, medicarteOrganizationId, roundTripBody.id),
+    ).toMatchObject({ updatedRows: 1, rejectedRows: 0 });
+
+    const ambiguousItem = await seedReadyItem('APPLICATION-EXPORT-AMBIGUOUS-KEY');
+    await database.query(
+      `update authorization_items
+       set numero_autorizacion = $2, codigo_medicamento = $3, authorization_key = $4
+       where id = $1`,
+      [
+        ambiguousItem.id,
+        `'${protectedAuthorization}`,
+        protectedKeyItem.medication,
+        `'${protectedAuthorization}:${protectedKeyItem.medication}`,
+      ],
+    );
+    const ambiguous = await createBulk({
+      token: medicarteToken,
+      organizationId: medicarteOrganizationId,
+      operationType: 'REPORT_APPLICATION_DATE',
+      content: [
+        'authorization_key,fecha_aplicacion_medicamento',
+        `'${protectedAuthorization}:${protectedKeyItem.medication},2026-08-31`,
+        '',
+      ].join('\n'),
+    });
+    const ambiguousBody = (await ambiguous.json()) as { id: string };
+    expect(
+      await waitForBatch(medicarteToken, medicarteOrganizationId, ambiguousBody.id),
+    ).toMatchObject({ updatedRows: 0, rejectedRows: 1 });
+    expect(await getBatchRows(medicarteToken, medicarteOrganizationId, ambiguousBody.id)).toEqual([
+      expect.objectContaining({ resultCode: 'VERSION_CONFLICT' }),
+    ]);
+    const audit = await database.query<{ result: string; after: { operationType?: string } }>(
+      `select result, after from audit_events
+       where action = 'OPERATIONAL_EXPORT_CREATED' and organization_id = $1 order by occurred_at desc limit 1`,
+      [medicarteOrganizationId],
+    );
+    expect(audit.rows[0]).toMatchObject({
+      result: 'SUCCESS',
+      after: { operationType: 'REPORT_APPLICATION_DATE' },
+    });
+  });
+
   it('permite corrección, reporta sin cambio y no pierde versiones', async () => {
     const item = await seedReadyItem('CORRECTION');
     for (const value of ['2026-08-27', '2026-08-28', '2026-08-28']) {
@@ -262,7 +445,7 @@ describe('Gate F5', () => {
       });
       const body = (await response.json()) as { id: string };
       const batch = await waitForBatch(olpToken, olpOrganizationId, body.id);
-      expect(batch.status).toBe('COMPLETED');
+       expect(batch.status).toBe('COMPLETADO');
     }
     const history = await database.query<{ previous_value: string | null; new_value: string }>(
       `select previous_value, new_value from operational_field_changes
@@ -273,6 +456,189 @@ describe('Gate F5', () => {
       { previous_value: null, new_value: '2026-08-27' },
       { previous_value: '2026-08-27', new_value: '2026-08-28' },
     ]);
+  });
+
+  it('procesa parcialmente el contrato reducido de aplicación y reporta cada causal', async () => {
+    const first = await seedReadyItem('APPLICATION-PARTIAL-1');
+    const second = await seedReadyItem('APPLICATION-PARTIAL-2');
+    const invalidDate = await seedReadyItem('APPLICATION-INVALID-DATE');
+    const emptyDate = await seedReadyItem('APPLICATION-EMPTY-DATE');
+    const outsideScope = await seedReadyItem('APPLICATION-OUTSIDE');
+    await database.query(
+      `delete from authorization_item_organizations
+       where authorization_item_id = $1 and organization_id = $2`,
+      [outsideScope.id, medicarteOrganizationId],
+    );
+    const content = [
+      'authorization_key,fecha_aplicacion_medicamento',
+      `${first.authorization}:${first.medication},2026-08-30`,
+      `${second.authorization}:${second.medication},2026-08-31`,
+      `${second.authorization}:${second.medication},2026-08-31`,
+      `${invalidDate.authorization}:${invalidDate.medication},2026-02-29`,
+      `${emptyDate.authorization}:${emptyDate.medication},`,
+      'AUTH-NO-EXISTE:MED-NO-EXISTE,2026-08-30',
+      `${outsideScope.authorization}:${outsideScope.medication},2026-08-30`,
+      '',
+    ].join('\n');
+    const response = await createBulk({
+      token: medicarteToken,
+      organizationId: medicarteOrganizationId,
+      operationType: 'REPORT_APPLICATION_DATE',
+      content,
+    });
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { id: string };
+    expect(await waitForBatch(medicarteToken, medicarteOrganizationId, body.id)).toMatchObject({
+       status: 'COMPLETADO',
+      updatedRows: 2,
+      rejectedRows: 5,
+    });
+    const rows = await getBatchRows(medicarteToken, medicarteOrganizationId, body.id);
+    expect(rows.map((row) => row.resultCode)).toEqual(
+      expect.arrayContaining([
+        'ROW_UPDATED',
+        'DUPLICATE_KEY_IN_FILE',
+        'INVALID_VALUE_FORMAT',
+        'MISSING_VALUE',
+        'AUTHORIZATION_ITEM_NOT_FOUND',
+        'FORBIDDEN_ITEM_SCOPE',
+      ]),
+    );
+    const persisted = await database.query<{ id: string; fecha_aplicacion: string | null }>(
+      `select id, fecha_aplicacion::text from authorization_items where id = any($1::uuid[]) order by id`,
+      [[first.id, second.id, invalidDate.id, emptyDate.id, outsideScope.id]],
+    );
+    expect(persisted.rows.filter((row) => row.fecha_aplicacion !== null)).toHaveLength(2);
+  });
+
+  it('mantiene idempotencia, corrige con trazabilidad y no altera campos ajenos', async () => {
+    const item = await seedReadyItem('APPLICATION-IDEMPOTENT');
+    const before = await database.query<{
+      numero_autorizacion: string;
+      codigo_medicamento: string;
+      authorization_key: string;
+      lugar_dispensacion: string;
+      operation_status: string;
+      audit_status: string;
+      source_data: Record<string, unknown>;
+    }>(
+      `select numero_autorizacion, codigo_medicamento, authorization_key, lugar_dispensacion,
+              operation_status, audit_status, source_data
+       from authorization_items where id = $1`,
+      [item.id],
+    );
+    const firstContent = dateCsv('REPORT_APPLICATION_DATE', item, '2026-08-29');
+    const idempotencyKey = randomUUID();
+    const first = await createBulk({
+      token: medicarteToken,
+      organizationId: medicarteOrganizationId,
+      operationType: 'REPORT_APPLICATION_DATE',
+      content: firstContent,
+      idempotencyKey,
+    });
+    const firstBody = (await first.json()) as { id: string };
+    await waitForBatch(medicarteToken, medicarteOrganizationId, firstBody.id);
+    const replay = await createBulk({
+      token: medicarteToken,
+      organizationId: medicarteOrganizationId,
+      operationType: 'REPORT_APPLICATION_DATE',
+      content: firstContent,
+      idempotencyKey,
+    });
+    expect(((await replay.json()) as { id: string }).id).toBe(firstBody.id);
+
+    const unchanged = await createBulk({
+      token: medicarteToken,
+      organizationId: medicarteOrganizationId,
+      operationType: 'REPORT_APPLICATION_DATE',
+      content: `${firstContent}\n`,
+    });
+    const unchangedBody = (await unchanged.json()) as { id: string };
+    const unchangedBatch = await waitForBatch(
+      medicarteToken,
+      medicarteOrganizationId,
+      unchangedBody.id,
+    );
+    expect(unchangedBatch.unchangedRows).toBe(1);
+
+    const correction = await createBulk({
+      token: medicarteToken,
+      organizationId: medicarteOrganizationId,
+      operationType: 'REPORT_APPLICATION_DATE',
+      content: dateCsv('REPORT_APPLICATION_DATE', item, '2026-08-30'),
+    });
+    const correctionBody = (await correction.json()) as { id: string };
+    await waitForBatch(medicarteToken, medicarteOrganizationId, correctionBody.id);
+    expect(await getBatchRows(medicarteToken, medicarteOrganizationId, correctionBody.id)).toEqual([
+      expect.objectContaining({
+        resultCode: 'ROW_UPDATED',
+        previousValue: '2026-08-29',
+        newValue: '2026-08-30',
+      }),
+    ]);
+
+    const after = await database.query<{
+      numero_autorizacion: string;
+      codigo_medicamento: string;
+      authorization_key: string;
+      lugar_dispensacion: string;
+      operation_status: string;
+      audit_status: string;
+      source_data: Record<string, unknown>;
+      fecha_aplicacion: string;
+    }>(
+      `select numero_autorizacion, codigo_medicamento, authorization_key, lugar_dispensacion,
+              operation_status, audit_status, source_data, fecha_aplicacion::text
+       from authorization_items where id = $1`,
+      [item.id],
+    );
+    expect(after.rows[0]).toMatchObject({ ...before.rows[0], fecha_aplicacion: '2026-08-30' });
+    const audit = await database.query<{
+      organization_id: string;
+      after: { authorizationKey?: string; batchId?: string; field?: string; value?: string };
+    }>(
+      `select organization_id, after from audit_events
+       where resource_id = $1 and action = 'APPLICATION_DATE_REPORTED' order by occurred_at`,
+      [item.id],
+    );
+    expect(audit.rows).toHaveLength(2);
+    expect(audit.rows[1]).toMatchObject({
+      organization_id: medicarteOrganizationId,
+      after: {
+        authorizationKey: `${item.authorization}:${item.medication}`,
+        batchId: correctionBody.id,
+        field: 'fecha_aplicacion',
+        value: '2026-08-30',
+      },
+    });
+  });
+
+  it('rechaza permiso y encabezados incorrectos para la aplicación', async () => {
+    const item = await seedReadyItem('APPLICATION-CONTRACT');
+    const unauthorized = await createBulk({
+      token: olpToken,
+      organizationId: olpOrganizationId,
+      operationType: 'REPORT_APPLICATION_DATE',
+      content: dateCsv('REPORT_APPLICATION_DATE', item, '2026-08-30'),
+    });
+    expect(unauthorized.status).toBe(403);
+
+    for (const content of [
+      `numero_autorizacion,codigo_medicamento,fecha_aplicacion\n${item.authorization},${item.medication},2026-08-30\n`,
+      dateCsv('REPORT_APPLICATION_DATE', item, '2026-08-30', true),
+    ]) {
+      const response = await createBulk({
+        token: medicarteToken,
+        organizationId: medicarteOrganizationId,
+        operationType: 'REPORT_APPLICATION_DATE',
+        content,
+      });
+      const body = (await response.json()) as { id: string };
+      expect(await waitForBatch(medicarteToken, medicarteOrganizationId, body.id)).toMatchObject({
+         status: 'FALLIDO',
+        lastErrorCode: 'INVALID_HEADERS',
+      });
+    }
   });
 
   it('rechaza actor cruzado, fecha inválida y columnas extra', async () => {
@@ -293,7 +659,7 @@ describe('Gate F5', () => {
     });
     const invalidBody = (await invalid.json()) as { id: string };
     expect(await waitForBatch(olpToken, olpOrganizationId, invalidBody.id)).toMatchObject({
-      status: 'COMPLETED',
+       status: 'COMPLETADO',
       rejectedRows: 1,
     });
 
@@ -305,7 +671,7 @@ describe('Gate F5', () => {
     });
     const extraBody = (await extra.json()) as { id: string };
     expect(await waitForBatch(olpToken, olpOrganizationId, extraBody.id)).toMatchObject({
-      status: 'FAILED',
+       status: 'FALLIDO',
       lastErrorCode: 'INVALID_HEADERS',
     });
     const crossBatchRead = await fetch(`${apiUrl}/api/v1/bulk-updates/${extraBody.id}`, {
@@ -345,10 +711,9 @@ describe('Gate F5', () => {
   it('deduplica creación concurrente y exporta a OLP el lugar permitido', async () => {
     const item = await seedReadyItem('REPLAY');
     const pending = await seedReadyItem('NO-LOCATION');
-    await database.query(
-      `update authorization_items set lugar_dispensacion = null where id = $1`,
-      [pending.id],
-    );
+    await database.query(`update authorization_items set lugar_dispensacion = null where id = $1`, [
+      pending.id,
+    ]);
     const content = dateCsv('REPORT_DISPENSATION_DATE', item, '2026-08-29');
     const responses = await Promise.all([
       createBulk({
@@ -381,7 +746,7 @@ describe('Gate F5', () => {
     const csv = await exportResponse.text();
     expect(csv).toContain('lugar_dispensacion');
     expect(csv).toContain('fecha_dispensacion');
-    expect(csv).toContain('fecha_aplicacion');
+    expect(csv).toContain('fecha_aplicacion_medicamento');
     expect(csv).toContain(item.authorization);
     expect(csv).not.toContain(pending.authorization);
     expect(csv).toContain('NOMBRE_PACIENTE');
@@ -433,7 +798,7 @@ describe('Gate F5', () => {
 
     await database.query(
       `update outbox_events
-       set status = 'PENDING', dispatched_at = null, processed_at = null, available_at = now()
+       set status = 'PENDIENTE', dispatched_at = null, processed_at = null, available_at = now()
        where event_type = 'authorization.bulk-update' and payload->>'batchId' = $1`,
       [ids[0]],
     );
@@ -450,7 +815,7 @@ describe('Gate F5', () => {
     const approved = await seedReadyItem('APPROVED');
     await database.query(
       `update authorization_items
-       set audit_status = 'APPROVED', operation_status = 'DISPENSED'
+       set audit_status = 'APROBADO', operation_status = 'DISPENSADO'
        where id = $1`,
       [approved.id],
     );
@@ -463,7 +828,7 @@ describe('Gate F5', () => {
     const applicationBody = (await application.json()) as { id: string };
     expect(
       await waitForBatch(medicarteToken, medicarteOrganizationId, applicationBody.id),
-    ).toMatchObject({ status: 'COMPLETED', rejectedRows: 1, updatedRows: 0 });
+     ).toMatchObject({ status: 'COMPLETADO', rejectedRows: 1, updatedRows: 0 });
     const untouched = await database.query<{
       fecha_aplicacion: string | null;
       audit_status: string;
@@ -475,8 +840,8 @@ describe('Gate F5', () => {
     );
     expect(untouched.rows[0]).toEqual({
       fecha_aplicacion: null,
-      audit_status: 'APPROVED',
-      operation_status: 'DISPENSED',
+       audit_status: 'APROBADO',
+       operation_status: 'DISPENSADO',
     });
 
     const formula = await seedReadyItem('FORMULA');

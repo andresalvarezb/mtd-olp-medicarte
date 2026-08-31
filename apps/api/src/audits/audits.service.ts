@@ -43,6 +43,7 @@ type ItemRow = {
   direction_status: string;
   operation_status: string | null;
   coverage_rule_version: string;
+  tariff_membership_status: string;
   lugar_dispensacion: string | null;
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
@@ -99,6 +100,8 @@ function toItemResponse(row: ItemRow): AuthorizationItemResponse {
     applicationSiteStatus: deriveApplicationSiteStatus(row.lugar_dispensacion),
     operationalVersion: row.operational_version,
     coverageRuleVersion: row.coverage_rule_version,
+    tariffMembershipStatus:
+      row.tariff_membership_status as AuthorizationItemResponse['tariffMembershipStatus'],
     version: row.version,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -127,7 +130,7 @@ function toReviewResponse(review: ReviewRow, findings: FindingRow[]): AuditRevie
 
 const ITEM_SELECT = `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key,
         i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
-        i.coverage_rule_version, i.lugar_dispensacion, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
+        i.coverage_rule_version, i.tariff_membership_status, i.lugar_dispensacion, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
         i.audit_status, i.admission_status, i.operational_version, i.version, i.created_at, i.updated_at
  from authorization_items i`;
 
@@ -217,19 +220,19 @@ export class AuditsService {
         const review = await client.query<ReviewRow>(
           `insert into audit_reviews
              (authorization_item_id, review_number, status, started_by, correlation_id)
-           values ($1, $2, 'IN_REVIEW', $3, $4)
+             values ($1, $2, 'EN_REVISION', $3, $4)
            returning id, authorization_item_id, review_number, status, observations, started_by,
                      started_at, decided_by, decided_at`,
           [item.id, nextNumber.rows[0]!.next, input.scope.userId, input.scope.correlationId],
         );
         const updatedItem = await this.updateItem(client, item, input.body.expectedVersion, {
-          audit_status: 'IN_REVIEW',
+           audit_status: 'EN_REVISION',
         });
         await this.insertAudit(client, input.scope, {
           action: 'AUDIT_REVIEW_STARTED',
           itemId: item.id,
           before: { auditStatus: item.audit_status, version: item.version },
-          after: { auditStatus: 'IN_REVIEW', reviewId: review.rows[0]!.id },
+           after: { auditStatus: 'EN_REVISION', reviewId: review.rows[0]!.id },
         });
         const response = startAuditReviewResponseSchema.parse({
           review: toReviewResponse(review.rows[0]!, []),
@@ -254,7 +257,7 @@ export class AuditsService {
       idempotencyKey: input.idempotencyKey,
       idempotencyScope: `audit-reviews.finding:${input.scope.organizationId}:${input.reviewId}`,
       requestHash,
-      permission: 'audit.start',
+      permission: 'audit.findings.create',
       action: async (client) => {
         const review = await this.lockReview(client, input.reviewId);
         if (!canDecideAuditReview(review.status)) {
@@ -299,7 +302,7 @@ export class AuditsService {
     idempotencyKey: string;
     scope: Scope;
   }): Promise<AuditDecisionResponse> {
-    return this.decide(input, 'audit.reject', 'REJECTED');
+    return this.decide(input, 'audit.reject', 'RECHAZADO');
   }
 
   async approveReview(input: {
@@ -308,7 +311,7 @@ export class AuditsService {
     idempotencyKey: string;
     scope: Scope;
   }): Promise<AuditDecisionResponse> {
-    return this.decide(input, 'audit.approve', 'APPROVED');
+    return this.decide(input, 'audit.approve', 'APROBADO');
   }
 
   private decide(
@@ -319,7 +322,7 @@ export class AuditsService {
       scope: Scope;
     },
     permission: 'audit.approve' | 'audit.reject',
-    decision: 'APPROVED' | 'REJECTED',
+    decision: 'APROBADO' | 'RECHAZADO',
   ): Promise<AuditDecisionResponse> {
     const observations = input.body.observations ?? null;
     const requestHash = createHash('sha256')
@@ -346,7 +349,7 @@ export class AuditsService {
             message: 'Authorization item version has changed',
           });
         }
-        if (decision === 'REJECTED' && !observations) {
+        if (decision === 'RECHAZADO' && !observations) {
           throw new ConflictException({
             code: 'AUDIT_OBSERVATIONS_REQUIRED',
             message: 'El rechazo requiere observaciones del auditor.',
@@ -362,12 +365,12 @@ export class AuditsService {
         );
         const nextAuditStatus: AuthorizationItemResponse['auditStatus'] = decision;
         const itemPatch =
-          decision === 'APPROVED'
+          decision === 'APROBADO'
             ? {
                 audit_status: nextAuditStatus,
-                operation_status: 'DISPENSED',
+                operation_status: 'DISPENSADO',
                 admission_status: deriveAdmissionStatus({
-                  auditStatus: 'APPROVED',
+                  auditStatus: 'APROBADO',
                   currentAdmissionStatus: item.admission_status as AdmissionStatus,
                 }),
               }
@@ -379,7 +382,7 @@ export class AuditsService {
           itemPatch,
         );
         await this.insertAudit(client, input.scope, {
-          action: decision === 'APPROVED' ? 'AUDIT_APPROVED' : 'AUDIT_REJECTED',
+           action: decision === 'APROBADO' ? 'AUDIT_APPROVED' : 'AUDIT_REJECTED',
           itemId: item.id,
           before: {
             auditStatus: item.audit_status,
@@ -547,7 +550,7 @@ export class AuditsService {
        where id = $1 and version = $5` +
         ` returning id, numero_autorizacion, codigo_medicamento, authorization_key,
            enablement_status, coverage_type, direction_status, operation_status,
-           coverage_rule_version, lugar_dispensacion, fecha_dispensacion::text, fecha_aplicacion::text,
+           coverage_rule_version, tariff_membership_status, lugar_dispensacion, fecha_dispensacion::text, fecha_aplicacion::text,
            audit_status, admission_status, operational_version, version, created_at, updated_at`,
       [
         item.id,

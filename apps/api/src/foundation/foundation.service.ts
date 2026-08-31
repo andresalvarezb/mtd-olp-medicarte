@@ -19,7 +19,7 @@ export class FoundationService {
     organizationId: string;
     ipAddress?: string;
     userAgent?: string;
-  }): Promise<{ eventId: string; status: 'accepted' }> {
+  }): Promise<{ eventId: string; status: 'ACEPTADO' }> {
     const scope = `foundation.event.v1:${input.organizationId}`;
     const requestHash = createHash('sha256').update(input.message).digest('hex');
     const outboxIdempotencyKey = createHash('sha256')
@@ -43,11 +43,11 @@ export class FoundationService {
             message: 'Idempotency key reused with another payload',
           });
         }
-        return existing.response as { eventId: string; status: 'accepted' };
+        return existing.response as { eventId: string; status: 'ACEPTADO' };
       }
 
       const eventId = randomUUID();
-      const response = { eventId, status: 'accepted' as const };
+      const response = { eventId, status: 'ACEPTADO' as const };
       const payload = {
         eventId,
         message: input.message,
@@ -107,7 +107,7 @@ export class FoundationService {
         .from(outboxEvents)
         .where(
           and(
-            eq(outboxEvents.status, 'FAILED'),
+            eq(outboxEvents.status, 'FALLIDO'),
             eq(outboxEvents.organizationId, input.organizationId),
           ),
         );

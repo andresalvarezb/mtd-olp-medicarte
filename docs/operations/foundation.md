@@ -7,6 +7,7 @@
 - El realm importado y sus credenciales conocidas son solo para desarrollo; todos los puertos publicados por Compose se enlazan a loopback.
 - `OIDC_ISSUER` debe ser la URL pública que aparece en el token. `OIDC_JWKS_URL` permite resolver las llaves por una red privada.
 - Producción queda bloqueada si la infraestructura seleccionada no satisface la región Colombia definida en ADR-017.
+- Los estados de negocio y procesamiento del backend usan el catálogo en español de [estados-backend.md](../architecture/estados-backend.md). La migración `0018_estados_espanol` convierte los valores existentes.
 
 ## Ejecución local
 

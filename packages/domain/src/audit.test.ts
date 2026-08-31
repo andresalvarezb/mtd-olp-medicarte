@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { canDecideAuditReview, canStartAuditReview, deriveAdmissionStatus } from './audit';
 
 describe('canStartAuditReview', () => {
-  it('solo habilita revisión desde READY o REJECTED', () => {
-    expect(canStartAuditReview('READY')).toBe(true);
-    expect(canStartAuditReview('REJECTED')).toBe(true);
+  it('solo habilita revisión desde LISTO o RECHAZADO', () => {
+    expect(canStartAuditReview('LISTO')).toBe(true);
+    expect(canStartAuditReview('RECHAZADO')).toBe(true);
   });
 
   it('no permite iniciar revisión en otros estados', () => {
-    for (const status of ['NOT_STARTED', 'IN_REVIEW', 'APPROVED'] as const) {
+    for (const status of ['NO_INICIADO', 'EN_REVISION', 'APROBADO'] as const) {
       expect(canStartAuditReview(status)).toBe(false);
     }
   });
@@ -16,33 +16,33 @@ describe('canStartAuditReview', () => {
 
 describe('canDecideAuditReview', () => {
   it('solo una revisión en curso puede decidirse', () => {
-    expect(canDecideAuditReview('IN_REVIEW')).toBe(true);
-    expect(canDecideAuditReview('APPROVED')).toBe(false);
-    expect(canDecideAuditReview('REJECTED')).toBe(false);
+    expect(canDecideAuditReview('EN_REVISION')).toBe(true);
+    expect(canDecideAuditReview('APROBADO')).toBe(false);
+    expect(canDecideAuditReview('RECHAZADO')).toBe(false);
   });
 });
 
 describe('deriveAdmissionStatus', () => {
-  it('APPROVED deriva READY; ningún otro estado lo hace', () => {
+  it('APROBADO deriva LISTO; ningún otro estado lo hace', () => {
     expect(
-      deriveAdmissionStatus({ auditStatus: 'APPROVED', currentAdmissionStatus: 'NOT_READY' }),
-    ).toBe('READY');
-    for (const auditStatus of ['NOT_STARTED', 'READY', 'IN_REVIEW', 'REJECTED'] as const) {
-      expect(deriveAdmissionStatus({ auditStatus, currentAdmissionStatus: 'NOT_READY' })).toBe(
-        'NOT_READY',
+      deriveAdmissionStatus({ auditStatus: 'APROBADO', currentAdmissionStatus: 'NO_LISTO' }),
+    ).toBe('LISTO');
+    for (const auditStatus of ['NO_INICIADO', 'LISTO', 'EN_REVISION', 'RECHAZADO'] as const) {
+      expect(deriveAdmissionStatus({ auditStatus, currentAdmissionStatus: 'NO_LISTO' })).toBe(
+        'NO_LISTO',
       );
     }
   });
 
-  it('nunca edita por UI: solo la regla de dominio produce READY', () => {
+  it('nunca edita por UI: solo la regla de dominio produce LISTO', () => {
     expect(
-      deriveAdmissionStatus({ auditStatus: 'READY', currentAdmissionStatus: 'NOT_READY' }),
-    ).toBe('NOT_READY');
+      deriveAdmissionStatus({ auditStatus: 'LISTO', currentAdmissionStatus: 'NO_LISTO' }),
+    ).toBe('NO_LISTO');
   });
 
-  it('READY solo expresa "listo para admisión"; no existen estados de handoff en el núcleo', () => {
+  it('LISTO solo expresa "listo para admisión"; no existen estados de handoff en el núcleo', () => {
     expect(
-      deriveAdmissionStatus({ auditStatus: 'APPROVED', currentAdmissionStatus: 'READY' }),
-    ).toBe('READY');
+      deriveAdmissionStatus({ auditStatus: 'APROBADO', currentAdmissionStatus: 'LISTO' }),
+    ).toBe('LISTO');
   });
 });

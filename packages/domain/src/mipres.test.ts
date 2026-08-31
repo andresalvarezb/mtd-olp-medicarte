@@ -26,7 +26,7 @@ describe('evaluateMipresVigencia', () => {
   it('confirms when at least one non-annulled direction is strictly before FecMaxEnt', () => {
     const result = evaluateMipresVigencia([direction()], '2030-01-30');
     expect(result).toEqual({
-      outcome: 'CONFIRMED',
+      outcome: 'CONFIRMADO',
       hasCurrent: true,
       directionCount: 1,
       ruleVersion: 'F3-MIPRES-1',
@@ -35,7 +35,7 @@ describe('evaluateMipresVigencia', () => {
 
   it('is pending when there are no directions', () => {
     expect(evaluateMipresVigencia([], '2030-01-31')).toEqual({
-      outcome: 'PENDING',
+      outcome: 'PENDIENTE',
       hasCurrent: false,
       directionCount: 0,
       ruleVersion: 'F3-MIPRES-1',
@@ -44,7 +44,7 @@ describe('evaluateMipresVigencia', () => {
 
   it('is pending when the only direction is annulled', () => {
     expect(evaluateMipresVigencia([direction({ annulled: true })], '2030-01-01')).toEqual({
-      outcome: 'PENDING',
+      outcome: 'PENDIENTE',
       hasCurrent: false,
       directionCount: 1,
       ruleVersion: 'F3-MIPRES-1',
@@ -52,9 +52,9 @@ describe('evaluateMipresVigencia', () => {
   });
 
   it('is pending when FecMaxEnt equals the current Bogota date (equality is not valid)', () => {
-    expect(evaluateMipresVigencia([direction()], '2030-01-30').outcome).toBe('CONFIRMED');
-    expect(evaluateMipresVigencia([direction()], '2030-01-31').outcome).toBe('PENDING');
-    expect(evaluateMipresVigencia([direction()], '2030-02-01').outcome).toBe('PENDING');
+    expect(evaluateMipresVigencia([direction()], '2030-01-30').outcome).toBe('CONFIRMADO');
+    expect(evaluateMipresVigencia([direction()], '2030-01-31').outcome).toBe('PENDIENTE');
+    expect(evaluateMipresVigencia([direction()], '2030-02-01').outcome).toBe('PENDIENTE');
   });
 
   it('is pending when every direction is expired or annulled', () => {
@@ -62,7 +62,7 @@ describe('evaluateMipresVigencia', () => {
       [direction({ maximumDeliveryDate: '2026-01-01' }), direction({ annulled: true })],
       '2030-01-31',
     );
-    expect(result.outcome).toBe('PENDING');
+    expect(result.outcome).toBe('PENDIENTE');
     expect(result.hasCurrent).toBe(false);
     expect(result.directionCount).toBe(2);
   });

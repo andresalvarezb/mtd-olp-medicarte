@@ -29,6 +29,12 @@ const OPERATIONAL_TABLES = [
   'outbox_events',
   'job_results',
   'idempotency_records',
+  'tariff_annex_import_rows',
+  'tariff_annex_import_source_files',
+  'tariff_annex_imports',
+  'tariff_annex_products',
+  'notification_recipients',
+  'pending_user_requests',
 ] as const;
 
 const PRESERVED_TABLES = [
@@ -39,8 +45,6 @@ const PRESERVED_TABLES = [
   'role_permissions',
   'user_organization_roles',
   'notification_templates',
-  'notification_recipients',
-  'pending_user_requests',
 ] as const;
 
 async function main(): Promise<void> {
@@ -52,10 +56,13 @@ async function main(): Promise<void> {
   const flag = process.argv[2];
   if (flag !== '--yes') {
     console.error(
-      `This deletes ALL operational data from the database (users, organizations, roles, permissions and notification config are preserved).\n` +
-        `Tables to truncate:\n  ${OPERATIONAL_TABLES.join('\n  ')}\n` +
-        `Tables preserved:\n  ${PRESERVED_TABLES.join('\n  ')}\n` +
-        `Run again with --yes to confirm.`,
+      [
+        'This deletes ALL operational data from the database (organizations, users, roles,',
+        'permissions, role assignments and notification templates are preserved).',
+        `Tables to truncate:\n  ${OPERATIONAL_TABLES.join('\n  ')}`,
+        `Tables preserved:\n  ${PRESERVED_TABLES.join('\n  ')}`,
+        'Run again with --yes to confirm.',
+      ].join('\n'),
     );
     process.exit(1);
   }
@@ -65,7 +72,9 @@ async function main(): Promise<void> {
     await db.transaction(async (tx) => {
       await tx.execute(sql.raw(`TRUNCATE TABLE ${OPERATIONAL_TABLES.join(', ')} CASCADE`));
     });
-    console.log(`Database reset complete: truncated ${OPERATIONAL_TABLES.length} operational tables.`);
+    console.log(
+      `Database reset complete: truncated ${OPERATIONAL_TABLES.length} operational tables.`,
+    );
   } finally {
     await pool.end();
   }
