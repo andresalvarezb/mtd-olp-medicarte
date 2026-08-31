@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { formatNumber } from '@/lib/labels';
 
 interface KpiCardProps {
   label: string;
@@ -18,7 +19,7 @@ export function KpiCard({ label, value, foot, icon, iconBg, iconColor }: KpiCard
           {icon}
         </div>
       </div>
-      <div className="kpi-value">{value}</div>
+      <div className="kpi-value">{typeof value === 'number' ? formatNumber(value) : value}</div>
       <div className="kpi-foot">{foot}</div>
     </div>
   );

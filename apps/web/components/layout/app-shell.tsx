@@ -11,7 +11,7 @@ const PUBLIC_ROUTES = ['/login'];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const { role, status } = useRole();
+  const { roles, status } = useRole();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -28,10 +28,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       router.replace('/');
       return;
     }
-    if (currentItem && !currentItem.roles.includes(role)) {
+    if (currentItem && !currentItem.roles.some((r) => roles.includes(r))) {
       router.replace('/');
     }
-  }, [currentItem, role, router, status, isPublicRoute, pathname]);
+  }, [currentItem, roles, router, status, isPublicRoute, pathname]);
 
   useEffect(() => {
     setMenuOpen(false);

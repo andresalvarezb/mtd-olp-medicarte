@@ -1,31 +1,41 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ROLES, ROLE_META, type Role } from '@/components/navigation/nav-config';
-import { useRole } from '@/components/layout/role-context';
+import { InvalidCredentialsError, ProfileError, useRole } from '@/components/layout/role-context';
+import { ApiError } from '@/lib/api-client';
 
 export function LoginView() {
   const router = useRouter();
   const { login } = useRole();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [selectedRole, setSelectedRole] = useState<Role>('MTD');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setError(null);
+    void (async () => {
+      setError(null);
 
-    if (!email.trim() || !password.trim()) {
-      setError('Ingresa correo y contraseña para continuar.');
-      return;
-    }
+      if (!email.trim() || !password.trim()) {
+        setError('Ingresa usuario y contraseña para continuar.');
+        return;
+      }
 
-    setSubmitting(true);
-    login(selectedRole, email.trim());
-    router.replace('/');
+      setSubmitting(true);
+      try {
+        await login(email.trim(), password);
+        router.replace('/');
+      } catch (err) {
+        if (err instanceof InvalidCredentialsError) setError(err.message);
+        else if (err instanceof ProfileError || err instanceof ApiError) setError(err.message);
+        else if (err instanceof Error) setError(err.message);
+        else setError('No fue posible iniciar sesión. Intenta nuevamente.');
+      } finally {
+        setSubmitting(false);
+      }
+    })();
   };
 
   return (
@@ -41,16 +51,17 @@ export function LoginView() {
 
         <h2>Iniciar sesión</h2>
         <p className="login-hint">
-          Prototipo visual: las credenciales no se validan contra un proveedor de identidad.
+          Autenticación contra Keycloak (realm <code>authorization</code>). Las opciones habilitadas
+          dependen de los permisos de tu usuario.
         </p>
 
         <form onSubmit={handleSubmit} noValidate>
           <div className="field">
-            <label htmlFor="login-email">Correo electrónico</label>
+            <label htmlFor="login-email">Usuario o correo electrónico</label>
             <input
               id="login-email"
-              type="email"
-              autoComplete="email"
+              type="text"
+              autoComplete="username"
               placeholder="usuario@organizacion.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -67,22 +78,6 @@ export function LoginView() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-          </div>
-
-          <div className="field">
-            <label htmlFor="login-role">Vista de demostración</label>
-            <select
-              id="login-role"
-              value={selectedRole}
-              onChange={(e) => setSelectedRole(e.target.value as Role)}
-            >
-              {ROLES.map((role) => (
-                <option key={role} value={role}>
-                  {ROLE_META[role].selectLabel}
-                </option>
-              ))}
-            </select>
-            <p className="field-note">{ROLE_META[selectedRole].note}</p>
           </div>
 
           {error ? (

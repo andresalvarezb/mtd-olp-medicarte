@@ -4,15 +4,22 @@ import { useState } from 'react';
 
 interface TabsProps {
   tabs: string[];
-  children: React.ReactNode;
+  children: React.ReactNode | ((activeTab: number) => React.ReactNode);
+  activeTab?: number;
+  onChange?: (index: number) => void;
 }
 
 /**
- * Pestañas del prototipo. El contenido compartido (tabla vacía) se muestra bajo
- * la pestaña activa; la variante es visual mientras no existan datos reales.
+ * Pestañas operativas. Puede usarse controlada (activeTab + onChange) o no
+ * controlada; el children puede ser una función que recibe la pestaña activa.
  */
-export function Tabs({ tabs, children }: TabsProps) {
-  const [active, setActive] = useState(0);
+export function Tabs({ tabs, children, activeTab, onChange }: TabsProps) {
+  const [internalActive, setInternalActive] = useState(0);
+  const active = activeTab ?? internalActive;
+  const setActive = (index: number) => {
+    setInternalActive(index);
+    onChange?.(index);
+  };
 
   return (
     <>
@@ -29,7 +36,7 @@ export function Tabs({ tabs, children }: TabsProps) {
           </button>
         ))}
       </div>
-      {children}
+      {typeof children === 'function' ? children(active) : children}
     </>
   );
 }

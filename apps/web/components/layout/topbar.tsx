@@ -13,7 +13,6 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
   const router = useRouter();
   const { role, roleLabel, user, logout } = useRole();
   const title = titleForPath(pathname);
-
   const handleLogout = () => {
     logout();
     router.replace('/login');
@@ -27,17 +26,16 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
         </button>
         <div>
           <div className="crumbs">
-            Plataforma / <span>{ROLE_META[role].selectLabel.split(' — ')[0]}</span>
+            Plataforma / <span>{ROLE_META[role].label.split(' ')[0]}</span>
           </div>
           <div className="page-name">{title}</div>
         </div>
       </div>
       <div className="top-actions">
-        <span className="env-badge">PROTOTIPO</span>
         <div className="user-chip">
           <div className="avatar">{user?.initials ?? 'UD'}</div>
           <div className="user-meta">
-            <strong>{user?.name ?? 'Usuario demostración'}</strong>
+            <strong>{user?.name ?? 'Usuario'}</strong>
             <span>{roleLabel}</span>
           </div>
         </div>
