@@ -1,6 +1,19 @@
 import type { Role } from '@/components/navigation/nav-config';
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
+const API_VERSION_PATH = '/api/v1';
+
+/**
+ * Normaliza la URL base de la API aceptando tanto el hostname raíz
+ * (p. ej. RENDER_EXTERNAL_URL de Render) como una URL que ya incluye /api/v1.
+ */
+export function normalizeApiBaseUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  return trimmed.endsWith(API_VERSION_PATH) ? trimmed : `${trimmed}${API_VERSION_PATH}`;
+}
+
+export const API_BASE_URL = normalizeApiBaseUrl(
+  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001',
+);
 
 export const OIDC_ISSUER =
   process.env.NEXT_PUBLIC_OIDC_ISSUER ?? 'http://localhost:8080/realms/authorization';

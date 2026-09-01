@@ -15,7 +15,10 @@ services:
       - key: HOSTNAME
         value: 0.0.0.0
       - key: NEXT_PUBLIC_API_URL
-        value: https://authorization-api.onrender.com/api/v1
+        fromService:
+          name: authorization-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
       - key: NEXT_PUBLIC_OIDC_ISSUER
         value: https://authorization-keycloak.onrender.com/realms/authorization
       - key: NEXT_PUBLIC_OIDC_CLIENT_ID
@@ -57,7 +60,10 @@ services:
       - key: OIDC_ADMIN_CLIENT_SECRET
         sync: false
       - key: API_PUBLIC_URL
-        value: https://authorization-api.onrender.com
+        fromService:
+          name: authorization-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
       - key: WEB_ORIGIN
         value: https://authorization-web.onrender.com
 
