@@ -13,6 +13,7 @@ ALTER TABLE "users" ADD COLUMN "username" varchar(160);--> statement-breakpoint
 WITH source AS (
   SELECT
     "id",
+    "created_at",
     -- base: parte local del email, minuscula y solo con caracteres permitidos;
     -- fallback determinista al id cuando el email no aporta una base util.
     coalesce(
@@ -27,6 +28,7 @@ WITH source AS (
 normalized AS (
   SELECT
     "id",
+    "created_at",
     CASE WHEN base_raw ~ '^[a-z0-9]' THEN base_raw ELSE 'u' || base_raw END AS base
   FROM source
 ),

@@ -43,7 +43,7 @@ async function cleanupF7Users(): Promise<void> {
     `delete from user_organization_roles where user_id in (select id from users where username like 'f7-%')`,
   );
   await database.query(
-    `delete from notification_recipients where user_id in (select id from users where username like 'f7-%')`,
+    `delete from notification_recipients where created_by in (select id from users where username like 'f7-%')`,
   );
   await database.query(`delete from users where username like 'f7-%'`);
 }
@@ -178,7 +178,10 @@ describe('Gate F7 — Gestión local de usuarios', () => {
     const wrongCurrent = await fetch(`${apiUrl}/api/v1/auth/change-password`, {
       method: 'POST',
       headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ currentPassword: 'no-es-la-actual-1234', newPassword: changedPassword }),
+      body: JSON.stringify({
+        currentPassword: 'no-es-la-actual-1234',
+        newPassword: changedPassword,
+      }),
     });
     expect(wrongCurrent.status).toBe(401);
 
@@ -227,7 +230,9 @@ describe('Gate F7 — Gestión local de usuarios', () => {
 
     const attempt = await loginAttempt(username, currentPassword);
     expect(attempt.ok).toBe(false);
-    const me = await fetch(`${apiUrl}/api/v1/me`, { headers: { authorization: `Bearer ${bearer}` } });
+    const me = await fetch(`${apiUrl}/api/v1/me`, {
+      headers: { authorization: `Bearer ${bearer}` },
+    });
     expect(me.status).toBe(401);
   });
 
@@ -240,15 +245,18 @@ describe('Gate F7 — Gestión local de usuarios', () => {
     expect(reactivate.status).toBe(200);
     expect((await loginAttempt(username, currentPassword)).ok).toBe(true);
 
-    const revoke = await fetch(`${apiUrl}/api/v1/users/${userId}/assignments/${olpOrganizationId}`, {
-      method: 'DELETE',
-      headers: authHeaders(adminToken),
-    });
+    const revoke = await fetch(
+      `${apiUrl}/api/v1/users/${userId}/assignments/${olpOrganizationId}`,
+      {
+        method: 'DELETE',
+        headers: authHeaders(adminToken),
+      },
+    );
     expect(revoke.status).toBe(200);
     const payload = (await revoke.json()) as UserPayload;
-    expect(payload.assignments.filter((entry) => entry.active).map((entry) => entry.organizationCode)).toEqual(
-      ['MTD'],
-    );
+    expect(
+      payload.assignments.filter((entry) => entry.active).map((entry) => entry.organizationCode),
+    ).toEqual(['MTD']);
   });
 
   it('elimina el flujo pendiente heredado de Keycloak', async () => {
@@ -293,7 +301,7 @@ describe('Gate F7 — Gestión local de usuarios', () => {
       roleCode: 'MTD_ADMIN',
     });
     const list = await fetch(`${apiUrl}/api/v1/users`, { headers: authHeaders(adminToken) });
-    const { items } = (await list.json()) as { items: UserPayload[]; };
+    const { items } = (await list.json()) as { items: UserPayload[] };
     const self = items.find((entry) => entry.username === 'foundation-admin');
     if (!self) throw new Error('foundation-admin local user missing');
 

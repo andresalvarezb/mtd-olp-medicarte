@@ -109,8 +109,8 @@ export class AuthService {
     await this.database.pool.query(
       `insert into audit_events
          (actor_type, actor_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
-       values ('USER', $1, 'USER_PASSWORD_CHANGED', 'user', $1, '{}'::jsonb, $2::uuid, $2, 'SUCCESS')`,
-      [input.userId, input.requestId],
+       values ('USER', $1, 'USER_PASSWORD_CHANGED', 'user', $3, '{}'::jsonb, $2::uuid, $2, 'SUCCESS')`,
+      [input.userId, input.requestId, input.userId],
     );
   }
 
@@ -151,7 +151,7 @@ export class AuthService {
         `insert into audit_events
            (actor_type, actor_id, action, resource_type, resource_id, after,
             correlation_id, request_id, ip_address, user_agent, result)
-         values ($1, $2, $3, 'auth_session', coalesce($2::text, $4), $5::jsonb,
+         values ($1, $2, $3, 'auth_session', coalesce($10, $4), $5::jsonb,
                  $6::uuid, $6, $7, $8, $9)`,
         [
           actorId ? 'USER' : 'ANONYMOUS',
@@ -163,6 +163,7 @@ export class AuthService {
           input.ipAddress,
           input.userAgent,
           action === 'LOGIN_SUCCESS' ? 'SUCCESS' : 'DENIED',
+          actorId ?? '',
         ],
       );
     } catch {

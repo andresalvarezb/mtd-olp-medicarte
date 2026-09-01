@@ -121,7 +121,10 @@ export async function ensureUser(input: {
 }
 
 /** Token de OLP_OPERATOR y MEDICARTE_OPERATOR de desarrollo, idempotente. */
-export async function ensureOperatorTokens(): Promise<{ olpToken: string; medicarteToken: string }> {
+export async function ensureOperatorTokens(): Promise<{
+  olpToken: string;
+  medicarteToken: string;
+}> {
   const admin = await adminLogin();
   const password = `${DEV_ADMIN_USERNAME}-ops`;
   const olpToken = await ensureUser({
@@ -144,7 +147,10 @@ export async function ensureOperatorTokens(): Promise<{ olpToken: string; medica
 }
 
 /** Usuarios de desarrollo conocidos y su asignación al autoaprovisionarse. */
-const DEV_OPERATORS: Record<string, { organizationId: string; roleCode: string; displayName: string }> = {
+const DEV_OPERATORS: Record<
+  string,
+  { organizationId: string; roleCode: string; displayName: string }
+> = {
   'olp-operator': {
     organizationId: ORGANIZATION_IDS.OLP,
     roleCode: 'OLP_OPERATOR',

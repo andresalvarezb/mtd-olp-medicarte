@@ -40,7 +40,7 @@ No se introducirá otro proveedor externo de identidad.
   PostgreSQL en cada request. Deshabilitar un usuario, eliminarlo o cambiar su rol tiene efecto
   inmediato sin esperar expiración del token.
 - Errores de login genéricos (`INVALID_CREDENTIALS`), verificación dummy anti-timing,
-  rate limiting dedicado en `/auth/login` (5 intentos/min por IP) y límite global intacto.
+  rate limiting dedicado en `/auth/login` (20 intentos/min por combinación IP+username) y límite global intacto.
 - Política mínima de contraseña: longitud 12–128, sin reglas absurdas.
 - `pending_user_requests` se elimina: la brecha entre IdP externo y cuenta local desaparece.
 - Auditoría de eventos de identidad: LOGIN_SUCCESS, LOGIN_FAILED, USER_CREATED, USER_UPDATED,

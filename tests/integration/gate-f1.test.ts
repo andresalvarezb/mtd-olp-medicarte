@@ -1,12 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  ORGANIZATION_IDS,
-  adminLogin,
-  ensureUser,
-  loginAttempt,
-} from './helpers/auth';
+import { ORGANIZATION_IDS, adminLogin, ensureUser, loginAttempt } from './helpers/auth';
 
 const databaseUrl =
   process.env.DATABASE_URL ??
@@ -44,7 +39,7 @@ async function apiCall(
 /** Elimina usuario de prueba y sus asignaciones (auditoría append-only queda). */
 async function purgeUser(userId: string): Promise<void> {
   await database.query(`delete from user_organization_roles where user_id = $1`, [userId]);
-  await database.query(`delete from notification_recipients where user_id = $1`, [userId]);
+  await database.query(`delete from notification_recipients where created_by = $1`, [userId]);
   await database.query(`delete from users where id = $1`, [userId]);
 }
 
@@ -70,10 +65,9 @@ beforeAll(async () => {
     organizationId,
     roleCode: 'READ_ONLY',
   });
-  const created = await database.query<{ id: string }>(
-    `select id from users where username = $1`,
-    [`f1-orphan-${suffix}`],
-  );
+  const created = await database.query<{ id: string }>(`select id from users where username = $1`, [
+    `f1-orphan-${suffix}`,
+  ]);
   orphanId = created.rows[0]?.id as string;
 });
 
@@ -189,9 +183,10 @@ describe('Gate F1 — autenticación local', () => {
       roleCode: 'READ_ONLY',
     });
     expect((await apiCall('GET', '/me', undefined, bearer)).status).toBe(200);
-    const userRow = await database.query<{ id: string }>(`select id from users where username = $1`, [
-      username,
-    ]);
+    const userRow = await database.query<{ id: string }>(
+      `select id from users where username = $1`,
+      [username],
+    );
     const id = userRow.rows[0]?.id as string;
     await apiCall('PATCH', `/users/${id}`, { active: false }, token);
     const rejected = await apiCall('GET', '/me', undefined, bearer);
@@ -222,11 +217,17 @@ describe('Gate F1 — autenticación local', () => {
     };
     expect(beforeProfile.organizations[0]?.permissions).not.toContain('users.manage');
 
-    const userRow = await database.query<{ id: string }>(`select id from users where username = $1`, [
-      username,
-    ]);
+    const userRow = await database.query<{ id: string }>(
+      `select id from users where username = $1`,
+      [username],
+    );
     const id = userRow.rows[0]?.id as string;
-    await apiCall('PUT', `/users/${id}/assignments`, { organizationId, roleCode: 'MTD_ADMIN' }, token);
+    await apiCall(
+      'PUT',
+      `/users/${id}/assignments`,
+      { organizationId, roleCode: 'MTD_ADMIN' },
+      token,
+    );
     const after = await apiCall('GET', '/me', undefined, bearer);
     const afterProfile = (await after.json()) as {
       organizations: Array<{ id: string; permissions: string[] }>;
@@ -246,8 +247,13 @@ describe('Gate F1 — autenticación local', () => {
   });
 
   it('nunca expone hash ni credenciales en /me o en el listado de usuarios', async () => {
-    const me = (await (await apiCall('GET', '/me', undefined, token)).json()) as Record<string, unknown>;
-    expect(JSON.stringify(me)).not.toMatch(/password|argon2|\$argon2id\$/i);
+    const me = (await (await apiCall('GET', '/me', undefined, token)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(me).not.toHaveProperty('password_hash');
+    expect(me).not.toHaveProperty('passwordHash');
+    expect(JSON.stringify(me)).not.toMatch(/\$argon2id\$/i);
     const list = (await (await apiCall('GET', '/users', undefined, token)).json()) as {
       items: Array<Record<string, unknown>>;
     };

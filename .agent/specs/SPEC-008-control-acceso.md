@@ -8,7 +8,7 @@
   `password`; la API valida el hash Argon2id contra PostgreSQL y emite JWT HS256 propio
   (`sub = users.id`). Errores genéricos `INVALID_CREDENTIALS`: no revelan existencia del
   usuario, estado activo ni motivo real (las causas quedan solo en auditoría).
-- Rate limiting dedicado de login (5 intentos/min por IP) además del límite global.
+- Rate limiting dedicado de login (20 intentos/min por combinación IP+username), además del límite global por IP.
 - El JWT es solo credencial: tras verificar firma/exp, el guard recarga el usuario activo y
   AccessService resuelve roles/permisos desde PostgreSQL en cada request. Desactivación,
   eliminación o cambio de rol tienen efecto inmediato.

@@ -30,8 +30,19 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(200)
-  // Fuerza bruta: máximo 5 intentos por minuto e ip (el límite global es 100).
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  // Fuerza bruta: 20 intentos por minuto por combinación IP+username
+  // (el límite global de 100 req/min/IP sigue además como techo por IP).
+  @Throttle({
+    default: {
+      limit: 20,
+      ttl: 60_000,
+      getTracker: (request: { ip?: string; body?: { username?: unknown } }) => {
+        const username =
+          typeof request.body?.username === 'string' ? request.body.username.toLowerCase() : '';
+        return `${request.ip ?? 'unknown-ip'}:${username}`;
+      },
+    },
+  })
   @ApiOkResponse({
     schema: {
       type: 'object',

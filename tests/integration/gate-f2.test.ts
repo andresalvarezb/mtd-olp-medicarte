@@ -15,7 +15,7 @@ const databaseUrl =
   'postgresql://authorization:authorization@localhost:15432/authorization';
 const mtdOrganizationId = '10000000-0000-4000-8000-000000000001';
 const olpOrganizationId = '10000000-0000-4000-8000-000000000003';
-const foundationAdminUserId = '40000000-0000-4000-8000-000000000001';
+let foundationAdminUserId: string;
 const olpOperatorRoleId = '20000000-0000-4000-8000-000000000004';
 const authorizationsReadSensitivePermissionId = '30000000-0000-4000-8000-000000000003';
 const importsCreatePermissionId = '30000000-0000-4000-8000-000000000004';
@@ -207,6 +207,11 @@ async function withOlpPermissions<T>(
 describe('Gate F2', () => {
   beforeAll(async () => {
     await database.connect();
+    const admin = await database.query<{ id: string }>('select id from users where username = $1', [
+      'foundation-admin',
+    ]);
+    foundationAdminUserId = admin.rows[0]?.id ?? '';
+    if (!foundationAdminUserId) throw new Error('foundation-admin local user missing');
     [adminToken, olpToken] = await Promise.all([
       login('foundation-admin', 'foundation-admin'),
       login('olp-operator', 'olp-operator'),

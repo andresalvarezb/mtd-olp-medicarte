@@ -24,14 +24,19 @@ export const USERNAME_MAX_LENGTH = 160;
 export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 128;
 
-/** Identificador de acceso normalizado: minúsculas, sin espacios. */
-export const usernameSchema = z
-  .string()
-  .trim()
-  .min(USERNAME_MIN_LENGTH)
-  .max(USERNAME_MAX_LENGTH)
-  .regex(/^[a-z0-9][a-z0-9._@-]{1,158}$/, 'invalid username format')
-  .transform((value) => value.toLowerCase());
+/**
+ * Identificador de acceso: se normaliza (trim + minúsculas) ANTES de validar
+ * el formato, para que el login sea realmente case-insensitive.
+ */
+export const usernameSchema = z.preprocess(
+  (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+  z
+    .string()
+    .min(USERNAME_MIN_LENGTH)
+    .max(USERNAME_MAX_LENGTH)
+    .regex(/^[a-z0-9][a-z0-9._@-]{1,158}$/, 'invalid username format'),
+);
+export type Username = z.infer<typeof usernameSchema>;
 
 /** Política mínima: prioridad a la longitud (ADR-026). */
 export const newPasswordSchema = z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH);

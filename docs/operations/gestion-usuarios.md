@@ -22,32 +22,32 @@ el permiso `users.manage`, otorgado a `MTD_ADMIN`) o directamente contra la API 
 
 Variables de la API (`packages/config`):
 
-| Variable                        | Descripción                                                                                          |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `AUTH_JWT_SECRET`               | Secreto HS256 con ≥256 bits (hex de 64+ o base64url de 32+ bytes). Obligatorio.                      |
-| `AUTH_JWT_TTL_SECONDS`          | Vigencia del token; por defecto 28 800 s (8 h). No hay refresh tokens.                               |
-| `AUTH_BOOTSTRAP_ADMIN_USERNAME` | Usuario del bootstrap local; por defecto `foundation-admin`.                                         |
+| Variable                        | Descripción                                                                                                                                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_JWT_SECRET`               | Secreto HS256 con ≥256 bits (hex de 64+ o base64url de 32+ bytes). Obligatorio.                                                                                                                   |
+| `AUTH_JWT_TTL_SECONDS`          | Vigencia del token; por defecto 28 800 s (8 h). No hay refresh tokens.                                                                                                                            |
+| `AUTH_BOOTSTRAP_ADMIN_USERNAME` | Usuario del bootstrap local; por defecto `foundation-admin`.                                                                                                                                      |
 | `AUTH_BOOTSTRAP_ADMIN_PASSWORD` | Si está definida y NO hay un `MTD_ADMIN` activo con contraseña local, crea/recupera esa cuenta. Nunca sobrescribe hashes existentes ni cambia roles en cada arranque. La contraseña no se loguea. |
 
 ## Endpoints
 
 Autenticación (`/api/v1/auth`, sin sesión previa):
 
-| Método y ruta             | Operación                                                                                                                             |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /auth/login`        | `{username, password}` → `{accessToken, tokenType, expiresAt, mustChangePassword, user}`. Errores genéricos `INVALID_CREDENTIALS`. Rate limit: 5 intentos/min por IP. |
-| `POST /auth/change-password` | Autenticado. `{currentPassword, newPassword}` (≥12). Actualiza hash, `password_changed_at` y baja `must_change_password`. Devuelve 204. |
+| Método y ruta                | Operación                                                                                                                                                                                                                    |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/login`           | `{username, password}` → `{accessToken, tokenType, expiresAt, mustChangePassword, user}`. Errores genéricos `INVALID_CREDENTIALS`. Rate limit: 20 intentos/min por combinación IP+username, además del límite global por IP. |
+| `POST /auth/change-password` | Autenticado. `{currentPassword, newPassword}` (≥12). Actualiza hash, `password_changed_at` y baja `must_change_password`. Devuelve 204.                                                                                      |
 
 Administración (`/api/v1/users`, permiso `users.manage`, header `X-Organization-Id`):
 
-| Método y ruta                                   | Operación                                                                                                                                                       |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /users?active=true\|false`                 | Lista usuarios locales con asignaciones, `passwordConfigured`, `mustChangePassword` y `lastLoginAt`. Nunca devuelve hash ni contraseña.                          |
+| Método y ruta                                   | Operación                                                                                                                                                                                                                   |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /users?active=true\|false`                 | Lista usuarios locales con asignaciones, `passwordConfigured`, `mustChangePassword` y `lastLoginAt`. Nunca devuelve hash ni contraseña.                                                                                     |
 | `POST /users`                                   | Crea la cuenta exclusivamente en PostgreSQL. Cuerpo: `username` (3–160, minúsculas), `displayName`, `password` (≥ 12), `organizationId`, `roleCode`. 201 con `UserResponse`; 409 `USERNAME_TAKEN` si el username ya existe. |
-| `PATCH /users/:id`                              | Cambia `displayName` y/o `active`. Un admin no puede desactivarse a sí mismo (`SELF_DEACTIVATION_FORBIDDEN`) ni desactivar/retirar el rol al último administrador activo (`LAST_ADMIN_PROTECTED`). |
-| `POST /users/:id/reset-password`                | `{password, mustChangePassword?}` — restablecimiento administrativo. Por defecto fuerza el cambio en el siguiente ingreso.                                       |
-| `PUT /users/:id/assignments`                    | Asigna (o reactiva) `{organizationId, roleCode}` para el usuario.                                                                                               |
-| `DELETE /users/:id/assignments/:organizationId` | Retira la asignación activa de esa organización (soft delete); protegido para el último admin.                                                                  |
+| `PATCH /users/:id`                              | Cambia `displayName` y/o `active`. Un admin no puede desactivarse a sí mismo (`SELF_DEACTIVATION_FORBIDDEN`) ni desactivar/retirar el rol al último administrador activo (`LAST_ADMIN_PROTECTED`).                          |
+| `POST /users/:id/reset-password`                | `{password, mustChangePassword?}` — restablecimiento administrativo. Por defecto fuerza el cambio en el siguiente ingreso.                                                                                                  |
+| `PUT /users/:id/assignments`                    | Asigna (o reactiva) `{organizationId, roleCode}` para el usuario.                                                                                                                                                           |
+| `DELETE /users/:id/assignments/:organizationId` | Retira la asignación activa de esa organización (soft delete); protegido para el último admin.                                                                                                                              |
 
 No existe registro público ni "sign up": toda creación es administrativa. La vieja bandeja de
 `solicitudes pendientes` (`pending_user_requests`) desapareció con Keycloak: un usuario sin

@@ -17,6 +17,8 @@ import {
   notificationRecipientOrganizations,
   operationalIndicatorsResponseSchema,
   rejectAuditReviewRequestSchema,
+  loginRequestSchema,
+  usernameSchema,
 } from './index';
 
 describe('foundationJobSchema', () => {
@@ -268,5 +270,21 @@ describe('phase six contracts', () => {
   it('restringe el consolidado bajo demanda a formatos cerrados', () => {
     expect(consolidatedExportQuerySchema.parse({}).format).toBe('csv');
     expect(consolidatedExportQuerySchema.safeParse({ format: 'pdf' }).success).toBe(false);
+  });
+});
+
+describe('autenticación local (ADR-026)', () => {
+  it('normaliza el username antes de validar: case-insensitive y con espacios', () => {
+    expect(loginRequestSchema.parse({ username: '  ANA.Test ', password: 'x' }).username).toBe(
+      'ana.test',
+    );
+    expect(usernameSchema.parse('FOUNDATION-ADMIN')).toBe('foundation-admin');
+  });
+
+  it('rechaza formatos de username inválidos tras normalizar', () => {
+    expect(usernameSchema.safeParse('ab').success).toBe(false);
+    expect(usernameSchema.safeParse('ana test').success).toBe(false);
+    expect(usernameSchema.safeParse('.ana').success).toBe(false);
+    expect(usernameSchema.safeParse('ana+tag').success).toBe(false);
   });
 });

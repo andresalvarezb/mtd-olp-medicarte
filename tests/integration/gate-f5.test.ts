@@ -10,7 +10,7 @@ const databaseUrl =
 const mtdOrganizationId = '10000000-0000-4000-8000-000000000001';
 const olpOrganizationId = '10000000-0000-4000-8000-000000000003';
 const medicarteOrganizationId = '10000000-0000-4000-8000-000000000004';
-const adminUserId = '40000000-0000-4000-8000-000000000001';
+let adminUserId: string;
 
 const database = new Client({ connectionString: databaseUrl });
 let olpToken: string;
@@ -131,6 +131,11 @@ async function waitForBatch(
 describe('Gate F5', () => {
   beforeAll(async () => {
     await database.connect();
+    const admin = await database.query<{ id: string }>('select id from users where username = $1', [
+      'foundation-admin',
+    ]);
+    adminUserId = admin.rows[0]?.id ?? '';
+    if (!adminUserId) throw new Error('foundation-admin local user missing');
     [olpToken, medicarteToken, adminToken] = await Promise.all([
       login('olp-operator', 'olp-operator'),
       login('medicarte-operator', 'medicarte-operator'),
@@ -332,10 +337,9 @@ describe('Gate F5', () => {
   it('deduplica creación concurrente y exporta a OLP el lugar permitido', async () => {
     const item = await seedReadyItem('REPLAY');
     const pending = await seedReadyItem('NO-LOCATION');
-    await database.query(
-      `update authorization_items set lugar_dispensacion = null where id = $1`,
-      [pending.id],
-    );
+    await database.query(`update authorization_items set lugar_dispensacion = null where id = $1`, [
+      pending.id,
+    ]);
     const content = dateCsv('REPORT_DISPENSATION_DATE', item, '2026-08-29');
     const responses = await Promise.all([
       createBulk({

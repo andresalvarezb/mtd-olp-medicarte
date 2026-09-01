@@ -10,7 +10,7 @@ const databaseUrl =
 const mtdOrganizationId = '10000000-0000-4000-8000-000000000001';
 const olpOrganizationId = '10000000-0000-4000-8000-000000000003';
 const medicarteOrganizationId = '10000000-0000-4000-8000-000000000004';
-const adminUserId = '40000000-0000-4000-8000-000000000001';
+let adminUserId: string;
 
 const database = new Client({ connectionString: databaseUrl });
 let olpToken: string;
@@ -91,6 +91,11 @@ function auditPost(
 describe('Gate F6', () => {
   beforeAll(async () => {
     await database.connect();
+    const admin = await database.query<{ id: string }>('select id from users where username = $1', [
+      'foundation-admin',
+    ]);
+    adminUserId = admin.rows[0]?.id ?? '';
+    if (!adminUserId) throw new Error('foundation-admin local user missing');
     [olpToken, medicarteToken, adminToken] = await Promise.all([
       login('olp-operator', 'olp-operator'),
       login('medicarte-operator', 'medicarte-operator'),

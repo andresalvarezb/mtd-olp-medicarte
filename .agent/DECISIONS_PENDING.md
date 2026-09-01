@@ -454,7 +454,7 @@ modelo de identidad) no se justifican. No se introduce otro proveedor externo de
    AccessService resuelve organizaciones/roles/permisos desde PostgreSQL en cada request:
    deshabilitar, eliminar o cambiar rol tiene efecto inmediato.
 6. Errores de login genéricos (`INVALID_CREDENTIALS`), verificación dummy anti-enumeración y
-   rate limiting dedicado (5/min por IP). Auditoría `LOGIN_SUCCESS`/`LOGIN_FAILED` sin exponer
+    rate limiting dedicado (20/min por combinación IP+username). Auditoría `LOGIN_SUCCESS`/`LOGIN_FAILED` sin exponer
    contraseña, hash ni token.
 7. La autorización (organizaciones, roles, permisos, `users.manage`) NO cambia; se conserva el
    RBAC de ADR-007. Creación de usuarios es exclusivamente administrativa (sin registro público).

@@ -21,7 +21,7 @@ AppShell renderiza según roles; sidebar/facciones según permisos (hasPermissio
 ```
 
 - Login 401 → mensaje genérico `INVALID_CREDENTIALS` (la API no revela si el usuario existe o
-  está deshabilitado). Rate limiting: 5 intentos/min por IP.
+  está deshabilitado). Rate limiting: 20 intentos/min por combinación IP+username, además del límite global por IP.
 - Al recargar la página, `RoleProvider` revalida llamando a `/me`: si el token venció o el
   usuario fue desactivado/eliminado, la sesión se cierra y vuelve a `/login` (efecto
   inmediato, ADR-026). Cualquier 401 de `apiRequest` dispara el evento
