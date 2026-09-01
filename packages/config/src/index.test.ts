@@ -21,4 +21,8 @@ describe('parseApiConfig', () => {
       'API_PUBLIC_URL must use HTTPS in production',
     );
   });
+
+  it('prefers a platform-provided port when present', () => {
+    expect(parseApiConfig({ ...base, PORT: '10000', API_PORT: '3001' }).PORT).toBe(10000);
+  });
 });

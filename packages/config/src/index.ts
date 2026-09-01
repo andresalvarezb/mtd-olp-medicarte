@@ -63,6 +63,7 @@ export const apiConfigSchema = commonSchema.extend({
   ...mipresConfigSchema,
   ...keycloakAdminConfigSchema,
   ...gmailConfigSchema,
+  PORT: z.coerce.number().int().positive().optional(),
   API_PORT: z.coerce.number().int().positive().default(3001),
   API_PUBLIC_URL: z.string().url(),
   WEB_ORIGIN: z.string().url(),

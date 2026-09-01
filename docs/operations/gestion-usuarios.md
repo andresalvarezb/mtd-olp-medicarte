@@ -19,7 +19,7 @@ Variables de la API (`packages/config`):
 | `OIDC_ADMIN_CLIENT_ID`     | Cliente confidencial con service account. Por defecto `authorization-admin`.                                              |
 | `OIDC_ADMIN_CLIENT_SECRET` | Secret del cliente. Si falta, los endpoints de creación/deshabilitación responden 503 `KEYCLOAK_ADMIN_NOT_CONFIGURED`.    |
 
-El realm export (`infra/keycloak/realm-export.json`) define el cliente `authorization-admin` con su service account y los roles de realm-management `manage-users`, `view-users` y `view-clients`.
+El realm export (`infra/keycloak/realm-export.json`) define el cliente `authorization-admin` con su service account y los roles de realm-management `manage-users`, `view-users` y `view-clients`. Su secret es el placeholder `OIDC_ADMIN_CLIENT_SECRET`: Compose proporciona un valor exclusivamente local y Render solicita el valor real sin guardarlo en el repositorio.
 
 ## Endpoints (permiso `users.manage`, header `X-Organization-Id`)
 

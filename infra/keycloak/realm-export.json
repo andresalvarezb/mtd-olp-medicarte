@@ -1,7 +1,7 @@
 {
   "realm": "authorization",
   "enabled": true,
-  "sslRequired": "none",
+  "sslRequired": "external",
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
   "clients": [
@@ -17,8 +17,8 @@
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
-      "redirectUris": ["http://localhost:3002/*"],
-      "webOrigins": ["http://localhost:3002"],
+      "redirectUris": ["${WEB_ORIGIN}/*"],
+      "webOrigins": ["${WEB_ORIGIN}"],
       "protocol": "openid-connect",
       "protocolMappers": [
         {
@@ -37,7 +37,7 @@
     {
       "clientId": "authorization-admin",
       "enabled": true,
-      "secret": "local-dev-admin-secret",
+      "secret": "${OIDC_ADMIN_CLIENT_SECRET}",
       "publicClient": false,
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -66,7 +66,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "foundation-admin",
+          "value": "${KEYCLOAK_FOUNDATION_ADMIN_PASSWORD}",
           "temporary": false
         }
       ]
@@ -82,7 +82,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "olp-operator",
+          "value": "${KEYCLOAK_OLP_OPERATOR_PASSWORD}",
           "temporary": false
         }
       ]
@@ -98,7 +98,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "medicarte-operator",
+          "value": "${KEYCLOAK_MEDICARTE_OPERATOR_PASSWORD}",
           "temporary": false
         }
       ]

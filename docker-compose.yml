@@ -35,6 +35,11 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HOSTNAME: http://localhost:8080
+      WEB_ORIGIN: http://localhost:3002
+      OIDC_ADMIN_CLIENT_SECRET: local-dev-admin-secret
+      KEYCLOAK_FOUNDATION_ADMIN_PASSWORD: foundation-admin
+      KEYCLOAK_OLP_OPERATOR_PASSWORD: olp-operator
+      KEYCLOAK_MEDICARTE_OPERATOR_PASSWORD: medicarte-operator
     ports:
       - '127.0.0.1:8080:8080'
       - '127.0.0.1:9000:9000'
@@ -142,11 +147,16 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      mipres-mock:
+        condition: service_started
 
   web:
     build:
       context: .
       dockerfile: infra/docker/web.Dockerfile
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
     ports:
       - '127.0.0.1:3002:3000'
     healthcheck:

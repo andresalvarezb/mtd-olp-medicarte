@@ -1041,6 +1041,16 @@ Cuando una actualización explícita permitida reemplaza la evidencia y reevalú
 
 Un único pipeline parametrizado soporta lugar, fecha de dispensación y fecha de aplicación. Cada tipo fija actor y única columna mutable en backend. Reutiliza archivo máximo 20 MB, fuente temporal PostgreSQL `BYTEA`, outbox, BullMQ con identificadores, staging, causales, idempotencia y auditoría por fila. Los valores vigentes viven en `authorization_items` y el historial en `operational_field_changes`.
 
+### ADR-023 — Blueprint reproducible de Render
+
+**Estado:** Preparado, bloqueado para producción por ADR-017.
+
+**Contexto:** Web, API, worker, identidad, colas y bases requieren despliegues coordinados, red privada y secretos fuera del repositorio.
+
+**Decisión:** Mantener `render.yaml` como Infrastructure as Code con Web/API/Worker/Keycloak en Docker, PostgreSQL separado para aplicación e identidad, Render Key Value persistente con `noeviction`, migración pre-deploy serializada desde las imágenes API/Worker e import declarativo del realm en una imagen Keycloak 26.3. Todos los recursos usan `virginia`, única selección técnica del Blueprint actual.
+
+**Consecuencias:** El despliegue es repetible y las conexiones administradas se resuelven por referencias de Render. Los dominios públicos quedan acoplados a los nombres de servicio hasta configurar dominios personalizados; cambios en `NEXT_PUBLIC_*` exigen reconstruir Web. El import de startup no sobrescribe un realm existente. Render no tiene región Colombia, por lo que este Blueprint no autoriza producción sin una decisión que modifique o exceptúe ADR-017/DEC-009.
+
 ### DEC-012 — Alcance multi-organización de autorizaciones
 
 **Estado:** Resuelto.

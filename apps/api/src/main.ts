@@ -29,7 +29,7 @@ async function bootstrap(): Promise<void> {
       .build(),
   );
   SwaggerModule.setup('api/v1/docs', app, openApi, { jsonDocumentUrl: 'api/v1/openapi.json' });
-  await app.listen(config.API_PORT, '0.0.0.0');
+  await app.listen(config.PORT ?? config.API_PORT, '0.0.0.0');
 }
 
 void bootstrap();

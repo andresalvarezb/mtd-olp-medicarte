@@ -14,9 +14,16 @@ async function main(): Promise<void> {
     throw new Error('DATABASE_URL is required');
   }
   const { db, pool } = createDatabase(databaseUrl);
+  const lock = await pool.connect();
   try {
-    await migrate(db, { migrationsFolder: resolve(__dirname, '../migrations') });
+    await lock.query("select pg_advisory_lock(hashtext('authorization-platform:migrations'))");
+    try {
+      await migrate(db, { migrationsFolder: resolve(__dirname, '../migrations') });
+    } finally {
+      await lock.query("select pg_advisory_unlock(hashtext('authorization-platform:migrations'))");
+    }
   } finally {
+    lock.release();
     await pool.end();
   }
 }

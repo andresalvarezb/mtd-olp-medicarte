@@ -6,7 +6,9 @@
 - Los secretos reales no pertenecen al repositorio. `.env.example` solo documenta nombres y valores locales no sensibles.
 - El realm importado y sus credenciales conocidas son solo para desarrollo; todos los puertos publicados por Compose se enlazan a loopback.
 - `OIDC_ISSUER` debe ser la URL pública que aparece en el token. `OIDC_JWKS_URL` permite resolver las llaves por una red privada.
+- La Web usa exclusivamente `NEXT_PUBLIC_OIDC_ISSUER`; las variables antiguas `NEXT_PUBLIC_OIDC_URL` y `NEXT_PUBLIC_OIDC_REALM` no son válidas.
 - Producción queda bloqueada si la infraestructura seleccionada no satisface la región Colombia definida en ADR-017.
+- La preparación del Blueprint de Render, sus secretos, puertos y variables está documentada en [render.md](render.md).
 
 ## Ejecución local
 
