@@ -8,7 +8,7 @@ import { ApiError } from '@/lib/api-client';
 export function LoginView() {
   const router = useRouter();
   const { login } = useRole();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -18,14 +18,14 @@ export function LoginView() {
     void (async () => {
       setError(null);
 
-      if (!email.trim() || !password.trim()) {
+      if (!username.trim() || !password.trim()) {
         setError('Ingresa usuario y contraseña para continuar.');
         return;
       }
 
       setSubmitting(true);
       try {
-        await login(email.trim(), password);
+        await login(username.trim().toLowerCase(), password);
         router.replace('/');
       } catch (err) {
         if (err instanceof InvalidCredentialsError) setError(err.message);
@@ -51,20 +51,20 @@ export function LoginView() {
 
         <h2>Iniciar sesión</h2>
         <p className="login-hint">
-          Autenticación contra Keycloak (realm <code>authorization</code>). Las opciones habilitadas
-          dependen de los permisos de tu usuario.
+          Autenticación local de la plataforma. Las opciones habilitadas dependen de los permisos de
+          tu usuario.
         </p>
 
         <form onSubmit={handleSubmit} noValidate>
           <div className="field">
-            <label htmlFor="login-email">Usuario o correo electrónico</label>
+            <label htmlFor="login-username">Usuario</label>
             <input
-              id="login-email"
+              id="login-username"
               type="text"
               autoComplete="username"
-              placeholder="usuario@organizacion.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              placeholder="usuario"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
             />
           </div>
 
@@ -92,7 +92,8 @@ export function LoginView() {
         </form>
 
         <div className="login-foot">
-          Prototipo — no procesa información real ni contiene datos de pacientes.
+          Plataforma de autorizaciones OLP — MEDICARTE. Contacta al administrador si no puedes
+          ingresar.
         </div>
       </div>
     </div>

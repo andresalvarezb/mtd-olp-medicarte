@@ -14,7 +14,9 @@ import { FoundationController } from './foundation/foundation.controller';
 import { FoundationService } from './foundation/foundation.service';
 import { AdminJobsController } from './foundation/admin-jobs.controller';
 import { AccessService } from './identity/access.service';
-import { KeycloakAdminService } from './identity/keycloak-admin.service';
+import { AuthController } from './identity/auth.controller';
+import { AuthService } from './identity/auth.service';
+import { BootstrapAdminService } from './identity/bootstrap.service';
 import { MeController } from './identity/me.controller';
 import { UsersController } from './identity/users.controller';
 import { UsersService } from './identity/users.service';
@@ -70,6 +72,7 @@ new Gauge({
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
   ],
   controllers: [
+    AuthController,
     MeController,
     UsersController,
     OperationsController,
@@ -87,7 +90,8 @@ new Gauge({
   providers: [
     AuthGuard,
     AccessService,
-    KeycloakAdminService,
+    AuthService,
+    BootstrapAdminService,
     UsersService,
     FoundationService,
     ImportsService,

@@ -29,15 +29,34 @@ export const organizations = pgTable('organizations', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const users = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  oidcSubject: varchar('oidc_subject', { length: 255 }).notNull().unique(),
-  email: varchar('email', { length: 320 }).notNull(),
-  displayName: varchar('display_name', { length: 160 }).notNull(),
-  active: boolean('active').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /**
+     * DEPRECATED (ADR-026): subject del realm Keycloak ya eliminado. Dato
+     * histórico: no autentica ni resuelve permisos.
+     */
+    oidcSubject: varchar('oidc_subject', { length: 255 }).unique(),
+    /** Identificador de acceso, normalizado a minúsculas (ADR-026). */
+    username: varchar('username', { length: 160 }).notNull(),
+    /** Atributo opcional de contacto/visualización; no identifica la sesión. */
+    email: varchar('email', { length: 320 }),
+    displayName: varchar('display_name', { length: 160 }).notNull(),
+    /** Hash argon2id. NULL = sin credencial local: no puede iniciar sesión. */
+    passwordHash: text('password_hash'),
+    mustChangePassword: boolean('must_change_password').notNull().default(false),
+    passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    active: boolean('active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check('users_username_format_check', sql`${table.username} ~ '^[a-z0-9][a-z0-9._@-]{1,158}$'`),
+    uniqueIndex('users_username_lower_unique').on(sql`lower(${table.username})`),
+  ],
+);
 
 export const roles = pgTable('roles', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -785,19 +804,4 @@ export const jobResults = pgTable(
   (table) => [
     uniqueIndex('job_results_queue_idempotency_idx').on(table.queue, table.idempotencyKey),
   ],
-);
-
-export const pendingUserRequests = pgTable(
-  'pending_user_requests',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    oidcSubject: varchar('oidc_subject', { length: 255 }).notNull().unique(),
-    email: varchar('email', { length: 320 }).notNull(),
-    displayName: varchar('display_name', { length: 160 }),
-    status: varchar('status', { length: 20 }).notNull().default('PENDING'),
-    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
-    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
-    resolvedBy: uuid('resolved_by'),
-  },
-  (table) => [index('pending_user_requests_status_idx').on(table.status)],
 );

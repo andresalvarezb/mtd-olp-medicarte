@@ -92,6 +92,13 @@
             "when": 1788815220663,
             "tag": "0012_expired_operation_status",
             "breakpoints": true
+        },
+        {
+            "idx": 13,
+            "version": "7",
+            "when": 1788901620663,
+            "tag": "0013_local_auth",
+            "breakpoints": true
         }
     ]
 }

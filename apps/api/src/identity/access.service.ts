@@ -14,45 +14,22 @@ import { DATABASE } from '../tokens';
 
 type Database = ReturnType<typeof createDatabase>;
 
+/**
+ * ADR-026: identidad local en PostgreSQL. Los perfiles se resuelven por
+ * users.id (sub del JWT propio). Roles y permisos se leen SIEMPRE desde la
+ * base en cada request: el JWT no es fuente de autoridad.
+ */
 @Injectable()
 export class AccessService {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
 
-  /**
-   * Registra (best effort) la solicitud de acceso cuando un usuario autenticado
-   * en Keycloak aún no tiene cuenta local. El admin la gestiona desde /users.
-   */
-  private async recordPendingRequest(
-    subject: string,
-    email?: string,
-    displayName?: string,
-  ): Promise<void> {
-    try {
-      await this.database.pool.query(
-        `insert into pending_user_requests (oidc_subject, email, display_name, status)
-         values ($1, $2, $3, 'PENDING')
-         on conflict (oidc_subject) do update
-           set email = excluded.email,
-               display_name = coalesce(excluded.display_name, pending_user_requests.display_name),
-               requested_at = now()
-         where pending_user_requests.status = 'PENDING'`,
-        [subject, email ?? `${subject}@unknown.subject`, displayName ?? null],
-      );
-    } catch {
-      // Nunca bloquea el flujo de autenticación.
-    }
-  }
-
-  async getProfile(
-    subject: string,
-    identity?: { email?: string; displayName?: string },
-  ): Promise<MeResponse> {
+  async getProfile(userId: string): Promise<MeResponse> {
     const rows = await this.database.db
       .select({
         userId: users.id,
-        subject: users.oidcSubject,
-        email: users.email,
+        username: users.username,
         displayName: users.displayName,
+        mustChangePassword: users.mustChangePassword,
         userActive: users.active,
         organizationId: organizations.id,
         organizationCode: organizations.code,
@@ -70,17 +47,10 @@ export class AccessService {
       .innerJoin(roles, eq(roles.id, userOrganizationRoles.roleId))
       .leftJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
       .leftJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
-      .where(eq(users.oidcSubject, subject));
+      .where(eq(users.id, userId));
 
     const first = rows[0];
-    if (!first) {
-      await this.recordPendingRequest(subject, identity?.email, identity?.displayName);
-      throw new UnauthorizedException({
-        code: 'LOCAL_USER_INACTIVE',
-        message: 'Local user is not active',
-      });
-    }
-    if (!first.userActive) {
+    if (!first || !first.userActive) {
       throw new UnauthorizedException({
         code: 'LOCAL_USER_INACTIVE',
         message: 'Local user is not active',
@@ -105,15 +75,15 @@ export class AccessService {
 
     return {
       id: first.userId,
-      subject: first.subject,
-      email: first.email,
+      username: first.username,
       displayName: first.displayName,
+      mustChangePassword: first.mustChangePassword,
       organizations: [...scopes.values()],
     };
   }
 
   async requirePermission(
-    subject: string,
+    userId: string,
     organizationId: string | undefined,
     permission: string,
   ): Promise<MeResponse> {
@@ -123,7 +93,7 @@ export class AccessService {
         message: 'X-Organization-Id is required',
       });
     }
-    const profile = await this.getProfile(subject);
+    const profile = await this.getProfile(userId);
     const scope = profile.organizations.find((organization) => organization.id === organizationId);
     if (!scope?.permissions.includes(permission)) {
       throw new ForbiddenException({

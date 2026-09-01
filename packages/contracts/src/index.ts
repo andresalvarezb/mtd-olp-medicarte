@@ -19,11 +19,53 @@ export const foundationJobSchema = z.object({
   idempotencyKey: idempotencyKeySchema,
 });
 
+export const USERNAME_MIN_LENGTH = 3;
+export const USERNAME_MAX_LENGTH = 160;
+export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MAX_LENGTH = 128;
+
+/** Identificador de acceso normalizado: minúsculas, sin espacios. */
+export const usernameSchema = z
+  .string()
+  .trim()
+  .min(USERNAME_MIN_LENGTH)
+  .max(USERNAME_MAX_LENGTH)
+  .regex(/^[a-z0-9][a-z0-9._@-]{1,158}$/, 'invalid username format')
+  .transform((value) => value.toLowerCase());
+
+/** Política mínima: prioridad a la longitud (ADR-026). */
+export const newPasswordSchema = z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH);
+
+export const loginRequestSchema = z.object({
+  username: usernameSchema,
+  password: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+});
+export type LoginRequest = z.infer<typeof loginRequestSchema>;
+
+export const loginResponseSchema = z.object({
+  accessToken: z.string().min(1),
+  tokenType: z.literal('Bearer'),
+  expiresAt: isoDateTimeSchema,
+  mustChangePassword: z.boolean(),
+  user: z.object({
+    id: z.string().uuid(),
+    username: z.string(),
+    displayName: z.string(),
+  }),
+});
+export type LoginResponse = z.infer<typeof loginResponseSchema>;
+
+export const changePasswordRequestSchema = z.object({
+  currentPassword: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+  newPassword: newPasswordSchema,
+});
+export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
+
 export const meResponseSchema = z.object({
   id: z.string().uuid(),
-  subject: z.string(),
-  email: z.string().email(),
+  username: z.string(),
   displayName: z.string(),
+  mustChangePassword: z.boolean(),
   organizations: z.array(
     z.object({
       id: z.string().uuid(),
@@ -751,11 +793,14 @@ export type UserAssignment = z.infer<typeof userAssignmentSchema>;
 
 export const userResponseSchema = z.object({
   id: z.string().uuid(),
-  subject: z.string().nullable(),
-  email: z.string().email(),
+  username: z.string(),
+  email: z.string().nullable(),
   displayName: z.string(),
   active: z.boolean(),
+  passwordConfigured: z.boolean(),
+  mustChangePassword: z.boolean(),
   assignments: z.array(userAssignmentSchema),
+  lastLoginAt: isoDateTimeSchema.nullable(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
 });
@@ -767,9 +812,10 @@ export const userListQuerySchema = z.object({
 export type UserListQuery = z.infer<typeof userListQuerySchema>;
 
 export const createUserRequestSchema = z.object({
-  email: z.string().email().max(320),
+  username: usernameSchema,
+  email: z.string().email().max(320).optional(),
   displayName: z.string().min(1).max(160),
-  password: z.string().min(8).max(72),
+  password: newPasswordSchema,
   organizationId: z.string().uuid(),
   roleCode: z.string().min(1).max(80),
 });
@@ -781,31 +827,14 @@ export const updateUserRequestSchema = z.object({
 });
 export type UpdateUserRequest = z.infer<typeof updateUserRequestSchema>;
 
+export const resetUserPasswordRequestSchema = z.object({
+  password: newPasswordSchema,
+  mustChangePassword: z.boolean().optional(),
+});
+export type ResetUserPasswordRequest = z.infer<typeof resetUserPasswordRequestSchema>;
+
 export const createAssignmentRequestSchema = z.object({
   organizationId: z.string().uuid(),
   roleCode: z.string().min(1).max(80),
 });
 export type CreateAssignmentRequest = z.infer<typeof createAssignmentRequestSchema>;
-
-export const pendingUserStatusSchema = z.enum(['PENDING', 'APPROVED', 'REJECTED']);
-export type PendingUserStatus = z.infer<typeof pendingUserStatusSchema>;
-
-export const pendingUserRequestSchema = z.object({
-  id: z.string().uuid(),
-  subject: z.string(),
-  email: z.string().email(),
-  displayName: z.string().nullable(),
-  status: pendingUserStatusSchema,
-  requestedAt: isoDateTimeSchema,
-  resolvedAt: isoDateTimeSchema.nullable(),
-});
-export type PendingUserRequest = z.infer<typeof pendingUserRequestSchema>;
-
-export const approvePendingUserRequestSchema = z.object({
-  organizationId: z.string().uuid(),
-  roleCode: z.string().min(1).max(80),
-});
-export type ApprovePendingUserRequest = z.infer<typeof approvePendingUserRequestSchema>;
-
-export const rejectPendingUserRequestSchema = z.object({}).strict();
-export type RejectPendingUserRequest = z.infer<typeof rejectPendingUserRequestSchema>;

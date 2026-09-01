@@ -1,29 +1,18 @@
 import { apiRequest } from './api-client';
 import type {
-  ApprovePendingUserRequest,
   CreateUserRequest,
-  PendingUserRequest,
+  ResetUserPasswordRequest,
   UpdateUserRequest,
   UserResponse,
 } from '@authorization/contracts';
 
-export type { PendingUserRequest, UserResponse };
+export type { UserResponse };
 
 export function listUsers(
   organizationId: string,
   signal?: AbortSignal,
 ): Promise<{ items: UserResponse[] }> {
   return apiRequest<{ items: UserResponse[] }>('/users', { organizationId, signal });
-}
-
-export function listPendingRequests(
-  organizationId: string,
-  signal?: AbortSignal,
-): Promise<{ items: PendingUserRequest[] }> {
-  return apiRequest<{ items: PendingUserRequest[] }>('/users/pending-requests', {
-    organizationId,
-    signal,
-  });
 }
 
 export function createUser(organizationId: string, body: CreateUserRequest): Promise<UserResponse> {
@@ -41,6 +30,18 @@ export function updateUser(
 ): Promise<UserResponse> {
   return apiRequest<UserResponse>(`/users/${userId}`, {
     method: 'PATCH',
+    organizationId,
+    body: JSON.stringify(body),
+  });
+}
+
+export function resetUserPassword(
+  organizationId: string,
+  userId: string,
+  body: ResetUserPasswordRequest,
+): Promise<UserResponse> {
+  return apiRequest<UserResponse>(`/users/${userId}/reset-password`, {
+    method: 'POST',
     organizationId,
     body: JSON.stringify(body),
   });
@@ -69,22 +70,12 @@ export function revokeAssignment(
   });
 }
 
-export function approvePendingRequest(
-  organizationId: string,
-  requestId: string,
-  body: ApprovePendingUserRequest,
-): Promise<{ userId: string }> {
-  return apiRequest<{ userId: string }>(`/users/pending-requests/${requestId}/approve`, {
+export function changeOwnPassword(body: {
+  currentPassword: string;
+  newPassword: string;
+}): Promise<void> {
+  return apiRequest<void>('/auth/change-password', {
     method: 'POST',
-    organizationId,
     body: JSON.stringify(body),
-  });
-}
-
-export function rejectPendingRequest(organizationId: string, requestId: string): Promise<void> {
-  return apiRequest<void>(`/users/pending-requests/${requestId}/reject`, {
-    method: 'POST',
-    organizationId,
-    body: '{}',
   });
 }

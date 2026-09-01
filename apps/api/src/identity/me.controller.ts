@@ -16,12 +16,12 @@ export class MeController {
   @ApiOkResponse({
     schema: {
       type: 'object',
-      required: ['id', 'subject', 'email', 'displayName', 'organizations'],
+      required: ['id', 'username', 'displayName', 'mustChangePassword', 'organizations'],
       properties: {
         id: { type: 'string', format: 'uuid' },
-        subject: { type: 'string' },
-        email: { type: 'string', format: 'email' },
+        username: { type: 'string' },
         displayName: { type: 'string' },
+        mustChangePassword: { type: 'boolean' },
         organizations: {
           type: 'array',
           items: {
@@ -40,13 +40,8 @@ export class MeController {
     },
   })
   getMe(@Req() request: AuthenticatedRequest): Promise<MeResponse> {
-    const claims = request.auth;
-    const displayName =
-      (typeof claims.name === 'string' ? claims.name : undefined) ??
-      (typeof claims.preferred_username === 'string' ? claims.preferred_username : undefined);
-    return this.access.getProfile(claims.sub, {
-      ...(typeof claims.email === 'string' ? { email: claims.email } : {}),
-      ...(displayName ? { displayName } : {}),
-    });
+    // El sub del JWT local es el id de users. Perfiles, roles y permisos se
+    // resuelven frescos desde PostgreSQL en cada request (ADR-026).
+    return this.access.getProfile(request.auth.sub);
   }
 }

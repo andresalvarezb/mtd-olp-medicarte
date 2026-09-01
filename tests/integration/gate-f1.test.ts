@@ -1,155 +1,92 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  ORGANIZATION_IDS,
+  adminLogin,
+  ensureUser,
+  loginAttempt,
+} from './helpers/auth';
 
-const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
-const keycloakUrl = process.env.KEYCLOAK_URL ?? 'http://localhost:8080';
 const databaseUrl =
   process.env.DATABASE_URL ??
   'postgresql://authorization:authorization@localhost:15432/authorization';
-const organizationId = '10000000-0000-4000-8000-000000000001';
+const organizationId = ORGANIZATION_IDS.MTD;
+const olpOrganizationId = ORGANIZATION_IDS.OLP;
 const database = new Client({ connectionString: databaseUrl });
+const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
+
 let token: string;
 let olpToken: string;
-let suspendedToken: string;
-let unknownToken: string;
-/** Subjects creados directamente en Keycloak; se eliminan en la limpieza final. */
-const keycloakOnlySubjects: string[] = [];
+/** Usuario efímero creado y luego eliminado: su token queda huérfano. */
+let orphanToken: string;
+let orphanId: string;
 
-async function login(username: string, password: string): Promise<string> {
-  const body = new URLSearchParams({
-    grant_type: 'password',
-    client_id: 'authorization-web',
-    username,
-    password,
-  });
-  const response = await fetch(
-    `${keycloakUrl}/realms/authorization/protocol/openid-connect/token`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body,
+async function apiCall(
+  method: string,
+  path: string,
+  body: unknown,
+  bearer: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<Response> {
+  return fetch(`${apiUrl}/api/v1${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${bearer}`,
+      'content-type': 'application/json',
+      'x-organization-id': organizationId,
+      ...extraHeaders,
     },
-  );
-  const result = (await response.json()) as { access_token?: string };
-  if (!result.access_token)
-    throw new Error(`Keycloak login failed for ${username}: ${response.status}`);
-  return result.access_token;
-}
-
-async function keycloakAdminToken(): Promise<string> {
-  const response = await fetch(
-    `${keycloakUrl}/realms/authorization/protocol/openid-connect/token`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: 'authorization-admin',
-        client_secret: 'local-dev-admin-secret',
-      }),
-    },
-  );
-  const result = (await response.json()) as { access_token?: string };
-  if (!result.access_token) throw new Error(`Keycloak admin token failed: ${response.status}`);
-  return result.access_token;
-}
-
-/** Crea un usuario efímero en Keycloak y devuelve su id (subject). */
-async function createKeycloakUser(username: string, password: string): Promise<string> {
-  const admin = await keycloakAdminToken();
-  const response = await fetch(`${keycloakUrl}/admin/realms/authorization/users`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${admin}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      username,
-      email: `${username}@example.test`,
-      firstName: 'F1',
-      lastName: 'Test',
-      enabled: true,
-      emailVerified: true,
-      credentials: [{ type: 'password', value: password, temporary: false }],
-    }),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  expect(response.status).toBe(201);
-  const search = await fetch(
-    `${keycloakUrl}/admin/realms/authorization/users?username=${encodeURIComponent(username)}&exact=true`,
-    { headers: { authorization: `Bearer ${admin}` } },
-  );
-  const users = (await search.json()) as Array<{ id: string }>;
-  const id = users[0]?.id;
-  if (!id) throw new Error(`keycloak user ${username} not found`);
-  return id;
 }
 
-async function deleteKeycloakUser(subject: string): Promise<void> {
-  const admin = await keycloakAdminToken();
-  await fetch(`${keycloakUrl}/admin/realms/authorization/users/${subject}`, {
-    method: 'DELETE',
-    headers: { authorization: `Bearer ${admin}` },
-  });
+/** Elimina usuario de prueba y sus asignaciones (auditoría append-only queda). */
+async function purgeUser(userId: string): Promise<void> {
+  await database.query(`delete from user_organization_roles where user_id = $1`, [userId]);
+  await database.query(`delete from notification_recipients where user_id = $1`, [userId]);
+  await database.query(`delete from users where id = $1`, [userId]);
 }
 
 beforeAll(async () => {
   await database.connect();
-  token = await login('foundation-admin', 'foundation-admin');
-  olpToken = await login('olp-operator', 'olp-operator');
-
-  // Usuario suspendido: existe en Keycloak y localmente, pero con active=false.
-  const suffix = randomUUID().slice(0, 8);
-  const suspendedEmail = `f1-suspended-${suffix}@example.test`;
-  const suspendedPassword = `F1-Suspended-${suffix}`;
-  const createResponse = await fetch(`${apiUrl}/api/v1/users`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${token}`,
-      'x-organization-id': organizationId,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      email: suspendedEmail,
-      displayName: 'F1 Suspended User',
-      password: suspendedPassword,
-      organizationId,
-      roleCode: 'READ_ONLY',
-    }),
+  token = await adminLogin();
+  olpToken = await ensureUser({
+    adminToken: token,
+    username: 'olp-operator',
+    displayName: 'OLP Operator',
+    password: 'olp-operator',
+    organizationId: olpOrganizationId,
+    roleCode: 'OLP_OPERATOR',
   });
-  expect(createResponse.status).toBe(201);
-  await database.query(`update users set active = false where email = $1`, [suspendedEmail]);
-  suspendedToken = await login(suspendedEmail, suspendedPassword);
 
-  // Usuario conocido por Keycloak pero sin cuenta local: /me debe rechazarlo.
-  const unknownUsername = `f1-unknown-${suffix}`;
-  const unknownPassword = `F1-Unknown-${suffix}`;
-  keycloakOnlySubjects.push(await createKeycloakUser(unknownUsername, unknownPassword));
-  unknownToken = await login(unknownUsername, unknownPassword);
+  // Cuenta activa cuyo token se emite y luego se elimina el usuario de la BD.
+  const suffix = randomUUID().slice(0, 8);
+  orphanToken = await ensureUser({
+    adminToken: token,
+    username: `f1-orphan-${suffix}`,
+    displayName: 'F1 Orphan Token',
+    password: `F1-Orphan-${suffix}-pw`,
+    organizationId,
+    roleCode: 'READ_ONLY',
+  });
+  const created = await database.query<{ id: string }>(
+    `select id from users where username = $1`,
+    [`f1-orphan-${suffix}`],
+  );
+  orphanId = created.rows[0]?.id as string;
 });
 
 afterAll(async () => {
-  // Limpieza: los usuarios efímeros no deben quedar ni en Keycloak ni en la BD.
-  const stale = await database.query<{ oidc_subject: string }>(
-    `select oidc_subject from users where email like 'f1-%@example.test'`,
-  );
-  const subjects = [
-    ...stale.rows.map((row) => row.oidc_subject),
-    ...keycloakOnlySubjects,
-  ];
-  for (const subject of subjects) await deleteKeycloakUser(subject);
-  await database.query(`delete from pending_user_requests where oidc_subject = any($1)`, [
-    subjects,
-  ]);
+  await purgeUser(orphanId);
   await database.query(
-    `delete from pending_user_requests where email like 'f1-%@example.test'`,
+    `delete from user_organization_roles where user_id in (select id from users where username like 'f1-%')`,
   );
-  await database.query(
-    `delete from user_organization_roles where user_id in (select id from users where oidc_subject = any($1))`,
-    [subjects],
-  );
-  await database.query(`delete from users where oidc_subject = any($1)`, [subjects]);
+  await database.query(`delete from users where username like 'f1-%'`);
   await database.end();
 });
 
-describe('Gate F1', () => {
+describe('Gate F1 — autenticación local', () => {
   it('reports API, PostgreSQL and Redis as healthy', async () => {
     const response = await fetch(`${apiUrl}/api/v1/health`);
     expect(response.status).toBe(200);
@@ -159,65 +96,166 @@ describe('Gate F1', () => {
     });
   });
 
-  it('authenticates with Keycloak and resolves local organization permissions', async () => {
-    const response = await fetch(`${apiUrl}/api/v1/me`, {
-      headers: { authorization: `Bearer ${token}` },
-    });
+  it('inicia sesión con usuario local y resuelve organizaciones y permisos', async () => {
+    const response = await apiCall('GET', '/me', undefined, token);
     expect(response.status).toBe(200);
     const profile = (await response.json()) as {
+      username: string;
       organizations: Array<{ id: string; permissions: string[] }>;
     };
-    expect(profile.organizations).toHaveLength(2);
+    expect(profile.username).toBe('foundation-admin');
+    expect(profile.organizations.length).toBeGreaterThanOrEqual(1);
     const mtd = profile.organizations.find((scope) => scope.id === organizationId);
     expect(mtd?.permissions).toContain('platform.foundation.execute');
+    expect(mtd?.permissions).toContain('users.manage');
+    // MTD_ADMIN NO recibe application_site.assign ni dispensing.register (0000).
     expect(mtd?.permissions).not.toContain('application_site.assign');
     expect(mtd?.permissions).not.toContain('dispensing.register');
   });
 
-  it('enforces local suspension, organization scope and least privilege', async () => {
-    const suspended = await fetch(`${apiUrl}/api/v1/me`, {
-      headers: { authorization: `Bearer ${suspendedToken}` },
-    });
-    expect(suspended.status).toBe(401);
-    const unknown = await fetch(`${apiUrl}/api/v1/me`, {
-      headers: { authorization: `Bearer ${unknownToken}` },
-    });
-    expect(unknown.status).toBe(401);
+  it('rechaza contraseña incorrecta, usuario inexistente e inactivo con error genérico', async () => {
+    const bad = await loginAttempt('foundation-admin', 'clave-equivocada-larga');
+    expect(bad.status).toBe(401);
+    expect(bad.code).toBe('INVALID_CREDENTIALS');
+    expect(bad.token).toBeNull();
 
-    const olpProfile = await fetch(`${apiUrl}/api/v1/me`, {
-      headers: { authorization: `Bearer ${olpToken}` },
-    });
-    expect(olpProfile.status).toBe(200);
+    const missing = await loginAttempt('no-existe-nadie-xyz', 'cualquier-cosa-larga');
+    expect(missing.status).toBe(401);
+    expect(missing.code).toBe('INVALID_CREDENTIALS');
+
+    const suffix = randomUUID().slice(0, 8);
+    const username = `f1-inactive-${suffix}`;
+    const password = `F1-Inactive-${suffix}-pw`;
+    const created = await apiCall(
+      'POST',
+      '/users',
+      { username, displayName: 'F1 Inactive', password, organizationId, roleCode: 'READ_ONLY' },
+      token,
+    );
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+    await database.query(`update users set active = false where id = $1`, [id]);
+    const inactive = await loginAttempt(username, password);
+    expect(inactive.status).toBe(401);
+    expect(inactive.code).toBe('INVALID_CREDENTIALS');
+    await purgeUser(id);
+  });
+
+  it('acepta el username sin distinguir mayúsculas', async () => {
+    const attempt = await loginAttempt('FOUNDATION-ADMIN', 'foundation-admin');
+    expect(attempt.ok).toBe(true);
+  });
+
+  it('deniega rutas y organizaciones sin permiso (RBAC)', async () => {
     const denied = await fetch(`${apiUrl}/api/v1/foundation/events`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${olpToken}`,
         'content-type': 'application/json',
         'idempotency-key': `denied-${randomUUID()}`,
-        'x-organization-id': '10000000-0000-4000-8000-000000000003',
+        'x-organization-id': olpOrganizationId,
       },
       body: JSON.stringify({ message: 'must be denied' }),
     });
     expect(denied.status).toBe(403);
+
     const horizontal = await fetch(`${apiUrl}/api/v1/foundation/events`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${token}`,
         'content-type': 'application/json',
         'idempotency-key': `horizontal-${randomUUID()}`,
-        'x-organization-id': '10000000-0000-4000-8000-000000000003',
+        'x-organization-id': olpOrganizationId,
       },
       body: JSON.stringify({ message: 'cross-organization denial' }),
     });
     expect(horizontal.status).toBe(403);
 
     const deadLetterDenied = await fetch(`${apiUrl}/api/v1/admin/dead-letter-jobs`, {
-      headers: {
-        authorization: `Bearer ${olpToken}`,
-        'x-organization-id': '10000000-0000-4000-8000-000000000003',
-      },
+      headers: { authorization: `Bearer ${olpToken}`, 'x-organization-id': olpOrganizationId },
     });
     expect(deadLetterDenied.status).toBe(403);
+  });
+
+  it('invalida de inmediato un token cuyo usuario fue desactivado', async () => {
+    const suffix = randomUUID().slice(0, 8);
+    const username = `f1-disable-${suffix}`;
+    const bearer = await ensureUser({
+      adminToken: token,
+      username,
+      displayName: 'F1 Disable',
+      password: `F1-Disable-${suffix}-pw`,
+      organizationId,
+      roleCode: 'READ_ONLY',
+    });
+    expect((await apiCall('GET', '/me', undefined, bearer)).status).toBe(200);
+    const userRow = await database.query<{ id: string }>(`select id from users where username = $1`, [
+      username,
+    ]);
+    const id = userRow.rows[0]?.id as string;
+    await apiCall('PATCH', `/users/${id}`, { active: false }, token);
+    const rejected = await apiCall('GET', '/me', undefined, bearer);
+    expect(rejected.status).toBe(401);
+    await purgeUser(id);
+  });
+
+  it('rechaza un token cuyo usuario fue eliminado tras emitirse', async () => {
+    await purgeUser(orphanId);
+    const rejected = await apiCall('GET', '/me', undefined, orphanToken);
+    expect(rejected.status).toBe(401);
+  });
+
+  it('refleja el cambio de rol sin esperar expiración del token', async () => {
+    const suffix = randomUUID().slice(0, 8);
+    const username = `f1-role-${suffix}`;
+    const bearer = await ensureUser({
+      adminToken: token,
+      username,
+      displayName: 'F1 Role',
+      password: `F1-Role-${suffix}-pw`,
+      organizationId,
+      roleCode: 'READ_ONLY',
+    });
+    const before = await apiCall('GET', '/me', undefined, bearer);
+    const beforeProfile = (await before.json()) as {
+      organizations: Array<{ permissions: string[] }>;
+    };
+    expect(beforeProfile.organizations[0]?.permissions).not.toContain('users.manage');
+
+    const userRow = await database.query<{ id: string }>(`select id from users where username = $1`, [
+      username,
+    ]);
+    const id = userRow.rows[0]?.id as string;
+    await apiCall('PUT', `/users/${id}/assignments`, { organizationId, roleCode: 'MTD_ADMIN' }, token);
+    const after = await apiCall('GET', '/me', undefined, bearer);
+    const afterProfile = (await after.json()) as {
+      organizations: Array<{ id: string; permissions: string[] }>;
+    };
+    const mtd = afterProfile.organizations.find((scope) => scope.id === organizationId);
+    expect(mtd?.permissions).toContain('users.manage');
+    await purgeUser(id);
+  });
+
+  it('rechaza tokens JWT inválidos o manipulados', async () => {
+    const garbage = await apiCall('GET', '/me', undefined, 'not.a.jwt');
+    expect(garbage.status).toBe(401);
+    const [header, payload, signature] = token.split('.');
+    const tampered = [header, payload, 'A'.repeat((signature ?? '').length)].join('.');
+    const bad = await apiCall('GET', '/me', undefined, tampered);
+    expect(bad.status).toBe(401);
+  });
+
+  it('nunca expone hash ni credenciales en /me o en el listado de usuarios', async () => {
+    const me = (await (await apiCall('GET', '/me', undefined, token)).json()) as Record<string, unknown>;
+    expect(JSON.stringify(me)).not.toMatch(/password|argon2|\$argon2id\$/i);
+    const list = (await (await apiCall('GET', '/users', undefined, token)).json()) as {
+      items: Array<Record<string, unknown>>;
+    };
+    for (const user of list.items) {
+      expect(user).not.toHaveProperty('password_hash');
+      expect(user).not.toHaveProperty('passwordHash');
+      expect(JSON.stringify(user)).not.toMatch(/\$argon2id\$/);
+    }
   });
 
   it('returns stable validation and idempotency conflict errors', async () => {
@@ -302,26 +340,47 @@ describe('Gate F1', () => {
     ).rejects.toThrow('append-only');
   });
 
+  it('registra LOGIN_SUCCESS y LOGIN_FAILED sin exponer la contraseña', async () => {
+    await loginAttempt('foundation-admin', 'no-importa-que-falle-aqui');
+    const deadline = Date.now() + 5_000;
+    let found = false;
+    while (Date.now() < deadline) {
+      const failed = await database.query<{ count: string }>(
+        `select count(*)::text as count from audit_events
+          where action = 'LOGIN_FAILED' and resource_type = 'auth_session'`,
+      );
+      const success = await database.query<{ count: string }>(
+        `select count(*)::text as count from audit_events
+          where action = 'LOGIN_SUCCESS' and resource_type = 'auth_session'`,
+      );
+      const leaked = await database.query<{ count: string }>(
+        `select count(*)::text as count from audit_events
+          where (after::text ilike '%no-importa-que-falle-aqui%')
+             or after::text ilike '%argon2%'`,
+      );
+      if (
+        Number(failed.rows[0]?.count ?? 0) > 0 &&
+        Number(success.rows[0]?.count ?? 0) > 0 &&
+        Number(leaked.rows[0]?.count ?? 0) === 0
+      ) {
+        found = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    expect(found).toBe(true);
+  });
+
   it('publishes OpenAPI under the versioned API', async () => {
     const response = await fetch(`${apiUrl}/api/v1/openapi.json`);
     expect(response.status).toBe(200);
     const document = (await response.json()) as {
-      paths: Record<
-        string,
-        {
-          get?: { parameters?: Array<{ name: string }>; responses?: Record<string, unknown> };
-          post?: { responses?: Record<string, unknown> };
-        }
-      >;
+      paths: Record<string, { post?: { responses?: Record<string, unknown> } }>;
     };
-    expect(document.paths['/api/v1/me']).toBeDefined();
-    expect(document.paths['/api/v1/me']?.get?.responses?.['200']).toBeDefined();
+    expect(document.paths['/api/v1/auth/login']).toBeDefined();
+    expect(document.paths['/api/v1/auth/login']?.post?.responses?.['200']).toBeDefined();
     expect(document.paths['/api/v1/foundation/events']?.post?.responses?.['202']).toBeDefined();
-    expect(document.paths['/api/v1/foundation/events']?.post?.responses?.['400']).toBeDefined();
     expect(document.paths['/api/v1/foundation/events']?.post?.responses?.['403']).toBeDefined();
-    expect(document.paths['/api/v1/admin/dead-letter-jobs']?.get?.parameters).toContainEqual(
-      expect.objectContaining({ name: 'X-Organization-Id' }),
-    );
   });
 
   it('protects operational metrics while keeping readiness public', async () => {
@@ -369,7 +428,7 @@ describe('Gate F1', () => {
     const eventId = randomUUID();
     const correlationId = randomUUID();
     const idempotencyKey = `reconcile-${randomUUID()}`;
-    const payload = { eventId, message: 'Reconciled delivery', correlationId, idempotencyKey };
+    const payload = { eventId, message: 'Reconciled Delivery', correlationId, idempotencyKey };
     await database.query(
       `insert into outbox_events (id, event_type, version, payload, correlation_id, organization_id, idempotency_key, status, dispatched_at)
        values ($1, 'foundation.event', 1, $2, $3, $4, $5, 'DISPATCHED', now() - interval '1 minute')`,

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { loginDev } from './helpers/auth';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -9,7 +10,6 @@ import {
 } from '../../packages/contracts/src/index.js';
 
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
-const keycloakUrl = process.env.KEYCLOAK_URL ?? 'http://localhost:8080';
 const databaseUrl =
   process.env.DATABASE_URL ??
   'postgresql://authorization:authorization@localhost:15432/authorization';
@@ -53,24 +53,9 @@ let adminToken: string;
 let olpToken: string;
 
 async function login(username: string, password: string): Promise<string> {
-  const body = new URLSearchParams({
-    grant_type: 'password',
-    client_id: 'authorization-web',
-    username,
-    password,
-  });
-  const response = await fetch(
-    `${keycloakUrl}/realms/authorization/protocol/openid-connect/token`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body,
-    },
-  );
-  const result = (await response.json()) as { access_token?: string };
-  if (!result.access_token)
-    throw new Error(`Keycloak login failed for ${username}: ${response.status}`);
-  return result.access_token;
+  // ADR-026: autenticación local vía POST /auth/login (los operadores de
+  // desarrollo se autoaprovisionan con el token administrativo).
+  return loginDev(username, password);
 }
 
 function csvValue(value: string): string {

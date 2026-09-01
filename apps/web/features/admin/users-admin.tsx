@@ -7,16 +7,14 @@ import { Note } from '@/components/ui/timeline';
 import { useApiData } from '@/hooks/use-api-data';
 import {
   addAssignment,
-  approvePendingRequest,
   createUser,
-  listPendingRequests,
   listUsers,
-  rejectPendingRequest,
+  resetUserPassword,
   revokeAssignment,
   updateUser,
 } from '@/lib/users-api';
 import { ORGANIZATION_IDS } from '@/lib/config';
-import type { PendingUserRequest, UserResponse } from '@/lib/users-api';
+import type { UserResponse } from '@/lib/users-api';
 
 const ORGANIZATIONS: Array<{ id: string; code: string; label: string }> = [
   { id: ORGANIZATION_IDS.MTD, code: 'MTD', label: 'MTD — Administración' },
@@ -38,23 +36,20 @@ function roleLabel(code: string): string {
   return ROLES.find((role) => role.code === code)?.label ?? code;
 }
 
-function useUserAdminData(organizationId: string) {
-  const users = useApiData(() => listUsers(organizationId), [organizationId]);
-  const pending = useApiData(() => listPendingRequests(organizationId), [organizationId]);
-  const reloadAll = () => {
-    users.reload();
-    pending.reload();
-  };
-  return { users: users.data, pending: pending.data, reloadAll };
+function generatePassword(): string {
+  const alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
 }
 
 export function UsersAdminCard({ organizationId }: { organizationId: string }) {
-  const { users, pending, reloadAll } = useUserAdminData(organizationId);
+  const users = useApiData(() => listUsers(organizationId), [organizationId]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Alta de usuario
-  const [email, setEmail] = useState('');
+  // Alta de usuario (ADR-026: cuentas exclusivamente administrativas)
+  const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [newOrgId, setNewOrgId] = useState(ORGANIZATION_IDS.MTD);
@@ -63,6 +58,12 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
   // Asignación
   const [assignOrgId, setAssignOrgId] = useState(ORGANIZATION_IDS.MTD);
   const [assignRole, setAssignRole] = useState('MTD_OPERATOR');
+
+  // Reset de contraseña: userId -> nueva contraseña generada (visible una vez).
+  const [resetFor, setResetFor] = useState<UserResponse | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+
+  const reloadUsers = () => users.reload();
 
   const run = (action: () => Promise<void>) => {
     setBusy(true);
@@ -75,37 +76,22 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
   const handleCreate = () =>
     run(async () => {
       await createUser(organizationId, {
-        email: email.trim(),
+        username: username.trim().toLowerCase(),
         displayName: displayName.trim(),
         password,
         organizationId: newOrgId,
         roleCode: newRole,
       });
-      setEmail('');
+      setUsername('');
       setDisplayName('');
       setPassword('');
-      reloadAll();
-    });
-
-  const handleApprove = (request: PendingUserRequest) =>
-    run(async () => {
-      await approvePendingRequest(organizationId, request.id, {
-        organizationId: assignOrgId,
-        roleCode: assignRole,
-      });
-      reloadAll();
-    });
-
-  const handleReject = (request: PendingUserRequest) =>
-    run(async () => {
-      await rejectPendingRequest(organizationId, request.id);
-      reloadAll();
+      reloadUsers();
     });
 
   const handleToggleActive = (user: UserResponse) =>
     run(async () => {
       await updateUser(organizationId, user.id, { active: !user.active });
-      reloadAll();
+      reloadUsers();
     });
 
   const handleAddAssignment = (user: UserResponse) =>
@@ -114,13 +100,31 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
         organizationId: assignOrgId,
         roleCode: assignRole,
       });
-      reloadAll();
+      reloadUsers();
     });
 
   const handleRevoke = (user: UserResponse, targetOrganizationId: string) =>
     run(async () => {
       await revokeAssignment(organizationId, user.id, targetOrganizationId);
-      reloadAll();
+      reloadUsers();
+    });
+
+  const handlePrepareReset = (user: UserResponse) => {
+    const generated = generatePassword();
+    setResetFor(user);
+    setResetPassword(generated);
+  };
+
+  const handleConfirmReset = () =>
+    run(async () => {
+      if (!resetFor) return;
+      await resetUserPassword(organizationId, resetFor.id, {
+        password: resetPassword,
+        mustChangePassword: true,
+      });
+      setResetFor(null);
+      setResetPassword('');
+      reloadUsers();
     });
 
   return (
@@ -128,7 +132,7 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
       <Card>
         <CardHead
           title="Usuarios con acceso"
-          subtitle="Alta, desactivación y asignaciones por organización."
+          subtitle="Cuentas locales de la plataforma: alta, activación y asignaciones por organización."
         />
         <CardBody>
           {error ? (
@@ -136,7 +140,7 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
               {error}
             </div>
           ) : null}
-          {users?.items.length ? (
+          {users.data?.items.length ? (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                 <thead>
@@ -148,12 +152,15 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.items.map((user) => (
+                  {users.data.items.map((user) => (
                     <tr key={user.id} style={{ borderTop: '1px solid var(--border, #e2e6ee)' }}>
                       <td style={{ padding: '8px' }}>
                         <strong>{user.displayName}</strong>
                         <br />
-                        <span style={{ color: 'var(--muted)' }}>{user.email}</span>
+                        <span style={{ color: 'var(--muted)' }}>{user.username}</span>
+                        {!user.passwordConfigured ? (
+                          <StatusBadge tone="orange">Sin contraseña</StatusBadge>
+                        ) : null}
                       </td>
                       <td style={{ padding: '8px' }}>
                         {user.assignments.filter((a) => a.active).length ? (
@@ -190,6 +197,15 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
                             onClick={() => handleToggleActive(user)}
                           >
                             {user.active ? 'Desactivar' : 'Activar'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            style={{ padding: '2px 8px', fontSize: 10 }}
+                            disabled={busy}
+                            onClick={() => handlePrepareReset(user)}
+                          >
+                            Restablecer contraseña
                           </button>
                           {user.assignments
                             .filter((a) => a.active)
@@ -248,9 +264,9 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
               </select>
             </div>
           </div>
-          {users?.items.length ? (
+          {users.data?.items.length ? (
             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-              {users.items
+              {users.data.items
                 .filter((user) => user.active)
                 .map((user) => (
                   <button
@@ -271,56 +287,66 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
 
       <Card>
         <CardHead
-          title="Solicitudes de acceso pendientes"
-          subtitle="Usuarios de Keycloak sin cuenta local: se registran al intentar iniciar sesión."
+          title="Cuentas y credenciales"
+          subtitle="La creación de usuarios es exclusivamente administrativa; no hay registro público."
         />
         <CardBody>
-          {pending?.items.length ? (
-            <ul style={{ margin: 0, paddingLeft: 16 }}>
-              {pending.items.map((request) => (
-                <li key={request.id} style={{ marginBottom: 10 }}>
-                  <strong>{request.displayName ?? request.email}</strong>
-                  <br />
-                  <span style={{ color: 'var(--muted)', fontSize: 11 }}>{request.email}</span>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ padding: '2px 10px', fontSize: 10 }}
-                      disabled={busy}
-                      onClick={() => handleApprove(request)}
-                    >
-                      Aprobar con la organización y rol seleccionados
-                    </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ padding: '2px 10px', fontSize: 10 }}
-                      disabled={busy}
-                      onClick={() => handleReject(request)}
-                    >
-                      Rechazar
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <Note>No hay solicitudes pendientes.</Note>
-          )}
-
-          <div
-            style={{ marginTop: 16, borderTop: '1px solid var(--border, #e2e6ee)', paddingTop: 12 }}
-          >
-            <h4 style={{ marginTop: 0 }}>Nuevo usuario</h4>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <div className="field" style={{ minWidth: 200 }}>
-                <label>Correo electrónico</label>
+          {resetFor ? (
+            <div
+              style={{
+                marginBottom: 14,
+                padding: 10,
+                border: '1px solid var(--border, #e2e6ee)',
+                borderRadius: 8,
+              }}
+            >
+              <strong>Restablecer contraseña de {resetFor.username}</strong>
+              <div className="field" style={{ marginTop: 8 }}>
+                <label>Nueva contraseña (edítala si lo necesitas)</label>
                 <input
                   className="control"
-                  placeholder="usuario@organizacion.com"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  value={resetPassword}
+                  onChange={(event) => setResetPassword(event.target.value)}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy || resetPassword.length < 12}
+                  onClick={handleConfirmReset}
+                >
+                  Confirmar restablecimiento
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy}
+                  onClick={() => {
+                    setResetFor(null);
+                    setResetPassword('');
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+              <div style={{ marginTop: 8 }}><Note>
+                La contraseña se muestra una sola vez: compártela por un canal seguro. El usuario
+                deberá cambiarla al ingresar.
+              </Note></div>
+            </div>
+          ) : null}
+
+          <div style={{ marginTop: 0 }}>
+            <h4 style={{ marginTop: 0 }}>Nuevo usuario</h4>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div className="field" style={{ minWidth: 160 }}>
+                <label>Usuario</label>
+                <input
+                  className="control"
+                  placeholder="nombre.apellido"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
                 />
               </div>
               <div className="field" style={{ minWidth: 160 }}>
@@ -332,12 +358,12 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
                   onChange={(event) => setDisplayName(event.target.value)}
                 />
               </div>
-              <div className="field" style={{ minWidth: 140 }}>
-                <label>Contraseña inicial</label>
+              <div className="field" style={{ minWidth: 180 }}>
+                <label>Contraseña inicial (mínimo 12 caracteres)</label>
                 <input
                   className="control"
                   type="password"
-                  placeholder="Mínimo 8 caracteres"
+                  placeholder="••••••••••••"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                 />
@@ -378,9 +404,9 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
                   className="btn"
                   disabled={
                     busy ||
-                    !email.includes('@') ||
+                    !/^[a-zA-Z0-9][a-zA-Z0-9._@-]{2,159}$/.test(username.trim()) ||
                     displayName.trim().length < 1 ||
-                    password.length < 8
+                    password.length < 12
                   }
                   onClick={handleCreate}
                 >
@@ -389,7 +415,7 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
               </div>
             </div>
             <Note>
-              El usuario se crea habilitado en Keycloak con la contraseña indicada y queda auditado.
+              La contraseña se guarda únicamente como hash Argon2id y queda auditada la creación.
               Comparta la credencial por un canal seguro.
             </Note>
           </div>

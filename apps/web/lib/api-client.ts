@@ -1,4 +1,5 @@
-import { API_BASE_URL, getAccessToken } from './auth';
+import { SESSION_EXPIRED_EVENT, clearSession, getAccessToken } from './auth';
+import { API_BASE_URL } from './config';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -27,7 +28,7 @@ interface ApiRequestOptions {
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (options.organizationId) headers['X-Organization-Id'] = options.organizationId;
-  const token = await getAccessToken();
+  const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
   if (options.body && !(options.body instanceof FormData)) {
@@ -62,9 +63,18 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     | null;
 
   if (!response.ok) {
+    const code = payload?.code ?? `HTTP_${response.status}`;
+    // ADR-026: un 401 de la API (token inválido, usuario deshabilitado o
+    // eliminado tras emitir el token) cierra la sesión local y reenvía al login.
+    if (response.status === 401) {
+      clearSession();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+      }
+    }
     throw new ApiError(
       response.status,
-      payload?.code ?? `HTTP_${response.status}`,
+      code,
       payload?.message ?? (response.statusText || 'Error inesperado de la API'),
       payload?.correlationId ?? null,
       payload?.fields ?? null,

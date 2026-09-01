@@ -238,9 +238,9 @@ export function AdministracionView() {
                 </p>
               </div>
               <div className="status-box">
-                <h4>Keycloak</h4>
+                <h4>Identidad</h4>
                 <p>
-                  <StatusBadge tone="green">Conectado</StatusBadge>
+                  <StatusBadge tone="green">Autenticación local (PostgreSQL)</StatusBadge>
                 </p>
               </div>
             </div>

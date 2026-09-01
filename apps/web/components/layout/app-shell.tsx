@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
+import { PasswordChangeGate } from '@/components/layout/password-change-gate';
 import { useRole } from '@/components/layout/role-context';
 import { ALL_NAV_ITEMS } from '@/components/navigation/nav-config';
 
@@ -58,6 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </section>
+      <PasswordChangeGate />
     </div>
   );
 }

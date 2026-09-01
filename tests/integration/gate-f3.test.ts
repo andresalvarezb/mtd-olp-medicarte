@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { loginDev } from './helpers/auth';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mipresRecheckRequestResponseSchema } from '../../packages/contracts/src/index.js';
@@ -92,23 +93,7 @@ function authorizationCsv(
 }
 
 async function login(username: string, password: string): Promise<string> {
-  const body = new URLSearchParams({
-    grant_type: 'password',
-    client_id: 'authorization-web',
-    username,
-    password,
-  });
-  const response = await fetch(
-    'http://localhost:8080/realms/authorization/protocol/openid-connect/token',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body,
-    },
-  );
-  if (!response.ok) throw new Error(`Login failed: ${response.status}`);
-  const payload = (await response.json()) as { access_token: string };
-  return payload.access_token;
+  return loginDev(username, password); // ADR-026
 }
 
 async function createImport(token: string, content: string): Promise<{ id: string }> {
@@ -273,7 +258,7 @@ describe('Gate F3', () => {
         http_status: number | null;
         rule_version: string;
         response_payload: unknown;
-        check_date: string;
+        check_date: string | Date;
         direction_count: number;
       }>(
         `select outcome, http_status, rule_version, response_payload, check_date, direction_count

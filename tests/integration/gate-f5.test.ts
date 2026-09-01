@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { loginDev } from './helpers/auth';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -17,21 +18,7 @@ let medicarteToken: string;
 let adminToken: string;
 
 async function login(username: string, password: string): Promise<string> {
-  const response = await fetch(
-    'http://localhost:8080/realms/authorization/protocol/openid-connect/token',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'password',
-        client_id: 'authorization-web',
-        username,
-        password,
-      }),
-    },
-  );
-  if (!response.ok) throw new Error(`Login failed: ${response.status}`);
-  return ((await response.json()) as { access_token: string }).access_token;
+  return loginDev(username, password); // ADR-026
 }
 
 async function seedReadyItem(label: string): Promise<{

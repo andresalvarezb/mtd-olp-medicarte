@@ -5,9 +5,6 @@ const commonSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
-  OIDC_ISSUER: z.string().url(),
-  OIDC_AUDIENCE: z.string().min(1),
-  OIDC_JWKS_URL: z.string().url().optional().or(z.literal('')),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional().or(z.literal('')),
   SENTRY_DSN: z.string().url().optional().or(z.literal('')),
 });
@@ -40,10 +37,24 @@ const mipresConfigSchema = {
   MIPRES_MANUAL_RECHECK_DAILY_LIMIT: z.coerce.number().int().positive().default(5),
 };
 
-const keycloakAdminConfigSchema = {
-  OIDC_ADMIN_ISSUER: z.string().url().optional(),
-  OIDC_ADMIN_CLIENT_ID: z.string().min(1).default('authorization-admin'),
-  OIDC_ADMIN_CLIENT_SECRET: z.string().min(1).optional(),
+/** Secreto HS256 con >= 256 bits: hex de 64+ caracteres o base64url de 32+ bytes. */
+function hasJwtSecretEntropy(value: string): boolean {
+  if (value.length >= 64) return true;
+  try {
+    return Buffer.from(value, 'base64url').length >= 32;
+  } catch {
+    return false;
+  }
+}
+
+const authConfigSchema = {
+  AUTH_JWT_SECRET: z
+    .string()
+    .min(43)
+    .refine(hasJwtSecretEntropy, 'AUTH_JWT_SECRET must provide at least 256 bits'),
+  AUTH_JWT_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(28_800),
+  AUTH_BOOTSTRAP_ADMIN_USERNAME: z.string().min(3).max(160).default('foundation-admin'),
+  AUTH_BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).max(128).optional(),
 };
 
 const gmailConfigSchema = {
@@ -61,7 +72,7 @@ const bulkConfigSchema = {
 export const apiConfigSchema = commonSchema.extend({
   ...importConfigSchema,
   ...mipresConfigSchema,
-  ...keycloakAdminConfigSchema,
+  ...authConfigSchema,
   ...gmailConfigSchema,
   PORT: z.coerce.number().int().positive().optional(),
   API_PORT: z.coerce.number().int().positive().default(3001),
@@ -91,7 +102,6 @@ export function parseApiConfig(environment: NodeJS.ProcessEnv): ApiConfig {
     const secureUrls: Record<string, string> = {
       API_PUBLIC_URL: config.API_PUBLIC_URL,
       WEB_ORIGIN: config.WEB_ORIGIN,
-      OIDC_ISSUER: config.OIDC_ISSUER,
     };
     for (const [name, value] of Object.entries(secureUrls)) {
       if (new URL(value).protocol !== 'https:')

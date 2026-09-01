@@ -1,15 +1,45 @@
-import { API_BASE_URL, OIDC_CLIENT_ID, OIDC_ISSUER } from './config';
+import { API_BASE_URL } from './config';
 
+/**
+ * ADR-026: sesión local. La Web autentica contra `POST /auth/login` de la API
+ * propia y conserva el JWT resultante en sessionStorage (sesión de pestaña,
+ * no localStorage). No hay refresh token: al expirar, la app vuelve a login.
+ */
 export interface ApiSession {
-  accessToken: string | null;
-  refreshToken: string | null;
+  accessToken: string;
+  /** Expiración en epoch ms; null si el token no trae exp legible. */
   expiresAt: number | null;
 }
 
-const SESSION_KEY = 'authz-api-session';
+export interface LoginUser {
+  id: string;
+  username: string;
+  displayName: string;
+}
+
+export interface LoginResult {
+  user: LoginUser;
+  mustChangePassword: boolean;
+}
+
+export class InvalidCredentialsError extends Error {
+  constructor() {
+    super('Credenciales inválidas. Verifica tu usuario y contraseña.');
+    this.name = 'InvalidCredentialsError';
+  }
+}
+
+export class AuthApiUnavailableError extends Error {
+  constructor() {
+    super('No fue posible contactar la API. Verifica que la plataforma esté levantada.');
+    this.name = 'AuthApiUnavailableError';
+  }
+}
+
+export const SESSION_KEY = 'authz-api-session';
+export const SESSION_EXPIRED_EVENT = 'authz:session-expired';
 
 let memorySession: ApiSession | null = null;
-let refreshInFlight: Promise<string | null> | null = null;
 
 function readStoredSession(): ApiSession | null {
   if (memorySession) return memorySession;
@@ -37,98 +67,56 @@ export function getSession(): ApiSession | null {
 
 export function clearSession(): void {
   writeSession(null);
-  refreshInFlight = null;
 }
 
-interface TokenResponse {
-  access_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  error?: string;
-  error_description?: string;
+function notifyExpired(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
 }
 
-async function tokenRequest(body: URLSearchParams): Promise<TokenResponse> {
+interface LoginResponsePayload {
+  accessToken?: string;
+  expiresAt?: string;
+  mustChangePassword?: boolean;
+  user?: LoginUser;
+}
+
+/** Intenta iniciar sesión. Lanza InvalidCredentialsError o AuthApiUnavailableError. */
+export async function authenticate(username: string, password: string): Promise<LoginResult> {
   let response: Response;
   try {
-    response = await fetch(`${OIDC_ISSUER}/protocol/openid-connect/token`, {
+    response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
     });
   } catch {
-    const error = new Error(
-      'No fue posible contactar Keycloak. Verifica que la plataforma esté levantada.',
-    );
-    error.name = 'KeycloakUnavailableError';
-    throw error;
+    throw new AuthApiUnavailableError();
   }
-  const payload = (await response.json().catch(() => ({}))) as TokenResponse;
-  if (!response.ok) {
-    const error = new Error(payload.error_description ?? payload.error ?? 'Fallo de autenticación');
-    error.name = payload.error === 'invalid_grant' ? 'InvalidCredentialsError' : 'AuthError';
-    throw error;
+  const payload = (await response.json().catch(() => ({}))) as LoginResponsePayload;
+  if (!response.ok || !payload.accessToken || !payload.user) {
+    throw new InvalidCredentialsError();
   }
-  return payload;
-}
-
-export async function authenticate(email: string, password: string): Promise<void> {
-  const payload = await tokenRequest(
-    new URLSearchParams({
-      grant_type: 'password',
-      client_id: OIDC_CLIENT_ID,
-      scope: 'openid',
-      username: email,
-      password,
-    }),
-  );
-  if (!payload.access_token) throw new Error('Keycloak no devolvió un token');
+  const expiresAtMs = payload.expiresAt ? Date.parse(payload.expiresAt) : Number.NaN;
   writeSession({
-    accessToken: payload.access_token,
-    refreshToken: payload.refresh_token ?? null,
-    expiresAt: payload.expires_in ? Date.now() + payload.expires_in * 1000 : null,
+    accessToken: payload.accessToken,
+    expiresAt: Number.isFinite(expiresAtMs) ? expiresAtMs : null,
   });
+  return { user: payload.user, mustChangePassword: payload.mustChangePassword ?? false };
 }
 
-export async function refreshAccessToken(): Promise<string | null> {
+/**
+ * Token vigente o null. Devuelve null cuando no hay sesión o el token venció;
+ * en el segundo caso notifica la expiración para que la app cierre sesión.
+ */
+export function getAccessToken(): string | null {
   const session = readStoredSession();
-  if (!session?.refreshToken) return null;
-  if (!refreshInFlight) {
-    refreshInFlight = tokenRequest(
-      new URLSearchParams({
-        grant_type: 'refresh_token',
-        client_id: OIDC_CLIENT_ID,
-        refresh_token: session.refreshToken,
-      }),
-    )
-      .then((payload) => {
-        if (!payload.access_token) throw new Error('Refresh sin token');
-        writeSession({
-          accessToken: payload.access_token,
-          refreshToken: payload.refresh_token ?? session.refreshToken,
-          expiresAt: payload.expires_in ? Date.now() + payload.expires_in * 1000 : null,
-        });
-        return payload.access_token;
-      })
-      .catch(() => {
-        writeSession({ ...session, accessToken: '', refreshToken: null, expiresAt: null });
-        return null;
-      })
-      .finally(() => {
-        refreshInFlight = null;
-      });
+  if (!session?.accessToken) return null;
+  if (session.expiresAt && session.expiresAt <= Date.now() + 5_000) {
+    clearSession();
+    notifyExpired();
+    return null;
   }
-  return refreshInFlight;
+  return session.accessToken;
 }
-
-/** Token vigente; refresca si está por expirar. Devuelve null si no hay sesión. */
-export async function getAccessToken(): Promise<string | null> {
-  const session = readStoredSession();
-  if (!session) return null;
-  if (session.accessToken && (!session.expiresAt || session.expiresAt > Date.now() + 30_000)) {
-    return session.accessToken;
-  }
-  return refreshAccessToken();
-}
-
-export { API_BASE_URL };
