@@ -28,33 +28,6 @@ services:
     volumes:
       - redis-data:/data
 
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.3
-    command: ['start-dev', '--import-realm', '--health-enabled=true']
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_HOSTNAME: http://localhost:8080
-      WEB_ORIGIN: http://localhost:3002
-      OIDC_ADMIN_CLIENT_SECRET: local-dev-admin-secret
-      KEYCLOAK_FOUNDATION_ADMIN_PASSWORD: foundation-admin
-      KEYCLOAK_OLP_OPERATOR_PASSWORD: olp-operator
-      KEYCLOAK_MEDICARTE_OPERATOR_PASSWORD: medicarte-operator
-    ports:
-      - '127.0.0.1:8080:8080'
-      - '127.0.0.1:9000:9000'
-    healthcheck:
-      test:
-        [
-          'CMD-SHELL',
-          "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3; grep -q '200 OK' <&3",
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-    volumes:
-      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-
   migrate:
     image: authorization-platform-api:local
     working_dir: /workspace
@@ -86,12 +59,10 @@ services:
       LOG_LEVEL: info
       DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization
       REDIS_URL: redis://redis:6379
-      OIDC_ISSUER: http://localhost:8080/realms/authorization
-      OIDC_JWKS_URL: http://keycloak:8080/realms/authorization/protocol/openid-connect/certs
-      OIDC_AUDIENCE: authorization-api
-      OIDC_ADMIN_ISSUER: http://keycloak:8080/realms/authorization
-      OIDC_ADMIN_CLIENT_ID: authorization-admin
-      OIDC_ADMIN_CLIENT_SECRET: local-dev-admin-secret
+      AUTH_JWT_SECRET: 0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0
+      AUTH_JWT_TTL_SECONDS: 28800
+      AUTH_BOOTSTRAP_ADMIN_USERNAME: foundation-admin
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: foundation-admin
       API_PUBLIC_URL: http://localhost:3001
       WEB_ORIGIN: http://localhost:3002
       API_PORT: 3001
@@ -119,8 +90,6 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-      keycloak:
-        condition: service_healthy
 
   worker:
     build:
@@ -131,8 +100,6 @@ services:
       LOG_LEVEL: info
       DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization
       REDIS_URL: redis://redis:6379
-      OIDC_ISSUER: http://localhost:8080/realms/authorization
-      OIDC_AUDIENCE: authorization-api
       SCHEDULER_ENABLED: 'true'
       OUTBOX_POLL_INTERVAL_MS: 500
       IMPORT_MAX_FILE_BYTES: 20971520
@@ -172,7 +139,6 @@ services:
       retries: 20
     depends_on:
       - api
-      - keycloak
 
 volumes:
   postgres-data:

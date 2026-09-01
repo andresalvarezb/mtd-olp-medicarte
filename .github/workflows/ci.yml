@@ -22,7 +22,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      - run: docker compose up -d --wait postgres redis keycloak
+      - run: docker compose up -d --wait postgres redis
       - run: pnpm db:migrate
         env:
           DATABASE_URL: postgresql://authorization:authorization@localhost:15432/authorization

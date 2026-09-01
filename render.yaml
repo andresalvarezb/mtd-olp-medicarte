@@ -19,10 +19,6 @@ services:
           name: authorization-api
           type: web
           envVarKey: RENDER_EXTERNAL_URL
-      - key: NEXT_PUBLIC_OIDC_ISSUER
-        value: https://authorization-keycloak.onrender.com/realms/authorization
-      - key: NEXT_PUBLIC_OIDC_CLIENT_ID
-        value: authorization-web
 
   - type: web
     name: authorization-api
@@ -49,16 +45,15 @@ services:
           name: authorization-keyvalue
           type: keyvalue
           property: connectionString
-      - key: OIDC_ISSUER
-        value: https://authorization-keycloak.onrender.com/realms/authorization
-      - key: OIDC_AUDIENCE
-        value: authorization-api
-      - key: OIDC_ADMIN_ISSUER
-        value: https://authorization-keycloak.onrender.com/realms/authorization
-      - key: OIDC_ADMIN_CLIENT_ID
-        value: authorization-admin
-      - key: OIDC_ADMIN_CLIENT_SECRET
+      - key: AUTH_JWT_SECRET
+        generateValue: true
+      - key: AUTH_JWT_TTL_SECONDS
+        value: '28800'
+      - key: AUTH_BOOTSTRAP_ADMIN_USERNAME
+        value: foundation-admin
+      - key: AUTH_BOOTSTRAP_ADMIN_PASSWORD
         sync: false
+        generateValue: true
       - key: API_PUBLIC_URL
         fromService:
           name: authorization-api
@@ -89,10 +84,6 @@ services:
           name: authorization-keyvalue
           type: keyvalue
           property: connectionString
-      - key: OIDC_ISSUER
-        value: https://authorization-keycloak.onrender.com/realms/authorization
-      - key: OIDC_AUDIENCE
-        value: authorization-api
       - key: SCHEDULER_ENABLED
         value: 'true'
       - key: MIPRES_BASE_URL
@@ -107,64 +98,6 @@ services:
         sync: false
       - key: GOOGLE_PRIVATE_KEY
         sync: false
-
-  - type: web
-    name: authorization-keycloak
-    runtime: docker
-    region: virginia
-    plan: 1c-2g
-    dockerfilePath: ./infra/docker/keycloak.Dockerfile
-    dockerContext: .
-    envVars:
-      - key: PORT
-        value: '10000'
-      - key: KC_HTTP_PORT
-        value: '10000'
-      - key: KC_HTTP_ENABLED
-        value: 'true'
-      - key: KC_PROXY_HEADERS
-        value: xforwarded
-      - key: KC_HOSTNAME
-        value: https://authorization-keycloak.onrender.com
-      - key: KC_DB
-        value: postgres
-      - key: KC_DB_URL_HOST
-        fromDatabase:
-          name: authorization-keycloak-db
-          property: host
-      - key: KC_DB_URL_PORT
-        fromDatabase:
-          name: authorization-keycloak-db
-          property: port
-      - key: KC_DB_URL_DATABASE
-        fromDatabase:
-          name: authorization-keycloak-db
-          property: database
-      - key: KC_DB_USERNAME
-        fromDatabase:
-          name: authorization-keycloak-db
-          property: user
-      - key: KC_DB_PASSWORD
-        fromDatabase:
-          name: authorization-keycloak-db
-          property: password
-      - key: KC_BOOTSTRAP_ADMIN_USERNAME
-        value: mtd-keycloak-admin
-      - key: KC_BOOTSTRAP_ADMIN_PASSWORD
-        generateValue: true
-      - key: WEB_ORIGIN
-        value: https://authorization-web.onrender.com
-      - key: OIDC_ADMIN_CLIENT_SECRET
-        fromService:
-          name: authorization-api
-          type: web
-          envVarKey: OIDC_ADMIN_CLIENT_SECRET
-      - key: KEYCLOAK_FOUNDATION_ADMIN_PASSWORD
-        generateValue: true
-      - key: KEYCLOAK_OLP_OPERATOR_PASSWORD
-        generateValue: true
-      - key: KEYCLOAK_MEDICARTE_OPERATOR_PASSWORD
-        generateValue: true
 
   - type: keyvalue
     name: authorization-keyvalue
@@ -181,16 +114,6 @@ databases:
     postgresMajorVersion: '17'
     databaseName: authorization
     user: authorization
-    diskSizeGB: 15
-    storageAutoscalingEnabled: true
-    ipAllowList: []
-
-  - name: authorization-keycloak-db
-    region: virginia
-    plan: 0.5c-1g
-    postgresMajorVersion: '17'
-    databaseName: keycloak
-    user: keycloak
     diskSizeGB: 15
     storageAutoscalingEnabled: true
     ipAllowList: []
