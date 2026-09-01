@@ -38,7 +38,7 @@ node packages/database/dist/migrate.js
 
 La imagen está fijada en Keycloak `26.3` por digest, se optimiza para PostgreSQL durante el build y copia `infra/keycloak/realm-export.json` a `/opt/keycloak/data/import/realm-export.json`. El proceso inicia con `start --optimized --import-realm`.
 
-El realm usa placeholders de variables de entorno para el origen Web, el secret del cliente administrativo y las contraseñas iniciales. Compose suministra únicamente credenciales locales conocidas; Render solicita los valores reales. Keycloak omite el import si el realm ya existe: cambios posteriores al JSON requieren un procedimiento controlado mediante Admin API o una importación con Keycloak detenido, no se aplican por reiniciar el servicio.
+El realm usa placeholders de variables de entorno para el origen Web, el secret del cliente administrativo y las contraseñas iniciales. Compose suministra únicamente credenciales locales conocidas; Render genera las cuatro contraseñas de Keycloak con `generateValue: true`, fija el usuario bootstrap declarativamente y referencia en Keycloak el secret que vive en API. Keycloak omite el import si el realm ya existe: cambios posteriores al JSON o a las contraseñas de usuarios importados requieren un procedimiento controlado mediante Admin API o una importación con Keycloak detenido, no se aplican por reiniciar el servicio.
 
 Las URLs `*.onrender.com` del Blueprint derivan de los nombres declarados. Antes del primer Blueprint, comprobar que esos nombres estén disponibles. Si se adoptan dominios personalizados, hay que actualizar `KC_HOSTNAME`, los issuer, `API_PUBLIC_URL`, `WEB_ORIGIN` y los `NEXT_PUBLIC_*`; Web debe reconstruirse porque Next.js embebe `NEXT_PUBLIC_*` durante `next build`.
 
@@ -153,13 +153,13 @@ Todas son runtime salvo `KC_DB` y `KC_HEALTH_ENABLED`, que también se fijan dur
 | `KC_DB_USERNAME`                       | usuario PostgreSQL Keycloak                            | No      | referencia a `authorization-keycloak-db` |
 | `KC_DB_PASSWORD`                       | password PostgreSQL Keycloak                           | Sí      | referencia a `authorization-keycloak-db` |
 | `KC_HEALTH_ENABLED`                    | health de interfaz management                          | No      | Imagen: `true`                           |
-| `KC_BOOTSTRAP_ADMIN_USERNAME`          | usuario admin inicial del realm master                 | No      | `sync: false`                            |
-| `KC_BOOTSTRAP_ADMIN_PASSWORD`          | password admin inicial                                 | Sí      | `sync: false`                            |
+| `KC_BOOTSTRAP_ADMIN_USERNAME`          | usuario admin inicial del realm master                 | No      | Fijo: `mtd-keycloak-admin`               |
+| `KC_BOOTSTRAP_ADMIN_PASSWORD`          | password admin inicial                                 | Sí      | `generateValue: true`                    |
 | `WEB_ORIGIN`                           | placeholder de redirect URI/origin del realm importado | No      | URL pública de Web                       |
 | `OIDC_ADMIN_CLIENT_SECRET`             | placeholder del cliente `authorization-admin`          | Sí      | referencia al secreto solicitado por API |
-| `KEYCLOAK_FOUNDATION_ADMIN_PASSWORD`   | password inicial del usuario de fundación              | Sí      | `sync: false`                            |
-| `KEYCLOAK_OLP_OPERATOR_PASSWORD`       | password inicial del operador OLP                      | Sí      | `sync: false`                            |
-| `KEYCLOAK_MEDICARTE_OPERATOR_PASSWORD` | password inicial del operador Medicarte                | Sí      | `sync: false`                            |
+| `KEYCLOAK_FOUNDATION_ADMIN_PASSWORD`   | password inicial del usuario de fundación              | Sí      | `generateValue: true`                    |
+| `KEYCLOAK_OLP_OPERATOR_PASSWORD`       | password inicial del operador OLP                      | Sí      | `generateValue: true`                    |
+| `KEYCLOAK_MEDICARTE_OPERATOR_PASSWORD` | password inicial del operador Medicarte                | Sí      | `generateValue: true`                    |
 
 ## Variables auxiliares locales y de pruebas
 
@@ -175,12 +175,20 @@ Todas son runtime salvo `KC_DB` y `KC_HEALTH_ENABLED`, que también se fijan dur
 - `OIDC_ADMIN_CLIENT_SECRET`, ingresado una vez en API y referenciado por Keycloak.
 - `MIPRES_NIT` y `MIPRES_INITIAL_TOKEN`.
 - `GMAIL_SENDER`, `GOOGLE_SERVICE_ACCOUNT_EMAIL` y `GOOGLE_PRIVATE_KEY`.
-- `KC_BOOTSTRAP_ADMIN_USERNAME` y `KC_BOOTSTRAP_ADMIN_PASSWORD`.
-- `KEYCLOAK_FOUNDATION_ADMIN_PASSWORD`, `KEYCLOAK_OLP_OPERATOR_PASSWORD` y `KEYCLOAK_MEDICARTE_OPERATOR_PASSWORD`.
 
-Los secretos son `OIDC_ADMIN_CLIENT_SECRET`, las credenciales MIPRES, `GOOGLE_PRIVATE_KEY`, `KC_BOOTSTRAP_ADMIN_PASSWORD` y las tres contraseñas iniciales del realm. Los nombres de usuario/cuentas y remitente no son secretos, pero se solicitan porque dependen del ambiente y no deben inventarse en el Blueprint.
+Keycloak ya no solicita valores en el Blueprint: `KC_BOOTSTRAP_ADMIN_USERNAME` es declarativo (`mtd-keycloak-admin`) y las cuatro contraseñas (`KC_BOOTSTRAP_ADMIN_PASSWORD`, `KEYCLOAK_FOUNDATION_ADMIN_PASSWORD`, `KEYCLOAK_OLP_OPERATOR_PASSWORD`, `KEYCLOAK_MEDICARTE_OPERATOR_PASSWORD`) se generan con `generateValue: true`.
+
+Los secretos solicitados son `OIDC_ADMIN_CLIENT_SECRET`, las credenciales MIPRES y `GOOGLE_PRIVATE_KEY`. Los nombres de usuario/cuentas y remitente no son secretos, pero se solicitan porque dependen del ambiente y no deben inventarse en el Blueprint.
 
 Render genera y referencia automáticamente passwords de ambas bases y la cadena de conexión de Key Value; no deben introducirse manualmente ni copiarse al repositorio.
+
+## Recuperación de un Blueprint parcialmente creado
+
+`sync: false` solo se solicita durante la creación inicial del Blueprint; un sync posterior lo ignora. Si la creación inicial falla a mitad, los recursos creados después del fallo pueden quedar sin esos valores y el Blueprint no los volverá a pedir: se recuperan ingresándolos manualmente en el servicio correspondiente desde el Dashboard (así se repusieron `OIDC_ADMIN_CLIENT_SECRET` en API y las variables MIPRES/Gmail del Worker).
+
+Para secretos que no dependen de un valor externo, la alternativa soportada es `generateValue: true`: Render genera un valor aleatorio de 256 bits codificado en base64 al crear el recurso, lo persiste en el servicio y lo reutiliza en syncs y deploys posteriores. El valor nunca queda en Git, no se hardcodea y sigue siendo recuperable desde Dashboard → servicio → Environment (revelar/copiar). Keycloak resuelve los placeholders `${...}` de `infra/keycloak/realm-export.json` desde el entorno del contenedor durante el import; los caracteres base64 generados (`A-Za-z0-9+/=`) no rompen el JSON.
+
+Una vez generado el valor, el Blueprint no lo regenera ni lo sobreescribe en syncs ulteriores. Las contraseñas de usuarios del realm se aplican solo en el primer arranque (Keycloak omite el import si el realm ya existe), por lo que cambiar la variable no cambia credenciales existentes: la rotación se hace vía Admin Console (Users → Credentials → Reset password) o `kcadm set-password -r authorization --username <user>`. El usuario bootstrap (`mtd-keycloak-admin`) es temporal y se re-crea en cada arranque a partir de `KC_BOOTSTRAP_ADMIN_*`, así que actualizar su `generateValue` en el Dashboard y redeployar restablece también una vía de acceso administrativo de recuperación.
 
 ## Verificación previa a cualquier despliegue
 
