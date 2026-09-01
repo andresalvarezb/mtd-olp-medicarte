@@ -31,6 +31,8 @@
 - No borrar eventos de auditoría ni historial de cambios operativos.
 - No enviar Gmail ni invocar MIPRES dentro de una transacción HTTP de negocio.
 - No guardar tokens/secretos en frontend, logs o base de datos sin cifrado/gestor definido.
+- No almacenar contraseñas en texto plano ni cifradas reversible; único formato `password_hash` Argon2id (ADR-026). Nunca loguear, auditar ni devolver en payload la contraseña, el hash o el JWT completo.
+- No confiar en el rol dentro del JWT para autorizar: siempre recargar usuario activo y permisos desde PostgreSQL en cada request (ADR-026).
 - No implementar endpoints de carga/descarga individual de soportes ni relación obligatoria `attachment -> authorization_item`.
 - No inferir completitud de soportes por conteos, tipos o reglas automáticas.
 - No duplicar enums o DTOs en web/api/worker: usar paquetes compartidos.

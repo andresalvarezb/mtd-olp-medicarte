@@ -4,9 +4,9 @@
 
 - Los procesos validan variables de ambiente al iniciar y fallan temprano si falta una obligatoria.
 - Los secretos reales no pertenecen al repositorio. `.env.example` solo documenta nombres y valores locales no sensibles.
-- El realm importado y sus credenciales conocidas son solo para desarrollo; todos los puertos publicados por Compose se enlazan a loopback.
-- `OIDC_ISSUER` debe ser la URL pública que aparece en el token. `OIDC_JWKS_URL` permite resolver las llaves por una red privada.
-- La Web usa exclusivamente `NEXT_PUBLIC_OIDC_ISSUER`; las variables antiguas `NEXT_PUBLIC_OIDC_URL` y `NEXT_PUBLIC_OIDC_REALM` no son válidas.
+- Las credenciales sembradas por Compose son solo para desarrollo; todos los puertos publicados por Compose se enlazan a loopback.
+- La autenticación es local (ADR-026): la API valida usuario/contraseña contra PostgreSQL (Argon2id) y emite su propio JWT. `AUTH_JWT_SECRET` exige ≥256 bits. Keycloak/OIDC ya no participan.
+- La Web se configura únicamente con `NEXT_PUBLIC_API_URL`; no existen variables OIDC.
 - La región de producción aprobada en ADR-017/DEC-009 es Virginia (USA); la ausencia de región Colombia no bloquea producción.
 - La preparación del Blueprint de Render, sus secretos, puertos y variables está documentada en [render.md](render.md).
 
@@ -14,12 +14,14 @@
 
 ```bash
 pnpm install
-docker compose up -d --wait postgres redis keycloak mipres-mock
+docker compose up -d --wait postgres redis mipres-mock
 DATABASE_URL=postgresql://authorization:authorization@localhost:15432/authorization pnpm db:migrate
 docker compose up -d --build api worker web
 ```
 
-Usuario técnico local de verificación: `foundation-admin`. La credencial del realm importado es exclusivamente local y debe sustituirse fuera de desarrollo.
+Usuario técnico local de verificación: `foundation-admin` / `foundation-admin` (creado por el
+bootstrap de `AUTH_BOOTSTRAP_ADMIN_*` en Compose; exclusivamente local y debe sustituirse fuera de
+desarrollo).
 
 ## Mock de MIPRES (Fase 3)
 
@@ -37,6 +39,7 @@ Usuario técnico local de verificación: `foundation-admin`. La credencial del r
 - `GET /api/v1/health`: API, PostgreSQL y Redis.
 - `GET /api/v1/metrics`: métricas Prometheus.
 - `GET /api/v1/admin/dead-letter-jobs`: fallos durables, protegido por organización y `platform.jobs.manage`.
+- `POST /api/v1/auth/login`: autenticación local (Argon2id + JWT propio) con rate limiting dedicado.
 - `GET /api/v1/openapi.json`: contrato OpenAPI.
 - `POST /api/v1/foundation/events`: sonda autenticada no productiva para probar auditoría, outbox, job e idempotencia.
-- `/api/v1/users`: CRUD de usuarios con acceso y bandeja de solicitudes (permiso `users.manage`). Ver [gestión-usuarios.md](gestion-usuarios.md).
+- `/api/v1/users`: CRUD administrativo de usuarios locales con asignaciones (permiso `users.manage`). Ver [gestión-usuarios.md](gestion-usuarios.md).

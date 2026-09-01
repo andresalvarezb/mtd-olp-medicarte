@@ -3,7 +3,7 @@
 | Fase | Specs principales                                                | ADRs principales                                | Agentes                                       |
 | ---- | ---------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------- |
 | F0   | DECISIONS_PENDING, F0_CLOSURE, contratos de importacion y MIPRES | 005,006,008,009,013,016,017,018,019,020,021,022 | Orchestrator + Architect                      |
-| F1   | SPEC-008, 009, 010                                               | 002,003,004,007,011,012,014,015,016,017         | Architect, Backend, QA, Security              |
+| F1   | SPEC-008, 009, 010                                               | 002,003,004,007,011,012,014,015,016,017,026     | Architect, Backend, QA, Security              |
 | F2   | SPEC-001,002                                                     | 003,009,013,015,016,021                         | Backend, Frontend, QA                         |
 | F3   | SPEC-003,009                                                     | 004,008,014                                     | Backend, Integrations, QA                     |
 | F4   | SPEC-002,004,009,011,013                                         | 006,009,014,020,021,022                         | Backend, Integrations, Frontend, QA, Security |

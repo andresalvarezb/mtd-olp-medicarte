@@ -2,55 +2,89 @@
 
 ## Alcance
 
-La gestión de accesos combina dos planos:
+Desde ADR-026 la plataforma tiene un único plano de identidad:
 
-1. **Keycloak (autenticación)**: el usuario debe existir en el realm `authorization` para poder obtener un token. La plataforma lo crea y deshabilita vía la Admin REST API usando el cliente de servicio `authorization-admin`.
-2. **PostgreSQL (autorización)**: la tabla `users` vincula el `sub` de Keycloak (`oidc_subject`) con organizaciones y roles (`user_organization_roles`). Los permisos del token solo importan a través de este mapeo local: un token válido sin fila local activa es rechazado con `LOCAL_USER_INACTIVE`.
+1. **PostgreSQL (autenticación y autorización)**: la tabla `users` guarda `username` único
+   case-insensitive, `password_hash` Argon2id, estado `active`, `must_change_password`,
+   `password_changed_at` y `last_login_at`. Las organizaciones y roles viven en
+   `user_organization_roles` con permisos derivados de `roles`/`permissions`/`role_permissions`.
+2. **La API es la autoridad de autenticación**: valida la contraseña contra PostgreSQL, emite su
+   propio JWT HS256 y, en cada request, recarga el usuario activo y sus permisos desde la base.
+   Deshabilitar, eliminar o cambiar rol tiene efecto inmediato sin esperar expiración del token.
 
-Todo el ciclo de vida se administra desde la vista **Administración** de la web (visible solo con el permiso `users.manage`, otorgado a `MTD_ADMIN`) o directamente contra la API `/api/v1/users`.
+`oidc_subject` es un campo histórico DEPRECADO (subject del realm Keycloak ya retirado): no
+autentica ni resuelve permisos.
+
+Todo el ciclo de vida se administra desde la vista **Administración** de la web (visible solo con
+el permiso `users.manage`, otorgado a `MTD_ADMIN`) o directamente contra la API `/api/v1/users`.
 
 ## Configuración
 
 Variables de la API (`packages/config`):
 
-| Variable                   | Descripción                                                                                                               |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `OIDC_ADMIN_ISSUER`        | Issuer para la Admin API. Por defecto usa `OIDC_ISSUER`; en Compose apunta a `http://keycloak:8080/realms/authorization`. |
-| `OIDC_ADMIN_CLIENT_ID`     | Cliente confidencial con service account. Por defecto `authorization-admin`.                                              |
-| `OIDC_ADMIN_CLIENT_SECRET` | Secret del cliente. Si falta, los endpoints de creación/deshabilitación responden 503 `KEYCLOAK_ADMIN_NOT_CONFIGURED`.    |
+| Variable                        | Descripción                                                                                          |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `AUTH_JWT_SECRET`               | Secreto HS256 con ≥256 bits (hex de 64+ o base64url de 32+ bytes). Obligatorio.                      |
+| `AUTH_JWT_TTL_SECONDS`          | Vigencia del token; por defecto 28 800 s (8 h). No hay refresh tokens.                               |
+| `AUTH_BOOTSTRAP_ADMIN_USERNAME` | Usuario del bootstrap local; por defecto `foundation-admin`.                                         |
+| `AUTH_BOOTSTRAP_ADMIN_PASSWORD` | Si está definida y NO hay un `MTD_ADMIN` activo con contraseña local, crea/recupera esa cuenta. Nunca sobrescribe hashes existentes ni cambia roles en cada arranque. La contraseña no se loguea. |
 
-El realm export (`infra/keycloak/realm-export.json`) define el cliente `authorization-admin` con su service account y los roles de realm-management `manage-users`, `view-users` y `view-clients`. Su secret es el placeholder `OIDC_ADMIN_CLIENT_SECRET`: Compose proporciona un valor exclusivamente local y Render solicita el valor real sin guardarlo en el repositorio.
+## Endpoints
 
-## Endpoints (permiso `users.manage`, header `X-Organization-Id`)
+Autenticación (`/api/v1/auth`, sin sesión previa):
 
-| Método y ruta                                   | Operación                                                                                                                                                                                       |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /users?active=true\|false`                 | Lista usuarios con sus asignaciones (organización, rol, estado).                                                                                                                                |
-| `POST /users`                                   | Crea el usuario en Keycloak y en la base local de forma atómica. Cuerpo: `email`, `displayName`, `password` (≥ 8), `organizationId`, `roleCode`. Devuelve 201 con el `UserResponse`.            |
-| `PATCH /users/:id`                              | Cambia `displayName` y/o `active`. Desactivar también deshabilita al usuario en Keycloak y le impide iniciar sesión. Un admin no puede desactivarse a sí mismo (`SELF_DEACTIVATION_FORBIDDEN`). |
-| `PUT /users/:id/assignments`                    | Asigna (o reactiva) `{organizationId, roleCode}` para el usuario.                                                                                                                               |
-| `DELETE /users/:id/assignments/:organizationId` | Retira la asignación activa de esa organización (soft delete).                                                                                                                                  |
-| `GET /users/pending-requests`                   | Bandeja de solicitudes de acceso pendientes.                                                                                                                                                    |
-| `POST /users/pending-requests/:id/approve`      | Aprueba la solicitud: crea la cuenta local con el `subject` capturado y asigna `{organizationId, roleCode}`.                                                                                    |
-| `POST /users/pending-requests/:id/reject`       | Rechaza la solicitud.                                                                                                                                                                           |
+| Método y ruta             | Operación                                                                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/login`        | `{username, password}` → `{accessToken, tokenType, expiresAt, mustChangePassword, user}`. Errores genéricos `INVALID_CREDENTIALS`. Rate limit: 5 intentos/min por IP. |
+| `POST /auth/change-password` | Autenticado. `{currentPassword, newPassword}` (≥12). Actualiza hash, `password_changed_at` y baja `must_change_password`. Devuelve 204. |
 
-Las operaciones quedan auditadas en `audit_events` con acciones `USER_CREATED`, `USER_UPDATED`, `USER_DEACTIVATED`, `USER_ROLE_ASSIGNED`, `USER_ROLE_REVOKED`, `ACCESS_REQUEST_APPROVED` y `ACCESS_REQUEST_REJECTED`.
+Administración (`/api/v1/users`, permiso `users.manage`, header `X-Organization-Id`):
 
-## Bandeja de solicitudes de acceso
+| Método y ruta                                   | Operación                                                                                                                                                       |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /users?active=true\|false`                 | Lista usuarios locales con asignaciones, `passwordConfigured`, `mustChangePassword` y `lastLoginAt`. Nunca devuelve hash ni contraseña.                          |
+| `POST /users`                                   | Crea la cuenta exclusivamente en PostgreSQL. Cuerpo: `username` (3–160, minúsculas), `displayName`, `password` (≥ 12), `organizationId`, `roleCode`. 201 con `UserResponse`; 409 `USERNAME_TAKEN` si el username ya existe. |
+| `PATCH /users/:id`                              | Cambia `displayName` y/o `active`. Un admin no puede desactivarse a sí mismo (`SELF_DEACTIVATION_FORBIDDEN`) ni desactivar/retirar el rol al último administrador activo (`LAST_ADMIN_PROTECTED`). |
+| `POST /users/:id/reset-password`                | `{password, mustChangePassword?}` — restablecimiento administrativo. Por defecto fuerza el cambio en el siguiente ingreso.                                       |
+| `PUT /users/:id/assignments`                    | Asigna (o reactiva) `{organizationId, roleCode}` para el usuario.                                                                                               |
+| `DELETE /users/:id/assignments/:organizationId` | Retira la asignación activa de esa organización (soft delete); protegido para el último admin.                                                                  |
 
-Cuando un usuario autenticado en Keycloak intenta usar la plataforma sin cuenta local (o con cuenta inactiva), `GET /me` responde 401 `LOCAL_USER_INACTIVE` y, de forma automática y best-effort, registra la solicitud en `pending_user_requests` con el `sub` y el email del token. El administrador la aprueba (elige organización y rol) o la rechaza desde la bandeja; aprobar crea la fila local vinculando ese `oidc_subject`, de modo que el siguiente inicio de sesión ya resuelve permisos.
+No existe registro público ni "sign up": toda creación es administrativa. La vieja bandeja de
+`solicitudes pendientes` (`pending_user_requests`) desapareció con Keycloak: un usuario sin
+cuenta local simplemente no puede autenticar.
 
-Este flujo cierra el hueco entre crear un usuario en Keycloak y provisionarlo localmente: nunca hay que copiar `sub` a mano.
+## Bootstrap del primer administrador
+
+En el primer arranque contra una base sin admin local (p. ej. recién migrada desde la versión con
+Keycloak, cuando ninguna cuenta tiene `password_hash`), defina `AUTH_BOOTSTRAP_ADMIN_PASSWORD` con
+una contraseña fuerte. La API creará (o habilitará, si el username ya existía sin hash) al usuario
+con rol `MTD_ADMIN` en la organización `MTD`. Es idempotente: en arranches posteriores no hace
+nada si ya existe un admin vigente, no imprime la contraseña y no reasigna roles.
+
+## Auditoría
+
+`audit_events` registra `LOGIN_SUCCESS` / `LOGIN_FAILED` (con IP, user-agent y causal interna:
+`USER_NOT_FOUND`, `PASSWORD_MISMATCH`, `ACCOUNT_DISABLED`, `NO_LOCAL_PASSWORD`), `USER_CREATED`,
+`USER_UPDATED`, `USER_ENABLED`, `USER_DISABLED`, `USER_ROLE_CHANGED`, `USER_PASSWORD_CHANGED` y
+`USER_PASSWORD_RESET`. Nunca se registran contraseñas, hashes ni tokens. Las acciones históricas
+de la era Keycloak (`ACCESS_REQUEST_*`, etc.) permanecen intactas (tabla append-only).
 
 ## Roles y permisos sembrados
 
-Los roles disponibles (`MTD_ADMIN`, `MTD_OPERATOR`, `COMPENSAR_VIEWER`, `OLP_OPERATOR`, `MEDICARTE_OPERATOR`, `READ_ONLY`) y su mapa de permisos viven en las migraciones (`packages/database/migrations/0000_foundation.sql` y siguientes). Crear un rol nuevo requiere migración, no es parte del CRUD.
+Los roles disponibles (`MTD_ADMIN`, `MTD_OPERATOR`, `COMPENSAR_VIEWER`, `OLP_OPERATOR`,
+`MEDICARTE_OPERATOR`, `READ_ONLY`) y su mapa de permisos viven en las migraciones
+(`packages/database/migrations/0000_foundation.sql` y siguientes). Crear un rol nuevo requiere
+migración, no es parte del CRUD.
 
 ## Buenas prácticas
 
-- La contraseña inicial se envía por un canal seguro; en producción conviene forzar restablecimiento desde la consola de Keycloak (el flujo web actual usa password grant y no soporta contraseñas temporales).
-- Desactivar (`PATCH active=false`) en lugar de eliminar: preserva historial de auditoría y asignaciones.
-- Retirar accesos por organización con `DELETE .../assignments/:organizationId` cuando un operador cambia de área sin perder sus otros accesos.
+- La contraseña inicial se envía por un canal seguro y se crea con `mustChangePassword` vía reset
+  cuando se entregue a otra persona: el cambio forzado bloquea la app hasta que el usuario defina
+  la suya.
+- Desactivar (`PATCH active=false`) en lugar de eliminar: preserva historial de auditoría y FKs.
+- Retirar accesos por organización con `DELETE .../assignments/:organizationId` cuando un operador
+  cambia de área sin perder sus otros accesos.
+- Rote el `AUTH_JWT_SECRET` solo de forma coordinada (invalida todas las sesiones activas).
 
 ## Verificación
 
@@ -58,4 +92,8 @@ Los roles disponibles (`MTD_ADMIN`, `MTD_OPERATOR`, `COMPENSAR_VIEWER`, `OLP_OPE
 pnpm test:integration   # incluye gate-f7-user-management.test.ts
 ```
 
-El gate F7 cubre: creación atómica Keycloak + local, primer inicio de sesión, asignaciones múltiples, desactivación (rechaza login), reactivación, revocación de asignación, registro de solicitud pendiente, aprobación y bloqueo de auto-desactivación.
+El gate F7 cubre: permiso `users.manage`, creación local con hash Argon2id, duplicateo de username
+(case-insensitive), política de longitud, login del usuario nuevo, asignaciones múltiples, cambio
+voluntario de contraseña, reset administrativo con cambio forzado, desactivación (rechaza login y
+corta tokens vigentes), reactivación, revocación de asignación, auto-desactivación y protección
+del último administrador.

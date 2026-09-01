@@ -26,6 +26,7 @@ Estados:
 | DEC-014 | ACCEPTED | Una actualización explícita permitida recalcula `operation_status`: conserva `READY_TO_DISPENSE` solo si los prerrequisitos siguen válidos; en caso contrario queda `BLOCKED`.          |
 | DEC-015 | ACCEPTED | Un pipeline tipado reutilizable procesa las tres actualizaciones operativas; descargas completas y cargas de llave + un campo.                                                          |
 | DEC-016 | ACCEPTED | La columna `No.PRESCRIPCION` clasifica la cobertura: vacía produce `PBS`, no vacía produce `NO_PBS`; la API MIPRES recibe el valor sin sus últimos 3 dígitos.                           |
+| DEC-017 | ACCEPTED | La autenticación es local (ADR-026): la API valida usuario/contraseña Argon2id contra PostgreSQL y emite JWT HS256 propio; no hay proveedor externo de identidad. El RBAC local permanece. |
 
 ---
 
@@ -427,3 +428,42 @@ no_prescripcion = No.PRESCRIPCION sin sus ultimos 3 digitos de la derecha
 6. Se conserva el valor original como evidencia y el valor derivado como dato de negocio que alimenta `MipresPort`.
 7. Las cuatro columnas de negocio de F2 quedan: `NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `ESTADO_AUTORIZACION` y `No.PRESCRIPCION`.
 8. Las reglas previas no cambian: `ESTADO_AUTORIZACION = 5` habilita; PBS usa `direction_status = NOT_APPLICABLE`; solo `NO_PBS + ENABLED` consulta MIPRES; la actualización explícita reevalúa cobertura con esta regla conforme a DEC-014.
+
+---
+
+## DEC-017 — Autenticación local con usuarios PostgreSQL y JWT propio
+
+**Estado:** ACCEPTED (ver ADR-026; sustituye la parte OIDC de ADR-007)
+
+Keycloak deja de formar parte de la arquitectura. Para el tamaño y alcance actual, su costo y
+complejidad operacional (servicio stateful, base de datos exclusiva, secrets de realm, doble
+modelo de identidad) no se justifican. No se introduce otro proveedor externo de identidad.
+
+1. La API es la autoridad de autenticación: `POST /api/v1/auth/login` valida `username` +
+   `password` contra PostgreSQL y emite un JWT HS256 propio (`AUTH_JWT_SECRET` ≥256 bits,
+   `AUTH_JWT_TTL_SECONDS`).
+2. `users` evoluciona (no se duplica): `username` único case-insensitive normalizado,
+   `password_hash` Argon2id (formato PHC), `must_change_password`, `password_changed_at`,
+   `last_login_at`. Política de contraseña mínima por longitud (12–128).
+3. Las contraseñas de Keycloak no son migrables. `oidc_subject` queda como dato histórico
+   nullable/DEPRECADO: no autentica ni resuelve permisos. Se preservan ids, FKs, asignaciones y
+   auditoría. `pending_user_requests` se elimina.
+4. Bootstrap idempotente de `AUTH_BOOTSTRAP_ADMIN_*`: solo si no existe un `MTD_ADMIN` activo con
+   contraseña; nunca sobrescribe hashes ni reasigna roles en cada arranque; no loguea secretos.
+5. El JWT es solo credencial. Tras verificar firma/exp, el guard RECARGA usuario activo y
+   AccessService resuelve organizaciones/roles/permisos desde PostgreSQL en cada request:
+   deshabilitar, eliminar o cambiar rol tiene efecto inmediato.
+6. Errores de login genéricos (`INVALID_CREDENTIALS`), verificación dummy anti-enumeración y
+   rate limiting dedicado (5/min por IP). Auditoría `LOGIN_SUCCESS`/`LOGIN_FAILED` sin exponer
+   contraseña, hash ni token.
+7. La autorización (organizaciones, roles, permisos, `users.manage`) NO cambia; se conserva el
+   RBAC de ADR-007. Creación de usuarios es exclusivamente administrativa (sin registro público).
+8. Web: login local, token en `sessionStorage` (pestaña), sin refresh token; `/me` revalidado al
+   cargar y en cada request; cualquier 401 cierra sesión y vuelve a login.
+9. El retiro de los recursos `authorization-keycloak` y `authorization-keycloak-db` ya
+   desplegados se ejecuta en dos gates (A: desplegar auth local con Keycloak aún existente; B:
+   eliminar recursos) según `docs/operations/render.md`.
+
+**Revisión futura:** reabrir si aparecen requisitos reales de SSO corporativo, MFA empresarial,
+federación, SAML/LDAP, múltiples consumidores del mismo u organizaciones externas con
+autogestión. El RBAC queda desacoplado del emisor del token para facilitar esa migración.

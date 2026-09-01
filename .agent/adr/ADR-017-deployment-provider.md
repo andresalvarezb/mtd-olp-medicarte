@@ -26,3 +26,10 @@ No deben introducirse dependencias de aplicación exclusivas de Render que impid
 - Cambios futuros de región exigen una decisión explícita equivalente; ningún agente puede sustituir silenciosamente la región aprobada.
 
 Render continúa como destino esperado y Google Cloud como alternativa permitida, manteniendo Docker y la portabilidad entre proveedores.
+
+## Revisión de infraestructura (2026-09-01)
+
+Con ADR-026 la autenticación pasa a ser local (usuarios PostgreSQL + JWT propio). El Blueprint de Render
+queda reducido a `authorization-web`, `authorization-api`, `authorization-worker`, `authorization-db` y
+`authorization-keyvalue`: se eliminan `authorization-keycloak` y `authorization-keycloak-db` (retiro en dos
+gates documentado en `docs/operations/render.md`). La región aprobada (Virginia) no cambia.

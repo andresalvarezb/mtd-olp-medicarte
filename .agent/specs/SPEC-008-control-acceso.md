@@ -1,6 +1,23 @@
-# SPEC-008 — Organizaciones, roles y permisos
+# SPEC-008 — Autenticación local, organizaciones, roles y permisos
 
 **Fase:** 1 y transversal
+
+## Autenticación (ADR-026)
+
+- `POST /api/v1/auth/login` con `username` (case-insensitive, normalizado a minúsculas) y
+  `password`; la API valida el hash Argon2id contra PostgreSQL y emite JWT HS256 propio
+  (`sub = users.id`). Errores genéricos `INVALID_CREDENTIALS`: no revelan existencia del
+  usuario, estado activo ni motivo real (las causas quedan solo en auditoría).
+- Rate limiting dedicado de login (5 intentos/min por IP) además del límite global.
+- El JWT es solo credencial: tras verificar firma/exp, el guard recarga el usuario activo y
+  AccessService resuelve roles/permisos desde PostgreSQL en cada request. Desactivación,
+  eliminación o cambio de rol tienen efecto inmediato.
+- Administración de usuarios exclusivamente administrativa (`users.manage`): alta con username +
+  contraseña inicial, activar/desactivar, cambio de rol por asignación, restablecimiento de
+  contraseña con `must_change_password`, cambio voluntario vía `POST /api/v1/auth/change-password`.
+  No hay registro público ni solicitudes pendientes (flujo Keycloak eliminado).
+- El último administrador activo está protegido: no puede ser desactivado ni quedar sin rol
+  administrativo; la auto-desactivación está prohibida.
 
 ## Matriz confirmada
 
@@ -36,6 +53,9 @@ Cada request, lote, fila, replay y descarga aplica permiso + organización + rel
 
 ## Tests obligatorios
 
+- login válido/inválido/inexistente/inactivo, username case-insensitive y hash nunca expuesto;
+- JWT inválido, expirado o manipulado → 401; usuario desactivado o eliminado tras emitir el
+  token → 401 inmediato; cambio de rol visible sin re-login;
 - acceso horizontal y elevación vertical;
 - usuario suspendido y multi-organización;
 - lectura sensible/redacción en exportación;

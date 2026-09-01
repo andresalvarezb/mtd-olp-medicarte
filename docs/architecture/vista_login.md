@@ -1,35 +1,45 @@
-# Vista de Login
+# Vista de inicio de sesión (autenticación local)
 
-## Alcance
+## Alcance actual
 
-Pantalla de inicio de sesión del prototipo visual (`apps/web`). Es una maqueta: **no valida credenciales** contra Keycloak ni ningún proveedor de identidad. El flujo real de autenticación (Keycloak / OIDC, realm `authorization`) se integrará cuando la API y el frontend se conecten; esta vista deja el punto de enganche preparado.
+Pantalla de ingreso de `apps/web` (`features/auth/login-view.tsx`). Desde ADR-026 la
+autenticación es LOCAL: no hay Keycloak, OIDC ni proveedor externo.
 
-## Ruta y archivos
+## Flujo
 
-| Archivo | Rol |
-|---|---|
-| `apps/web/app/login/page.tsx` | Ruta `/login` (App Router de Next.js) |
-| `apps/web/features/auth/login-view.tsx` | Vista del formulario (componente cliente) |
-| `apps/web/components/layout/role-context.tsx` | Estado de sesión: `status`, `user`, `login()`, `logout()` |
-| `apps/web/components/layout/app-shell.tsx` | Guard de autenticación y bypass del chrome en `/login` |
-| `apps/web/components/layout/topbar.tsx` | Usuario autenticado y botón **Salir** |
-| `apps/web/app/globals.css` | Estilos (sección `/* Login */`) |
+```text
+Usuario + contraseña (formulario)
+   │  login(username, password)                       components/layout/role-context.tsx
+   ▼
+POST {API}/auth/login                                 lib/auth.ts → authenticate()
+   │  200 { accessToken, expiresAt, mustChangePassword, user }
+   ▼  sesión en sessionStorage['authz-api-session'] (pestaña; NUNCA localStorage)
+GET {API}/me                                          lib/api-client.ts (Authorization: Bearer)
+   │  organizaciones + roles + permisos → sessionStorage['authz-api-me']
+   ▼
+AppShell renderiza según roles; sidebar/facciones según permisos (hasPermission)
+```
 
-## Comportamiento
+- Login 401 → mensaje genérico `INVALID_CREDENTIALS` (la API no revela si el usuario existe o
+  está deshabilitado). Rate limiting: 5 intentos/min por IP.
+- Al recargar la página, `RoleProvider` revalida llamando a `/me`: si el token venció o el
+  usuario fue desactivado/eliminado, la sesión se cierra y vuelve a `/login` (efecto
+  inmediato, ADR-026). Cualquier 401 de `apiRequest` dispara el evento
+  `authz:session-expired` que limpia la sesión.
+- `mustChangePassword=true` (reset administrativo o bootstrap) muestra el
+  `PasswordChangeGate` que bloquea la app hasta `POST /auth/change-password`.
+- No hay refresh tokens: al vencer la sesión (default 8 h) se vuelve a login.
+- Logout local: `logout()` elimina token y perfil de `sessionStorage` y redirige a `/login`.
+  La API no tiene estado de sesión que cerrar (JWT stateless); la revocación real es
+  desactivar/eliminar el usuario en Administración.
 
-1. **Rutas protegidas:** cualquier ruta distinta de `/login` exige sesión. Si no existe, `AppShell` redirige a `/login`.
-2. **Login:** el formulario pide correo, contraseña y la *vista de demostración* (rol: MTD, Compensar, OLP o Medicarte). Al enviar:
-   - persiste el rol en `localStorage` (clave `authz-demo-role`),
-   - persiste la sesión en `localStorage` (clave `authz-demo-session`, guarda el correo),
-   - redirige a `/`.
-3. **Sesión activa:** si el usuario ya está autenticado e intenta entrar a `/login`, es redirigido a `/`.
-4. **Logout:** el botón **Salir** del topbar limpia la sesión y redirige a `/login`. El rol seleccionado se conserva.
-5. **Identidad demo:** el nombre y las iniciales del topbar se derivan del correo ingresado (p. ej. `ana.gomez@compensar.com` → "Ana Gomez" / "AG").
-6. **Carga inicial:** mientras se hidrata el estado desde `localStorage`, `AppShell` muestra un estado de carga y evita redirecciones prematuras.
+## Seguridad
 
-## Migración futura a Keycloak
+La UI solo refleja la autorización; toda decisión de acceso se toma en el backend
+(guard JWT + recarga de usuario activo + `users.manage`/permisos por organización). El
+formulario nunca muestra ni persiste la contraseña fuera del envío al login.
 
-- Reemplazar `login()` en `role-context.tsx` por el flujo OIDC (ya existe la dependencia `keycloak-js` en `apps/web`).
-- Derivar el rol del token (`OIDC_AUDIENCE: authorization-api`), eliminando el selector de vista de demostración.
-- Sustituir el guard de `AppShell` por el gestor de sesión de Keycloak (silent check SSO / login redirect).
-- Conservar la ruta `/login` como pantalla de transición o eliminarla según el flujo elegido.
+## Verificación
+
+`apps/web/lib/auth.test.ts` cubre login válido, credenciales inválidas, API inalcanzable,
+expiración y limpieza de sesión (ADR-026).

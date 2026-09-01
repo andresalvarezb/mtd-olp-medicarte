@@ -76,7 +76,7 @@ flowchart TB
 | Scheduler              | Genera trabajos periódicos: revalidación MIPRES, correos consolidados y tareas de mantenimiento.                       |
 | PostgreSQL             | Fuente de verdad transaccional.                                                                                        |
 | Redis/BullMQ           | Cola temporal y coordinación de trabajos. No almacena el estado definitivo del negocio.                                |
-| Proveedor de identidad | Inicio de sesión, recuperación de cuenta y MFA.                                                                        |
+| Identidad local           | Inicio de sesión, recuperación de cuenta (reset administrativo). El cambio de contraseña lo ejecuta el usuario.     |
 | Google Workspace       | Gmail para envío; Drive corporativo externo administrado directamente por MEDICARTE.                                   |
 | MIPRES                 | Fuente externa de direccionamientos y catálogos aplicables.                                                            |
 
@@ -97,7 +97,7 @@ flowchart TB
 | ORM               | drizzle                                             | Esquema tipado, migraciones y acceso consistente a PostgreSQL. SQL explícito cuando una consulta lo amerite.         |
 | Base de datos     | PostgreSQL administrado                             | Integridad, transacciones, restricciones, JSONB para respuestas externas y capacidades de auditoría.                 |
 | Trabajos          | Redis + BullMQ                                      | Reintentos, demoras, concurrencia, trabajos programados e inspección de fallos.                                      |
-| Identidad         | Keycloak mediante OIDC                              | No construir autenticación propia; soporta MFA, usuarios externos e integración futura con proveedores corporativos. |
+| Identidad         | Autenticación local: usuarios PostgreSQL + JWT propio (ADR-026) | Menor costo e infraestructura para el alcance actual; RBAC granular sin proveedor externo. MFA/SSO/federación quedan como decisión futura. |
 | Soportes externos | Google Drive corporativo administrado por Medicarte | La aplicación conserva solo configuración administrativa; no carga ni cataloga documentos individuales.              |
 | Correo            | Gmail API                                           | Envío desde cuenta corporativa con trazabilidad del identificador externo.                                           |
 | Excel/CSV         | SheetJS o ExcelJS + parser CSV en streaming         | Lectura controlada, plantillas y reportes. Los archivos grandes deben procesarse en el worker.                       |
@@ -148,7 +148,7 @@ authorization-platform/
 
 | Módulo                  | Alcance                                                                                          |
 | ----------------------- | ------------------------------------------------------------------------------------------------ |
-| `identity`              | Identidad OIDC, sesión y perfil local.                                                           |
+| `identity`              | Autenticación local (usuarios PostgreSQL, login, JWT), sesión y perfil local.                    |
 | `organizations`         | Empresas y alcances de acceso.                                                                   |
 | `access-control`        | Roles, permisos y políticas por recurso.                                                         |
 | `authorization-imports` | Archivo, batch, staging, validación y confirmación.                                              |
@@ -175,7 +175,7 @@ Los módulos no deben acceder directamente a tablas de otro módulo. Deben usar 
 | Entidad                   | Propósito                                                                         |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | `organizations`           | MTD, OLP, Compensar, Medicarte u otra organización.                               |
-| `users`                   | Perfil local relacionado con el `subject` del proveedor de identidad.             |
+| `users`                   | Cuenta local: `username` único case-insensitive, `password_hash` Argon2id y perfil. |
 | `roles`                   | Agrupaciones de permisos.                                                         |
 | `permissions`             | Acciones atómicas como `authorization.import` o `audit.approve`.                  |
 | `user_organization_roles` | Relación usuario, empresa y rol. Permite que una persona tenga más de un alcance. |
@@ -510,7 +510,7 @@ DISPENSATION_LOCATION_ASSIGNED + authorization_item_id + operational_field_versi
 
 ### Separación necesaria
 
-- **Autenticación:** demuestra quién es la persona. Se delega a Keycloak/OIDC.
+- **Autenticación:** demuestra quién es la persona. La resuelve la propia API contra PostgreSQL (usuarios locales con hash Argon2id y JWT HS256 propio, ADR-026).
 - **Autorización:** determina qué puede hacer y sobre qué registros. Vive en la aplicación.
 
 El token no será suficiente para decidir acceso a datos; el backend consultará la membresía y los permisos locales vigentes.
@@ -782,7 +782,7 @@ Entregables obligatorios:
 - Aplicaciones `web`, `api` y `worker`; scheduler como proceso/configuración del backend.
 - PostgreSQL + Drizzle + migraciones.
 - Redis + BullMQ, incluyendo un job de prueba, reintentos y dead-letter conventions.
-- OIDC/Keycloak, `/me`, organizaciones, roles y permisos.
+- Autenticación local (usuarios PostgreSQL + JWT propio), `/me`, organizaciones, roles y permisos.
 - Esqueleto de auditoría inmutable.
 - Patrón outbox transaccional y dispatcher base.
 - Convenciones REST `/api/v1`, OpenAPI, errores, correlation ID e idempotencia.
@@ -950,12 +950,12 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 **Decisión:** Gmail API, plantillas versionadas, outbox, idempotencia y envíos consolidados cuando aplique.  
 **Consecuencias:** Trazabilidad y reintento confiable; requiere configuración de Google Workspace y monitoreo de cuotas.
 
-### ADR-007 — Identidad externa y autorización local
+### ADR-007/ADR-026 — Autenticación local y autorización RBAC
 
-**Estado:** Aceptado propuesto.  
-**Contexto:** Habrá usuarios de empresas diferentes y roles propios del negocio.  
-**Decisión:** Keycloak/OIDC autentica; PostgreSQL mantiene organizaciones, membresías, roles y permisos.  
-**Consecuencias:** No se almacenan contraseñas en la aplicación; se añade un componente operativo y deben sincronizarse suspensión/alta de usuarios.
+**Estado:** Aceptado.
+**Contexto:** Habrá usuarios de empresas diferentes y roles propios del negocio.
+**Decisión (ADR-026, sustituye la parte OIDC):** La autenticación es local: la API valida usuario/contraseña (Argon2id) contra PostgreSQL y emite un JWT HS256 propio; PostgreSQL mantiene organizaciones, membresías, roles y permisos.
+**Consecuencias:** La aplicación es responsable del hashing, rate limiting, recuperación y auditoría de credenciales; el RBAC local sigue siendo la autoridad de acceso y el JWT no se confía para decidir permisos.
 
 ### ADR-008 — Capa anticorrupción para MIPRES
 
@@ -1047,9 +1047,9 @@ Un único pipeline parametrizado soporta lugar, fecha de dispensación y fecha d
 
 **Contexto:** Web, API, worker, identidad, colas y bases requieren despliegues coordinados, red privada y secretos fuera del repositorio.
 
-**Decisión:** Mantener `render.yaml` como Infrastructure as Code con Web/API/Worker/Keycloak en Docker, PostgreSQL separado para aplicación e identidad, Render Key Value persistente con `noeviction`, migración pre-deploy serializada desde las imágenes API/Worker e import declarativo del realm en una imagen Keycloak 26.3. Todos los recursos usan `virginia`, única selección técnica del Blueprint actual.
+**Decisión:** Mantener `render.yaml` como Infrastructure as Code con Web/API/Worker en Docker, PostgreSQL único para aplicación e identidad (ADR-026: la autenticación es local), Render Key Value persistente con `noeviction` y migración pre-deploy serializada desde las imágenes API/Worker. Todos los recursos usan `virginia`, única selección técnica del Blueprint actual.
 
-**Consecuencias:** El despliegue es repetible y las conexiones administradas se resuelven por referencias de Render. Los dominios públicos quedan acoplados a los nombres de servicio hasta configurar dominios personalizados; cambios en `NEXT_PUBLIC_*` exigen reconstruir Web. El import de startup no sobrescribe un realm existente. Virginia es la región de producción aprobada por ADR-017/DEC-009, por lo que este Blueprint autoriza producción sin bloqueo regional.
+**Consecuencias:** El despliegue es repetible y las conexiones administradas se resuelven por referencias de Render. Los dominios públicos quedan acoplados a los nombres de servicio hasta configurar dominios personalizados; cambios en `NEXT_PUBLIC_*` exigen reconstruir Web. Virginia es la región de producción aprobada por ADR-017/DEC-009, por lo que este Blueprint autoriza producción sin bloqueo regional.
 
 ### DEC-012 — Alcance multi-organización de autorizaciones
 
@@ -1148,7 +1148,7 @@ Después, producir en este orden:
 2. Modelo entidad-relación inicial y migraciones base.
 3. Máquina de transiciones por dimensión.
 4. Contrato OpenAPI inicial y paquetes compartidos.
-5. Esqueleto ejecutable de web/API/worker con PostgreSQL, Redis/BullMQ, OIDC, auditoría y outbox.
+5. Esqueleto ejecutable de web/API/worker con PostgreSQL, Redis/BullMQ, autenticación local, auditoría y outbox.
 6. Prototipo de bandejas apoyado en los contratos ya definidos.
 7. Primera historia vertical de negocio: cargar un CSV pequeño, validarlo, persistirlo y descargar/consultar su reporte.
 

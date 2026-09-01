@@ -4,25 +4,41 @@
 
 `render.yaml` declara todos los recursos del Blueprint, pero crear o sincronizar el Blueprint sigue siendo una acción manual fuera del repositorio. La región `virginia` usada por el Blueprint está aprobada por ADR-017/DEC-009; antes de sincronizar, revisar únicamente los planes y costos.
 
-| Recurso                     | Tipo Render              | Imagen/configuración                             | Región     |
-| --------------------------- | ------------------------ | ------------------------------------------------ | ---------- |
-| `authorization-web`         | Web Service Docker       | `infra/docker/web.Dockerfile`                    | `virginia` |
-| `authorization-api`         | Web Service Docker       | `infra/docker/api.Dockerfile`                    | `virginia` |
-| `authorization-worker`      | Background Worker Docker | `infra/docker/worker.Dockerfile`                 | `virginia` |
-| `authorization-keycloak`    | Web Service Docker       | `infra/docker/keycloak.Dockerfile`               | `virginia` |
-| `authorization-keyvalue`    | Render Key Value         | `noeviction`, `journal-snapshot`, acceso privado | `virginia` |
-| `authorization-db`          | Render PostgreSQL 17     | base principal, acceso privado                   | `virginia` |
-| `authorization-keycloak-db` | Render PostgreSQL 17     | base exclusiva de Keycloak, acceso privado       | `virginia` |
+| Recurso                  | Tipo Render              | Imagen/configuración                             | Región     |
+| ------------------------ | ------------------------ | ------------------------------------------------ | ---------- |
+| `authorization-web`      | Web Service Docker       | `infra/docker/web.Dockerfile`                    | `virginia` |
+| `authorization-api`      | Web Service Docker       | `infra/docker/api.Dockerfile`                    | `virginia` |
+| `authorization-worker`   | Background Worker Docker | `infra/docker/worker.Dockerfile`                 | `virginia` |
+| `authorization-keyvalue` | Render Key Value         | `noeviction`, `journal-snapshot`, acceso privado | `virginia` |
+| `authorization-db`       | Render PostgreSQL 17     | base principal, acceso privado                   | `virginia` |
+
+Desde ADR-026 no existe servicio de identidad externo: la autenticación es local (usuarios
+PostgreSQL + JWT propio de la API). Los recursos `authorization-keycloak` y
+`authorization-keycloak-db` fueron retirados del Blueprint; el procedimiento de retiro en dos
+gates está documentado más abajo.
 
 Render no ofrece región Colombia. La región de producción aprobada en ADR-017/DEC-009 es Virginia, USA: `virginia` mantiene juntos todos los recursos y satisface esa decisión. La residencia y el procesamiento de servicios, bases de datos y datos administrados por Render en Virginia quedan expresamente aceptados; la ausencia de región Colombia no bloquea producción.
+
+## Topología final
+
+```text
+Internet
+   │
+   ▼
+authorization-web ──(HTTPS, bearer JWT)──► authorization-api ──► authorization-db (users, roles, datos)
+                                              │
+                                              └────────────────► authorization-keyvalue (BullMQ/outbox)
+                                                                       ▲
+                                                                       │
+                                                            authorization-worker
+```
 
 ## Red y puertos
 
 - API escucha en `0.0.0.0:(PORT ?? API_PORT ?? 3001)`. Render fija `PORT=10000`; Compose conserva `API_PORT=3001`.
 - Web standalone escucha en `HOSTNAME:PORT`. Render fija `0.0.0.0:10000`; Compose fija `0.0.0.0:3000` y publica `127.0.0.1:3002`.
 - Worker usa `NestFactory.createApplicationContext`; no crea servidor HTTP ni consume `PORT`.
-- Keycloak recibe `PORT=10000` y `KC_HTTP_PORT=10000`. Render termina TLS; Keycloak acepta HTTP interno con `KC_HTTP_ENABLED=true` y procesa `X-Forwarded-*` con `KC_PROXY_HEADERS=xforwarded`.
-- El health check de API es `GET /api/v1/health` y comprueba API, PostgreSQL y Key Value. Keycloak conserva health en su interfaz de administración `:9000`; Render usa su comprobación TCP para no publicar ese endpoint.
+- El health check de API es `GET /api/v1/health` y comprueba API, PostgreSQL y Key Value.
 
 ## Migraciones
 
@@ -34,45 +50,47 @@ node packages/database/dist/migrate.js
 
 `authorization-api` y `authorization-worker` usan ese comando como `preDeployCommand`. Ambos planes declarados son pagados y ambas imágenes incluyen el artefacto. El migrador obtiene `DATABASE_URL` mediante una referencia `fromDatabase` y usa un advisory lock de PostgreSQL para serializar despliegues concurrentes antes de iniciar cada nueva instancia.
 
-## Keycloak reproducible
+## Autenticación local reproducible
 
-La imagen está fijada en Keycloak `26.3` por digest, se optimiza para PostgreSQL durante el build y copia `infra/keycloak/realm-export.json` a `/opt/keycloak/data/import/realm-export.json`. El proceso inicia con `start --optimized --import-realm`.
-
-El realm usa placeholders de variables de entorno para el origen Web, el secret del cliente administrativo y las contraseñas iniciales. Compose suministra únicamente credenciales locales conocidas; Render genera las cuatro contraseñas de Keycloak con `generateValue: true`, fija el usuario bootstrap declarativamente y referencia en Keycloak el secret que vive en API. Keycloak omite el import si el realm ya existe: cambios posteriores al JSON o a las contraseñas de usuarios importados requieren un procedimiento controlado mediante Admin API o una importación con Keycloak detenido, no se aplican por reiniciar el servicio.
-
-Las URLs `*.onrender.com` del Blueprint derivan de los nombres declarados. Antes del primer Blueprint, comprobar que esos nombres estén disponibles. Si se adoptan dominios personalizados, hay que actualizar `KC_HOSTNAME`, los issuer, `API_PUBLIC_URL`, `WEB_ORIGIN` y los `NEXT_PUBLIC_*`; Web debe reconstruirse porque Next.js embebe `NEXT_PUBLIC_*` durante `next build`.
+- La migración `0013_local_auth` evoluciona `users` (username único case-insensitive,
+  `password_hash`, banderas de contraseña), depreciona `oidc_subject` a dato histórico nullable y
+  elimina `pending_user_requests`.
+- Al arrancar, la API aplica el bootstrap idempotente de `AUTH_BOOTSTRAP_ADMIN_*`: solo actúa si
+  no existe un `MTD_ADMIN` activo con contraseña local, nunca sobrescribe hashes existentes y no
+  imprime secretos (ADR-026).
+- `AUTH_JWT_SECRET` con `generateValue: true`: Render lo genera (256 bits base64) al crear el
+  recurso, lo persiste y lo reutiliza en syncs y deploys posteriores. Rotarlo invalida todas las
+  sesiones activas (logout general).
+- Las cuentas restantes se crean desde la vista Administración (`users.manage`).
 
 ## Variables de Web
 
 "Pública" significa que el valor queda incluido en el JavaScript del navegador. Las demás variables pueden contener valores no secretos, pero no se publican por el mecanismo `NEXT_PUBLIC_*`.
 
-| Variable                     | Consumidor                                    | Fase            | Pública | Secreta | Origen en Render                     |
-| ---------------------------- | --------------------------------------------- | --------------- | ------- | ------- | ------------------------------------ |
-| `NEXT_PUBLIC_API_URL`        | `apps/web/lib/config.ts` y cliente REST       | Build           | Sí      | No      | URL pública de API con `/api/v1`     |
-| `NEXT_PUBLIC_OIDC_ISSUER`    | `apps/web/lib/config.ts` y autenticación OIDC | Build           | Sí      | No      | issuer público de Keycloak           |
-| `NEXT_PUBLIC_OIDC_CLIENT_ID` | autenticación OIDC Web                        | Build           | Sí      | No      | `authorization-web`                  |
-| `NODE_ENV`                   | Next.js/Node                                  | Build y runtime | No      | No      | Imagen: `production`                 |
-| `HOSTNAME`                   | servidor standalone de Next.js                | Runtime         | No      | No      | `0.0.0.0`                            |
-| `PORT`                       | servidor standalone de Next.js                | Runtime         | No      | No      | `10000` en Render; `3000` en Compose |
+| Variable                | Consumidor                              | Fase            | Pública | Secreta | Origen en Render                 |
+| ----------------------- | --------------------------------------- | --------------- | ------- | ------- | -------------------------------- |
+| `NEXT_PUBLIC_API_URL`   | `apps/web/lib/config.ts` y cliente REST | Build           | Sí      | No      | URL pública de API con `/api/v1` |
+| `NODE_ENV`              | Next.js/Node                            | Build y runtime | No      | No      | Imagen: `production`             |
+| `HOSTNAME`              | servidor standalone de Next.js          | Runtime         | No      | No      | `0.0.0.0`                        |
+| `PORT`                  | servidor standalone de Next.js          | Runtime         | No      | No      | `10000` en Render; `3000` en Compose |
 
-`NEXT_PUBLIC_OIDC_URL` y `NEXT_PUBLIC_OIDC_REALM` no existen: el único nombre canónico es `NEXT_PUBLIC_OIDC_ISSUER`.
+No existe ninguna variable OIDC/Keycloak en la Web. Web debe reconstruirse cuando cambie
+`NEXT_PUBLIC_API_URL` porque Next.js embebe `NEXT_PUBLIC_*` durante `next build`.
 
 ## Variables de API
 
 Todas son runtime. `packages/config/src/index.ts` valida el conjunto al arrancar.
 
-| Variable                               | Consumidor/efecto                                         | Pública | Secreta | Configuración Render                              |
-| -------------------------------------- | --------------------------------------------------------- | ------- | ------- | ------------------------------------------------- |
-| `NODE_ENV`                             | modo producción, proxy confiable y módulos no productivos | No      | No      | `production`                                      |
-| `LOG_LEVEL`                            | logger Pino                                               | No      | No      | `info`                                            |
+| Variable                              | Consumidor/efecto                                         | Pública | Secreta | Configuración Render                              |
+| ------------------------------------- | --------------------------------------------------------- | ------- | ------- | ------------------------------------------------- |
+| `NODE_ENV`                            | modo producción, proxy confiable y módulos no productivos | No      | No      | `production`                                      |
+| `LOG_LEVEL`                           | logger Pino                                               | No      | No      | `info`                                            |
 | `DATABASE_URL`                         | pool PostgreSQL y migrador pre-deploy                     | No      | Sí      | `authorization-db.connectionString`               |
 | `REDIS_URL`                            | IORedis/BullMQ                                            | No      | Sí      | `authorization-keyvalue.connectionString`         |
-| `OIDC_ISSUER`                          | validación del issuer JWT                                 | No      | No      | issuer HTTPS público de Keycloak                  |
-| `OIDC_AUDIENCE`                        | validación del audience JWT                               | No      | No      | `authorization-api`                               |
-| `OIDC_JWKS_URL`                        | descarga de JWKS; vacío usa `OIDC_ISSUER`                 | No      | No      | Omitida, usa fallback público                     |
-| `OIDC_ADMIN_ISSUER`                    | token endpoint del cliente administrativo                 | No      | No      | issuer HTTPS público de Keycloak                  |
-| `OIDC_ADMIN_CLIENT_ID`                 | cliente service account de Keycloak                       | No      | No      | `authorization-admin`                             |
-| `OIDC_ADMIN_CLIENT_SECRET`             | credencial del cliente service account                    | No      | Sí      | `sync: false`; Keycloak referencia el mismo valor |
+| `AUTH_JWT_SECRET`                     | firma/verificación HS256 del JWT propio                   | No      | Sí      | `generateValue: true`                             |
+| `AUTH_JWT_TTL_SECONDS`                | vigencia del access token                                 | No      | No      | `28800` (8 h)                                     |
+| `AUTH_BOOTSTRAP_ADMIN_USERNAME`       | usuario del bootstrap local                               | No      | No      | `foundation-admin`                                |
+| `AUTH_BOOTSTRAP_ADMIN_PASSWORD`       | contraseña inicial del admin (solo primer arranque)       | No      | Sí      | `sync: false` + `generateValue: true`             |
 | `PORT`                                 | puerto preferido del listener HTTP                        | No      | No      | `10000`                                           |
 | `API_PORT`                             | fallback local cuando no existe `PORT`                    | No      | No      | Omitida; default `3001`                           |
 | `API_PUBLIC_URL`                       | validación de URL pública HTTPS                           | No      | No      | URL pública de API                                |
@@ -99,7 +117,8 @@ Todas son runtime. `packages/config/src/index.ts` valida el conjunto al arrancar
 
 ## Variables de Worker
 
-Todas son runtime y ninguna es pública. El worker no consume `PORT`.
+Todas son runtime y ninguna es pública. El worker no consume `PORT` ni participa de la
+autenticación (no recibe variables `AUTH_*`).
 
 | Variable                               | Consumidor/efecto                                   | Secreta | Configuración Render                      |
 | -------------------------------------- | --------------------------------------------------- | ------- | ----------------------------------------- |
@@ -107,9 +126,6 @@ Todas son runtime y ninguna es pública. El worker no consume `PORT`.
 | `LOG_LEVEL`                            | logger Pino                                         | No      | `info`                                    |
 | `DATABASE_URL`                         | pool PostgreSQL                                     | Sí      | `authorization-db.connectionString`       |
 | `REDIS_URL`                            | BullMQ/IORedis                                      | Sí      | `authorization-keyvalue.connectionString` |
-| `OIDC_ISSUER`                          | obligatoria por schema común; sin consumidor Worker | No      | issuer público de Keycloak                |
-| `OIDC_AUDIENCE`                        | obligatoria por schema común; sin consumidor Worker | No      | `authorization-api`                       |
-| `OIDC_JWKS_URL`                        | opcional por schema; sin consumidor Worker          | No      | Omitida                                   |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`          | opcional por schema; sin inicialización OTEL Worker | No      | Omitida                                   |
 | `SENTRY_DSN`                           | captura Sentry                                      | Sí      | Omitida; integración opcional             |
 | `IMPORT_MAX_FILE_BYTES`                | validada; sin uso posterior en Worker               | No      | Omitida; default `20971520`               |
@@ -135,60 +151,67 @@ Todas son runtime y ninguna es pública. El worker no consume `PORT`.
 | `GOOGLE_PRIVATE_KEY`                   | firma JWT de Google                                 | Sí      | `sync: false`                             |
 | `GMAIL_TIMEOUT_MS`                     | timeout de Gmail/OAuth                              | No      | Omitida; default `15000`                  |
 
-## Variables de Keycloak
-
-Todas son runtime salvo `KC_DB` y `KC_HEALTH_ENABLED`, que también se fijan durante el build optimizado. Ninguna se expone mediante el bundle Web.
-
-| Variable                               | Consumidor/efecto                                      | Secreta | Configuración Render                     |
-| -------------------------------------- | ------------------------------------------------------ | ------- | ---------------------------------------- |
-| `PORT`                                 | puerto esperado por Render                             | No      | `10000`                                  |
-| `KC_HTTP_PORT`                         | listener HTTP de Keycloak                              | No      | `10000`, igual a `PORT`                  |
-| `KC_HTTP_ENABLED`                      | HTTP interno tras terminación TLS                      | No      | `true`                                   |
-| `KC_PROXY_HEADERS`                     | interpretación de `X-Forwarded-*`                      | No      | `xforwarded`                             |
-| `KC_HOSTNAME`                          | URL frontend/issuer externo                            | No      | URL HTTPS pública de Keycloak            |
-| `KC_DB`                                | proveedor de base                                      | No      | `postgres`                               |
-| `KC_DB_URL_HOST`                       | host PostgreSQL Keycloak                               | No      | referencia a `authorization-keycloak-db` |
-| `KC_DB_URL_PORT`                       | puerto PostgreSQL Keycloak                             | No      | referencia a `authorization-keycloak-db` |
-| `KC_DB_URL_DATABASE`                   | nombre de base Keycloak                                | No      | referencia a `authorization-keycloak-db` |
-| `KC_DB_USERNAME`                       | usuario PostgreSQL Keycloak                            | No      | referencia a `authorization-keycloak-db` |
-| `KC_DB_PASSWORD`                       | password PostgreSQL Keycloak                           | Sí      | referencia a `authorization-keycloak-db` |
-| `KC_HEALTH_ENABLED`                    | health de interfaz management                          | No      | Imagen: `true`                           |
-| `KC_BOOTSTRAP_ADMIN_USERNAME`          | usuario admin inicial del realm master                 | No      | Fijo: `mtd-keycloak-admin`               |
-| `KC_BOOTSTRAP_ADMIN_PASSWORD`          | password admin inicial                                 | Sí      | `generateValue: true`                    |
-| `WEB_ORIGIN`                           | placeholder de redirect URI/origin del realm importado | No      | URL pública de Web                       |
-| `OIDC_ADMIN_CLIENT_SECRET`             | placeholder del cliente `authorization-admin`          | Sí      | referencia al secreto solicitado por API |
-| `KEYCLOAK_FOUNDATION_ADMIN_PASSWORD`   | password inicial del usuario de fundación              | Sí      | `generateValue: true`                    |
-| `KEYCLOAK_OLP_OPERATOR_PASSWORD`       | password inicial del operador OLP                      | Sí      | `generateValue: true`                    |
-| `KEYCLOAK_MEDICARTE_OPERATOR_PASSWORD` | password inicial del operador Medicarte                | Sí      | `generateValue: true`                    |
-
 ## Variables auxiliares locales y de pruebas
 
-| Servicio/contexto  | Variable                                                   | Consumidor                | Secreta                                 |
-| ------------------ | ---------------------------------------------------------- | ------------------------- | --------------------------------------- |
-| PostgreSQL Compose | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`        | imagen oficial PostgreSQL | Password: sí, solo valor local conocido |
-| MIPRES mock        | `PORT`                                                     | listener mock             | No                                      |
-| MIPRES mock        | `MIPRES_MOCK_INITIAL_TOKEN`, `MIPRES_MOCK_OPERATIVE_TOKEN` | mock local                | Sí, solo valores locales conocidos      |
-| Integración        | `API_URL`, `KEYCLOAK_URL`, `DATABASE_URL`                  | gates `tests/integration` | `DATABASE_URL`: sí                      |
+| Servicio/contexto  | Variable                                                   | Consumidor                                | Secreta                                 |
+| ------------------ | ---------------------------------------------------------- | ----------------------------------------- | --------------------------------------- |
+| PostgreSQL Compose | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`        | imagen oficial PostgreSQL                 | Password: sí, solo valor local conocido |
+| Compose dev        | `AUTH_JWT_SECRET`, `AUTH_BOOTSTRAP_ADMIN_*`                | API local (valores de desarrollo fijos)   | Sí, solo valores locales conocidos      |
+| MIPRES mock        | `PORT`                                                     | listener mock                             | No                                      |
+| MIPRES mock        | `MIPRES_MOCK_INITIAL_TOKEN`, `MIPRES_MOCK_OPERATIVE_TOKEN` | mock local                                | Sí, solo valores locales conocidos      |
+| Integración        | `API_URL`, `DATABASE_URL`, `AUTH_DEV_ADMIN_USERNAME`, `AUTH_DEV_ADMIN_PASSWORD` | gates `tests/integration` (`helpers/auth.ts`) | `DATABASE_URL`: sí |
 
 ## Valores solicitados al crear el Blueprint
 
-- `OIDC_ADMIN_CLIENT_SECRET`, ingresado una vez en API y referenciado por Keycloak.
+- `AUTH_BOOTSTRAP_ADMIN_PASSWORD`: definida con `generateValue: true` + `sync: false` (se recupera
+  desde Dashboard → Environment en el primer despliegue; es la llave de entrada inicial).
 - `MIPRES_NIT` y `MIPRES_INITIAL_TOKEN`.
 - `GMAIL_SENDER`, `GOOGLE_SERVICE_ACCOUNT_EMAIL` y `GOOGLE_PRIVATE_KEY`.
 
-Keycloak ya no solicita valores en el Blueprint: `KC_BOOTSTRAP_ADMIN_USERNAME` es declarativo (`mtd-keycloak-admin`) y las cuatro contraseñas (`KC_BOOTSTRAP_ADMIN_PASSWORD`, `KEYCLOAK_FOUNDATION_ADMIN_PASSWORD`, `KEYCLOAK_OLP_OPERATOR_PASSWORD`, `KEYCLOAK_MEDICARTE_OPERATOR_PASSWORD`) se generan con `generateValue: true`.
-
-Los secretos solicitados son `OIDC_ADMIN_CLIENT_SECRET`, las credenciales MIPRES y `GOOGLE_PRIVATE_KEY`. Los nombres de usuario/cuentas y remitente no son secretos, pero se solicitan porque dependen del ambiente y no deben inventarse en el Blueprint.
-
-Render genera y referencia automáticamente passwords de ambas bases y la cadena de conexión de Key Value; no deben introducirse manualmente ni copiarse al repositorio.
+`AUTH_JWT_SECRET` se genera con `generateValue: true` y no requiere ingreso manual. Render genera y
+referencia automáticamente passwords de la base y la cadena de conexión de Key Value; no deben
+introducirse manualmente ni copiarse al repositorio.
 
 ## Recuperación de un Blueprint parcialmente creado
 
-`sync: false` solo se solicita durante la creación inicial del Blueprint; un sync posterior lo ignora. Si la creación inicial falla a mitad, los recursos creados después del fallo pueden quedar sin esos valores y el Blueprint no los volverá a pedir: se recuperan ingresándolos manualmente en el servicio correspondiente desde el Dashboard (así se repusieron `OIDC_ADMIN_CLIENT_SECRET` en API y las variables MIPRES/Gmail del Worker).
+`sync: false` solo se solicita durante la creación inicial del Blueprint; un sync posterior lo ignora. Si la creación inicial falla a mitad, los recursos creados después del fallo pueden quedar sin esos valores y el Blueprint no los volverá a pedir: se recuperan ingresándolos manualmente en el servicio correspondiente desde el Dashboard.
 
-Para secretos que no dependen de un valor externo, la alternativa soportada es `generateValue: true`: Render genera un valor aleatorio de 256 bits codificado en base64 al crear el recurso, lo persiste en el servicio y lo reutiliza en syncs y deploys posteriores. El valor nunca queda en Git, no se hardcodea y sigue siendo recuperable desde Dashboard → servicio → Environment (revelar/copiar). Keycloak resuelve los placeholders `${...}` de `infra/keycloak/realm-export.json` desde el entorno del contenedor durante el import; los caracteres base64 generados (`A-Za-z0-9+/=`) no rompen el JSON.
+Para secretos que no dependen de un valor externo, la alternativa soportada es `generateValue: true`: Render genera un valor aleatorio de 256 bits codificado en base64 al crear el recurso, lo persiste en el servicio y lo reutiliza en syncs y deploys posteriores. El valor nunca queda en Git, no se hardcodea y sigue siendo recuperable desde Dashboard → servicio → Environment (revelar/copiar). Así se resuelven `AUTH_JWT_SECRET` y `AUTH_BOOTSTRAP_ADMIN_PASSWORD`.
 
-Una vez generado el valor, el Blueprint no lo regenera ni lo sobreescribe en syncs ulteriores. Las contraseñas de usuarios del realm se aplican solo en el primer arranque (Keycloak omite el import si el realm ya existe), por lo que cambiar la variable no cambia credenciales existentes: la rotación se hace vía Admin Console (Users → Credentials → Reset password) o `kcadm set-password -r authorization --username <user>`. El usuario bootstrap (`mtd-keycloak-admin`) es temporal y se re-crea en cada arranque a partir de `KC_BOOTSTRAP_ADMIN_*`, así que actualizar su `generateValue` en el Dashboard y redeployar restablece también una vía de acceso administrativo de recuperación.
+Recuperación de acceso administrativo si se pierde `AUTH_BOOTSTRAP_ADMIN_PASSWORD`: crear un
+registro de bootstrap nuevo no es posible mientras exista un admin vigente; la vía soportada es
+INSERTAR un `user_organization_roles` a un usuario administrador existente con contraseña nueva
+(hash Argon2id generado con `apps/api/src/identity/password.ts` vía `node -e`) directamente en
+`authorization-db` desde el shell de Render, o rotar `AUTH_BOOTSTRAP_ADMIN_*` desactivando
+temporalmente al último admin. Cualquier recuperación queda auditada manual en el runbook.
+
+## Plan de retiro de Keycloak en producción (dos gates)
+
+El `render.yaml` final ya no declara Keycloak, pero master está conectado a Auto Sync y la
+eliminación de recursos es destructiva: se ejecuta en dos gates, nunca en un solo paso.
+
+### Gate A — desplegar auth local con Keycloak aún vivo
+
+1. Hacer merge a master de la rama `refactor/local-auth-remove-keycloak` (solo tras revisión).
+   Auto Sync desplegará la nueva API/Web/Worker SIN las variables OIDC.
+2. Antes del merge, fijar en el Dashboard de `authorization-api` (predeploy, ambiente a ambiente):
+   `AUTH_JWT_SECRET` (generateValue o valor propio de ≥256 bits) y, si el primer arranque productivo
+   aún no tiene admin local, `AUTH_BOOTSTRAP_ADMIN_PASSWORD` temporal.
+3. El preDeployCommand corre `0013_local_auth` (migración forward-only, segura sobre la base
+   actual: `oidc_subject` queda como dato histórico, `pending_user_requests` se elimina).
+4. Validar en el ambiente desplegado: `/api/v1/health`; login del admin bootstrap; `GET /me`;
+   RBAC contra una ruta `users.manage`; creación de un segundo usuario (p. ej. OLP_OPERATOR) con
+   contraseña inicial; login de ese segundo usuario; `/auth/change-password`; Worker procesando
+   colas (job_results/outbox); notificación Gmail de prueba; una importación y una descarga
+   crítica. Keycloak continúa existiendo como recurso externo pero ya ningún servicio lo usa.
+
+### Gate B — eliminar recursos obsoletos (solo después de un Gate A exitoso y observable)
+
+1. Borrar del Dashboard: servicio `authorization-keycloak` y base `authorization-keycloak-db`
+   (Render no los elimina por Auto Sync al desaparecer del yaml: la remoción es manual).
+2. Verificar tras el borrado: Web, API y Worker siguen operativos; `/api/v1/health` en verde;
+   login local y RBAC sin cambios.
+3. Registrar el retiro en el runbook/issue del proyecto.
 
 ## Verificación previa a cualquier despliegue
 

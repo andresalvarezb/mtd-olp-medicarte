@@ -36,7 +36,7 @@ Entregables obligatorios:
 - Aplicaciones `web`, `api` y `worker`; scheduler como proceso/configuración del backend.
 - PostgreSQL + Drizzle + migraciones.
 - Redis + BullMQ, incluyendo un job de prueba, reintentos y dead-letter conventions.
-- OIDC/Keycloak, `/me`, organizaciones, roles y permisos.
+- Autenticación local (usuarios PostgreSQL + JWT propio, ADR-026), `/me`, organizaciones, roles y permisos.
 - Esqueleto de auditoría inmutable.
 - Patrón outbox transaccional y dispatcher base.
 - Convenciones REST `/api/v1`, OpenAPI, errores, correlation ID e idempotencia.
