@@ -24,8 +24,8 @@
 - Objetivo primario esperado: Render.
 - Alternativa permitida: Google Cloud.
 - Docker debe mantener portabilidad entre proveedores.
-- Región requerida: Colombia.
-- Si el proveedor/servicio elegido no ofrece presencia física compatible en Colombia, producción queda bloqueada hasta una decisión explícita.
+- Región de producción aprobada en Render: Virginia, Estados Unidos.
+- Se acepta expresamente que los servicios, bases de datos y datos administrados por Render residan y/o sean procesados en Virginia, USA; la ausencia de región Colombia no bloquea producción.
 
 ## Seguridad
 

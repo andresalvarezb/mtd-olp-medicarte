@@ -55,7 +55,7 @@
 - La aplicación no gobierna retención, versiones ni completitud de los soportes del Drive corporativo.
 - Las exportaciones CSV/XLSX son on-demand y no persistentes.
 - Máximo 20 MB por archivo de importación o actualización masiva; no existe límite mensual de soportes porque la aplicación no los recibe.
-- Despliegue esperado: Render; alternativa Google Cloud; región requerida Colombia.
+- Despliegue esperado: Render; alternativa Google Cloud; región de producción aprobada: Virginia (USA); la ausencia de región Colombia no bloquea producción.
 
 - El producto vive en un repositorio nuevo e independiente de GitHub, estructurado como monorepo; no se integra en `vita-back` ni `vita-core`.
 

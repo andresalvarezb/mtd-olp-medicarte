@@ -2,7 +2,7 @@
 
 ## Alcance
 
-`render.yaml` declara todos los recursos del Blueprint, pero crear o sincronizar el Blueprint sigue siendo una acción manual fuera del repositorio. No ejecutar esa acción hasta resolver el bloqueo regional descrito abajo y revisar los planes/costos.
+`render.yaml` declara todos los recursos del Blueprint, pero crear o sincronizar el Blueprint sigue siendo una acción manual fuera del repositorio. La región `virginia` usada por el Blueprint está aprobada por ADR-017/DEC-009; antes de sincronizar, revisar únicamente los planes y costos.
 
 | Recurso                     | Tipo Render              | Imagen/configuración                             | Región     |
 | --------------------------- | ------------------------ | ------------------------------------------------ | ---------- |
@@ -14,7 +14,7 @@
 | `authorization-db`          | Render PostgreSQL 17     | base principal, acceso privado                   | `virginia` |
 | `authorization-keycloak-db` | Render PostgreSQL 17     | base exclusiva de Keycloak, acceso privado       | `virginia` |
 
-Render no ofrece actualmente región Colombia. `virginia` mantiene juntos todos los recursos, pero no satisface ADR-017/DEC-009. Un despliegue productivo permanece bloqueado hasta que se acepte expresamente esa región o se seleccione otro proveedor con región compatible.
+Render no ofrece región Colombia. La región de producción aprobada en ADR-017/DEC-009 es Virginia, USA: `virginia` mantiene juntos todos los recursos y satisface esa decisión. La residencia y el procesamiento de servicios, bases de datos y datos administrados por Render en Virginia quedan expresamente aceptados; la ausencia de región Colombia no bloquea producción.
 
 ## Red y puertos
 

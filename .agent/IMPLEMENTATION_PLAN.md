@@ -21,7 +21,7 @@ Entregables obligatorios:
 - OLP reporta masivamente `fecha_dispensacion` (`DISPENSATION_REPORTED`); Medicarte reporta `fecha_aplicacion`; `DISPENSED` ocurre únicamente después de auditoría `APPROVED`.
 - Pipeline genérico de bulk updates cerrado por tipo, llave + un campo, 20 MB, fuente temporal PostgreSQL `BYTEA`, BullMQ con identificadores, staging y reporte por fila.
 - Límite de 20 MB para importaciones y actualizaciones masivas; se retira el dimensionamiento mensual de soportes externos.
-- Render esperado, Google Cloud alternativo, región Colombia.
+- Render esperado, Google Cloud alternativo, región de producción aprobada: Virginia (USA).
 - Repositorio nuevo e independiente en GitHub, estructurado como monorepo.
 - Alcance multi-organización de autorizaciones cerrado en DEC-012, sin duplicar `authorization_items`.
 - Ambas fechas operativas habilitan `audit_status = READY`; la suficiencia documental y aprobación siguen siendo humanas.

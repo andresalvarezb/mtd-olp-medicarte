@@ -18,7 +18,7 @@ Estados:
 | DEC-006 | ACCEPTED | La auditoría es humana y visual. La aprobación explícita del auditor es condición suficiente para `APPROVED`; no existe aprobación automática.                                          |
 | DEC-007 | ACCEPTED | Medicarte administra soportes directamente en Drive fuera de la aplicación; las exportaciones CSV/XLSX son on-demand y no persistentes.                                                 |
 | DEC-008 | ACCEPTED | Máximo 20 MB por archivo para importaciones y actualizaciones masivas.                                                                                                                  |
-| DEC-009 | ACCEPTED | Despliegue esperado en Render, Google Cloud como alternativa, región requerida Colombia.                                                                                                |
+| DEC-009 | ACCEPTED | Despliegue esperado en Render, Google Cloud como alternativa, región de producción aprobada: Virginia (USA).                                                                            |
 | DEC-010 | ACCEPTED | El código se alojará en un repositorio nuevo e independiente en GitHub, estructurado como monorepo.                                                                                     |
 | DEC-011 | ACCEPTED | Medicarte actualiza masivamente `lugar_dispensacion`; cada asignación o cambio persistido notifica a OLP.                                                                               |
 | DEC-012 | ACCEPTED | Las autorizaciones son registros únicos y compartidos; el alcance se resuelve por usuario, organización, permisos y relación explícita del recurso, sin duplicar `authorization_items`. |
@@ -181,10 +181,11 @@ audit_status = APPROVED
 
 - Destino esperado: Render.
 - Alternativa: Google Cloud.
-- Región requerida: Colombia.
+- Región de producción aprobada: Virginia, Estados Unidos.
+- Se acepta expresamente que los servicios, bases de datos y datos administrados por Render residan y/o sean procesados en Virginia, USA.
 - Aplicación empaquetada con Docker para mantener portabilidad.
 
-Si algún servicio seleccionado no ofrece presencia física compatible en Colombia, el despliegue productivo debe detenerse hasta una decisión explícita; ningún agente puede sustituir silenciosamente la región.
+La presencia física en Colombia deja de ser un requisito arquitectónico para este proyecto; la ausencia de región Colombia no bloquea producción. Un cambio de región requiere una decisión explícita; ningún agente puede sustituir silenciosamente la región aprobada.
 
 ---
 

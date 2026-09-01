@@ -18,6 +18,11 @@ No deben introducirse dependencias de aplicación exclusivas de Render que impid
 
 ## Región
 
-La región requerida es Colombia. Si el proveedor o servicio seleccionado no ofrece presencia física compatible en Colombia, producción queda bloqueada hasta una decisión explícita.
+**Revisión (2026-08-31):** la regla original que exigía presencia física en Colombia queda sustituida por la aprobación explícita de la siguiente región; DEC-009 refleja la misma decisión.
 
-Render continúa como destino esperado y Google Cloud como alternativa permitida.
+- La región de producción aprobada en Render es Virginia, Estados Unidos.
+- Se acepta expresamente que los servicios, bases de datos y datos administrados por Render residan y/o sean procesados en Virginia, USA.
+- La presencia física en Colombia deja de ser un requisito arquitectónico; la ausencia de región Colombia NO bloquea producción.
+- Cambios futuros de región exigen una decisión explícita equivalente; ningún agente puede sustituir silenciosamente la región aprobada.
+
+Render continúa como destino esperado y Google Cloud como alternativa permitida, manteniendo Docker y la portabilidad entre proveedores.

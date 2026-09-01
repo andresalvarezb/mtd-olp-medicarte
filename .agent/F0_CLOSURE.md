@@ -18,7 +18,7 @@ Fase 0 queda cerrada sin bloqueos. DEC-013 se resolvió con el contrato de lectu
 | Auditoria humana                            | ACCEPTED | DEC-006, SPEC-006, ADR-009, ADR-016                           | No existe aprobacion ni completitud automatica.                                |
 | Dispensacion reportada/aprobada             | ACCEPTED | DEC-003, DEC-004, ADR-009                                     | OLP reporta fecha; `DISPENSED` solo despues de `APPROVED`.                     |
 | Capacidad inicial                           | ACCEPTED | DEC-008, SPEC-013                                             | 20 MB por importacion/bulk; soportes no ingresan a la aplicacion.              |
-| Despliegue                                  | ACCEPTED | DEC-009, ADR-017                                              | Produccion bloqueada si no se satisface region Colombia.                       |
+| Despliegue                                  | ACCEPTED | DEC-009, ADR-017                                              | Region de produccion aprobada: Virginia, USA; Colombia no es requisito.        |
 | Lugar de dispensacion                       | ACCEPTED | DEC-011, SPEC-011, ADR-020                                    | Solo Medicarte modifica masivamente; historial y outbox.                       |
 | Bulk updates operativos                     | ACCEPTED | DEC-015, SPEC-013, ADR-022                                    | Pipeline tipado, llave + un campo, permiso backend por fila.                   |
 | Fechas para iniciar auditoria               | ACCEPTED | DEC-015, SPEC-002, SPEC-006                                   | Ambas fechas producen READY; nunca APPROVED automatico.                        |
