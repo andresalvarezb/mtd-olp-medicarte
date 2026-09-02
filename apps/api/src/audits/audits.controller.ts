@@ -167,7 +167,7 @@ export class AuditsController {
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'audit.start',
+      'audit.write',
     );
     const scope = scopeFromProfile(profile, organization, request);
     return this.audits.startReview({ itemId, body, idempotencyKey, scope });
@@ -220,7 +220,7 @@ export class AuditsController {
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'audit.start',
+      'audit.write',
     );
     const scope = scopeFromProfile(profile, organization, request);
     return this.audits.addFinding({ reviewId, body, idempotencyKey, scope });
@@ -267,7 +267,7 @@ export class AuditsController {
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'audit.reject',
+      'audit.write',
     );
     const scope = scopeFromProfile(profile, organization, request);
     return this.audits.rejectReview({ reviewId, body, idempotencyKey, scope });
@@ -314,7 +314,7 @@ export class AuditsController {
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'audit.approve',
+      'audit.write',
     );
     const scope = scopeFromProfile(profile, organization, request);
     return this.audits.approveReview({ reviewId, body, idempotencyKey, scope });
@@ -340,7 +340,7 @@ export class AuditsController {
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organization,
-      'authorizations.read',
+      'audit.read',
     );
     const scope = scopeFromProfile(profile, organization, request);
     if (scope.organizationCode !== 'MTD') {

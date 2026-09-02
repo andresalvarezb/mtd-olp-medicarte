@@ -6,7 +6,7 @@ import { NAV_SECTIONS } from '@/components/navigation/nav-config';
 import { useRole } from '@/components/layout/role-context';
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { roles } = useRole();
+  const { roles, hasPermission } = useRole();
   const pathname = usePathname();
 
   return (
@@ -22,7 +22,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
         <nav className="nav">
           {NAV_SECTIONS.map((section) => {
-            const items = section.items.filter((item) => item.roles.some((r) => roles.includes(r)));
+            const items = section.items.filter(
+              (item) => hasPermission(item.permission) && item.roles.some((r) => roles.includes(r)),
+            );
             if (items.length === 0) return null;
             return (
               <div key={section.label}>

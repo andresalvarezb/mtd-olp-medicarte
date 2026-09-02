@@ -123,6 +123,7 @@ export class ConsolidationController {
               correlationId: request.correlationId,
               readSensitive: false,
               isFoundationAdmin: false,
+              canCrossOrganizationOperationalExport: false,
             },
             format: query.format,
             coverageType: query.coverageType ?? null,
@@ -135,6 +136,17 @@ export class ConsolidationController {
       throw error;
     }
     const scope = scopeFromProfile(profile, organization, request);
+    const selectedRoles =
+      profile.organizations.find((candidate) => candidate.id === organization)?.roles ?? [];
+    if (
+      query.includeAll &&
+      (selectedRoles.includes('MTD_GENERAL') || selectedRoles.includes('MTD_AUDITORIA'))
+    ) {
+      throw new ForbiddenException({
+        code: 'EXPORT_SCOPE_DENIED',
+        message: 'Este perfil solo puede exportar el consolidado autorizado.',
+      });
+    }
     const result = await this.consolidation.consolidatedExport({ query, scope });
     await this.consolidation.auditExport({
       scope,

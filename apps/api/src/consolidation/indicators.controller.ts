@@ -53,7 +53,7 @@ export class IndicatorsController {
     const profile = await this.access.requirePermission(
       request.auth.sub,
       organizationId,
-      'authorizations.read',
+      'dashboard.read',
     );
     const scope = scopeFromProfile(profile, organizationId!, request);
     return this.consolidation.indicators(scope);

@@ -12,7 +12,7 @@ const PUBLIC_ROUTES = ['/login'];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const { roles, status } = useRole();
+  const { roles, status, hasPermission } = useRole();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -29,10 +29,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       router.replace('/');
       return;
     }
-    if (currentItem && !currentItem.roles.some((r) => roles.includes(r))) {
-      router.replace('/');
+    if (
+      currentItem &&
+      (!currentItem.roles.some((r) => roles.includes(r)) || !hasPermission(currentItem.permission))
+    ) {
+      router.replace('/acceso-denegado');
     }
-  }, [currentItem, roles, router, status, isPublicRoute, pathname]);
+  }, [currentItem, roles, hasPermission, router, status, isPublicRoute, pathname]);
 
   useEffect(() => {
     setMenuOpen(false);
@@ -55,9 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
       <section className="content">
         <Topbar onOpenMenu={() => setMenuOpen(true)} />
-        <main className="main">
-          {children}
-        </main>
+        <main className="main">{children}</main>
       </section>
       <PasswordChangeGate />
     </div>

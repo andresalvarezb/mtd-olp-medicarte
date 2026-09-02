@@ -71,10 +71,40 @@ de la era Keycloak (`ACCESS_REQUEST_*`, etc.) permanecen intactas (tabla append-
 
 ## Roles y permisos sembrados
 
-Los roles disponibles (`MTD_ADMIN`, `MTD_OPERATOR`, `COMPENSAR_VIEWER`, `OLP_OPERATOR`,
-`MEDICARTE_OPERATOR`, `READ_ONLY`) y su mapa de permisos viven en las migraciones
-(`packages/database/migrations/0000_foundation.sql` y siguientes). Crear un rol nuevo requiere
-migración, no es parte del CRUD.
+Los roles disponibles (`MTD_ADMIN`, `MTD_OPERATOR`, `MTD_GENERAL`, `MTD_AUDITORIA`,
+`COMPENSAR_VIEWER`, `OLP_OPERATOR`, `MEDICARTE_OPERATOR`, `READ_ONLY`) y su mapa de permisos
+viven en las migraciones (`packages/database/migrations/0000_foundation.sql` y siguientes).
+Crear un rol nuevo requiere migración, no es parte del CRUD.
+
+`MTD_ADMIN` conserva todos los permisos. `MTD_GENERAL` solo tiene lectura y exportación en
+MIPRES, listos para dispensar, puntos de aplicación, logística OLP, soportes y consolidado.
+`MTD_AUDITORIA` tiene lectura de resumen y autorizaciones, lectura/exportación de consolidado
+y lectura/escritura exclusivamente del flujo de Auditoría. OLP y Medicarte conservan sus
+permisos operativos y ya no tienen `dashboard.read`.
+
+### Matriz efectiva de vistas
+
+| Vista | foundation-admin | mtd-general | mtd-auditoria | OLP | Medicarte |
+| --- | --- | --- | --- | --- | --- |
+| Resumen ejecutivo | total | sin acceso | lectura | sin acceso | sin acceso |
+| Autorizaciones | total | sin acceso | lectura | actual | actual |
+| Direccionamientos MIPRES | total | lectura/exportación | sin acceso | actual | actual |
+| Listos para dispensar | total | lectura/exportación | sin acceso | actual | actual |
+| Puntos de aplicación | total | lectura/exportación | sin acceso | actual | actual |
+| Logística OLP | total | lectura/exportación | sin acceso | actual | actual |
+| Soportes | total | lectura/exportación | sin acceso | actual | actual |
+| Auditoría | total | sin acceso | completo del módulo | actual | actual |
+| Consolidado | total | lectura/exportación | lectura/exportación | actual | actual |
+| Administración/configuración | total | sin acceso | sin acceso | actual | actual |
+
+La navegación y el guard de rutas usan `view.*`, mientras los controladores vuelven a validar
+las capacidades de lectura, escritura y exportación. La exportación `includeAll` de la base
+completa de Autorizaciones está reservada a perfiles con la capacidad administrativa actual;
+los dos perfiles MTD nuevos solo descargan el consolidado autorizado.
+
+Los permisos `view.*` controlan navegación y rutas en la web; la API valida además permisos
+de operación en cada endpoint. `dashboard.read`, `audit.read`, `audit.write` y
+`consolidated.read` son capacidades independientes y no se infieren por ocultar menús.
 
 ## Buenas prácticas
 

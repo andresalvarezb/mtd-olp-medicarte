@@ -47,8 +47,18 @@ async function fetchProfile(): Promise<MeResponse> {
 /** Organizaciones del perfil que corresponden a roles de navegación, en orden de prioridad. */
 export function rolesFromProfile(me: MeResponse | null): Role[] {
   if (!me) return [];
-  const scoped = new Set(me.organizations.map((organization) => organization.code));
-  return ROLES.filter((role) => scoped.has(role));
+  const result = new Set<Role>();
+  for (const organization of me.organizations) {
+    for (const role of organization.roles) {
+      if (role === 'MTD_ADMIN' || role === 'MTD_OPERATOR') result.add('MTD');
+      if (role === 'MTD_GENERAL') result.add('MTD_GENERAL');
+      if (role === 'MTD_AUDITORIA') result.add('MTD_AUDITORIA');
+    }
+    if (organization.code === 'COMPENSAR') result.add('COMPENSAR');
+    if (organization.code === 'OLP') result.add('OLP');
+    if (organization.code === 'MEDICARTE') result.add('MEDICARTE');
+  }
+  return ROLES.filter((candidate) => result.has(candidate));
 }
 
 function initialsForName(name: string, fallback: string): string {
@@ -171,7 +181,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         );
       }
       if (error instanceof ApiError) throw new ProfileError(error.message, error.code);
-      throw new ProfileError('No fue posible consultar el perfil en la API.', 'PROFILE_UNAVAILABLE');
+      throw new ProfileError(
+        'No fue posible consultar el perfil en la API.',
+        'PROFILE_UNAVAILABLE',
+      );
     }
     if (!rolesFromProfile(profile).length) {
       clearSession();
@@ -204,14 +217,20 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const organizationId = useMemo(() => {
-    const scoped = me?.organizations.find((organization) => organization.code === role);
+    const scoped =
+      me?.organizations.find((organization) =>
+        organization.roles.some((candidate) =>
+          role === 'MTD' ? ['MTD_ADMIN', 'MTD_OPERATOR'].includes(candidate) : candidate === role,
+        ),
+      ) ?? me?.organizations.find((organization) => organization.code === role);
     return scoped?.id ?? me?.organizations[0]?.id ?? '';
   }, [me, role]);
 
   const hasPermission = useCallback(
     (permission: string) => {
       if (!me) return false;
-      return me.organizations.some((organization) => organization.permissions.includes(permission));
+      const active = me.organizations.find((organization) => organization.id === organizationId);
+      return active?.permissions.includes(permission) ?? false;
     },
     [me],
   );
@@ -232,7 +251,19 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       mustChangePassword,
       markPasswordChanged,
     }),
-    [role, roles, status, user, me, organizationId, hasPermission, login, logout, mustChangePassword, markPasswordChanged],
+    [
+      role,
+      roles,
+      status,
+      user,
+      me,
+      organizationId,
+      hasPermission,
+      login,
+      logout,
+      mustChangePassword,
+      markPasswordChanged,
+    ],
   );
 
   return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>;

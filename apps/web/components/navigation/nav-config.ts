@@ -1,11 +1,26 @@
-export type Role = 'MTD' | 'COMPENSAR' | 'OLP' | 'MEDICARTE';
+export type Role = 'MTD' | 'MTD_GENERAL' | 'MTD_AUDITORIA' | 'COMPENSAR' | 'OLP' | 'MEDICARTE';
 
-export const ROLES: Role[] = ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'];
+export const ROLES: Role[] = [
+  'MTD',
+  'MTD_GENERAL',
+  'MTD_AUDITORIA',
+  'COMPENSAR',
+  'OLP',
+  'MEDICARTE',
+];
 
 export const ROLE_META: Record<Role, { label: string; note: string }> = {
   MTD: {
     label: 'MTD Admin',
     note: 'Vista MTD: acceso integral a operación, auditoría, integraciones y administración.',
+  },
+  MTD_GENERAL: {
+    label: 'MTD General',
+    note: 'Consulta y exportación de las etapas operativas autorizadas.',
+  },
+  MTD_AUDITORIA: {
+    label: 'MTD Auditoría',
+    note: 'Consulta gerencial y de autorizaciones, con operación completa de Auditoría.',
   },
   COMPENSAR: {
     label: 'Compensar Viewer',
@@ -48,6 +63,7 @@ export interface NavItem {
   title: string;
   icon: string;
   roles: Role[];
+  permission: string;
 }
 
 export const NAV_SECTIONS: NavSection[] = [
@@ -59,57 +75,78 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/',
         title: 'Resumen ejecutivo',
         icon: '01',
-        roles: ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'],
+        permission: 'view.dashboard',
+        roles: ['MTD', 'MTD_AUDITORIA', 'COMPENSAR'],
       },
       {
         view: 'authorizations',
         href: '/autorizaciones',
         title: 'Autorizaciones',
         icon: '02',
-        roles: ['MTD', 'COMPENSAR'],
+        permission: 'view.authorizations',
+        roles: ['MTD', 'MTD_AUDITORIA', 'COMPENSAR'],
       },
     ],
   },
   {
     label: 'Operación',
     items: [
-      { view: 'imports', href: '/cargas', title: 'Cargas', icon: '03', roles: ['MTD'] },
+      {
+        view: 'imports',
+        href: '/cargas',
+        title: 'Cargas',
+        icon: '03',
+        permission: 'view.admin',
+        roles: ['MTD'],
+      },
       {
         view: 'mipres',
         href: '/mipres',
         title: 'Direccionamientos MIPRES',
         icon: '04',
-        roles: ['MTD'],
+        permission: 'view.mipres',
+        roles: ['MTD', 'MTD_GENERAL'],
       },
       {
         view: 'available',
         href: '/listos-para-dispensar',
         title: 'Listos para dispensar',
         icon: '05',
-        roles: ['MTD', 'OLP', 'MEDICARTE'],
+        permission: 'view.available',
+        roles: ['MTD', 'MTD_GENERAL', 'OLP', 'MEDICARTE'],
       },
       {
         view: 'application',
         href: '/puntos-de-aplicacion',
         title: 'Puntos de aplicación',
         icon: '06',
-        roles: ['MTD', 'MEDICARTE'],
+        permission: 'view.application',
+        roles: ['MTD', 'MTD_GENERAL', 'MEDICARTE'],
       },
       {
         view: 'logistics',
         href: '/logistica-olp',
         title: 'Logística OLP',
         icon: '07',
-        roles: ['MTD', 'OLP'],
+        permission: 'view.logistics',
+        roles: ['MTD', 'MTD_GENERAL', 'OLP'],
       },
       {
         view: 'supports',
         href: '/soportes',
         title: 'Soportes',
         icon: '08',
-        roles: ['MTD', 'MEDICARTE'],
+        permission: 'view.supports',
+        roles: ['MTD', 'MTD_GENERAL', 'MEDICARTE'],
       },
-      { view: 'audit', href: '/auditoria', title: 'Auditoría', icon: '09', roles: ['MTD'] },
+      {
+        view: 'audit',
+        href: '/auditoria',
+        title: 'Auditoría',
+        icon: '09',
+        permission: 'view.audit',
+        roles: ['MTD', 'MTD_AUDITORIA'],
+      },
     ],
   },
   {
@@ -120,6 +157,7 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/notificaciones',
         title: 'Notificaciones',
         icon: '10',
+        permission: 'view.notifications',
         roles: ['MTD'],
       },
       {
@@ -127,13 +165,15 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/consolidado',
         title: 'Consolidado',
         icon: '11',
-        roles: ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'],
+        permission: 'view.consolidated',
+        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'COMPENSAR', 'OLP', 'MEDICARTE'],
       },
       {
         view: 'failures',
         href: '/fallos-recuperables',
         title: 'Fallos recuperables',
         icon: '12',
+        permission: 'view.failures',
         roles: ['MTD'],
       },
       {
@@ -141,6 +181,7 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/anexo-tarifario',
         title: 'Anexo Tarifario',
         icon: '13',
+        permission: 'view.tariff',
         roles: ['MTD'],
       },
       {
@@ -148,6 +189,7 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/administracion',
         title: 'Administración',
         icon: '14',
+        permission: 'view.admin',
         roles: ['MTD'],
       },
     ],

@@ -49,11 +49,20 @@ const exportSourceColumns = [...sourceBaseColumns] as string[];
 
 /** Columnas creadas por sección del proceso (fases operativas). */
 const processColumns = [
-  'CLAVE_AUTORIZACION', 'ESTADO_HABILITACION', 'TIPO_COBERTURA',
-  'ESTADO_DIRECCIONAMIENTO', 'ESTADO_OPERACION', 'LUGAR_DISPENSACION',
-  'FECHA_DISPENSACION', 'FECHA_APLICACION', 'ESTADO_AUDITORIA',
-  'ESTADO_PUNTO_APLICACION', 'VERSION_OPERATIVA', 'VERSION',
-  'FECHA_CREACION', 'FECHA_ACTUALIZACION',
+  'CLAVE_AUTORIZACION',
+  'ESTADO_HABILITACION',
+  'TIPO_COBERTURA',
+  'ESTADO_DIRECCIONAMIENTO',
+  'ESTADO_OPERACION',
+  'LUGAR_DISPENSACION',
+  'FECHA_DISPENSACION',
+  'FECHA_APLICACION',
+  'ESTADO_AUDITORIA',
+  'ESTADO_PUNTO_APLICACION',
+  'VERSION_OPERATIVA',
+  'VERSION',
+  'FECHA_CREACION',
+  'FECHA_ACTUALIZACION',
 ] as const;
 
 function csvValue(value: string | number | boolean | null | undefined): string {
@@ -85,7 +94,8 @@ export class OperationalExportsService {
     const contract = bulkUpdateOperationContracts[operationType];
     if (
       input.scope.organizationCode !== contract.actorOrganizationCode &&
-      !input.scope.isFoundationAdmin
+      !input.scope.isFoundationAdmin &&
+      !input.scope.canCrossOrganizationOperationalExport
     ) {
       throw new ForbiddenExportError(contract.actorOrganizationCode);
     }
@@ -106,15 +116,15 @@ export class OperationalExportsService {
            select 1 from authorization_item_organizations aio
            where aio.authorization_item_id = i.id and aio.organization_id = $2))
        order by i.created_at asc, i.id asc`,
-       [input.scope.isFoundationAdmin, input.scope.organizationId],
+      [input.scope.isFoundationAdmin, input.scope.organizationId],
     );
-     const columns = ['IDENTIFICADOR_REGISTRO', ...exportSourceColumns, ...processColumns];
+    const columns = ['IDENTIFICADOR_REGISTRO', ...exportSourceColumns, ...processColumns];
     const rows: Array<Record<string, string | number | null>> = result.rows.map((row) => ({
       NUMERO_AUTORIZACION: row.numero_autorizacion,
       NUM_DOCUMENTO: row.numero_documento,
       NOMBRE_PACIENTE: row.nombre_paciente,
       CDGN001: row.cdgn001,
-       CODIGO_COMERCIAL: row.codigo_medicamento,
+      CODIGO_COMERCIAL: row.codigo_medicamento,
       CUPS_AUTORIZADO: row.cups_autorizado,
       CANTIDAD: row.cantidad,
       DOSIS: row.dosis,
@@ -122,23 +132,23 @@ export class OperationalExportsService {
       FECHA_FINAL_VIGENCIA: row.fecha_final_vigencia,
       ESTADO_AUTORIZACION: row.estado_autorizacion,
       OBS_AUTORIZACION: row.obs_autorizacion,
-       VALOR_CUOTA_MODERADORA: row.valor_cuota_moderadora,
-       NUMERO_PRESCRIPCION: row.no_prescripcion,
-       IDENTIFICADOR_REGISTRO: row.id,
-       CLAVE_AUTORIZACION: row.authorization_key,
-       ESTADO_HABILITACION: row.enablement_status,
-       TIPO_COBERTURA: row.coverage_type,
-       ESTADO_DIRECCIONAMIENTO: row.direction_status,
-       ESTADO_OPERACION: row.operation_status,
-       LUGAR_DISPENSACION: row.lugar_dispensacion,
-       FECHA_DISPENSACION: row.fecha_dispensacion,
-       FECHA_APLICACION: row.fecha_aplicacion,
-       ESTADO_AUDITORIA: row.audit_status,
-       ESTADO_PUNTO_APLICACION: deriveApplicationSiteStatus(row.lugar_dispensacion),
-       VERSION_OPERATIVA: row.operational_version,
-       VERSION: row.version,
-       FECHA_CREACION: row.created_at.toISOString(),
-       FECHA_ACTUALIZACION: row.updated_at.toISOString(),
+      VALOR_CUOTA_MODERADORA: row.valor_cuota_moderadora,
+      NUMERO_PRESCRIPCION: row.no_prescripcion,
+      IDENTIFICADOR_REGISTRO: row.id,
+      CLAVE_AUTORIZACION: row.authorization_key,
+      ESTADO_HABILITACION: row.enablement_status,
+      TIPO_COBERTURA: row.coverage_type,
+      ESTADO_DIRECCIONAMIENTO: row.direction_status,
+      ESTADO_OPERACION: row.operation_status,
+      LUGAR_DISPENSACION: row.lugar_dispensacion,
+      FECHA_DISPENSACION: row.fecha_dispensacion,
+      FECHA_APLICACION: row.fecha_aplicacion,
+      ESTADO_AUDITORIA: row.audit_status,
+      ESTADO_PUNTO_APLICACION: deriveApplicationSiteStatus(row.lugar_dispensacion),
+      VERSION_OPERATIVA: row.operational_version,
+      VERSION: row.version,
+      FECHA_CREACION: row.created_at.toISOString(),
+      FECHA_ACTUALIZACION: row.updated_at.toISOString(),
     }));
     const filename = `authorization-items-${operationType.toLowerCase()}`;
     if (input.query.format === 'xlsx') {
