@@ -16,6 +16,7 @@ type Database = ReturnType<typeof createDatabase>;
 
 type SourceFileRow = {
   batch_id: string;
+  organization_id: string;
   batch_status: string;
   batch_sha256: string;
   batch_processor_version: number;
@@ -48,10 +49,10 @@ function hasValue(row: Record<string, unknown>, field: string): boolean {
 }
 
 function missingFields(row: Record<string, unknown>, headers: string[]): string[] {
-  const missing = ['NUMERO_AUTORIZACION', 'COD_COMERCIAL', 'ESTADO_AUTORIZACION'].filter(
+  const missing = ['NUMERO_AUTORIZACION', 'CODIGO_COMERCIAL', 'ESTADO_AUTORIZACION'].filter(
     (field) => !headers.includes(field) || !hasValue(row, field),
   );
-  if (!headers.includes('No.PRESCRIPCION')) missing.push('No.PRESCRIPCION');
+  if (!headers.includes('NUMERO_PRESCRIPCION')) missing.push('NUMERO_PRESCRIPCION');
   return missing;
 }
 
@@ -78,6 +79,24 @@ export class ImportProcessor {
       throw new NonRetryableImportError(
         importTerminalErrorClassifications.processorVersionMismatch,
       );
+    }
+
+    // Defensa secundaria: el request HTTP no es la única entrada al worker.
+    const tariff = await this.database.pool.query<{ id: string }>(
+      `select id from tariff_annex_products
+       where organization_id = $1 and active = true limit 1`,
+      [source.organization_id],
+    );
+    if (tariff.rows.length === 0) {
+      await this.markFailed(source.batch_id, 'TARIFF_ANNEX_REQUIRED');
+      return {
+        status: 'FAILED',
+        totalRows: 0,
+        validRows: 0,
+        rejectedRows: 0,
+        duplicateRows: 0,
+        existingRows: 0,
+      };
     }
 
     if (source.batch_status === 'READY_TO_CONFIRM' || source.batch_status === 'COMPLETED') {
@@ -291,8 +310,8 @@ export class ImportProcessor {
     }
     const classification = deriveAuthorizationClassification({
       numeroAutorizacion: row.rawData.NUMERO_AUTORIZACION,
-      codigoComercial: row.rawData.COD_COMERCIAL,
-      noPrescripcion: row.rawData['No.PRESCRIPCION'],
+      codigoComercial: row.rawData.CODIGO_COMERCIAL,
+      noPrescripcion: row.rawData.NUMERO_PRESCRIPCION,
       estadoAutorizacion: row.rawData.ESTADO_AUTORIZACION,
     });
     if (!classification) {
@@ -302,7 +321,7 @@ export class ImportProcessor {
         resultCode: 'INVALID_FIELD_FORMAT',
         errors: [
           {
-            field: 'No.PRESCRIPCION',
+            field: 'NUMERO_PRESCRIPCION',
             code: 'INVALID_FIELD_FORMAT',
             message: messages.INVALID_FIELD_FORMAT,
           },
@@ -314,7 +333,7 @@ export class ImportProcessor {
 
   private async getSource(job: AuthorizationImportJob): Promise<SourceFileRow | undefined> {
     const result = await this.database.pool.query<SourceFileRow>(
-      `select b.id as batch_id, b.status as batch_status, b.sha256 as batch_sha256,
+      `select b.id as batch_id, b.organization_id, b.status as batch_status, b.sha256 as batch_sha256,
               b.processor_version as batch_processor_version, f.id as source_file_id,
               f.original_filename, f.mime_type, f.size_bytes, f.sha256 as source_sha256, f.content
        from import_batches b

@@ -203,6 +203,8 @@ export class NotificationProcessor {
         return this.buildLocation(job, type);
       case 'EPS_DIRECTION_PENDING':
         return this.buildEpsPending(job);
+      case 'EPS_TARIFF_ANNEX_REJECTED':
+        return this.buildEpsTariffRejected(job);
       case 'DAILY_OPERATIONAL_REPORT':
         return this.buildDailyReport(job);
       default:
@@ -364,6 +366,48 @@ export class NotificationProcessor {
       recipientOrganizationId,
       itemId: null,
       period,
+      itemSetHash,
+      templateVersion: template.version,
+      subject: renderTemplate(template.subject_template, params),
+      body: renderTemplate(template.body_template, params),
+      recipients,
+      params,
+    };
+  }
+
+  private async buildEpsTariffRejected(job: NotificationJob): Promise<NotificationContent | null> {
+    const batchId = job.payload.batchId;
+    const recipientOrganizationId =
+      job.payload.recipientOrganizationId ?? (await this.resolveOrganizationId('COMPENSAR'));
+    if (!batchId || !recipientOrganizationId) return null;
+    const template = await this.loadTemplate('EPS_TARIFF_ANNEX_REJECTED');
+    if (!template) return null;
+    const rejected = await this.database.pool.query<{
+      numero_autorizacion: string;
+      codigo_medicamento: string;
+      numero_documento: string | null;
+    }>(
+      `select i.numero_autorizacion, i.codigo_medicamento,
+              i.source_data->>'NUM_DOCUMENTO' as numero_documento
+       from import_rows r inner join authorization_items i on i.id = r.authorization_item_id
+       where r.import_batch_id = $1 and r.result_code = 'PRODUCT_NOT_IN_TARIFF_ANNEX'
+       order by r.row_number`,
+      [batchId],
+    );
+    if (rejected.rows.length === 0) return null;
+    const itemList = rejected.rows
+      .map((row) => `\n- Autorización: ${row.numero_autorizacion}; Código: ${row.codigo_medicamento}; Paciente: ${row.numero_documento ?? 'N/D'}`)
+      .join('');
+    const keys = rejected.rows.map((row) => `${row.numero_autorizacion}:${row.codigo_medicamento}`);
+    const itemSetHash = createHash('sha256').update(keys.join('\n')).digest('hex');
+    const recipients = await this.loadRecipients('EPS_TARIFF_ANNEX_REJECTED', recipientOrganizationId);
+    const params = { batchId, itemList, rejectedCount: rejected.rows.length };
+    return {
+      notificationType: 'EPS_TARIFF_ANNEX_REJECTED',
+      idempotencyKey: `eps-tariff:${batchId}`,
+      recipientOrganizationId,
+      itemId: null,
+      period: null,
       itemSetHash,
       templateVersion: template.version,
       subject: renderTemplate(template.subject_template, params),

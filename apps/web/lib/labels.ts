@@ -62,6 +62,7 @@ const IMPORT_ROW_RESULT_LABELS: Record<string, string> = {
   EXISTING_ITEM_REVIEW_REQUIRED: 'Existente: requiere revisión',
   EXPLICIT_UPDATE_NOT_ALLOWED: 'Actualización explícita no permitida',
   ITEM_CREATED: 'Autorización creada',
+  PRODUCT_NOT_IN_TARIFF_ANNEX: 'Producto no incluido en Anexo Tarifario',
   ITEM_UPDATED: 'Autorización actualizada',
   PROCESSING_ERROR: 'Error de procesamiento',
 };
@@ -153,4 +154,34 @@ export function patientDocument(sourceData: Record<string, unknown> | null): str
 export function medicationName(sourceData: Record<string, unknown> | null): string {
   const value = sourceData?.CUPS_AUTORIZADO;
   return typeof value === 'string' && value.trim() ? value : '—';
+}
+
+export const TARIFF_IMPORT_STATUS_LABELS: Record<string, string> = {
+  UPLOADED: 'Recibido',
+  VALIDATING: 'Procesando',
+  COMPLETED: 'Completado',
+  FAILED: 'Fallido',
+};
+
+export const TARIFF_ROW_RESULT_LABELS: Record<string, string> = {
+  PRODUCT_CREATED: 'Creado',
+  PRODUCT_REACTIVATED: 'Reactivado',
+  PRODUCT_EXISTING: 'Existente',
+  INVALID_PRODUCT_CODE: 'Código inválido',
+  DUPLICATE_IN_FILE: 'Duplicado en el archivo',
+  INVALID_FILE_FORMAT: 'Formato inválido',
+  PROCESSING_ERROR: 'Error de procesamiento',
+};
+
+export function tariffImportPill(status: string): Tone {
+  if (status === 'COMPLETED') return 'green';
+  if (status === 'FAILED') return 'red';
+  return 'orange';
+}
+
+export function tariffRowPill(resultCode: string): Tone {
+  if (resultCode === 'PRODUCT_CREATED' || resultCode === 'PRODUCT_REACTIVATED') return 'green';
+  if (resultCode === 'PRODUCT_EXISTING') return 'blue';
+  if (resultCode === 'DUPLICATE_IN_FILE') return 'orange';
+  return 'red';
 }

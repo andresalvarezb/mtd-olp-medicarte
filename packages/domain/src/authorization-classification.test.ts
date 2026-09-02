@@ -59,6 +59,7 @@ describe('authorization classification', () => {
         enablementStatus: 'ENABLED',
         coverageType: 'PBS',
         directionStatus: 'NOT_APPLICABLE',
+        productInTariffAnnex: true,
       }),
     ).toBe('READY_TO_DISPENSE');
     expect(
@@ -66,6 +67,7 @@ describe('authorization classification', () => {
         enablementStatus: 'ENABLED',
         coverageType: 'NO_PBS',
         directionStatus: 'CONFIRMED',
+        productInTariffAnnex: true,
       }),
     ).toBe('READY_TO_DISPENSE');
     expect(
@@ -73,6 +75,7 @@ describe('authorization classification', () => {
         enablementStatus: 'BLOCKED_SOURCE_STATUS',
         coverageType: 'PBS',
         directionStatus: 'NOT_APPLICABLE',
+        productInTariffAnnex: true,
       }),
     ).toBe('BLOCKED');
     expect(
@@ -80,6 +83,26 @@ describe('authorization classification', () => {
         enablementStatus: 'ENABLED',
         coverageType: 'NO_PBS',
         directionStatus: 'PENDING',
+        productInTariffAnnex: true,
+      }),
+    ).toBe('BLOCKED');
+  });
+
+  it('blocks availability when the product is not in the tariff annex', () => {
+    expect(
+      deriveOperationStatus({
+        enablementStatus: 'ENABLED',
+        coverageType: 'PBS',
+        directionStatus: 'NOT_APPLICABLE',
+        productInTariffAnnex: false,
+      }),
+    ).toBe('BLOCKED');
+    expect(
+      deriveOperationStatus({
+        enablementStatus: 'ENABLED',
+        coverageType: 'NO_PBS',
+        directionStatus: 'CONFIRMED',
+        productInTariffAnnex: false,
       }),
     ).toBe('BLOCKED');
   });
@@ -89,6 +112,7 @@ describe('authorization classification', () => {
       enablementStatus: 'ENABLED',
       coverageType: 'PBS',
       directionStatus: 'NOT_APPLICABLE',
+      productInTariffAnnex: true,
     } as const;
     expect(
       deriveOperationStatus({ ...base, fechaFinalVigencia: '20261001', today: '2026-10-01' }),

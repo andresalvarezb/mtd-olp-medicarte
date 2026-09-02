@@ -44,9 +44,10 @@ async function seedItem(
         source_status_normalized, source_prescripcion_normalized, no_prescripcion,
         enablement_status, coverage_type, direction_status, operation_status,
         coverage_rule_version, lugar_dispensacion, fecha_dispensacion, fecha_aplicacion,
-        audit_status, operational_version, created_from_batch_id)
+        audit_status, operational_version, tariff_membership_status, tariff_membership_evaluated_at,
+        created_from_batch_id)
      values ($1, $2, $3, $4, '{}'::jsonb, '5', '', '', 'ENABLED', 'PBS', 'NOT_APPLICABLE',
-             $5, 'F2-COVERAGE-2', $6, $7, $8, $9, $10, $11)`,
+             $5, 'F2-COVERAGE-2', $6, $7, $8, $9, $10, 'LISTED', now(), $11)`,
     [
       itemId,
       authorization,

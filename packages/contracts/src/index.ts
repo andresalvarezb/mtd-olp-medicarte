@@ -1,4 +1,14 @@
 import { z } from 'zod';
+import { tariffAnnexSourceColumns } from './headers';
+import type { authorizationSourceColumns } from './headers';
+export {
+  HEADERS,
+  authorizationSourceColumns,
+  canonicalizeHeader,
+  sanitizeHeader,
+  tariffAnnexSourceColumns,
+} from './headers';
+export type { CanonicalHeader } from './headers';
 
 export const correlationIdSchema = z.string().uuid();
 export const idempotencyKeySchema = z.string().min(8).max(200);
@@ -174,6 +184,7 @@ export const importRowResultCodeSchema = z.enum([
   'EXPLICIT_UPDATE_NOT_ALLOWED',
   'ITEM_CREATED',
   'ITEM_UPDATED',
+  'PRODUCT_NOT_IN_TARIFF_ANNEX',
   'PROCESSING_ERROR',
 ]);
 export type ImportRowResultCode = z.infer<typeof importRowResultCodeSchema>;
@@ -188,6 +199,7 @@ export const importRowResultMessages: Record<ImportRowResultCode, string> = {
     'La actualización explícita no está permitida para el estado actual.',
   ITEM_CREATED: 'Ítem creado durante la confirmación.',
   ITEM_UPDATED: 'Actualización explícita completada.',
+  PRODUCT_NOT_IN_TARIFF_ANNEX: 'Producto no incluido en el Anexo Tarifario.',
   PROCESSING_ERROR: 'No fue posible procesar la fila.',
 };
 
@@ -226,40 +238,12 @@ export const operationalDateSchema = z.string().date();
 export const applicationSiteStatusSchema = z.enum(['PENDING_ASSIGNMENT', 'ASSIGNED']);
 export type ApplicationSiteStatus = z.infer<typeof applicationSiteStatusSchema>;
 
-export const authorizationSourceColumns = [
-  'CODEPS',
-  'NUMERO_AUTORIZACION',
-  'TIP_DOCUMENTO',
-  'NUM_DOCUMENTO',
-  'NOMBRE_PACIENTE',
-  'NUMERO_TELEFONO',
-  'COD_CUPS_PRINCIPAL',
-  'CUPS_PRINCIPAL',
-  'COD_COMERCIAL',
-  'CUMS',
-  'NIT_PRESTADOR',
-  'NOMBRE_PRESTADOR',
-  'COD_CUPS_AUTORIZADO',
-  'CUPS_AUTORIZADO',
-  'CANTIDAD',
-  'DOSIS',
-  'FECHA_ASIGNACION',
-  'FECHA_FINAL_VIGENCIA',
-  'ESTADO_AUTORIZACION',
-  'No.PRESCRIPCION',
-  'OBS_AUTORIZACION',
-  'MEDICO_REMITENTE',
-  'CMNT',
-  '_Id',
-  'FPRO',
-  'VALOR CUOTA MODERADORA',
-] as const;
 export type AuthorizationSourceColumn = (typeof authorizationSourceColumns)[number];
 export const requiredAuthorizationSourceColumns = [
   'NUMERO_AUTORIZACION',
-  'COD_COMERCIAL',
+  'CODIGO_COMERCIAL',
   'ESTADO_AUTORIZACION',
-  'No.PRESCRIPCION',
+  'NUMERO_PRESCRIPCION',
 ] as const;
 
 export const authorizationClassificationSchema = z.object({
@@ -306,6 +290,7 @@ export const importBatchResponseSchema = z.object({
   rejectedRows: z.number().int().nonnegative(),
   duplicateRows: z.number().int().nonnegative(),
   existingRows: z.number().int().nonnegative(),
+  tariffRejectedRows: z.number().int().nonnegative().default(0),
   confirmedRows: z.number().int().nonnegative(),
   lastErrorCode: z.string().min(1).max(80).nullable(),
   createdAt: isoDateTimeSchema,
@@ -500,20 +485,20 @@ export const bulkUpdateOperationContracts = {
   ASSIGN_DISPENSATION_LOCATION: {
     actorOrganizationCode: 'MEDICARTE',
     permission: 'bulk_updates.dispensation_location',
-    mutableField: 'lugar_dispensacion',
-    requiredColumns: ['authorization_key', 'lugar_dispensacion'],
+     mutableField: 'LUGAR_DISPENSACION',
+     requiredColumns: ['CLAVE_AUTORIZACION', 'LUGAR_DISPENSACION'],
   },
   REPORT_DISPENSATION_DATE: {
     actorOrganizationCode: 'OLP',
     permission: 'bulk_updates.dispensation_date',
-    mutableField: 'fecha_dispensacion',
-    requiredColumns: ['authorization_key', 'fecha_dispensacion'],
+     mutableField: 'FECHA_DISPENSACION',
+     requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_DISPENSACION'],
   },
   REPORT_APPLICATION_DATE: {
     actorOrganizationCode: 'MEDICARTE',
     permission: 'bulk_updates.application_date',
-    mutableField: 'fecha_aplicacion',
-    requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'fecha_aplicacion'],
+     mutableField: 'FECHA_APLICACION',
+     requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_APLICACION'],
   },
 } as const satisfies Record<
   BulkUpdateOperationType,
@@ -650,6 +635,7 @@ export const notificationTypeSchema = z.enum([
   'DISPENSATION_LOCATION_ASSIGNED',
   'DISPENSATION_LOCATION_CHANGED',
   'EPS_DIRECTION_PENDING',
+  'EPS_TARIFF_ANNEX_REJECTED',
   'DAILY_OPERATIONAL_REPORT',
 ]);
 export type NotificationType = z.infer<typeof notificationTypeSchema>;
@@ -660,6 +646,7 @@ export const notificationRecipientOrganizations: Record<NotificationType, readon
   DISPENSATION_LOCATION_ASSIGNED: ['OLP'],
   DISPENSATION_LOCATION_CHANGED: ['OLP'],
   EPS_DIRECTION_PENDING: ['COMPENSAR'],
+  EPS_TARIFF_ANNEX_REJECTED: ['COMPENSAR'],
   DAILY_OPERATIONAL_REPORT: ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'],
 };
 
@@ -677,6 +664,7 @@ export const notificationJobPayloadSchema = z.object({
   eventId: z.string().uuid(),
   notificationType: notificationTypeSchema,
   itemId: z.string().uuid().nullable(),
+  batchId: z.string().uuid().nullable().optional(),
   recipientOrganizationId: z.string().uuid().nullable(),
   /** Fecha calendario America/Bogota de la ventana consolidada. */
   period: z
@@ -843,3 +831,197 @@ export const createAssignmentRequestSchema = z.object({
   roleCode: z.string().min(1).max(80),
 });
 export type CreateAssignmentRequest = z.infer<typeof createAssignmentRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// Anexo Tarifario (SPEC-014 / ADR-024): catálogo MTD de códigos de producto
+// habilitados. Contratos compartidos web/api/worker.
+// ---------------------------------------------------------------------------
+
+export const TARIFF_ANNEX_RULE_VERSION = 'TARIFF-ANNEX-1';
+
+export const tariffMembershipStatusSchema = z.enum(['NOT_EVALUATED', 'LISTED', 'NOT_LISTED']);
+export type TariffMembershipStatus = z.infer<typeof tariffMembershipStatusSchema>;
+
+export type TariffAnnexSourceColumn = (typeof tariffAnnexSourceColumns)[number];
+export const requiredTariffImportColumns = tariffAnnexSourceColumns;
+
+export const tariffProductListQuerySchema = z.object({
+  codigo: z.string().trim().min(1).max(255).optional(),
+  active: z.enum(['true', 'false']).optional(),
+  cursor: z.string().min(1).max(500).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+export type TariffProductListQuery = z.infer<typeof tariffProductListQuerySchema>;
+
+export const createTariffProductRequestSchema = z.object({
+  codigoProducto: z.string().trim().min(1).max(255),
+  tarifaUnidad: z.string().trim().max(255).optional(),
+  numeroExpedienteInvima: z.string().trim().max(255).optional(),
+  consecutivoInvimaPresentacion: z.string().trim().max(255).optional(),
+  descripcionGenerica: z.string().trim().max(1000).optional(),
+  descripcionComercial: z.string().trim().max(1000).optional(),
+  laboratorio: z.string().trim().max(500).optional(),
+  tipoInclusion: z.string().trim().max(100).optional(),
+});
+export type CreateTariffProductRequest = z.infer<typeof createTariffProductRequestSchema>;
+
+export const updateTariffProductRequestSchema = z.object({
+  active: z.boolean(),
+});
+export type UpdateTariffProductRequest = z.infer<typeof updateTariffProductRequestSchema>;
+
+export const tariffProductResponseSchema = z.object({
+  id: z.string().uuid(),
+  codigoProducto: z.string(),
+  active: z.boolean(),
+  version: z.number().int().positive(),
+  createdBy: z.string().uuid(),
+  tarifaUnidad: z.string().nullable(),
+  numeroExpedienteInvima: z.string().nullable(),
+  consecutivoInvimaPresentacion: z.string().nullable(),
+  descripcionGenerica: z.string().nullable(),
+  descripcionComercial: z.string().nullable(),
+  laboratorio: z.string().nullable(),
+  tipoInclusion: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type TariffProductResponse = z.infer<typeof tariffProductResponseSchema>;
+
+export const paginatedTariffProductsResponseSchema = z.object({
+  items: z.array(tariffProductResponseSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const createTariffProductResultSchema = z.enum([
+  'PRODUCT_CREATED',
+  'PRODUCT_EXISTING',
+  'PRODUCT_REACTIVATED',
+]);
+export type CreateTariffProductResult = z.infer<typeof createTariffProductResultSchema>;
+
+export const tariffImportStatusSchema = z.enum(['UPLOADED', 'VALIDATING', 'COMPLETED', 'FAILED']);
+export type TariffImportStatus = z.infer<typeof tariffImportStatusSchema>;
+
+export const tariffImportRowResultCodeSchema = z.enum([
+  'PRODUCT_CREATED',
+  'PRODUCT_REACTIVATED',
+  'PRODUCT_EXISTING',
+  'INVALID_PRODUCT_CODE',
+  'DUPLICATE_IN_FILE',
+  'INVALID_FILE_FORMAT',
+  'PROCESSING_ERROR',
+]);
+export type TariffImportRowResultCode = z.infer<typeof tariffImportRowResultCodeSchema>;
+
+export const tariffImportRowResultMessages: Record<TariffImportRowResultCode, string> = {
+  PRODUCT_CREATED: 'Producto agregado al Anexo Tarifario.',
+  PRODUCT_REACTIVATED: 'Producto reactivado en el Anexo Tarifario.',
+  PRODUCT_EXISTING: 'Producto ya registrado y activo.',
+  INVALID_PRODUCT_CODE: 'Código obligatorio vacío o con formato inválido.',
+  DUPLICATE_IN_FILE: 'Código repetido dentro del archivo.',
+  INVALID_FILE_FORMAT: 'El archivo no cumple el formato técnico.',
+  PROCESSING_ERROR: 'No fue posible procesar la fila.',
+};
+
+export const tariffImportBatchResponseSchema = z.object({
+  id: z.string().uuid(),
+  status: tariffImportStatusSchema,
+  originalFilename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  sha256: z.string().length(64),
+  totalRows: z.number().int().nonnegative(),
+  createdRows: z.number().int().nonnegative(),
+  reactivatedRows: z.number().int().nonnegative(),
+  existingRows: z.number().int().nonnegative(),
+  rejectedRows: z.number().int().nonnegative(),
+  duplicateRows: z.number().int().nonnegative(),
+  lastErrorCode: z.string().min(1).max(80).nullable(),
+  createdAt: isoDateTimeSchema,
+  completedAt: isoDateTimeSchema.nullable(),
+});
+export type TariffImportBatchResponse = z.infer<typeof tariffImportBatchResponseSchema>;
+
+export const tariffImportRowResponseSchema = z.object({
+  id: z.string().uuid(),
+  rowNumber: z.number().int().positive(),
+  codigoProducto: z.string().nullable(),
+  resultCode: tariffImportRowResultCodeSchema,
+  resultMessage: z.string(),
+  productId: z.string().uuid().nullable(),
+  createdAt: isoDateTimeSchema,
+});
+export type TariffImportRowResponse = z.infer<typeof tariffImportRowResponseSchema>;
+
+export const paginatedTariffImportRowsResponseSchema = z.object({
+  items: z.array(tariffImportRowResponseSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const tariffImportListQuerySchema = z.object({
+  cursor: z.string().min(1).max(500).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export const TARIFF_ANNEX_QUEUE = 'tariff-annex';
+export const TARIFF_ANNEX_DEAD_LETTER_QUEUE = 'tariff-annex.dead-letter';
+export const TARIFF_IMPORT_JOB_NAME = 'tariff.import.v1';
+export const TARIFF_REVALIDATION_JOB_NAME = 'tariff.revalidation.v1';
+export const TARIFF_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 1000 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail: false,
+};
+
+export const tariffImportPayloadSchema = z.object({
+  eventId: z.string().uuid(),
+  batchId: z.string().uuid(),
+  sourceFileId: z.string().uuid(),
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type TariffImportPayload = z.infer<typeof tariffImportPayloadSchema>;
+
+export const tariffImportJobSchema = z.object({
+  name: z.literal('tariff.import'),
+  version: z.literal(1),
+  payload: tariffImportPayloadSchema,
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type TariffImportJob = z.infer<typeof tariffImportJobSchema>;
+
+export const tariffAnnexRevalidationPayloadSchema = z.object({
+  eventId: z.string().uuid(),
+  tariffProductId: z.string().uuid(),
+  codigoProducto: z.string().min(1).max(255),
+  actorId: z.string().uuid(),
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type TariffAnnexRevalidationPayload = z.infer<typeof tariffAnnexRevalidationPayloadSchema>;
+
+export const tariffAnnexRevalidationJobSchema = z.object({
+  name: z.literal('tariff.product.activated'),
+  version: z.literal(1),
+  payload: tariffAnnexRevalidationPayloadSchema,
+  correlationId: correlationIdSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+export type TariffAnnexRevalidationJob = z.infer<typeof tariffAnnexRevalidationJobSchema>;
+
+export const epsNovedadCausalSchema = z.enum([
+  'SOURCE_STATUS_BLOCKED',
+  'AUTHORIZATION_EXPIRED',
+  'DIRECTION_PENDING',
+  'DIRECTION_QUERY_ERROR',
+  'PRODUCT_NOT_IN_TARIFF_ANNEX',
+]);
+export type EpsNovedadCausal = z.infer<typeof epsNovedadCausalSchema>;
+
+export const epsNovedadesExportQuerySchema = z.object({
+  format: operationalExportFormatSchema.default('csv'),
+});
+export type EpsNovedadesExportQuery = z.infer<typeof epsNovedadesExportQuerySchema>;

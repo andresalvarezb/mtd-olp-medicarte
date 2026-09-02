@@ -126,6 +126,11 @@ export type OperationStatusInput = Readonly<{
   enablementStatus: 'ENABLED' | 'BLOCKED_SOURCE_STATUS';
   coverageType: 'PBS' | 'NO_PBS';
   directionStatus: 'NOT_APPLICABLE' | 'PENDING' | 'CONFIRMED' | 'QUERY_ERROR';
+  /**
+   * SPEC-014 / ADR-024: inclusión del producto (codigo_medicamento) en el
+   * Anexo Tarifario vigente. Sin producto listado no hay disponibilidad.
+   */
+  productInTariffAnnex: boolean;
   /** Valor original de FECHA_FINAL_VIGENCIA (ej. 20261001 o 2026-10-01). */
   fechaFinalVigencia?: unknown;
   /** Fecha del sistema (America/Bogota) contra la que se evalúa la vigencia. */
@@ -149,6 +154,7 @@ export function deriveOperationStatus(
 ): 'BLOCKED' | 'READY_TO_DISPENSE' | 'EXPIRED' {
   const ready =
     input.enablementStatus === 'ENABLED' &&
+    input.productInTariffAnnex &&
     ((input.coverageType === 'PBS' && input.directionStatus === 'NOT_APPLICABLE') ||
       (input.coverageType === 'NO_PBS' && input.directionStatus === 'CONFIRMED'));
   if (!ready) return 'BLOCKED';

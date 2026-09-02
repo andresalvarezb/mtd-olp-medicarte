@@ -62,6 +62,7 @@ La lista del archivo contiene 26 columnas con el diccionario versión 2; encabez
 | `EXPLICIT_UPDATE_NOT_ALLOWED`   | Una actualización explícita fue intentada fuera de `READY_TO_DISPENSE`.                                |
 | `ITEM_CREATED`                  | La fila válida creó un ítem durante la confirmación.                                                   |
 | `ITEM_UPDATED`                  | Una actualización explícita autorizada terminó correctamente.                                          |
+| `PRODUCT_NOT_IN_TARIFF_ANNEX`   | Código no incluido en el Anexo Tarifario activo; conserva evidencia y no es confirmable.                |
 | `PROCESSING_ERROR`              | Error técnico estable de procesamiento, sin exponer la excepción interna.                              |
 
 ## Reglas
@@ -86,7 +87,7 @@ Excepciones: `FAILED`, `CANCELLED`.
 
 ## Persistencia
 
-`import_batches`, `import_rows`, `validation_errors`, `authorization_items`, `audit_events`.
+`import_batches` (incluye `tariff_rejected_rows`), `import_rows`, `validation_errors`, `authorization_items`, `audit_events`.
 
 ## Aceptación
 

@@ -162,7 +162,7 @@ export function PuntosAplicacionView() {
             operationType="ASSIGN_DISPENSATION_LOCATION"
             buttonLabel="Asignar punto (archivo)"
             fileTitle="Archivo de asignación de lugar de dispensación"
-            columnsHint="Columnas requeridas: authorization_key, lugar_dispensacion"
+            columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, LUGAR_DISPENSACION"
             onCompleted={reload}
           />
         ) : null}

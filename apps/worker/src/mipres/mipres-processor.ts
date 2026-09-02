@@ -23,6 +23,7 @@ type ItemRow = {
   coverage_type: string;
   direction_status: string | null;
   operation_status: string | null;
+  tariff_membership_status: string;
   fecha_final_vigencia: string | null;
 };
 
@@ -151,6 +152,7 @@ export class MipresProcessor {
         enablementStatus: item.enablement_status as 'ENABLED' | 'BLOCKED_SOURCE_STATUS',
         coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
         directionStatus: outcome,
+        productInTariffAnnex: item.tariff_membership_status === 'LISTED',
         fechaFinalVigencia: item.fecha_final_vigencia,
         today: checkDate,
       });
@@ -268,6 +270,7 @@ export class MipresProcessor {
   private async loadItem(itemId: string): Promise<ItemRow | undefined> {
     const result = await this.database.pool.query<ItemRow>(
       `select id, no_prescripcion, enablement_status, coverage_type, direction_status, operation_status,
+              tariff_membership_status,
               source_data->>'FECHA_FINAL_VIGENCIA' as fecha_final_vigencia
        from authorization_items where id = $1`,
       [itemId],

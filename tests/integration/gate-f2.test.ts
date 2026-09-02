@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { loginDev } from './helpers/auth';
+import { registerTariffProducts } from './helpers/tariff';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -215,6 +216,23 @@ describe('Gate F2', () => {
     [adminToken, olpToken] = await Promise.all([
       login('foundation-admin', 'foundation-admin'),
       login('olp-operator', 'olp-operator'),
+    ]);
+    await registerTariffProducts(adminToken, [
+      'MED-PBS',
+      'MED-NO-PBS',
+      'MED-PRES-PBS',
+      'MED-PRES-NO-PBS',
+      'MED-PRES-INVALID',
+      'MED-CONCURRENT',
+      'MED-UPDATE',
+      'MED-UPDATE-STATUS',
+      'MED-UPDATE-ROLLBACK',
+      'MED-REPLAY-SCOPE',
+      'MED-SOURCE-SCOPE',
+      'MED-A',
+      'MED-B',
+      'MED-MISSING',
+      'MED-BLOCKED',
     ]);
   });
 

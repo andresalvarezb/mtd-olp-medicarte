@@ -21,6 +21,7 @@ export interface ImportBatch {
   rejectedRows: number;
   duplicateRows: number;
   existingRows: number;
+  tariffRejectedRows: number;
   confirmedRows: number;
   lastErrorCode: string | null;
   createdAt: string;

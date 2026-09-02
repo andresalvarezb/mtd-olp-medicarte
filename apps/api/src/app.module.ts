@@ -36,6 +36,8 @@ import { AuditsService } from './audits/audits.service';
 import { ConsolidationController } from './consolidation/consolidation.controller';
 import { ConsolidationService } from './consolidation/consolidation.service';
 import { IndicatorsController } from './consolidation/indicators.controller';
+import { TariffAnnexController } from './tariff-annex/tariff-annex.controller';
+import { TariffAnnexService } from './tariff-annex/tariff-annex.service';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
 
 const config = parseApiConfig(process.env);
@@ -85,6 +87,7 @@ new Gauge({
     AuditsController,
     ConsolidationController,
     IndicatorsController,
+    TariffAnnexController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -101,6 +104,7 @@ new Gauge({
     NotificationsAdminService,
     AuditsService,
     ConsolidationService,
+    TariffAnnexService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

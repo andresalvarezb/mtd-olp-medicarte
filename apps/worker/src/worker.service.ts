@@ -28,11 +28,20 @@ import {
   NOTIFICATION_JOB_OPTIONS,
   NOTIFICATIONS_QUEUE,
   notificationJobSchema,
+  TARIFF_ANNEX_DEAD_LETTER_QUEUE,
+  TARIFF_ANNEX_QUEUE,
+  TARIFF_IMPORT_JOB_NAME,
+  TARIFF_JOB_OPTIONS,
+  TARIFF_REVALIDATION_JOB_NAME,
+  tariffAnnexRevalidationJobSchema,
+  tariffImportJobSchema,
   type AuthorizationImportJob,
   type BulkUpdateJob,
   type FoundationJob,
   type MipresRecheckJob,
   type NotificationJob,
+  type TariffAnnexRevalidationJob,
+  type TariffImportJob,
 } from '@authorization/contracts';
 import { currentBogotaDate, type MipresPort } from '@authorization/domain';
 import { jobResults, notifications, outboxEvents } from '@authorization/database';
@@ -59,6 +68,14 @@ import {
   type NotificationProcessingResult,
 } from './notifications/notification-processor';
 import { GmailApiAdapter, GmailFakeAdapter } from './notifications/gmail-adapter';
+import {
+  TariffImportProcessor,
+  type TariffImportProcessingResult,
+} from './tariff/tariff-import-processor';
+import {
+  TariffRevalidationProcessor,
+  type TariffRevalidationResult,
+} from './tariff/tariff-revalidation-processor';
 
 type Database = ReturnType<typeof createDatabase>;
 type WorkerJob =
@@ -66,7 +83,9 @@ type WorkerJob =
   | AuthorizationImportJob
   | MipresRecheckJob
   | NotificationJob
-  | BulkUpdateJob;
+  | BulkUpdateJob
+  | TariffImportJob
+  | TariffAnnexRevalidationJob;
 type QueueJob = WorkerJob;
 type OutboxRow = {
   id: string;
@@ -94,25 +113,31 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private readonly mipresQueue: Queue<MipresRecheckJob>;
   private readonly notificationQueue: Queue<NotificationJob>;
   private readonly bulkQueue: Queue<BulkUpdateJob>;
+  private readonly tariffQueue: Queue<TariffImportJob | TariffAnnexRevalidationJob>;
   private readonly foundationDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly importDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly mipresDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly notificationDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly bulkDeadLetterQueue: Queue<DeadLetterJob>;
+  private readonly tariffDeadLetterQueue: Queue<DeadLetterJob>;
   private readonly foundationQueueEvents: QueueEvents;
   private readonly importQueueEvents: QueueEvents;
   private readonly mipresQueueEvents: QueueEvents;
   private readonly notificationQueueEvents: QueueEvents;
   private readonly bulkQueueEvents: QueueEvents;
+  private readonly tariffQueueEvents: QueueEvents;
   private readonly foundationWorker: Worker<FoundationJob>;
   private readonly importWorker: Worker<AuthorizationImportJob>;
   private readonly mipresWorker: Worker<MipresRecheckJob>;
   private readonly notificationWorker: Worker<NotificationJob>;
   private readonly bulkWorker: Worker<BulkUpdateJob>;
+  private readonly tariffWorker: Worker<TariffImportJob | TariffAnnexRevalidationJob>;
   private readonly importProcessor: ImportProcessor;
   private readonly mipresProcessor: MipresProcessor;
   private readonly notificationProcessor: NotificationProcessor;
   private readonly bulkProcessor: BulkUpdateProcessor;
+  private readonly tariffImportProcessor: TariffImportProcessor;
+  private readonly tariffRevalidationProcessor: TariffRevalidationProcessor;
   private timer?: NodeJS.Timeout;
   private autoRevalidationTimer?: NodeJS.Timeout;
   private dailyReportTimer?: NodeJS.Timeout;
@@ -149,6 +174,12 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     this.bulkQueue = new Queue<BulkUpdateJob>(BULK_UPDATES_QUEUE, {
       connection: this.connection,
     });
+    this.tariffQueue = new Queue<TariffImportJob | TariffAnnexRevalidationJob>(
+      TARIFF_ANNEX_QUEUE,
+      {
+        connection: this.connection,
+      },
+    );
     this.foundationDeadLetterQueue = new Queue<DeadLetterJob>(FOUNDATION_DEAD_LETTER_QUEUE, {
       connection: this.connection,
     });
@@ -164,6 +195,9 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     this.bulkDeadLetterQueue = new Queue<DeadLetterJob>(BULK_UPDATES_DEAD_LETTER_QUEUE, {
       connection: this.connection,
     });
+    this.tariffDeadLetterQueue = new Queue<DeadLetterJob>(TARIFF_ANNEX_DEAD_LETTER_QUEUE, {
+      connection: this.connection,
+    });
     this.foundationQueueEvents = new QueueEvents(FOUNDATION_QUEUE, { connection: this.connection });
     this.importQueueEvents = new QueueEvents(IMPORT_QUEUE, { connection: this.connection });
     this.mipresQueueEvents = new QueueEvents(MIPRES_QUEUE, { connection: this.connection });
@@ -171,6 +205,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       connection: this.connection,
     });
     this.bulkQueueEvents = new QueueEvents(BULK_UPDATES_QUEUE, { connection: this.connection });
+    this.tariffQueueEvents = new QueueEvents(TARIFF_ANNEX_QUEUE, { connection: this.connection });
     this.importProcessor = new ImportProcessor(database, config);
     const mipresTokenProvider = new MipresTokenProvider(config);
     const mipresPort: MipresPort =
@@ -189,6 +224,8 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
           );
     this.notificationProcessor = new NotificationProcessor(database, gmailPort);
     this.bulkProcessor = new BulkUpdateProcessor(database);
+    this.tariffImportProcessor = new TariffImportProcessor(database);
+    this.tariffRevalidationProcessor = new TariffRevalidationProcessor(database);
     this.foundationWorker = new Worker<FoundationJob>(
       FOUNDATION_QUEUE,
       (job) => this.processFoundation(job),
@@ -229,6 +266,14 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         concurrency: config.BULK_QUEUE_CONCURRENCY,
       },
     );
+    this.tariffWorker = new Worker<TariffImportJob | TariffAnnexRevalidationJob>(
+      TARIFF_ANNEX_QUEUE,
+      (job) => this.processTariff(job),
+      {
+        connection: this.connection,
+        concurrency: 2,
+      },
+    );
   }
 
   onModuleInit(): void {
@@ -262,11 +307,18 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         'job completed',
       );
     });
+    this.tariffWorker.on('completed', (job) => {
+      this.logger.info(
+        { jobId: job.id, correlationId: job.data?.correlationId, queue: TARIFF_ANNEX_QUEUE },
+        'job completed',
+      );
+    });
     this.foundationWorker.on('error', (error) => this.handleWorkerError(error));
     this.importWorker.on('error', (error) => this.handleWorkerError(error));
     this.mipresWorker.on('error', (error) => this.handleWorkerError(error));
     this.notificationWorker.on('error', (error) => this.handleWorkerError(error));
     this.bulkWorker.on('error', (error) => this.handleWorkerError(error));
+    this.tariffWorker.on('error', (error) => this.handleWorkerError(error));
     this.foundationQueueEvents.on('failed', ({ jobId, failedReason }) => {
       void this.moveToDeadLetterWhenExhausted(
         this.foundationQueue,
@@ -308,6 +360,15 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         this.bulkQueue,
         this.bulkDeadLetterQueue,
         BULK_UPDATES_QUEUE,
+        jobId,
+        failedReason,
+      );
+    });
+    this.tariffQueueEvents.on('failed', ({ jobId, failedReason }) => {
+      void this.moveToDeadLetterWhenExhausted(
+        this.tariffQueue,
+        this.tariffDeadLetterQueue,
+        TARIFF_ANNEX_QUEUE,
         jobId,
         failedReason,
       );
@@ -464,6 +525,32 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
           this.bulkQueue,
           bulkUpdate.data,
           BULK_UPDATE_JOB_OPTIONS,
+        );
+        return true;
+      }
+      const tariffImport = tariffImportJobSchema.safeParse(sharedInput);
+      if (tariffImport.success) {
+        await this.enqueueOutboxJob(
+          client,
+          event,
+          TARIFF_ANNEX_QUEUE,
+          TARIFF_IMPORT_JOB_NAME,
+          this.tariffQueue,
+          tariffImport.data,
+          TARIFF_JOB_OPTIONS,
+        );
+        return true;
+      }
+      const tariffRevalidation = tariffAnnexRevalidationJobSchema.safeParse(sharedInput);
+      if (tariffRevalidation.success) {
+        await this.enqueueOutboxJob(
+          client,
+          event,
+          TARIFF_ANNEX_QUEUE,
+          TARIFF_REVALIDATION_JOB_NAME,
+          this.tariffQueue,
+          tariffRevalidation.data,
+          TARIFF_JOB_OPTIONS,
         );
         return true;
       }
@@ -710,6 +797,75 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     return { processed: true };
   }
 
+  private async processTariff(
+    rawJob: Job<TariffImportJob | TariffAnnexRevalidationJob>,
+  ): Promise<{ processed: true }> {
+    const data = rawJob.data;
+    const importJob = tariffImportJobSchema.safeParse(data);
+    if (importJob.success) {
+      const result: TariffImportProcessingResult =
+        await this.tariffImportProcessor.process(importJob.data);
+      await this.database.db
+        .insert(jobResults)
+        .values({
+          queue: TARIFF_ANNEX_QUEUE,
+          jobName: TARIFF_IMPORT_JOB_NAME,
+          idempotencyKey: importJob.data.idempotencyKey,
+          result,
+          correlationId: importJob.data.correlationId,
+        })
+        .onConflictDoNothing();
+      await this.database.db
+        .update(outboxEvents)
+        .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
+        .where(eq(outboxEvents.id, importJob.data.payload.eventId));
+      this.logger.info(
+        {
+          jobId: rawJob.id,
+          correlationId: importJob.data.correlationId,
+          queue: TARIFF_ANNEX_QUEUE,
+          batchId: importJob.data.payload.batchId,
+          status: result.status,
+          createdRows: result.createdRows,
+        },
+        'tariff annex import processed',
+      );
+      return { processed: true };
+    }
+    const revalidationJob = tariffAnnexRevalidationJobSchema.safeParse(data);
+    if (revalidationJob.success) {
+      const result: TariffRevalidationResult =
+        await this.tariffRevalidationProcessor.process(revalidationJob.data);
+      await this.database.db
+        .insert(jobResults)
+        .values({
+          queue: TARIFF_ANNEX_QUEUE,
+          jobName: TARIFF_REVALIDATION_JOB_NAME,
+          idempotencyKey: revalidationJob.data.idempotencyKey,
+          result,
+          correlationId: revalidationJob.data.correlationId,
+        })
+        .onConflictDoNothing();
+      await this.database.db
+        .update(outboxEvents)
+        .set({ status: 'PROCESSED', processedAt: new Date(), lastError: null })
+        .where(eq(outboxEvents.id, revalidationJob.data.payload.eventId));
+      this.logger.info(
+        {
+          jobId: rawJob.id,
+          correlationId: revalidationJob.data.correlationId,
+          queue: TARIFF_ANNEX_QUEUE,
+          codigoProducto: revalidationJob.data.payload.codigoProducto,
+          evaluatedItems: result.evaluatedItems,
+          becameReadyItems: result.becameReadyItems,
+        },
+        'tariff annex revalidation processed',
+      );
+      return { processed: true };
+    }
+    throw new Error('Unknown tariff annex job payload');
+  }
+
   /**
    * DEC-005/SPEC-004: consolidado diario a las 08:00 America/Bogota con las
    * novedades del día calendario anterior. Se encola un evento por
@@ -932,6 +1088,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       this.mipresWorker.close(),
       this.notificationWorker.close(),
       this.bulkWorker.close(),
+      this.tariffWorker.close(),
     ]);
     await Promise.all([
       this.foundationQueueEvents.close(),
@@ -939,6 +1096,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       this.mipresQueueEvents.close(),
       this.notificationQueueEvents.close(),
       this.bulkQueueEvents.close(),
+      this.tariffQueueEvents.close(),
     ]);
     await Promise.all([
       this.foundationQueue.close(),
@@ -946,11 +1104,13 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       this.mipresQueue.close(),
       this.notificationQueue.close(),
       this.bulkQueue.close(),
+      this.tariffQueue.close(),
       this.foundationDeadLetterQueue.close(),
       this.importDeadLetterQueue.close(),
       this.mipresDeadLetterQueue.close(),
       this.notificationDeadLetterQueue.close(),
       this.bulkDeadLetterQueue.close(),
+      this.tariffDeadLetterQueue.close(),
     ]);
     await this.connection.quit();
     await this.database.pool.end();

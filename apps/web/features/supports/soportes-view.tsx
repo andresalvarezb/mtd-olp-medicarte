@@ -7,10 +7,12 @@ import { Tabs } from '@/components/ui/tabs';
 import { DataTable } from '@/components/ui/data-table';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Note } from '@/components/ui/timeline';
+import { BulkUpdateUpload } from '@/components/bulk-update-upload';
 import { useRole } from '@/components/layout/role-context';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
 import { TablePagination } from '@/components/ui/table-pagination';
 import { listAuthorizationItems } from '@/lib/authorization-items-api';
+import { downloadFile } from '@/lib/authorization-items-api';
 import { patientName, patientDocument, AUDIT_STATUS_LABELS, auditPill } from '@/lib/labels';
 import type { AuthorizationItemResponse } from '@authorization/contracts';
 
@@ -32,8 +34,10 @@ const OPERATION_LABELS: Record<string, string> = {
 };
 
 export function SoportesView() {
-  const { organizationId } = useRole();
+  const { organizationId, hasPermission } = useRole();
   const [tab, setTab] = useState(0);
+  const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const reported = usePaginatedList<AuthorizationItemResponse>(
     (cursor) =>
@@ -63,6 +67,23 @@ export function SoportesView() {
   const currentHook = hooks[tab] ?? reported;
   const loading = currentHook.loading;
   const error = currentHook.error;
+  const canExport = hasPermission('operational_exports.create');
+  const canReport = hasPermission('bulk_updates.application_date');
+
+  const handleExport = (format: 'csv' | 'xlsx') => {
+    setExporting(format);
+    setActionError(null);
+    downloadFile(
+      '/operational-exports/authorization-items',
+      organizationId,
+      `medicarte-fecha-aplicacion.${format}`,
+      { operationType: 'REPORT_APPLICATION_DATE', format },
+    )
+      .catch((err: unknown) =>
+        setActionError(err instanceof Error ? err.message : 'No fue posible exportar.'),
+      )
+      .finally(() => setExporting(null));
+  };
 
   const rows = ((pages[tab] ?? null)?.items ?? []).map((item) => [
     <span key="num" style={{ fontWeight: 600 }}>
@@ -83,8 +104,47 @@ export function SoportesView() {
       <PageHeader
         title="Soportes de aplicación"
         description="Fórmula y soporte de aplicación por ítem, versionados en el Drive corporativo."
+        actions={
+          canExport ? (
+            <>
+              <button
+                type="button"
+                className="btn"
+                disabled={exporting !== null}
+                onClick={() => handleExport('csv')}
+              >
+                {exporting === 'csv' ? 'Generando…' : 'Exportar base (CSV)'}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={exporting !== null}
+                onClick={() => handleExport('xlsx')}
+              >
+                {exporting === 'xlsx' ? 'Generando…' : 'Exportar Excel'}
+              </button>
+            </>
+          ) : null
+        }
       />
       <Card>
+        {actionError ? (
+          <div className="login-error" role="alert" style={{ margin: '0 0 14px' }}>
+            {actionError}
+          </div>
+        ) : null}
+        {canReport ? (
+          <BulkUpdateUpload
+            operationType="REPORT_APPLICATION_DATE"
+            buttonLabel="Reportar fecha de aplicación (archivo)"
+            fileTitle="Archivo de actualización de fecha de aplicación"
+            columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, FECHA_APLICACION"
+            onCompleted={() => {
+              reported.reload();
+              dispensed.reload();
+            }}
+          />
+        ) : null}
         {error ? (
           <div className="login-error" role="alert" style={{ margin: '0 0 14px' }}>
             {error}
@@ -104,7 +164,7 @@ export function SoportesView() {
             emptyDescription={
               loading
                 ? 'Consultando la API…'
-                : 'La carga de soportes (Drive) todavía no expone endpoint en la API.'
+                 : 'Los registros con fecha de dispensación aparecen aquí para reportar su fecha de aplicación.'
             }
           />
           <TablePagination
@@ -117,9 +177,9 @@ export function SoportesView() {
         </Tabs>
         <div style={{ marginTop: 12 }}>
           <Note>
-            El flujo de carga de soportes al Drive corporativo aún no tiene endpoint público; esta
-            vista muestra únicamente ítems con fecha de dispensación reportada por OLP
-            (dispensación reportada y dispensadas con auditoría) en tiempo real.
+            Esta vista muestra ítems con fecha de dispensación reportada por OLP. Medicarte puede
+            descargar la base, completar únicamente <strong>CLAVE_AUTORIZACION</strong> y
+            <strong> FECHA_APLICACION</strong>, y cargarla para actualizar ese campo.
           </Note>
         </div>
       </Card>

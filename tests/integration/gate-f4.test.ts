@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { loginDev } from './helpers/auth';
+import { registerTariffProducts } from './helpers/tariff';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -146,10 +147,12 @@ async function confirmImport(token: string, batchId: string, idempotencyKey?: st
 
 async function confirmReadyItem(suffix: string): Promise<string> {
   const authorization = `AUTH-F4-${randomUUID()}`;
+  const medication = `MED-F4-${suffix}`.toUpperCase();
+  await registerTariffProducts(adminToken, [medication]);
   const batch = await createImport(
     adminToken,
     authorizationCsv([
-      { authorization, medication: `MED-F4-${suffix}`, prescripcion: '', status: '5' },
+      { authorization, medication, prescripcion: '', status: '5' },
     ]),
   );
   await waitForBatch(adminToken, batch.id);
@@ -325,6 +328,7 @@ describe('Gate F4', () => {
 
   it('no duplica la notificación al reconfirmar con la misma llave de idempotencia', async () => {
     const authorization = `AUTH-F4-IDEM-${randomUUID()}`;
+    await registerTariffProducts(adminToken, ['MED-F4-IDEM']);
     const batch = await createImport(
       adminToken,
       authorizationCsv([

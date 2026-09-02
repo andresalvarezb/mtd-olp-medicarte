@@ -272,15 +272,15 @@ export class BulkUpdateProcessor {
     // Los tipos de dispensación traen la llave ya formada (authorization_key);
     // el resto conserva la pareja numero_autorizacion + codigo_medicamento.
     let keyComponents: ReturnType<typeof buildAuthorizationKey> | null = null;
-    if (hasValue(input.row.rawData, 'authorization_key')) {
-      keyComponents = parseAuthorizationKeyInput(input.row.rawData['authorization_key']);
+    if (hasValue(input.row.rawData, 'CLAVE_AUTORIZACION')) {
+      keyComponents = parseAuthorizationKeyInput(input.row.rawData['CLAVE_AUTORIZACION']);
     } else if (
-      hasValue(input.row.rawData, 'numero_autorizacion') &&
-      hasValue(input.row.rawData, 'codigo_medicamento')
+      hasValue(input.row.rawData, 'NUMERO_AUTORIZACION') &&
+      hasValue(input.row.rawData, 'CODIGO_PRODUCTO')
     ) {
       keyComponents = buildAuthorizationKey(
-        input.row.rawData['numero_autorizacion'],
-        input.row.rawData['codigo_medicamento'],
+        input.row.rawData['NUMERO_AUTORIZACION'],
+        input.row.rawData['CODIGO_PRODUCTO'],
       );
     }
     if (!keyComponents) {
@@ -346,6 +346,9 @@ export class BulkUpdateProcessor {
         null,
         { newValue },
       );
+    }
+    if (input.operationType === 'REPORT_APPLICATION_DATE' && !item.fecha_dispensacion) {
+      return await reject('INVALID_OPERATION_STATE', item.id, { newValue });
     }
     const previousValue =
       input.operationType === 'ASSIGN_DISPENSATION_LOCATION'

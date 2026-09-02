@@ -18,7 +18,12 @@ import {
 } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
 import type { ApiConfig } from '@authorization/config';
-import { currentBogotaDate, deriveOperationStatus } from '@authorization/domain';
+import {
+  currentBogotaDate,
+  deriveOperationStatus,
+  deriveTariffMembershipStatus,
+  TARIFF_ANNEX_RULE_VERSION,
+} from '@authorization/domain';
 import { API_CONFIG, DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
 
@@ -37,6 +42,7 @@ type BatchRow = {
   rejected_rows: number;
   duplicate_rows: number;
   existing_rows: number;
+  tariff_rejected_rows: number;
   confirmed_rows: number;
   last_error_code: string | null;
   created_at: Date;
@@ -127,6 +133,7 @@ function toBatchResponse(row: BatchRow): ImportBatchResponse {
     rejectedRows: row.rejected_rows,
     duplicateRows: row.duplicate_rows,
     existingRows: row.existing_rows,
+    tariffRejectedRows: row.tariff_rejected_rows,
     confirmedRows: row.confirmed_rows,
     lastErrorCode: row.last_error_code,
     createdAt: row.created_at.toISOString(),
@@ -190,6 +197,25 @@ export class ImportsService {
     const contentHash = createHash('sha256').update(input.file.buffer).digest('hex');
     const hash = requestHash(input.file.originalname, input.file.mimetype, contentHash);
     const idempotencyScope = `imports.create:${input.scope.organizationId}`;
+    const tariffAvailable = await this.database.pool.query<{ version: number }>(
+      `select coalesce(max(version), 0)::int as version
+       from tariff_annex_products where organization_id = $1 and active = true`,
+      [input.scope.organizationId],
+    );
+    if (Number(tariffAvailable.rows[0]?.version ?? 0) === 0) {
+      const correlationId = input.scope.correlationId;
+      await this.database.pool.query(
+        `insert into audit_events
+           (actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
+         values ('USER', $1, $2, 'AUTHORIZATION_IMPORT_BLOCKED_TARIFF_MISSING', 'import_batch', null, $3::jsonb, $4, $4, 'REJECTED')`,
+        [input.scope.userId, input.scope.organizationId, JSON.stringify({ filename: input.file.originalname }), correlationId],
+      );
+      throw new BadRequestException({
+        code: 'TARIFF_ANNEX_REQUIRED',
+        message:
+          'No es posible procesar el cargue de autorizaciones porque no existe un Anexo Tarifario disponible. Cargue o configure el Anexo Tarifario antes de continuar.',
+      });
+    }
     const client = await this.database.pool.connect();
     try {
       await client.query('begin');
@@ -227,7 +253,7 @@ export class ImportsService {
            (id, organization_id, created_by, original_filename, mime_type, size_bytes, sha256, processor_version, status)
          values ($1, $2, $3, $4, $5, $6, $7, $8, 'UPLOADED')
          returning id, organization_id, original_filename, mime_type, size_bytes, sha256, status,
-                   total_rows, valid_rows, rejected_rows, duplicate_rows, existing_rows, confirmed_rows,
+                    total_rows, valid_rows, rejected_rows, duplicate_rows, existing_rows, tariff_rejected_rows, confirmed_rows,
                    last_error_code, created_at, completed_at, confirmed_at`,
         [
           batchId,
@@ -406,7 +432,7 @@ export class ImportsService {
 
       const batchResult = await client.query<BatchRow>(
         `select b.id, b.organization_id, b.original_filename, b.mime_type, b.size_bytes, b.sha256, b.status,
-                b.total_rows, b.valid_rows, b.rejected_rows, b.duplicate_rows, b.existing_rows, b.confirmed_rows,
+                b.total_rows, b.valid_rows, b.rejected_rows, b.duplicate_rows, b.existing_rows, b.tariff_rejected_rows, b.confirmed_rows,
                 b.last_error_code, b.created_at, b.completed_at, b.confirmed_at
          from import_batches b
           where b.id = $1 and b.organization_id = $2
@@ -447,6 +473,18 @@ export class ImportsService {
       await client.query(`update import_batches set status = 'CONFIRMING' where id = $1`, [
         batchId,
       ]);
+      const tariffSnapshot = await client.query<{ codigo_producto: string; version: number }>(
+        `select codigo_producto, version from tariff_annex_products
+         where organization_id = $1 and active = true order by codigo_producto for share`,
+        [batch.organization_id],
+      );
+      if (tariffSnapshot.rows.length === 0) {
+        throw new BadRequestException({
+          code: 'TARIFF_ANNEX_REQUIRED',
+          message:
+            'No es posible procesar el cargue de autorizaciones porque no existe un Anexo Tarifario disponible. Cargue o configure el Anexo Tarifario antes de continuar.',
+        });
+      }
       const organizationIds = await client.query<{ id: string; code: string }>(
         `select id, code from organizations where code = any($1::text[])`,
         [['OLP', 'MEDICARTE', 'COMPENSAR']],
@@ -469,17 +507,25 @@ export class ImportsService {
           order by authorization_key, row_number for update`,
         [batchId],
       );
+      // SPEC-014: cargue del conjunto de códigos de producto activos en el
+      // Anexo Tarifario para resolver la membresía de cada fila en memoria.
+      const activeProductCodes = new Set(tariffSnapshot.rows.map((entry) => entry.codigo_producto));
+      const tariffVersion = Math.max(...tariffSnapshot.rows.map((entry) => entry.version));
       let createdRows = 0;
+      let tariffRejectedRows = 0;
       let concurrentExistingRows = 0;
       const readyItemIds: string[] = [];
       const epsPendingItemIds: string[] = [];
       for (const row of rows.rows) {
         const classification = authorizationClassificationSchema.parse(row.normalized_data);
         const rawSource = (row.raw_data ?? {}) as Record<string, unknown>;
+        const productInTariffAnnex = activeProductCodes.has(classification.codigoMedicamento);
+        const tariffMembershipStatus = deriveTariffMembershipStatus(productInTariffAnnex);
         const operationStatus = deriveOperationStatus({
           enablementStatus: classification.enablementStatus,
           coverageType: classification.coverageType,
           directionStatus: classification.directionStatus,
+          productInTariffAnnex,
           fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
           today: currentBogotaDate(),
         });
@@ -487,8 +533,9 @@ export class ImportsService {
           `insert into authorization_items
              (numero_autorizacion, codigo_medicamento, authorization_key, source_data, source_status_normalized,
               source_prescripcion_normalized, no_prescripcion, enablement_status, coverage_type, direction_status,
-              operation_status, coverage_rule_version, created_from_batch_id)
-           values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, 'F2-COVERAGE-2', $12)
+              operation_status, coverage_rule_version, tariff_membership_status, tariff_membership_evaluated_at,
+              tariff_rule_version, created_from_batch_id)
+           values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, 'F2-COVERAGE-2', $12, now(), $13, $14)
            on conflict (numero_autorizacion, codigo_medicamento) do nothing
            returning id, version`,
           [
@@ -503,6 +550,8 @@ export class ImportsService {
             classification.coverageType,
             classification.directionStatus,
             operationStatus,
+            tariffMembershipStatus,
+             `${TARIFF_ANNEX_RULE_VERSION}:${tariffVersion}`,
             batchId,
           ],
         );
@@ -521,7 +570,7 @@ export class ImportsService {
           concurrentExistingRows += 1;
           continue;
         }
-        const sourceValue = rawText(sourceDataRecord(row.raw_data)?.['No.PRESCRIPCION']);
+         const sourceValue = rawText(sourceDataRecord(row.raw_data)?.NUMERO_PRESCRIPCION);
         await client.query(
           `insert into coverage_evaluations
              (authorization_item_id, evaluation_version, source_value, normalized_value, coverage_type, rule_version)
@@ -536,6 +585,14 @@ export class ImportsService {
         );
         if (operationStatus === 'READY_TO_DISPENSE') {
           readyItemIds.push(itemId);
+        }
+        if (!productInTariffAnnex) {
+          tariffRejectedRows += 1;
+          await client.query(
+            `update import_rows set result_code = 'PRODUCT_NOT_IN_TARIFF_ANNEX',
+             result_message = $2, confirmable = false, authorization_item_id = $3 where id = $1`,
+            [row.id, importRowResultMessages.PRODUCT_NOT_IN_TARIFF_ANNEX, itemId],
+          );
         }
         if (
           operationStatus === 'BLOCKED' &&
@@ -578,11 +635,27 @@ export class ImportsService {
             correlationId: input.scope.correlationId,
           });
         }
+        await this.insertAudit(client, {
+          actorId: input.scope.userId,
+          organizationId: input.scope.organizationId,
+          action: productInTariffAnnex
+            ? 'TARIFF_ANNEX_VALIDATION_PASSED'
+            : 'TARIFF_ANNEX_VALIDATION_FAILED',
+          resourceType: 'authorization_item',
+          resourceId: itemId,
+          after: {
+            codigoMedicamento: classification.codigoMedicamento,
+            tariffMembershipStatus,
+            causal: productInTariffAnnex ? null : 'PRODUCT_NOT_IN_TARIFF_ANNEX',
+            ruleVersion: TARIFF_ANNEX_RULE_VERSION,
+          },
+          correlationId: input.scope.correlationId,
+        });
         await client.query(
           `update import_rows set result_code = 'ITEM_CREATED', result_message = $2, confirmable = false, authorization_item_id = $3 where id = $1`,
           [row.id, importRowResultMessages.ITEM_CREATED, itemId],
         );
-        createdRows += 1;
+         if (productInTariffAnnex) createdRows += 1;
       }
 
       for (const itemId of readyItemIds) {
@@ -609,6 +682,7 @@ export class ImportsService {
             MEDICARTE: medicarteOrganizationId,
           },
           itemId,
+          batchId: null,
           period: null,
           idempotencyKeys: (recipientCode) => `ready:${itemId}:${version}:${recipientCode}`,
           correlationId: input.scope.correlationId,
@@ -622,20 +696,44 @@ export class ImportsService {
             notificationType: 'EPS_DIRECTION_PENDING',
             recipientCodes: ['COMPENSAR'],
             recipientIdByCode: { COMPENSAR: epsOrganizationId },
-            itemId,
+          itemId,
+          batchId: null,
             period,
             idempotencyKeys: () => `eps-pending:${itemId}:${period}`,
             correlationId: input.scope.correlationId,
           });
         }
       }
+      if (epsOrganizationId && tariffRejectedRows > 0) {
+        await this.enqueueNotifications(client, {
+          notificationType: 'EPS_TARIFF_ANNEX_REJECTED',
+          recipientCodes: ['COMPENSAR'],
+          recipientIdByCode: { COMPENSAR: epsOrganizationId },
+          itemId: null,
+          batchId,
+          period: null,
+          idempotencyKeys: () => `eps-tariff:${batchId}`,
+          correlationId: input.scope.correlationId,
+        });
+        await this.insertAudit(client, {
+          actorId: input.scope.userId,
+          organizationId: input.scope.organizationId,
+          action: 'EPS_TARIFF_ANNEX_NOTIFICATION_GENERATED',
+          resourceType: 'import_batch',
+          resourceId: batchId,
+          after: { tariffRejectedRows },
+          correlationId: input.scope.correlationId,
+        });
+      }
 
       const completed = await client.query<{ confirmed_at: Date }>(
         `update import_batches
-         set status = 'COMPLETED', confirmed_rows = $2, existing_rows = existing_rows + $3, confirmed_at = now(), completed_at = now()
+          set status = 'COMPLETED', confirmed_rows = $2, existing_rows = existing_rows + $3,
+              rejected_rows = rejected_rows + $4, tariff_rejected_rows = tariff_rejected_rows + $4,
+              confirmed_at = now(), completed_at = now()
          where id = $1
          returning confirmed_at`,
-        [batchId, createdRows, concurrentExistingRows],
+        [batchId, createdRows, concurrentExistingRows, tariffRejectedRows],
       );
       const confirmedAt = completed.rows[0]?.confirmed_at;
       if (!confirmedAt) throw new Error('Import batch confirmation timestamp was not created');
@@ -645,7 +743,7 @@ export class ImportsService {
         action: 'IMPORT_CONFIRMED',
         resourceType: 'import_batch',
         resourceId: batchId,
-        after: { createdRows, existingRows: concurrentExistingRows },
+         after: { createdRows, existingRows: concurrentExistingRows, tariffRejectedRows },
         correlationId: input.scope.correlationId,
       });
       const response: ConfirmImportResponse = {
@@ -684,12 +782,14 @@ export class ImportsService {
       notificationType:
         | 'AUTHORIZATION_READY_TO_DISPENSE'
         | 'EPS_DIRECTION_PENDING'
+        | 'EPS_TARIFF_ANNEX_REJECTED'
         | 'DISPENSATION_LOCATION_ASSIGNED'
         | 'DISPENSATION_LOCATION_CHANGED'
         | 'DAILY_OPERATIONAL_REPORT';
       recipientCodes: readonly string[];
       recipientIdByCode: Record<string, string | undefined>;
-      itemId: string;
+      itemId: string | null;
+      batchId?: string | null;
       period: string | null;
       idempotencyKeys: (recipientCode: string) => string;
       correlationId: string;
@@ -704,6 +804,7 @@ export class ImportsService {
         eventId,
         notificationType: input.notificationType,
         itemId: input.itemId,
+        batchId: input.batchId ?? null,
         recipientOrganizationId,
         period: input.period,
         correlationId: input.correlationId,
@@ -728,7 +829,7 @@ export class ImportsService {
   private async findBatch(batchId: string, scope: Scope): Promise<BatchRow | undefined> {
     const result = await this.database.pool.query<BatchRow>(
       `select b.id, b.organization_id, b.original_filename, b.mime_type, b.size_bytes, b.sha256, b.status,
-              b.total_rows, b.valid_rows, b.rejected_rows, b.duplicate_rows, b.existing_rows, b.confirmed_rows,
+               b.total_rows, b.valid_rows, b.rejected_rows, b.duplicate_rows, b.existing_rows, b.tariff_rejected_rows, b.confirmed_rows,
                b.last_error_code, b.created_at, b.completed_at, b.confirmed_at
        from import_batches b
         where b.id = $1 and b.organization_id = $2`,

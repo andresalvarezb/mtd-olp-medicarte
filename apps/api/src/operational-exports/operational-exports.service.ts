@@ -32,8 +32,7 @@ type ExportRow = {
   updated_at: Date;
   nombre_paciente: string | null;
   numero_documento: string | null;
-  cums: string | null;
-  cod_cups_autorizado: string | null;
+  cdgn001: string | null;
   cups_autorizado: string | null;
   cantidad: string | null;
   dosis: string | null;
@@ -50,21 +49,11 @@ const exportSourceColumns = [...sourceBaseColumns] as string[];
 
 /** Columnas creadas por sección del proceso (fases operativas). */
 const processColumns = [
-  'id',
-  'authorization_key',
-  'enablement_status',
-  'coverage_type',
-  'direction_status',
-  'operation_status',
-  'lugar_dispensacion',
-  'fecha_dispensacion',
-  'fecha_aplicacion',
-  'audit_status',
-  'application_site_status',
-  'operational_version',
-  'version',
-  'created_at',
-  'updated_at',
+  'CLAVE_AUTORIZACION', 'ESTADO_HABILITACION', 'TIPO_COBERTURA',
+  'ESTADO_DIRECCIONAMIENTO', 'ESTADO_OPERACION', 'LUGAR_DISPENSACION',
+  'FECHA_DISPENSACION', 'FECHA_APLICACION', 'ESTADO_AUDITORIA',
+  'ESTADO_PUNTO_APLICACION', 'VERSION_OPERATIVA', 'VERSION',
+  'FECHA_CREACION', 'FECHA_ACTUALIZACION',
 ] as const;
 
 function csvValue(value: string | number | boolean | null | undefined): string {
@@ -111,21 +100,21 @@ export class OperationalExportsService {
                ${sourceBaseSelectSql('i')}
        from authorization_items i
        where i.operation_status in ('READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED')
-         ${onlyAssignedLocation ? 'and i.lugar_dispensacion is not null' : ''}
-         and ($1::boolean = true or exists (
+          ${onlyAssignedLocation ? 'and i.lugar_dispensacion is not null' : ''}
+          ${operationType === 'REPORT_APPLICATION_DATE' ? 'and i.fecha_dispensacion is not null' : ''}
+          and ($1::boolean = true or exists (
            select 1 from authorization_item_organizations aio
            where aio.authorization_item_id = i.id and aio.organization_id = $2))
        order by i.created_at asc, i.id asc`,
        [input.scope.isFoundationAdmin, input.scope.organizationId],
     );
-    const columns = [...exportSourceColumns, ...processColumns];
+     const columns = ['IDENTIFICADOR_REGISTRO', ...exportSourceColumns, ...processColumns];
     const rows: Array<Record<string, string | number | null>> = result.rows.map((row) => ({
       NUMERO_AUTORIZACION: row.numero_autorizacion,
       NUM_DOCUMENTO: row.numero_documento,
       NOMBRE_PACIENTE: row.nombre_paciente,
-      COD_COMERCIAL: row.codigo_medicamento,
-      CUMS: row.cums,
-      COD_CUPS_AUTORIZADO: row.cod_cups_autorizado,
+      CDGN001: row.cdgn001,
+       CODIGO_COMERCIAL: row.codigo_medicamento,
       CUPS_AUTORIZADO: row.cups_autorizado,
       CANTIDAD: row.cantidad,
       DOSIS: row.dosis,
@@ -133,23 +122,23 @@ export class OperationalExportsService {
       FECHA_FINAL_VIGENCIA: row.fecha_final_vigencia,
       ESTADO_AUTORIZACION: row.estado_autorizacion,
       OBS_AUTORIZACION: row.obs_autorizacion,
-      'VALOR CUOTA MODERADORA': row.valor_cuota_moderadora,
-      'No.PRESCRIPCION': row.no_prescripcion,
-      id: row.id,
-      authorization_key: row.authorization_key,
-      enablement_status: row.enablement_status,
-      coverage_type: row.coverage_type,
-      direction_status: row.direction_status,
-      operation_status: row.operation_status,
-      lugar_dispensacion: row.lugar_dispensacion,
-      fecha_dispensacion: row.fecha_dispensacion,
-      fecha_aplicacion: row.fecha_aplicacion,
-      audit_status: row.audit_status,
-      application_site_status: deriveApplicationSiteStatus(row.lugar_dispensacion),
-      operational_version: row.operational_version,
-      version: row.version,
-      created_at: row.created_at.toISOString(),
-      updated_at: row.updated_at.toISOString(),
+       VALOR_CUOTA_MODERADORA: row.valor_cuota_moderadora,
+       NUMERO_PRESCRIPCION: row.no_prescripcion,
+       IDENTIFICADOR_REGISTRO: row.id,
+       CLAVE_AUTORIZACION: row.authorization_key,
+       ESTADO_HABILITACION: row.enablement_status,
+       TIPO_COBERTURA: row.coverage_type,
+       ESTADO_DIRECCIONAMIENTO: row.direction_status,
+       ESTADO_OPERACION: row.operation_status,
+       LUGAR_DISPENSACION: row.lugar_dispensacion,
+       FECHA_DISPENSACION: row.fecha_dispensacion,
+       FECHA_APLICACION: row.fecha_aplicacion,
+       ESTADO_AUDITORIA: row.audit_status,
+       ESTADO_PUNTO_APLICACION: deriveApplicationSiteStatus(row.lugar_dispensacion),
+       VERSION_OPERATIVA: row.operational_version,
+       VERSION: row.version,
+       FECHA_CREACION: row.created_at.toISOString(),
+       FECHA_ACTUALIZACION: row.updated_at.toISOString(),
     }));
     const filename = `authorization-items-${operationType.toLowerCase()}`;
     if (input.query.format === 'xlsx') {

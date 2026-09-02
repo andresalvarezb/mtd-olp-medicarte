@@ -2,7 +2,7 @@
 
 **Estado:** ACCEPTED para Fase 2
 
-**Version 2 — DEC-016:** se agrega `No.PRESCRIPCION`, la clasificacion PBS/NO PBS pasa a depender de su presencia y `CUPS_PRINCIPAL` pasa a evidencia. El archivo pasa de 25 a 26 columnas.
+**Version 3:** se agregan `CPRG` y `CDGN001` como columnas de evidencia de origen. `CPRG` nunca se expone en descargas; `CDGN001` sí. El archivo pasa de 26 a 28 columnas.
 
 ## Alcance
 
@@ -53,6 +53,8 @@ Este contrato congela el tratamiento tecnico del archivo de autorizaciones. Solo
 | `_Id`                    | Escalar de origen     |          No | Ninguna; preservar evidencia           | Sin validacion semantica.                                                                                                                                                                               |
 | `FPRO`                   | Escalar de origen     |          No | Ninguna; preservar evidencia           | Sin validacion semantica.                                                                                                                                                                               |
 | `VALOR CUOTA MODERADORA` | Escalar de origen     |          No | Ninguna; preservar evidencia           | Sin validacion numerica o monetaria.                                                                                                                                                                    |
+| `CPRG`                    | Escalar de origen     |          No | Ninguna; preservar evidencia           | Se conserva internamente; nunca se incluye en bases descargadas.                                                                                                                                         |
+| `CDGN001`                 | Escalar de origen     |          No | Ninguna; preservar evidencia           | Se conserva y se incluye en las bases descargadas, en el orden canónico definido por las exportaciones.                                                                                                  |
 
 ## Derivacion de `no_prescripcion` para MIPRES
 

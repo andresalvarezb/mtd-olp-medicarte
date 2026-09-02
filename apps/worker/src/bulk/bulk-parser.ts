@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { canonicalizeHeader } from '@authorization/contracts';
 
 export type ParsedBulkRow = Readonly<{
   rowNumber: number;
@@ -34,7 +35,7 @@ function cellToJsonValue(value: unknown): unknown {
 
 function cellToHeader(value: unknown): string {
   const normalized = cellToJsonValue(value);
-  return (typeof normalized === 'string' ? normalized : '').replace(/^\uFEFF/, '').trim();
+  return canonicalizeHeader(typeof normalized === 'string' ? normalized : '');
 }
 
 function isBlank(value: unknown): boolean {

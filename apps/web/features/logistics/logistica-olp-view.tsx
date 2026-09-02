@@ -144,7 +144,7 @@ export function LogisticaOlpView() {
             operationType="REPORT_DISPENSATION_DATE"
             buttonLabel="Reportar fecha de dispensación (archivo)"
             fileTitle="Archivo de reporte de fecha de dispensación"
-            columnsHint="Columnas requeridas: authorization_key, fecha_dispensacion (formato YYYY-MM-DD). El ítem debe tener lugar de dispensación asignado por Medicarte"
+            columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, FECHA_DISPENSACION (formato YYYY-MM-DD). El ítem debe tener lugar de dispensación asignado por Medicarte"
             onCompleted={reload}
           />
         ) : null}

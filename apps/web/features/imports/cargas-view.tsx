@@ -26,6 +26,7 @@ import {
   type ImportBatchStatus,
   type ImportRow,
 } from '@/lib/imports-api';
+import { listTariffProducts } from '@/lib/tariff-annex-api';
 
 const HISTORY_COLUMNS = [
   { label: 'Lote' },
@@ -85,11 +86,11 @@ function shortId(id: string): string {
 function downloadTemplate(): void {
   const headers = [
     'NUMERO_AUTORIZACION',
-    'COD_COMERCIAL',
+    'CODIGO_COMERCIAL',
     'ESTADO_AUTORIZACION',
-    'No.PRESCRIPCION',
+    'NUMERO_PRESCRIPCION',
     'NOMBRE_PACIENTE',
-    'NUM_DOCUMENTO',
+    'IDENTIFICACION_PACIENTE',
   ];
   const content = `${headers.join(',')}\n`;
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
@@ -112,10 +113,19 @@ export function CargasView() {
   const [uploading, setUploading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [tariffAvailable, setTariffAvailable] = useState<boolean | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const idempotencyKeys = useRef(new Map<string, string>());
   const rowsRequested = useRef(new Set<string>());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void listTariffProducts(organizationId, { active: 'true', limit: 1 }, controller.signal)
+      .then((page) => setTariffAvailable(page.items.length > 0))
+      .catch(() => setTariffAvailable(null));
+    return () => controller.abort();
+  }, [organizationId]);
 
   const activeBatch = useMemo(
     () => batches.find((batch) => batch.id === selectedBatchId) ?? null,
@@ -186,7 +196,7 @@ export function CargasView() {
   };
 
   const handleUpload = async () => {
-    if (!file || uploading) return;
+    if (!file || uploading || tariffAvailable !== true) return;
     setUploading(true);
     setError(null);
     const idempotencyKey = crypto.randomUUID();
@@ -270,7 +280,15 @@ export function CargasView() {
           <CardHead
             title="Nueva carga"
             subtitle="CSV o Excel. Máximo 20 MB por archivo."
-            aside={<span className="pill green">Backend conectado</span>}
+             aside={
+               <span className={tariffAvailable === false ? 'pill red' : 'pill green'}>
+                 {tariffAvailable === false
+                   ? 'Anexo Tarifario requerido'
+                   : tariffAvailable === null
+                     ? 'Verificando Anexo Tarifario…'
+                     : 'Anexo Tarifario disponible'}
+               </span>
+             }
           />
           <CardBody>
             <div
@@ -323,11 +341,17 @@ export function CargasView() {
                 {error}
               </div>
             ) : null}
+            {tariffAvailable === false ? (
+              <Note>
+                No es posible procesar autorizaciones porque no existe un Anexo Tarifario disponible.
+                Cargue o configure el Anexo Tarifario antes de continuar.
+              </Note>
+            ) : null}
             <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
               <button
                 type="button"
                 className="btn primary"
-                disabled={!file || uploading}
+                 disabled={!file || uploading || tariffAvailable !== true}
                 onClick={() => {
                   void handleUpload();
                 }}
@@ -363,10 +387,14 @@ export function CargasView() {
                     <span>Válidas</span>
                     <strong>{formatNumber(activeBatch.validRows)}</strong>
                   </li>
-                  <li className="metric-mini">
-                    <span>Rechazadas</span>
-                    <strong>{formatNumber(activeBatch.rejectedRows)}</strong>
-                  </li>
+                   <li className="metric-mini">
+                     <span>Rechazadas</span>
+                     <strong>{formatNumber(activeBatch.rejectedRows)}</strong>
+                   </li>
+                   <li className="metric-mini">
+                     <span>Fuera del Anexo Tarifario</span>
+                     <strong>{formatNumber(activeBatch.tariffRejectedRows)}</strong>
+                   </li>
                   <li className="metric-mini">
                     <span>Duplicadas</span>
                     <strong>{formatNumber(activeBatch.duplicateRows)}</strong>

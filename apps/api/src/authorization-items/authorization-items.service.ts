@@ -52,6 +52,7 @@ type ItemRow = {
   audit_status: AuthorizationItemResponse['auditStatus'];
   admission_status: string;
   operational_version: number;
+  tariff_membership_status: 'NOT_EVALUATED' | 'LISTED' | 'NOT_LISTED';
   version: number;
   created_at: Date;
   updated_at: Date;
@@ -325,7 +326,8 @@ export class AuthorizationItemsService {
         `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                  i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-                 i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
+                 i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version,
+                 i.tariff_membership_status, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
          where i.id = $1
@@ -435,6 +437,7 @@ export class AuthorizationItemsService {
         enablementStatus: classification.data.enablementStatus,
         coverageType: classification.data.coverageType,
         directionStatus: classification.data.directionStatus,
+        productInTariffAnnex: item.tariff_membership_status === 'LISTED',
         fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
         today: currentBogotaDate(),
       });
@@ -468,7 +471,7 @@ export class AuthorizationItemsService {
           code: 'VERSION_CONFLICT',
           message: 'Authorization item version has changed',
         });
-      const sourceValue = rawText(sourceDataRecord(row.raw_data)?.['No.PRESCRIPCION']);
+      const sourceValue = rawText(sourceDataRecord(row.raw_data)?.NUMERO_PRESCRIPCION);
       await client.query(
         `insert into coverage_evaluations
            (authorization_item_id, evaluation_version, source_value, normalized_value, coverage_type, rule_version)

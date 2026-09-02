@@ -17,10 +17,10 @@ describe('parseImportFile', () => {
         rowNumber: 2,
         rawData: {
           NUMERO_AUTORIZACION: 'AUTH-1',
-          COD_COMERCIAL: 'MED-1',
+        CODIGO_COMERCIAL: 'MED-1',
           CUPS_PRINCIPAL: 'MEDICAMENTOS POS',
           ESTADO_AUTORIZACION: '5',
-          'No.PRESCRIPCION': '20260915123',
+          NUMERO_PRESCRIPCION: '20260915123',
           OBS_AUTORIZACION: 'nota',
         },
       },
@@ -28,10 +28,10 @@ describe('parseImportFile', () => {
         rowNumber: 3,
         rawData: {
           NUMERO_AUTORIZACION: 'AUTH-2',
-          COD_COMERCIAL: 'MED-2',
+        CODIGO_COMERCIAL: 'MED-2',
           CUPS_PRINCIPAL: 'MEDICAMENTOS NO POS',
           ESTADO_AUTORIZACION: '4',
-          'No.PRESCRIPCION': null,
+          NUMERO_PRESCRIPCION: null,
           OBS_AUTORIZACION: 'otra',
         },
       },
@@ -45,7 +45,7 @@ describe('parseImportFile', () => {
         'COD_COMERCIAL',
         'CUPS_PRINCIPAL',
         'ESTADO_AUTORIZACION',
-        'No.PRESCRIPCION',
+          'NUMERO_PRESCRIPCION',
       ],
       ['AUTH-X', 'MED-X', 'MEDICAMENTOS POS', 5, 20260915123],
     ]);
@@ -60,7 +60,7 @@ describe('parseImportFile', () => {
     expect(parsed.rows).toHaveLength(1);
     expect(parsed.rows[0]?.rawData).toMatchObject({
       NUMERO_AUTORIZACION: 'AUTH-X',
-      COD_COMERCIAL: 'MED-X',
+      CODIGO_COMERCIAL: 'MED-X',
     });
   });
 

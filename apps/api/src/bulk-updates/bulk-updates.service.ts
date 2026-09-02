@@ -423,14 +423,14 @@ export class BulkUpdatesService {
       [batchId],
     );
     const header = [
-      'row_number',
-      'authorization_key',
-      'result_code',
-      'result_message',
-      'field_name',
-      'previous_value',
-      'new_value',
-      'field_version',
+      'NUMERO_FILA',
+      'CLAVE_AUTORIZACION',
+      'CODIGO_RESULTADO',
+      'MENSAJE_RESULTADO',
+      'NOMBRE_CAMPO',
+      'VALOR_ANTERIOR',
+      'VALOR_NUEVO',
+      'VERSION_CAMPO',
     ];
     const lines = [header.join(',')];
     for (const row of rows.rows) {
@@ -449,16 +449,16 @@ export class BulkUpdatesService {
     }
     if (input.format === 'xlsx') {
       const data = rows.rows.map((row) => ({
-        row_number: row.row_number,
-        authorization_key: row.authorization_key
+         NUMERO_FILA: row.row_number,
+         CLAVE_AUTORIZACION: row.authorization_key
           ? safeSpreadsheetValue(row.authorization_key)
           : null,
-        result_code: safeSpreadsheetValue(row.result_code),
-        result_message: safeSpreadsheetValue(row.result_message),
-        field_name: row.field_name ? safeSpreadsheetValue(row.field_name) : null,
-        previous_value: row.previous_value ? safeSpreadsheetValue(row.previous_value) : null,
-        new_value: row.new_value ? safeSpreadsheetValue(row.new_value) : null,
-        field_version: row.field_version,
+         CODIGO_RESULTADO: safeSpreadsheetValue(row.result_code),
+         MENSAJE_RESULTADO: safeSpreadsheetValue(row.result_message),
+         NOMBRE_CAMPO: row.field_name ? safeSpreadsheetValue(row.field_name) : null,
+         VALOR_ANTERIOR: row.previous_value ? safeSpreadsheetValue(row.previous_value) : null,
+         VALOR_NUEVO: row.new_value ? safeSpreadsheetValue(row.new_value) : null,
+         VERSION_CAMPO: row.field_version,
       }));
       const sheet = XLSX.utils.json_to_sheet(data, { header });
       const book = XLSX.utils.book_new();

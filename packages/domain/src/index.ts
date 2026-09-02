@@ -49,3 +49,13 @@ export {
 } from './audit';
 export { GmailSendError } from './gmail';
 export type { GmailPort, GmailSendInput, GmailSendResult } from './gmail';
+export {
+  MAX_TARIFF_PRODUCT_CODE_LENGTH,
+  TARIFF_ANNEX_RULE_VERSION,
+  deriveEpsNovedadCausales,
+  deriveTariffMembershipStatus,
+  epsNovedadCausalMessages,
+  isValidTariffProductCode,
+  normalizeTariffProductCode,
+} from './tariff-annex';
+export type { EpsNovedadCausal, EpsNovedadInput, TariffMembershipStatus } from './tariff-annex';

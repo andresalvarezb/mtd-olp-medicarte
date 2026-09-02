@@ -1,4 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import { canonicalizeHeader, sanitizeHeader } from './headers';
+
+describe('catalogo de encabezados', () => {
+  it('sanitiza mayusculas, tildes, eñe, separadores y guiones bajos', () => {
+    expect(sanitizeHeader('  Fecha de Aplicación (Medicamento)  ')).toBe(
+      'FECHA_DE_APLICACION_MEDICAMENTO',
+    );
+    expect(sanitizeHeader('  Año__de prueba  ')).toBe('ANO_DE_PRUEBA');
+  });
+
+  it('mapea aliases legacy al encabezado canonico', () => {
+    expect(canonicalizeHeader('Código-Producto')).toBe('CODIGO_PRODUCTO');
+    expect(canonicalizeHeader('No.PRESCRIPCION')).toBe('NUMERO_PRESCRIPCION');
+    expect(canonicalizeHeader('authorization_key')).toBe('CLAVE_AUTORIZACION');
+  });
+});
 import {
   admissionStatusSchema,
   auditReviewResponseSchema,
@@ -100,18 +116,18 @@ describe('phase four and five contracts', () => {
     ]);
     expect(bulkUpdateOperationContracts.ASSIGN_DISPENSATION_LOCATION).toMatchObject({
       actorOrganizationCode: 'MEDICARTE',
-      mutableField: 'lugar_dispensacion',
-      requiredColumns: ['authorization_key', 'lugar_dispensacion'],
+      mutableField: 'LUGAR_DISPENSACION',
+      requiredColumns: ['CLAVE_AUTORIZACION', 'LUGAR_DISPENSACION'],
     });
     expect(bulkUpdateOperationContracts.REPORT_DISPENSATION_DATE).toMatchObject({
       actorOrganizationCode: 'OLP',
-      mutableField: 'fecha_dispensacion',
-      requiredColumns: ['authorization_key', 'fecha_dispensacion'],
+      mutableField: 'FECHA_DISPENSACION',
+      requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_DISPENSACION'],
     });
     expect(bulkUpdateOperationContracts.REPORT_APPLICATION_DATE).toMatchObject({
       actorOrganizationCode: 'MEDICARTE',
-      mutableField: 'fecha_aplicacion',
-      requiredColumns: ['numero_autorizacion', 'codigo_medicamento', 'fecha_aplicacion'],
+      mutableField: 'FECHA_APLICACION',
+      requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_APLICACION'],
     });
   });
 

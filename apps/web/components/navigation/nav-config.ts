@@ -34,6 +34,7 @@ export type ViewId =
   | 'notifications'
   | 'exports'
   | 'failures'
+  | 'tariff'
   | 'admin';
 
 export interface NavSection {
@@ -136,10 +137,17 @@ export const NAV_SECTIONS: NavSection[] = [
         roles: ['MTD'],
       },
       {
+        view: 'tariff',
+        href: '/anexo-tarifario',
+        title: 'Anexo Tarifario',
+        icon: '13',
+        roles: ['MTD'],
+      },
+      {
         view: 'admin',
         href: '/administracion',
         title: 'Administración',
-        icon: '13',
+        icon: '14',
         roles: ['MTD'],
       },
     ],

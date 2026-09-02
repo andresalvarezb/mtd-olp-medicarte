@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { loginDev } from './helpers/auth';
+import { registerTariffProducts } from './helpers/tariff';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mipresRecheckRequestResponseSchema } from '../../packages/contracts/src/index.js';
@@ -152,10 +153,12 @@ async function confirmImport(token: string, batchId: string): Promise<void> {
 async function importNoPbsItem(suffix: string): Promise<{ itemId: string; prescription: string }> {
   const authorization = `AUTH-F3-${randomUUID()}`;
   const prescription = `20260915123${suffix}000`;
+  const medication = `MED-F3-${suffix}`.toUpperCase();
+  await registerTariffProducts(adminToken, [medication]);
   const batch = await createImport(
     adminToken,
     authorizationCsv([
-      { authorization, medication: `MED-F3-${suffix}`, prescripcion: prescription, status: '5' },
+      { authorization, medication, prescripcion: prescription, status: '5' },
     ]),
   );
   await waitForBatch(adminToken, batch.id);
