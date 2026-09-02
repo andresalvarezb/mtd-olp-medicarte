@@ -90,7 +90,7 @@ Todas son runtime. `packages/config/src/index.ts` valida el conjunto al arrancar
 | `AUTH_JWT_SECRET`                     | firma/verificación HS256 del JWT propio                   | No      | Sí      | `generateValue: true`                             |
 | `AUTH_JWT_TTL_SECONDS`                | vigencia del access token                                 | No      | No      | `28800` (8 h)                                     |
 | `AUTH_BOOTSTRAP_ADMIN_USERNAME`       | usuario del bootstrap local                               | No      | No      | `foundation-admin`                                |
-| `AUTH_BOOTSTRAP_ADMIN_PASSWORD`       | contraseña inicial del admin (solo primer arranque)       | No      | Sí      | `sync: false` + `generateValue: true`             |
+| `AUTH_BOOTSTRAP_ADMIN_PASSWORD`       | contraseña inicial del admin (solo primer arranque)       | No      | Sí      | `sync: false`                                     |
 | `PORT`                                 | puerto preferido del listener HTTP                        | No      | No      | `10000`                                           |
 | `API_PORT`                             | fallback local cuando no existe `PORT`                    | No      | No      | Omitida; default `3001`                           |
 | `API_PUBLIC_URL`                       | validación de URL pública HTTPS                           | No      | No      | URL pública de API                                |
@@ -163,8 +163,8 @@ autenticación (no recibe variables `AUTH_*`).
 
 ## Valores solicitados al crear el Blueprint
 
-- `AUTH_BOOTSTRAP_ADMIN_PASSWORD`: definida con `generateValue: true` + `sync: false` (se recupera
-  desde Dashboard → Environment en el primer despliegue; es la llave de entrada inicial).
+- `AUTH_BOOTSTRAP_ADMIN_PASSWORD`: definida con `sync: false`; debe suministrarse como secreto
+  externo en el primer despliegue y nunca se genera ni se escribe en el Blueprint.
 - `MIPRES_NIT` y `MIPRES_INITIAL_TOKEN`.
 - `GMAIL_SENDER`, `GOOGLE_SERVICE_ACCOUNT_EMAIL` y `GOOGLE_PRIVATE_KEY`.
 
@@ -176,7 +176,7 @@ introducirse manualmente ni copiarse al repositorio.
 
 `sync: false` solo se solicita durante la creación inicial del Blueprint; un sync posterior lo ignora. Si la creación inicial falla a mitad, los recursos creados después del fallo pueden quedar sin esos valores y el Blueprint no los volverá a pedir: se recuperan ingresándolos manualmente en el servicio correspondiente desde el Dashboard.
 
-Para secretos que no dependen de un valor externo, la alternativa soportada es `generateValue: true`: Render genera un valor aleatorio de 256 bits codificado en base64 al crear el recurso, lo persiste en el servicio y lo reutiliza en syncs y deploys posteriores. El valor nunca queda en Git, no se hardcodea y sigue siendo recuperable desde Dashboard → servicio → Environment (revelar/copiar). Así se resuelven `AUTH_JWT_SECRET` y `AUTH_BOOTSTRAP_ADMIN_PASSWORD`.
+Para secretos que no dependen de un valor externo, la alternativa soportada es `generateValue: true`: Render genera un valor aleatorio de 256 bits codificado en base64 al crear el recurso, lo persiste en el servicio y lo reutiliza en syncs y deploys posteriores. El valor nunca queda en Git, no se hardcodea y sigue siendo recuperable desde Dashboard → servicio → Environment (revelar/copiar). Así se resuelve `AUTH_JWT_SECRET`; la contraseña de bootstrap debe permanecer como secreto externo mediante `sync: false`.
 
 Recuperación de acceso administrativo si se pierde `AUTH_BOOTSTRAP_ADMIN_PASSWORD`: crear un
 registro de bootstrap nuevo no es posible mientras exista un admin vigente; la vía soportada es
