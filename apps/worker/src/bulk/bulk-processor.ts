@@ -45,6 +45,7 @@ type ItemRow = {
   id: string;
   authorization_key: string;
   lugar_dispensacion: string | null;
+  fecha_programada: string | null;
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
   audit_status: AuditStatus;
@@ -305,6 +306,25 @@ export class BulkUpdateProcessor {
     ) {
       return await reject('INVALID_VALUE_FORMAT', null, { newValue });
     }
+    const scheduledDate =
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+        ? normalizeOperationalDate(input.row.rawData['FECHA_PROGRAMADA'])
+        : null;
+    if (input.operationType === 'ASSIGN_DISPENSATION_LOCATION' && !scheduledDate) {
+      return await reject('MISSING_VALUE', null, {
+        fieldName: 'FECHA_PROGRAMADA',
+        newValue: null,
+      });
+    }
+    if (
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION' &&
+      !isValidOperationalDate(scheduledDate!)
+    ) {
+      return await reject('INVALID_VALUE_FORMAT', null, {
+        fieldName: 'FECHA_PROGRAMADA',
+        newValue: scheduledDate,
+      });
+    }
     // La llave solo se marca como vista cuando la fila alcanzó la validación
     // de valor: una fila inválida no convierte en duplicada a la fila válida.
     input.seenKeys.add(authorizationKey);
@@ -326,8 +346,9 @@ export class BulkUpdateProcessor {
       return await reject('FORBIDDEN_ITEM_SCOPE', null, { newValue });
     }
     const itemResult = await client.query<ItemRow>(
-      `select i.id, i.authorization_key, i.lugar_dispensacion, i.fecha_dispensacion::text,
-              i.fecha_aplicacion::text, i.audit_status, i.operational_version, i.operation_status
+      `select i.id, i.authorization_key, i.lugar_dispensacion, i.fecha_programada::text,
+              i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status,
+              i.operational_version, i.operation_status
        from authorization_items i
        inner join authorization_item_organizations aio
          on aio.authorization_item_id = i.id and aio.organization_id = $2
@@ -356,6 +377,7 @@ export class BulkUpdateProcessor {
         : input.operationType === 'REPORT_DISPENSATION_DATE'
           ? item.fecha_dispensacion
           : item.fecha_aplicacion;
+    const previousScheduledDate = item.fecha_programada;
     if (
       !isOperationalUpdateAllowed({
         operationType: input.operationType,
@@ -382,7 +404,7 @@ export class BulkUpdateProcessor {
             item.operational_version,
           )
         : null;
-    if (previousValue === newValue) {
+    if (previousValue === newValue && previousScheduledDate === scheduledDate) {
       await client.query(
         `insert into bulk_update_rows
            (batch_id, row_number, raw_data, authorization_key, authorization_item_id, field_name,
@@ -415,9 +437,10 @@ export class BulkUpdateProcessor {
     });
     const updateSql =
       input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
-        ? `update authorization_items set lugar_dispensacion = $2, operation_status = $3, audit_status = $4,
-             operational_version = $5, version = version + 1, updated_at = now()
-           where id = $1 and operational_version = $6 returning id`
+        ? `update authorization_items set lugar_dispensacion = $2, fecha_programada = $3::date,
+              operation_status = $4, audit_status = $5, operational_version = $6,
+              version = version + 1, updated_at = now()
+            where id = $1 and operational_version = $7 returning id`
         : input.operationType === 'REPORT_DISPENSATION_DATE'
           ? `update authorization_items set fecha_dispensacion = $2::date, operation_status = $3, audit_status = $4,
                operational_version = $5, version = version + 1, updated_at = now()
@@ -428,6 +451,7 @@ export class BulkUpdateProcessor {
     const updated = await client.query<{ id: string }>(updateSql, [
       item.id,
       newValue,
+      ...(input.operationType === 'ASSIGN_DISPENSATION_LOCATION' ? [scheduledDate] : []),
       statuses.operationStatus,
       statuses.auditStatus,
       newOperationalVersion,
@@ -485,6 +509,34 @@ export class BulkUpdateProcessor {
       ],
     );
 
+    if (
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION' &&
+      previousScheduledDate !== scheduledDate
+    ) {
+      await client.query(
+        `insert into operational_field_changes
+           (authorization_item_id, field_name, previous_value, new_value,
+            previous_operational_version, new_operational_version, operation_type,
+            bulk_update_batch_id, bulk_update_row_id, actor_type, actor_id, organization_id, correlation_id,
+            idempotency_key)
+         values ($1, 'FECHA_PROGRAMADA', $2, $3, $4, $5, $6, $7, $8, 'USER', $9, $10, $11, $12)`,
+        [
+          item.id,
+          previousScheduledDate,
+          scheduledDate,
+          item.operational_version,
+          newOperationalVersion,
+          input.operationType,
+          input.batchId,
+          bulkUpdateRowId,
+          input.actorId,
+          input.organizationId,
+          input.correlationId,
+          `${input.batchId}:${input.row.rowNumber}:${newOperationalVersion}:fecha-programada`,
+        ],
+      );
+    }
+
     const auditAction =
       input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
         ? locationTransition!.eventType!
@@ -529,7 +581,10 @@ export class BulkUpdateProcessor {
         eventId,
         notificationType: locationTransition.eventType,
         itemId: item.id,
-        recipientOrganizationId: null,
+        recipientOrganizationId:
+          (await client.query<{ id: string }>(`select id from organizations where code = 'OLP'`))
+            .rows[0]?.id ?? null,
+        batchId: input.batchId,
         period: null,
         correlationId: input.correlationId,
         idempotencyKey: notificationKey,
@@ -541,6 +596,48 @@ export class BulkUpdateProcessor {
          on conflict (idempotency_key) do nothing`,
         [eventId, JSON.stringify(payload), input.correlationId, notificationKey],
       );
+    }
+    if (
+      input.operationType === 'REPORT_DISPENSATION_DATE' ||
+      input.operationType === 'REPORT_APPLICATION_DATE'
+    ) {
+      const recipientCodes =
+        input.operationType === 'REPORT_DISPENSATION_DATE' ? ['MTD', 'MEDICARTE'] : ['MTD'];
+      for (const recipientCode of recipientCodes) {
+        const recipientId = (
+          await client.query<{ id: string }>('select id from organizations where code = $1', [
+            recipientCode,
+          ])
+        ).rows[0]?.id;
+        if (!recipientId) continue;
+        const notificationType =
+          input.operationType === 'REPORT_DISPENSATION_DATE'
+            ? 'DISPENSATION_DATE_REPORTED'
+            : 'APPLICATION_DATE_REPORTED';
+        const notificationKey = `${notificationType}:${item.id}:${newOperationalVersion}:${recipientCode}`;
+        const eventId = randomUUID();
+        await client.query(
+          `insert into outbox_events
+             (id, event_type, version, payload, correlation_id, idempotency_key)
+           values ($1, 'notification.email', 1, $2::jsonb, $3, $4)
+           on conflict (idempotency_key) do nothing`,
+          [
+            eventId,
+            JSON.stringify({
+              eventId,
+              notificationType,
+              itemId: item.id,
+              recipientOrganizationId: recipientId,
+              batchId: input.batchId,
+              period: null,
+              correlationId: input.correlationId,
+              idempotencyKey: notificationKey,
+            }),
+            input.correlationId,
+            notificationKey,
+          ],
+        );
+      }
     }
     return 'ROW_UPDATED';
   }

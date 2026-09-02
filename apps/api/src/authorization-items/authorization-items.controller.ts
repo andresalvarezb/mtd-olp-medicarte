@@ -64,6 +64,7 @@ const authorizationItemResponseSchema = {
     'sourcePrescripcionNormalized',
     'noPrescripcion',
     'lugarDispensacion',
+    'fechaProgramada',
     'fechaDispensacion',
     'fechaAplicacion',
     'auditStatus',
@@ -87,6 +88,7 @@ const authorizationItemResponseSchema = {
     sourcePrescripcionNormalized: { type: 'string' },
     noPrescripcion: { type: 'string' },
     lugarDispensacion: { type: 'string', nullable: true },
+    fechaProgramada: { type: 'string', format: 'date', nullable: true },
     fechaDispensacion: { type: 'string', format: 'date', nullable: true },
     fechaAplicacion: { type: 'string', format: 'date', nullable: true },
     auditStatus: {

@@ -13,6 +13,7 @@ import {
   importBatchStatusSchema,
   importRowResultMessages,
   type ConfirmImportResponse,
+  type NotificationType,
   type ImportBatchResponse,
   type ImportRowResponse,
 } from '@authorization/contracts';
@@ -208,7 +209,12 @@ export class ImportsService {
         `insert into audit_events
            (actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
          values ('USER', $1, $2, 'AUTHORIZATION_IMPORT_BLOCKED_TARIFF_MISSING', 'import_batch', null, $3::jsonb, $4, $4, 'REJECTED')`,
-        [input.scope.userId, input.scope.organizationId, JSON.stringify({ filename: input.file.originalname }), correlationId],
+        [
+          input.scope.userId,
+          input.scope.organizationId,
+          JSON.stringify({ filename: input.file.originalname }),
+          correlationId,
+        ],
       );
       throw new BadRequestException({
         code: 'TARIFF_ANNEX_REQUIRED',
@@ -551,7 +557,7 @@ export class ImportsService {
             classification.directionStatus,
             operationStatus,
             tariffMembershipStatus,
-             `${TARIFF_ANNEX_RULE_VERSION}:${tariffVersion}`,
+            `${TARIFF_ANNEX_RULE_VERSION}:${tariffVersion}`,
             batchId,
           ],
         );
@@ -570,7 +576,7 @@ export class ImportsService {
           concurrentExistingRows += 1;
           continue;
         }
-         const sourceValue = rawText(sourceDataRecord(row.raw_data)?.NUMERO_PRESCRIPCION);
+        const sourceValue = rawText(sourceDataRecord(row.raw_data)?.NUMERO_PRESCRIPCION);
         await client.query(
           `insert into coverage_evaluations
              (authorization_item_id, evaluation_version, source_value, normalized_value, coverage_type, rule_version)
@@ -655,7 +661,7 @@ export class ImportsService {
           `update import_rows set result_code = 'ITEM_CREATED', result_message = $2, confirmable = false, authorization_item_id = $3 where id = $1`,
           [row.id, importRowResultMessages.ITEM_CREATED, itemId],
         );
-         if (productInTariffAnnex) createdRows += 1;
+        if (productInTariffAnnex) createdRows += 1;
       }
 
       for (const itemId of readyItemIds) {
@@ -696,8 +702,8 @@ export class ImportsService {
             notificationType: 'EPS_DIRECTION_PENDING',
             recipientCodes: ['COMPENSAR'],
             recipientIdByCode: { COMPENSAR: epsOrganizationId },
-          itemId,
-          batchId: null,
+            itemId,
+            batchId: null,
             period,
             idempotencyKeys: () => `eps-pending:${itemId}:${period}`,
             correlationId: input.scope.correlationId,
@@ -725,6 +731,36 @@ export class ImportsService {
           correlationId: input.scope.correlationId,
         });
       }
+      if (epsOrganizationId && (createdRows > 0 || concurrentExistingRows > 0)) {
+        const rejected = await client.query<{ count: string }>(
+          `select count(*)::text as count
+           from import_rows
+           where import_batch_id = $1
+             and result_code not in ('ROW_VALID', 'ITEM_CREATED', 'PRODUCT_NOT_IN_TARIFF_ANNEX')`,
+          [batchId],
+        );
+        if (Number(rejected.rows[0]?.count ?? '0') > 0) {
+          await this.enqueueNotifications(client, {
+            notificationType: 'AUTHORIZATION_IMPORT_REJECTED',
+            recipientCodes: ['COMPENSAR'],
+            recipientIdByCode: { COMPENSAR: epsOrganizationId },
+            itemId: null,
+            batchId,
+            period: currentBogotaDate(),
+            idempotencyKeys: () => `authorization-import-rejected:${batchId}`,
+            correlationId: input.scope.correlationId,
+          });
+          await this.insertAudit(client, {
+            actorId: input.scope.userId,
+            organizationId: input.scope.organizationId,
+            action: 'AUTHORIZATION_IMPORT_REJECTED_NOTIFICATION_GENERATED',
+            resourceType: 'import_batch',
+            resourceId: batchId,
+            after: { rejectedRows: Number(rejected.rows[0]?.count ?? '0') },
+            correlationId: input.scope.correlationId,
+          });
+        }
+      }
 
       const completed = await client.query<{ confirmed_at: Date }>(
         `update import_batches
@@ -743,7 +779,7 @@ export class ImportsService {
         action: 'IMPORT_CONFIRMED',
         resourceType: 'import_batch',
         resourceId: batchId,
-         after: { createdRows, existingRows: concurrentExistingRows, tariffRejectedRows },
+        after: { createdRows, existingRows: concurrentExistingRows, tariffRejectedRows },
         correlationId: input.scope.correlationId,
       });
       const response: ConfirmImportResponse = {
@@ -779,13 +815,7 @@ export class ImportsService {
   private async enqueueNotifications(
     client: { query: (query: string, values?: unknown[]) => Promise<unknown> },
     input: {
-      notificationType:
-        | 'AUTHORIZATION_READY_TO_DISPENSE'
-        | 'EPS_DIRECTION_PENDING'
-        | 'EPS_TARIFF_ANNEX_REJECTED'
-        | 'DISPENSATION_LOCATION_ASSIGNED'
-        | 'DISPENSATION_LOCATION_CHANGED'
-        | 'DAILY_OPERATIONAL_REPORT';
+      notificationType: NotificationType;
       recipientCodes: readonly string[];
       recipientIdByCode: Record<string, string | undefined>;
       itemId: string | null;

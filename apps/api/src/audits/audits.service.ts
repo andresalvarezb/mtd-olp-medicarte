@@ -44,6 +44,7 @@ type ItemRow = {
   operation_status: string | null;
   coverage_rule_version: string;
   lugar_dispensacion: string | null;
+  fecha_programada: string | null;
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
   audit_status: AuthorizationItemResponse['auditStatus'];
@@ -92,6 +93,7 @@ function toItemResponse(row: ItemRow): AuthorizationItemResponse {
     sourcePrescripcionNormalized: '',
     noPrescripcion: '',
     lugarDispensacion: row.lugar_dispensacion,
+    fechaProgramada: row.fecha_programada,
     fechaDispensacion: row.fecha_dispensacion,
     fechaAplicacion: row.fecha_aplicacion,
     auditStatus: row.audit_status,
@@ -127,7 +129,7 @@ function toReviewResponse(review: ReviewRow, findings: FindingRow[]): AuditRevie
 
 const ITEM_SELECT = `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key,
         i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
-        i.coverage_rule_version, i.lugar_dispensacion, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
+        i.coverage_rule_version, i.lugar_dispensacion, i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
         i.audit_status, i.admission_status, i.operational_version, i.version, i.created_at, i.updated_at
  from authorization_items i`;
 
@@ -547,7 +549,7 @@ export class AuditsService {
        where id = $1 and version = $5` +
         ` returning id, numero_autorizacion, codigo_medicamento, authorization_key,
            enablement_status, coverage_type, direction_status, operation_status,
-           coverage_rule_version, lugar_dispensacion, fecha_dispensacion::text, fecha_aplicacion::text,
+           coverage_rule_version, lugar_dispensacion, fecha_programada::text, fecha_dispensacion::text, fecha_aplicacion::text,
            audit_status, admission_status, operational_version, version, created_at, updated_at`,
       [
         item.id,

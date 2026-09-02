@@ -27,16 +27,25 @@ export function listNotifications(
   if (query.status) params.set('status', query.status);
   if (query.notificationType) params.set('notificationType', query.notificationType);
   params.set('limit', String(query.limit ?? 50));
-  return apiRequest<NotificationsPage>(`/admin/notifications?${params.toString()}`, { organizationId, signal });
+  return apiRequest<NotificationsPage>(`/admin/notifications?${params.toString()}`, {
+    organizationId,
+    signal,
+  });
 }
 
-export function retryNotification(organizationId: string, id: string): Promise<{ notificationId: string; status: string }> {
-  return apiRequest<{ notificationId: string; status: string }>(`/admin/notifications/${id}/retry`, {
-    method: 'POST',
-    organizationId,
-    idempotencyKey: crypto.randomUUID(),
-    body: '{}',
-  });
+export function retryNotification(
+  organizationId: string,
+  id: string,
+): Promise<{ notificationId: string; status: string }> {
+  return apiRequest<{ notificationId: string; status: string }>(
+    `/admin/notifications/${id}/retry`,
+    {
+      method: 'POST',
+      organizationId,
+      idempotencyKey: crypto.randomUUID(),
+      body: '{}',
+    },
+  );
 }
 
 export function listNotificationRecipients(
@@ -45,7 +54,27 @@ export function listNotificationRecipients(
   signal?: AbortSignal,
 ): Promise<NotificationRecipient[]> {
   const qs = notificationType ? `?notificationType=${notificationType}` : '';
-  return apiRequest<NotificationRecipient[]>(`/admin/notification-recipients${qs}`, { organizationId, signal });
+  return apiRequest<NotificationRecipient[]>(`/admin/notification-recipients${qs}`, {
+    organizationId,
+    signal,
+  });
+}
+
+export function getNotificationSender(
+  organizationId: string,
+): Promise<{ email: string | null; updatedAt: string | null }> {
+  return apiRequest('/admin/notification-sender', { organizationId });
+}
+
+export function setNotificationSender(
+  organizationId: string,
+  email: string,
+): Promise<{ email: string; updatedAt: string | null }> {
+  return apiRequest('/admin/notification-sender', {
+    method: 'POST',
+    organizationId,
+    body: JSON.stringify({ email }),
+  });
 }
 
 export function createNotificationRecipient(
@@ -59,7 +88,10 @@ export function createNotificationRecipient(
   });
 }
 
-export function deleteNotificationRecipient(organizationId: string, id: string): Promise<{ id: string; status: string }> {
+export function deleteNotificationRecipient(
+  organizationId: string,
+  id: string,
+): Promise<{ id: string; status: string }> {
   return apiRequest<{ id: string; status: string }>(`/admin/notification-recipients/${id}`, {
     method: 'DELETE',
     organizationId,
@@ -73,6 +105,9 @@ export interface DeadLetterJob {
   lastError: string | null;
 }
 
-export function listDeadLetterJobs(organizationId: string, signal?: AbortSignal): Promise<DeadLetterJob[]> {
+export function listDeadLetterJobs(
+  organizationId: string,
+  signal?: AbortSignal,
+): Promise<DeadLetterJob[]> {
   return apiRequest<DeadLetterJob[]>('/admin/dead-letter-jobs', { organizationId, signal });
 }

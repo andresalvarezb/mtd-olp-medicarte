@@ -180,6 +180,7 @@ export const authorizationItems = pgTable(
     operationStatus: varchar('operation_status', { length: 40 }),
     coverageRuleVersion: varchar('coverage_rule_version', { length: 40 }).notNull(),
     lugarDispensacion: text('lugar_dispensacion'),
+    fechaProgramada: date('fecha_programada'),
     fechaDispensacion: date('fecha_dispensacion'),
     fechaAplicacion: date('fecha_aplicacion'),
     auditStatus: varchar('audit_status', { length: 30 }).notNull().default('NOT_STARTED'),
@@ -713,6 +714,13 @@ export const notificationRecipients = pgTable(
   ],
 );
 
+export const notificationEmailSettings = pgTable('notification_email_settings', {
+  id: integer('id').primaryKey(),
+  senderEmail: varchar('sender_email', { length: 320 }),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'restrict' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+});
+
 export const notifications = pgTable(
   'notifications',
   {
@@ -738,6 +746,7 @@ export const notifications = pgTable(
     idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     sentAt: timestamp('sent_at', { withTimezone: true }),
+    senderEmail: varchar('sender_email', { length: 320 }),
   },
   (table) => [
     uniqueIndex('notifications_idempotency_key_idx').on(table.idempotencyKey),
@@ -854,10 +863,7 @@ export const tariffAnnexProducts = pgTable(
     uniqueIndex('tariff_annex_products_code_idx').on(table.codigoProducto),
     index('tariff_annex_products_active_idx').on(table.active, table.codigoProducto),
     check('tariff_annex_products_version_check', sql`${table.version} > 0`),
-    check(
-      'tariff_annex_products_code_length_check',
-      sql`length(${table.codigoProducto}) > 0`,
-    ),
+    check('tariff_annex_products_code_length_check', sql`length(${table.codigoProducto}) > 0`),
   ],
 );
 

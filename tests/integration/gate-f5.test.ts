@@ -372,7 +372,8 @@ describe('Gate F5', () => {
     );
     expect(exportResponse.status).toBe(200);
     const csv = await exportResponse.text();
-    expect(csv).toContain('lugar_dispensacion');
+    expect(csv).toContain('LUGAR_DISPENSACION');
+    expect(csv).toContain('FECHA_PROGRAMADA');
     expect(csv).toContain('fecha_dispensacion');
     expect(csv).toContain('fecha_aplicacion');
     expect(csv).toContain(item.authorization);

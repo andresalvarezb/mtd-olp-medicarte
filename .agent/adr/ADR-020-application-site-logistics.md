@@ -11,11 +11,11 @@ Cuando una autorización queda lista para dispensar, Medicarte define mediante c
 Introducir una etapa logística explícita y persistida.
 
 1. `READY_TO_DISPENSE` genera notificación a OLP y Medicarte.
-2. Medicarte descarga la base completa permitida y carga únicamente llave + `lugar_dispensacion`.
+2. Medicarte descarga la base completa permitida y carga llave + `lugar_dispensacion` + `fecha_programada`.
 3. El valor vigente se guarda en `authorization_items` y cada cambio queda en historial append-only.
 4. El evento `DISPENSATION_LOCATION_ASSIGNED` o `DISPENSATION_LOCATION_CHANGED` se registra mediante outbox en la misma transacción.
 5. El worker notifica a OLP con la dirección.
-6. OLP descarga la base completa incluyendo `lugar_dispensacion` y continúa con el envío.
+6. OLP descarga la base completa incluyendo `lugar_dispensacion` y `fecha_programada`, y continúa con el envío.
 
 ## Modelo
 

@@ -28,6 +28,7 @@ type NotificationContent = {
   body: string;
   recipients: string[];
   params: Record<string, unknown>;
+  senderEmail?: string | null;
 };
 
 export type NotificationProcessingResult = Readonly<{
@@ -40,7 +41,7 @@ export function renderTemplate(template: string, params: Record<string, unknown>
   return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
     const value = params[key];
     if (value === null || value === undefined) return '';
-    return typeof value === 'string' ? value : JSON.stringify(value) ?? '';
+    return typeof value === 'string' ? value : (JSON.stringify(value) ?? '');
   });
 }
 
@@ -66,17 +67,17 @@ export class NotificationProcessor {
 
   async process(rawJob: NotificationJob): Promise<NotificationProcessingResult> {
     const job = notificationJobSchema.parse(rawJob);
-    const content = await this.buildContent(job);
+    const builtContent = await this.buildContent(job);
+    const content = builtContent
+      ? { ...builtContent, senderEmail: await this.loadSenderEmail() }
+      : null;
     if (!content) {
       return { status: 'SKIPPED', notificationId: null, skipReason: 'NO_CONTENT' };
     }
     const existing = await this.database.pool.query<{
       id: string;
       status: string;
-    }>(
-      `select id, status from notifications where idempotency_key = $1`,
-      [content.idempotencyKey],
-    );
+    }>(`select id, status from notifications where idempotency_key = $1`, [content.idempotencyKey]);
     const previous = existing.rows[0];
     if (previous?.status === 'SENT') {
       return { status: 'DEDUPLICATED', notificationId: previous.id };
@@ -102,8 +103,8 @@ export class NotificationProcessor {
       const inserted = await this.database.pool.query<{ id: string }>(
         `insert into notifications
            (notification_type, recipient_organization_id, item_id, period, item_set_hash,
-            template_version, subject, body, recipients, params, payload, status, correlation_id, idempotency_key)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 'PENDING', $12, $13)
+             template_version, subject, body, recipients, params, payload, status, correlation_id, idempotency_key, sender_email)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 'PENDING', $12, $13, $14)
          returning id`,
         [
           content.notificationType,
@@ -119,6 +120,7 @@ export class NotificationProcessor {
           JSON.stringify(job.payload),
           job.correlationId,
           content.idempotencyKey,
+          content.senderEmail ?? null,
         ],
       );
       const id = inserted.rows[0]?.id;
@@ -140,6 +142,7 @@ export class NotificationProcessor {
         to: content.recipients,
         subject: content.subject,
         body: content.body,
+        ...(content.senderEmail ? { from: content.senderEmail } : {}),
       });
       messageId = result.messageId;
     } catch (error) {
@@ -148,7 +151,10 @@ export class NotificationProcessor {
          set attempts = attempts + 1,
              last_error = $2
          where id = $1`,
-        [notificationId, error instanceof Error ? error.message.slice(0, 500) : 'Gmail send failed'],
+        [
+          notificationId,
+          error instanceof Error ? error.message.slice(0, 500) : 'Gmail send failed',
+        ],
       );
       throw error;
     }
@@ -205,6 +211,11 @@ export class NotificationProcessor {
         return this.buildEpsPending(job);
       case 'EPS_TARIFF_ANNEX_REJECTED':
         return this.buildEpsTariffRejected(job);
+      case 'AUTHORIZATION_IMPORT_REJECTED':
+        return this.buildImportRejected(job);
+      case 'DISPENSATION_DATE_REPORTED':
+      case 'APPLICATION_DATE_REPORTED':
+        return this.buildDateReported(job, type);
       case 'DAILY_OPERATIONAL_REPORT':
         return this.buildDailyReport(job);
       default:
@@ -223,10 +234,7 @@ export class NotificationProcessor {
     return result.rows[0] ?? null;
   }
 
-  private async loadRecipients(
-    type: NotificationType,
-    organizationId: string,
-  ): Promise<string[]> {
+  private async loadRecipients(type: NotificationType, organizationId: string): Promise<string[]> {
     const result = await this.database.pool.query<{ email: string }>(
       `select email from notification_recipients
        where notification_type = $1 and organization_id = $2 and active = true
@@ -234,6 +242,13 @@ export class NotificationProcessor {
       [type, organizationId],
     );
     return result.rows.map((row) => row.email);
+  }
+
+  private async loadSenderEmail(): Promise<string | null> {
+    const result = await this.database.pool.query<{ sender_email: string | null }>(
+      'select sender_email from notification_email_settings where id = 1',
+    );
+    return result.rows[0]?.sender_email ?? null;
   }
 
   private async resolveOrganizationId(code: string): Promise<string | null> {
@@ -262,7 +277,10 @@ export class NotificationProcessor {
     );
     const row = item.rows[0];
     if (!row) return null;
-    const recipients = await this.loadRecipients('AUTHORIZATION_READY_TO_DISPENSE', recipientOrganizationId);
+    const recipients = await this.loadRecipients(
+      'AUTHORIZATION_READY_TO_DISPENSE',
+      recipientOrganizationId,
+    );
     const params = {
       authorizationKey: row.authorization_key,
       codigoMedicamento: row.codigo_medicamento,
@@ -346,9 +364,7 @@ export class NotificationProcessor {
        order by authorization_key`,
     );
     const keys = pending.rows.map((row) => row.authorization_key);
-    const itemSetHash = createHash('sha256')
-      .update(keys.join('\n'))
-      .digest('hex');
+    const itemSetHash = createHash('sha256').update(keys.join('\n')).digest('hex');
     const recipients = await this.loadRecipients('EPS_DIRECTION_PENDING', recipientOrganizationId);
     const itemList = keys
       .slice(0, 30)
@@ -362,7 +378,10 @@ export class NotificationProcessor {
     };
     return {
       notificationType: 'EPS_DIRECTION_PENDING',
-      idempotencyKey: `eps-pending:${recipientOrganizationId}:${period}:${itemSetHash}`.slice(0, 200),
+      idempotencyKey: `eps-pending:${recipientOrganizationId}:${period}:${itemSetHash}`.slice(
+        0,
+        200,
+      ),
       recipientOrganizationId,
       itemId: null,
       period,
@@ -396,11 +415,17 @@ export class NotificationProcessor {
     );
     if (rejected.rows.length === 0) return null;
     const itemList = rejected.rows
-      .map((row) => `\n- Autorización: ${row.numero_autorizacion}; Código: ${row.codigo_medicamento}; Paciente: ${row.numero_documento ?? 'N/D'}`)
+      .map(
+        (row) =>
+          `\n- Autorización: ${row.numero_autorizacion}; Código: ${row.codigo_medicamento}; Paciente: ${row.numero_documento ?? 'N/D'}`,
+      )
       .join('');
     const keys = rejected.rows.map((row) => `${row.numero_autorizacion}:${row.codigo_medicamento}`);
     const itemSetHash = createHash('sha256').update(keys.join('\n')).digest('hex');
-    const recipients = await this.loadRecipients('EPS_TARIFF_ANNEX_REJECTED', recipientOrganizationId);
+    const recipients = await this.loadRecipients(
+      'EPS_TARIFF_ANNEX_REJECTED',
+      recipientOrganizationId,
+    );
     const params = { batchId, itemList, rejectedCount: rejected.rows.length };
     return {
       notificationType: 'EPS_TARIFF_ANNEX_REJECTED',
@@ -409,6 +434,98 @@ export class NotificationProcessor {
       itemId: null,
       period: null,
       itemSetHash,
+      templateVersion: template.version,
+      subject: renderTemplate(template.subject_template, params),
+      body: renderTemplate(template.body_template, params),
+      recipients,
+      params,
+    };
+  }
+
+  private async buildImportRejected(job: NotificationJob): Promise<NotificationContent | null> {
+    const batchId = job.payload.batchId;
+    const recipientOrganizationId =
+      job.payload.recipientOrganizationId ?? (await this.resolveOrganizationId('COMPENSAR'));
+    if (!batchId || !recipientOrganizationId) return null;
+    const template = await this.loadTemplate('AUTHORIZATION_IMPORT_REJECTED');
+    if (!template) return null;
+    const rejected = await this.database.pool.query<{
+      result_code: string;
+      authorization_key: string | null;
+    }>(
+      `select result_code, authorization_key
+       from import_rows
+       where import_batch_id = $1
+         and result_code not in ('ROW_VALID', 'ITEM_CREATED', 'PRODUCT_NOT_IN_TARIFF_ANNEX')
+       order by row_number`,
+      [batchId],
+    );
+    if (rejected.rows.length === 0) return null;
+    const reasons = [...new Set(rejected.rows.map((row) => row.result_code))];
+    const itemList = rejected.rows
+      .map((row) => `\n- ${row.authorization_key ?? 'Sin clave'}: ${row.result_code}`)
+      .join('');
+    const params = {
+      batchId,
+      processedAt: currentBogotaDate(),
+      rejectedCount: rejected.rows.length,
+      reasons: `\n- ${reasons.join('\n- ')}`,
+      itemList,
+    };
+    const recipients = await this.loadRecipients(
+      'AUTHORIZATION_IMPORT_REJECTED',
+      recipientOrganizationId,
+    );
+    return {
+      notificationType: 'AUTHORIZATION_IMPORT_REJECTED',
+      idempotencyKey: `authorization-import-rejected:${batchId}`,
+      recipientOrganizationId,
+      itemId: null,
+      period: null,
+      itemSetHash: createHash('sha256').update(itemList).digest('hex'),
+      templateVersion: template.version,
+      subject: renderTemplate(template.subject_template, params),
+      body: renderTemplate(template.body_template, params),
+      recipients,
+      params,
+    };
+  }
+
+  private async buildDateReported(
+    job: NotificationJob,
+    type: 'DISPENSATION_DATE_REPORTED' | 'APPLICATION_DATE_REPORTED',
+  ): Promise<NotificationContent | null> {
+    const itemId = job.payload.itemId;
+    const recipientOrganizationId = job.payload.recipientOrganizationId;
+    if (!itemId || !recipientOrganizationId) return null;
+    const template = await this.loadTemplate(type);
+    if (!template) return null;
+    const item = await this.database.pool.query<{
+      authorization_key: string;
+      fecha_dispensacion: string | null;
+      fecha_aplicacion: string | null;
+    }>(
+      'select authorization_key, fecha_dispensacion::text, fecha_aplicacion::text from authorization_items where id = $1',
+      [itemId],
+    );
+    const row = item.rows[0];
+    if (!row) return null;
+    const reportedDate =
+      type === 'DISPENSATION_DATE_REPORTED' ? row.fecha_dispensacion : row.fecha_aplicacion;
+    if (!reportedDate) return null;
+    const recipients = await this.loadRecipients(type, recipientOrganizationId);
+    const params = {
+      itemCount: 1,
+      reportedDate,
+      itemList: `\n- ${row.authorization_key}: ${reportedDate}`,
+    };
+    return {
+      notificationType: type,
+      idempotencyKey: job.payload.idempotencyKey,
+      recipientOrganizationId,
+      itemId,
+      period: null,
+      itemSetHash: null,
       templateVersion: template.version,
       subject: renderTemplate(template.subject_template, params),
       body: renderTemplate(template.body_template, params),
@@ -477,7 +594,10 @@ export class NotificationProcessor {
     const itemSetHash = createHash('sha256')
       .update(JSON.stringify({ organization: organizationRow.code, period, summaryValues }))
       .digest('hex');
-    const recipients = await this.loadRecipients('DAILY_OPERATIONAL_REPORT', recipientOrganizationId);
+    const recipients = await this.loadRecipients(
+      'DAILY_OPERATIONAL_REPORT',
+      recipientOrganizationId,
+    );
     const params = { period, organizationName: organizationRow.name, summary };
     return {
       notificationType: 'DAILY_OPERATIONAL_REPORT',
@@ -495,10 +615,7 @@ export class NotificationProcessor {
   }
 }
 
-export function dailyReportIdempotencyKey(
-  organizationCode: string,
-  period: string,
-): string {
+export function dailyReportIdempotencyKey(organizationCode: string, period: string): string {
   // SPEC-004: DAILY_REPORT + recipient_group + local_date (+ item_set_hash que
   // resuelve el handler al momento del envío).
   return `daily-report:${organizationCode}:${period}`.slice(0, 200);

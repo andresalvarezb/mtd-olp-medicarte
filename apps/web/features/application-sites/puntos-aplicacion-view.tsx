@@ -22,6 +22,7 @@ const COLUMNS = [
   { label: 'Paciente' },
   { label: 'Medicamento' },
   { label: 'Punto / sede' },
+  { label: 'Fecha programada' },
   { label: 'Versión' },
   { label: 'Última actualización' },
 ];
@@ -78,6 +79,7 @@ export function PuntosAplicacionView() {
           Sin asignar
         </StatusBadge>
       ),
+      item.fechaProgramada ?? '—',
       item.operationalVersion,
       new Date(item.updatedAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }),
     ]);
@@ -162,7 +164,7 @@ export function PuntosAplicacionView() {
             operationType="ASSIGN_DISPENSATION_LOCATION"
             buttonLabel="Asignar punto (archivo)"
             fileTitle="Archivo de asignación de lugar de dispensación"
-            columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, LUGAR_DISPENSACION"
+            columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, LUGAR_DISPENSACION, FECHA_PROGRAMADA"
             onCompleted={reload}
           />
         ) : null}

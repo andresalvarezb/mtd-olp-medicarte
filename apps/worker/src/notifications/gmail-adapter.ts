@@ -1,5 +1,10 @@
 import { createSign } from 'node:crypto';
-import { GmailSendError, type GmailPort, type GmailSendInput, type GmailSendResult } from '@authorization/domain';
+import {
+  GmailSendError,
+  type GmailPort,
+  type GmailSendInput,
+  type GmailSendResult,
+} from '@authorization/domain';
 import type { WorkerConfig } from '@authorization/config';
 
 const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
@@ -22,6 +27,7 @@ export class GmailApiAdapter implements GmailPort {
     const accessToken = await this.getAccessToken();
     const message = [
       `To: ${input.to.join(', ')}`,
+      ...(input.from ? [`From: ${input.from}`] : []),
       'Content-Type: text/plain; charset="UTF-8"',
       'MIME-Version: 1.0',
       `Subject: =?UTF-8?B?${Buffer.from(input.subject, 'utf8').toString('base64')}?=`,
@@ -46,16 +52,16 @@ export class GmailApiAdapter implements GmailPort {
       );
       if (!response.ok) {
         const detail = await response.text().catch(() => '');
-        throw new GmailSendError(`Gmail send failed with HTTP ${response.status}: ${detail.slice(0, 200)}`);
+        throw new GmailSendError(
+          `Gmail send failed with HTTP ${response.status}: ${detail.slice(0, 200)}`,
+        );
       }
       const payload = (await response.json()) as { id?: string };
       if (!payload.id) throw new GmailSendError('Gmail send response has no message id');
       return { messageId: payload.id };
     } catch (error) {
       if (error instanceof GmailSendError) throw error;
-      throw new GmailSendError(
-        error instanceof Error ? error.message : 'Gmail send failed',
-      );
+      throw new GmailSendError(error instanceof Error ? error.message : 'Gmail send failed');
     } finally {
       clearTimeout(timeout);
     }
@@ -101,10 +107,13 @@ export class GmailApiAdapter implements GmailPort {
       });
       if (!response.ok) {
         const detail = await response.text().catch(() => '');
-        throw new GmailSendError(`Gmail token request failed with HTTP ${response.status}: ${detail.slice(0, 200)}`);
+        throw new GmailSendError(
+          `Gmail token request failed with HTTP ${response.status}: ${detail.slice(0, 200)}`,
+        );
       }
       const payload = (await response.json()) as { access_token?: string; expires_in?: number };
-      if (!payload.access_token) throw new GmailSendError('Gmail token response has no access token');
+      if (!payload.access_token)
+        throw new GmailSendError('Gmail token response has no access token');
       this.cachedToken = {
         token: payload.access_token,
         expiresAt: now + (payload.expires_in ?? 3600) * 1000,

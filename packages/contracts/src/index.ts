@@ -351,6 +351,7 @@ export const authorizationItemResponseSchema = z.object({
   sourcePrescripcionNormalized: z.string(),
   noPrescripcion: z.string(),
   lugarDispensacion: z.string().nullable(),
+  fechaProgramada: operationalDateSchema.nullable(),
   fechaDispensacion: operationalDateSchema.nullable(),
   fechaAplicacion: operationalDateSchema.nullable(),
   auditStatus: auditStatusSchema,
@@ -486,7 +487,7 @@ export const bulkUpdateOperationContracts = {
     actorOrganizationCode: 'MEDICARTE',
     permission: 'bulk_updates.dispensation_location',
     mutableField: 'LUGAR_DISPENSACION',
-    requiredColumns: ['CLAVE_AUTORIZACION', 'LUGAR_DISPENSACION'],
+    requiredColumns: ['CLAVE_AUTORIZACION', 'LUGAR_DISPENSACION', 'FECHA_PROGRAMADA'],
   },
   REPORT_DISPENSATION_DATE: {
     actorOrganizationCode: 'OLP',
@@ -570,7 +571,7 @@ export const BULK_UPDATE_JOB_OPTIONS = {
   removeOnComplete: { age: 3600, count: 1000 },
   removeOnFail: false,
 };
-export const BULK_UPDATE_CONTRACT_VERSION = 2;
+export const BULK_UPDATE_CONTRACT_VERSION = 3;
 
 export const bulkUpdateJobPayloadSchema = z.object({
   eventId: z.string().uuid(),
@@ -636,6 +637,9 @@ export const notificationTypeSchema = z.enum([
   'DISPENSATION_LOCATION_CHANGED',
   'EPS_DIRECTION_PENDING',
   'EPS_TARIFF_ANNEX_REJECTED',
+  'AUTHORIZATION_IMPORT_REJECTED',
+  'DISPENSATION_DATE_REPORTED',
+  'APPLICATION_DATE_REPORTED',
   'DAILY_OPERATIONAL_REPORT',
 ]);
 export type NotificationType = z.infer<typeof notificationTypeSchema>;
@@ -647,6 +651,9 @@ export const notificationRecipientOrganizations: Record<NotificationType, readon
   DISPENSATION_LOCATION_CHANGED: ['OLP'],
   EPS_DIRECTION_PENDING: ['COMPENSAR'],
   EPS_TARIFF_ANNEX_REJECTED: ['COMPENSAR'],
+  AUTHORIZATION_IMPORT_REJECTED: ['COMPENSAR'],
+  DISPENSATION_DATE_REPORTED: ['MTD', 'MEDICARTE'],
+  APPLICATION_DATE_REPORTED: ['MTD'],
   DAILY_OPERATIONAL_REPORT: ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'],
 };
 
@@ -703,6 +710,7 @@ export const notificationResponseSchema = z.object({
   lastError: z.string().nullable(),
   createdAt: isoDateTimeSchema,
   sentAt: isoDateTimeSchema.nullable(),
+  senderEmail: z.string().email().nullable(),
 });
 export type NotificationResponse = z.infer<typeof notificationResponseSchema>;
 
@@ -722,6 +730,14 @@ export const notificationRecipientResponseSchema = z.object({
   createdAt: isoDateTimeSchema,
 });
 export type NotificationRecipientResponse = z.infer<typeof notificationRecipientResponseSchema>;
+
+export const notificationSenderRequestSchema = z.object({
+  email: z.string().email().max(320),
+});
+export const notificationSenderResponseSchema = z.object({
+  email: z.string().email().nullable(),
+  updatedAt: isoDateTimeSchema.nullable(),
+});
 
 export const notificationListQuerySchema = z.object({
   status: notificationStatusSchema.optional(),

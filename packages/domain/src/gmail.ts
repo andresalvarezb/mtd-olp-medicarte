@@ -4,6 +4,7 @@
  * puerto. Un fallo de Gmail no revierte el cambio de negocio.
  */
 export type GmailSendInput = Readonly<{
+  from?: string;
   to: readonly string[];
   subject: string;
   body: string;

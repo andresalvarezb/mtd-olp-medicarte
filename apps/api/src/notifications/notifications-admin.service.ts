@@ -12,6 +12,9 @@ import {
   notificationStatusSchema,
   notificationTypeSchema,
   type NotificationResponse,
+  notificationSenderRequestSchema,
+  notificationSenderResponseSchema,
+  notificationRecipientOrganizations,
 } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
 import { DATABASE } from '../tokens';
@@ -34,6 +37,7 @@ type NotificationRow = {
   last_error: string | null;
   created_at: Date;
   sent_at: Date | null;
+  sender_email: string | null;
 };
 
 type RecipientRow = {
@@ -74,6 +78,7 @@ function toNotificationResponse(row: NotificationRow): NotificationResponse {
     lastError: row.last_error,
     createdAt: row.created_at.toISOString(),
     sentAt: row.sent_at?.toISOString() ?? null,
+    senderEmail: row.sender_email,
   });
 }
 
@@ -87,6 +92,42 @@ function toNotificationResponse(row: NotificationRow): NotificationResponse {
 export class NotificationsAdminService {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
 
+  async getSender(): Promise<unknown> {
+    const result = await this.database.pool.query<{
+      sender_email: string | null;
+      updated_at: Date | null;
+    }>('select sender_email, updated_at from notification_email_settings where id = 1');
+    return notificationSenderResponseSchema.parse({
+      email: result.rows[0]?.sender_email ?? null,
+      updatedAt: result.rows[0]?.updated_at?.toISOString() ?? null,
+    });
+  }
+
+  async setSender(input: { body: unknown; scope: Scope }): Promise<unknown> {
+    const body = notificationSenderRequestSchema.parse(input.body);
+    const email = body.email.toLowerCase();
+    await this.database.pool.query(
+      `insert into notification_email_settings (id, sender_email, updated_by, updated_at)
+       values (1, $1, $2, now())
+       on conflict (id) do update set sender_email = excluded.sender_email,
+         updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+      [email, input.scope.userId],
+    );
+    await this.database.pool.query(
+      `insert into audit_events
+       (actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
+       values ('USER', $1, $2, 'NOTIFICATION_SENDER_SET', 'notification_email_settings', '1', $3::jsonb, $4, $5, 'SUCCESS')`,
+      [
+        input.scope.userId,
+        input.scope.organizationId,
+        JSON.stringify({ email }),
+        input.scope.correlationId,
+        input.scope.correlationId,
+      ],
+    );
+    return this.getSender();
+  }
+
   async list(input: {
     status?: string;
     notificationType?: string;
@@ -94,9 +135,7 @@ export class NotificationsAdminService {
     limit: number;
     scope: Scope;
   }): Promise<{ items: NotificationResponse[]; nextCursor: string | null }> {
-    const status = input.status
-      ? notificationStatusSchema.parse(input.status)
-      : undefined;
+    const status = input.status ? notificationStatusSchema.parse(input.status) : undefined;
     const notificationType = input.notificationType
       ? notificationTypeSchema.parse(input.notificationType)
       : undefined;
@@ -104,9 +143,10 @@ export class NotificationsAdminService {
     let cursorId: string | undefined;
     if (input.cursor) {
       try {
-        const decoded = JSON.parse(
-          Buffer.from(input.cursor, 'base64url').toString('utf8'),
-        ) as { createdAt?: unknown; id?: unknown };
+        const decoded = JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8')) as {
+          createdAt?: unknown;
+          id?: unknown;
+        };
         if (
           typeof decoded.createdAt !== 'string' ||
           Number.isNaN(Date.parse(decoded.createdAt)) ||
@@ -143,7 +183,7 @@ export class NotificationsAdminService {
     const result = await this.database.pool.query<NotificationRow>(
       `select n.id, n.notification_type, n.recipient_organization_id, n.item_id, n.period,
               n.status, n.attempts, n.subject, n.recipients, n.template_version,
-              n.gmail_message_id, n.last_error, n.created_at, n.sent_at
+              n.gmail_message_id, n.last_error, n.created_at, n.sent_at, n.sender_email
        from notifications n
        ${conditions.length > 0 ? `where ${conditions.join(' and ')}` : ''}
        order by n.created_at desc, n.id desc
@@ -178,10 +218,9 @@ export class NotificationsAdminService {
         status: string;
         attempts: number;
         payload: unknown;
-      }>(
-        'select id, status, attempts, payload from notifications where id = $1 for update',
-        [notificationId],
-      );
+      }>('select id, status, attempts, payload from notifications where id = $1 for update', [
+        notificationId,
+      ]);
       const row = notification.rows[0];
       if (!row) {
         throw new NotFoundException({
@@ -285,10 +324,7 @@ export class NotificationsAdminService {
 
   private readonly retryScope = 'notifications.retry';
 
-  async listRecipients(input: {
-    notificationType?: string;
-    scope: Scope;
-  }): Promise<unknown> {
+  async listRecipients(input: { notificationType?: string; scope: Scope }): Promise<unknown> {
     const notificationType = input.notificationType
       ? notificationTypeSchema.parse(input.notificationType)
       : undefined;
@@ -313,11 +349,28 @@ export class NotificationsAdminService {
     }));
   }
 
-  async createRecipient(input: {
-    body: unknown;
-    scope: Scope;
-  }): Promise<unknown> {
+  async createRecipient(input: { body: unknown; scope: Scope }): Promise<unknown> {
     const body = notificationRecipientRequestSchema.parse(input.body);
+    const organization = await this.database.pool.query<{ code: string }>(
+      'select code from organizations where id = $1 and active = true',
+      [body.organizationId],
+    );
+    const organizationCode = organization.rows[0]?.code;
+    if (
+      !organizationCode ||
+      !notificationRecipientOrganizations[body.notificationType].includes(organizationCode)
+    ) {
+      throw new BadRequestException({
+        code: 'RECIPIENT_ORGANIZATION_NOT_ALLOWED',
+        message: 'El tipo de notificación no admite esa organización destinataria.',
+      });
+    }
+    if (!input.scope.isFoundationAdmin && body.organizationId !== input.scope.organizationId) {
+      throw new NotFoundException({
+        code: 'NOTIFICATION_RECIPIENT_NOT_FOUND',
+        message: 'Organization not found',
+      });
+    }
     const client = await this.database.pool.connect();
     try {
       await client.query('begin');
@@ -367,8 +420,9 @@ export class NotificationsAdminService {
     try {
       await client.query('begin');
       const updated = await client.query<{ id: string }>(
-        `update notification_recipients set active = false, updated_at = now() where id = $1 returning id`,
-        [recipientId],
+        `update notification_recipients set active = false, updated_at = now()
+         where id = $1 and ($2::boolean = true or organization_id = $3) returning id`,
+        [recipientId, input.scope.isFoundationAdmin, input.scope.organizationId],
       );
       const id = updated.rows[0]?.id;
       if (!id) {

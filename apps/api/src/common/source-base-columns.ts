@@ -48,6 +48,7 @@ export const authorizationDownloadColumns = [
   'direction_status',
   'operation_status',
   'lugar_dispensacion',
+  'fecha_programada',
   'fecha_dispensacion',
   'fecha_aplicacion',
   'audit_status',

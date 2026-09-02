@@ -12,7 +12,10 @@ import {
   deleteNotificationRecipient,
   listNotificationRecipients,
   type NotificationType,
+  getNotificationSender,
+  setNotificationSender,
 } from '@/lib/notifications-api';
+import { ORGANIZATION_IDS } from '@/lib/config';
 import { UsersAdminSection } from '@/features/admin/users-admin';
 
 const RECIPIENT_TYPES: Array<{
@@ -20,24 +23,63 @@ const RECIPIENT_TYPES: Array<{
   hint: string;
   type: NotificationType;
   placeholder: string;
+  targetOrganizationId: string;
 }> = [
   {
     label: 'OLP — Disponibilidad',
     hint: 'AUTHORIZATION_READY_TO_DISPENSE',
     type: 'AUTHORIZATION_READY_TO_DISPENSE',
     placeholder: 'logistica@olp.com',
+    targetOrganizationId: ORGANIZATION_IDS.MEDICARTE,
   },
   {
     label: 'OLP — Punto de aplicación',
-    hint: 'DISPENSATION_LOCATION_ASSIGNED / CHANGED',
+    hint: 'DISPENSATION_LOCATION_ASSIGNED',
     type: 'DISPENSATION_LOCATION_ASSIGNED',
     placeholder: 'logistica@olp.com',
+    targetOrganizationId: ORGANIZATION_IDS.OLP,
+  },
+  {
+    label: 'OLP — Cambio de punto de aplicación',
+    hint: 'DISPENSATION_LOCATION_CHANGED',
+    type: 'DISPENSATION_LOCATION_CHANGED',
+    placeholder: 'logistica@olp.com',
+    targetOrganizationId: ORGANIZATION_IDS.OLP,
   },
   {
     label: 'EPS — Direccionamiento pendiente',
     hint: 'EPS_DIRECTION_PENDING',
     type: 'EPS_DIRECTION_PENDING',
     placeholder: 'eps@compensar.com',
+    targetOrganizationId: ORGANIZATION_IDS.COMPENSAR,
+  },
+  {
+    label: 'MTD — Dispensación reportada',
+    hint: 'DISPENSATION_DATE_REPORTED',
+    type: 'DISPENSATION_DATE_REPORTED',
+    placeholder: 'mtd@example.com',
+    targetOrganizationId: ORGANIZATION_IDS.MTD,
+  },
+  {
+    label: 'Medicarte — Dispensación reportada',
+    hint: 'DISPENSATION_DATE_REPORTED',
+    type: 'DISPENSATION_DATE_REPORTED',
+    placeholder: 'medicarte@example.com',
+    targetOrganizationId: ORGANIZATION_IDS.MEDICARTE,
+  },
+  {
+    label: 'MTD — Aplicación reportada',
+    hint: 'APPLICATION_DATE_REPORTED',
+    type: 'APPLICATION_DATE_REPORTED',
+    placeholder: 'mtd@example.com',
+    targetOrganizationId: ORGANIZATION_IDS.MTD,
+  },
+  {
+    label: 'Compensar — Rechazos de cargue',
+    hint: 'AUTHORIZATION_IMPORT_REJECTED',
+    type: 'AUTHORIZATION_IMPORT_REJECTED',
+    placeholder: 'compensar@example.com',
+    targetOrganizationId: ORGANIZATION_IDS.COMPENSAR,
   },
 ];
 
@@ -47,12 +89,14 @@ function RecipientBlock({
   type,
   placeholder,
   organizationId,
+  targetOrganizationId,
 }: {
   label: string;
   hint: string;
   type: NotificationType;
   placeholder: string;
   organizationId: string;
+  targetOrganizationId: string;
 }) {
   const { data, reload } = useApiData(
     () => listNotificationRecipients(organizationId, type),
@@ -62,7 +106,9 @@ function RecipientBlock({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const recipients = (data ?? []).filter((recipient) => recipient.active);
+  const recipients = (data ?? []).filter(
+    (recipient) => recipient.active && recipient.organizationId === targetOrganizationId,
+  );
 
   const handleAdd = async () => {
     setBusy(true);
@@ -70,7 +116,7 @@ function RecipientBlock({
     try {
       await createNotificationRecipient(organizationId, {
         notificationType: type,
-        organizationId,
+        organizationId: targetOrganizationId,
         email: email.trim(),
       });
       setEmail('');
@@ -148,6 +194,58 @@ function RecipientBlock({
   );
 }
 
+function SenderBlock({ organizationId }: { organizationId: string }) {
+  const { data, reload } = useApiData(
+    () => getNotificationSender(organizationId),
+    [organizationId],
+  );
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const current = data?.email ?? '';
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await setNotificationSender(organizationId, email.trim());
+      setEmail('');
+      reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No fue posible guardar el remitente.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="config-block" style={{ marginTop: 10 }}>
+      <h4>Remitente funcional</h4>
+      <p>{current || 'Sin configurar. Se usará la configuración técnica solo como respaldo.'}</p>
+      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+        <input
+          className="control"
+          type="email"
+          placeholder="notificaciones@mtd.net.co"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        <button
+          type="button"
+          className="btn"
+          disabled={busy || !email.includes('@')}
+          onClick={() => void save()}
+        >
+          Guardar
+        </button>
+      </div>
+      {error ? (
+        <div className="login-error" role="alert" style={{ marginTop: 8 }}>
+          {error}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function AdministracionView() {
   const { organizationId, hasPermission } = useRole();
   const canManage = hasPermission('notifications.manage');
@@ -175,9 +273,16 @@ export function AdministracionView() {
           />
           <CardBody>
             {canManage ? (
-              RECIPIENT_TYPES.map((config) => (
-                <RecipientBlock key={config.type} {...config} organizationId={organizationId} />
-              ))
+              <>
+                <SenderBlock organizationId={organizationId} />
+                {RECIPIENT_TYPES.map((config) => (
+                  <RecipientBlock
+                    key={`${config.type}-${config.targetOrganizationId}`}
+                    {...config}
+                    organizationId={organizationId}
+                  />
+                ))}
+              </>
             ) : (
               <Note>
                 Tu organización no tiene el permiso notifications.manage para administrar

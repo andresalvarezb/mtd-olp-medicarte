@@ -9,12 +9,12 @@ Permitir descargas completas según alcance y tres actualizaciones masivas segur
 ## Tipos y contratos de columnas
 
 | Tipo                           | Actor     | Encabezados exactos                                       |
-| ------------------------------ | --------- | ---------------------------------------------------------- |
-| `ASSIGN_DISPENSATION_LOCATION` | MEDICARTE | `authorization_key,lugar_dispensacion`                     |
-| `REPORT_DISPENSATION_DATE`     | OLP       | `authorization_key,fecha_dispensacion`                     |
-| `REPORT_APPLICATION_DATE`      | MEDICARTE | `numero_autorizacion,codigo_medicamento,fecha_aplicacion`  |
+| ------------------------------ | --------- | --------------------------------------------------------- |
+| `ASSIGN_DISPENSATION_LOCATION` | MEDICARTE | `authorization_key,lugar_dispensacion,fecha_programada`   |
+| `REPORT_DISPENSATION_DATE`     | OLP       | `authorization_key,fecha_dispensacion`                    |
+| `REPORT_APPLICATION_DATE`      | MEDICARTE | `numero_autorizacion,codigo_medicamento,fecha_aplicacion` |
 
-No se aceptan columnas adicionales, alias ni campos arbitrarios. Para lugar y fecha de dispensación la única llave de negocio es `authorization_key`: la pareja normalizada `numero_autorizacion + codigo_medicamento` (separador `:`, con escape de `\` y `:`) que entrega la descarga operativa. `lugar_dispensacion` es texto libre: el sistema solo exige valor no vacío y normalización de espacios; no valida estructura de dirección. Las fechas usan el formato canónico `YYYY-MM-DD`; no se inventan restricciones temporales adicionales mientras no exista una decisión de negocio. El cambio de esquema de los dos primeros tipos versiona el contrato (`BULK_UPDATE_CONTRACT_VERSION = 2`).
+No se aceptan columnas adicionales, alias ni campos arbitrarios. Para lugar y fecha de dispensación la única llave de negocio es `authorization_key`: la pareja normalizada `numero_autorizacion + codigo_medicamento` (separador `:`, con escape de `\` y `:`) que entrega la descarga operativa. `lugar_dispensacion` es texto libre: el sistema solo exige valor no vacío y normalización de espacios; no valida estructura de dirección. `fecha_programada` es obligatoria e informativa para OLP. Las fechas usan el formato canónico `YYYY-MM-DD`. El cambio de esquema versiona el contrato (`BULK_UPDATE_CONTRACT_VERSION = 3`).
 
 ## Pipeline
 

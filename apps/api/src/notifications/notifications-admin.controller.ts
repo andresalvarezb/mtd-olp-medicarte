@@ -52,7 +52,16 @@ const errorSchema = {
 
 const notificationResponseSchema = {
   type: 'object',
-  required: ['id', 'notificationType', 'status', 'attempts', 'subject', 'recipients', 'templateVersion', 'createdAt'],
+  required: [
+    'id',
+    'notificationType',
+    'status',
+    'attempts',
+    'subject',
+    'recipients',
+    'templateVersion',
+    'createdAt',
+  ],
   properties: {
     id: { type: 'string', format: 'uuid' },
     notificationType: { type: 'string' },
@@ -176,6 +185,47 @@ export class NotificationsAdminController {
     );
     return this.notificationsAdmin.listRecipients({
       ...(query.notificationType ? { notificationType: query.notificationType } : {}),
+      scope: scopeFromProfile(profile, organization, request),
+    });
+  }
+
+  @Get('admin/notification-sender')
+  @ApiOkResponse({ schema: { type: 'object' } })
+  async getSender(
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const organization = uuidSchema.parse(organizationId);
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'notifications.manage',
+    );
+    return this.notificationsAdmin.getSender();
+  }
+
+  @Post('admin/notification-sender')
+  @HttpCode(200)
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['email'],
+      properties: { email: { type: 'string', format: 'email' } },
+    },
+  })
+  async setSender(
+    @Body() body: unknown,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const organization = uuidSchema.parse(organizationId);
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'notifications.manage',
+    );
+    return this.notificationsAdmin.setSender({
+      body,
       scope: scopeFromProfile(profile, organization, request),
     });
   }

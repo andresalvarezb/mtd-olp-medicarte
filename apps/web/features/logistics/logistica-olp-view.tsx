@@ -22,6 +22,7 @@ const COLUMNS = [
   { label: 'Medicamento' },
   { label: 'Estado punto' },
   { label: 'Sede / dirección' },
+  { label: 'Fecha programada' },
   { label: 'Fecha de dispensación' },
 ];
 
@@ -76,6 +77,7 @@ export function LogisticaOlpView() {
       {SITE_STATUS_LABELS[item.applicationSiteStatus]}
     </StatusBadge>,
     item.lugarDispensacion ?? '—',
+    item.fechaProgramada ?? '—',
     item.fechaDispensacion ? formatDispensationDate(item.fechaDispensacion) : '—',
   ]);
 

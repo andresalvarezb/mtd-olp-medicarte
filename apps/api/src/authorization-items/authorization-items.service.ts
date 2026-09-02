@@ -47,6 +47,7 @@ type ItemRow = {
   operation_status: string | null;
   coverage_rule_version: string;
   lugar_dispensacion: string | null;
+  fecha_programada: string | null;
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
   audit_status: AuthorizationItemResponse['auditStatus'];
@@ -136,6 +137,7 @@ function toItemResponse(row: ItemRow, includeSourceData: boolean): Authorization
     sourcePrescripcionNormalized: row.source_prescripcion_normalized,
     noPrescripcion: row.no_prescripcion,
     lugarDispensacion: row.lugar_dispensacion,
+    fechaProgramada: row.fecha_programada,
     fechaDispensacion: row.fecha_dispensacion,
     fechaAplicacion: row.fecha_aplicacion,
     auditStatus: row.audit_status,
@@ -201,7 +203,7 @@ export class AuthorizationItemsService {
       `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
               i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-               i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
+               i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
               i.created_at, i.updated_at
        from authorization_items i
        where ${conditions.join(' and ')}
@@ -326,7 +328,7 @@ export class AuthorizationItemsService {
         `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                  i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-                 i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version,
+                  i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version,
                  i.tariff_membership_status, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
@@ -449,8 +451,8 @@ export class AuthorizationItemsService {
           where id = $1 and version = $10
           returning id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
                    source_status_normalized, source_prescripcion_normalized, no_prescripcion, enablement_status,
-                    coverage_type, direction_status, operation_status, coverage_rule_version, lugar_dispensacion,
-                    fecha_dispensacion::text, fecha_aplicacion::text, audit_status, admission_status,
+                     coverage_type, direction_status, operation_status, coverage_rule_version, lugar_dispensacion,
+                     fecha_programada::text, fecha_dispensacion::text, fecha_aplicacion::text, audit_status, admission_status,
                    operational_version, version, created_at, updated_at`,
         [
           itemId,
@@ -773,7 +775,7 @@ export class AuthorizationItemsService {
                 ${includeSourceData ? 'i.source_data' : 'null::jsonb'} as source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                  i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-                 i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
+                  i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
          where i.id = $1

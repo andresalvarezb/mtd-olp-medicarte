@@ -10,11 +10,11 @@ Medicarte y OLP actualizan grandes conjuntos de autorizaciones en etapas distint
 
 Implementar un único mecanismo de `bulk updates` parametrizado por un catálogo cerrado de tipos de operación:
 
-| Tipo                           | Actor     | Columna mutable      |
-| ------------------------------ | --------- | -------------------- |
-| `ASSIGN_DISPENSATION_LOCATION` | MEDICARTE | `lugar_dispensacion` |
-| `REPORT_DISPENSATION_DATE`     | OLP       | `fecha_dispensacion` |
-| `REPORT_APPLICATION_DATE`      | MEDICARTE | `fecha_aplicacion`   |
+| Tipo                           | Actor     | Datos actualizados                       |
+| ------------------------------ | --------- | ---------------------------------------- |
+| `ASSIGN_DISPENSATION_LOCATION` | MEDICARTE | `lugar_dispensacion`, `fecha_programada` |
+| `REPORT_DISPENSATION_DATE`     | OLP       | `fecha_dispensacion`                     |
+| `REPORT_APPLICATION_DATE`      | MEDICARTE | `fecha_aplicacion`                       |
 
 Cada tipo define en backend su permiso, precondiciones, esquema exacto, normalización, validación y efectos de dominio. Los tipos `ASSIGN_DISPENSATION_LOCATION` y `REPORT_DISPENSATION_DATE` usan como única llave de negocio la columna `authorization_key` (pareja normalizada `numero_autorizacion + codigo_medicamento`); el archivo contiene exactamente `authorization_key` y la columna mutable del tipo. `REPORT_APPLICATION_DATE` conserva la pareja `numero_autorizacion` + `codigo_medicamento` y la columna mutable. Columnas adicionales, faltantes o duplicadas invalidan la fila o el archivo según el alcance del error. La descarga operativa de OLP solo expone registros con `lugar_dispensacion` asignado; los pendientes de asignación se omiten.
 

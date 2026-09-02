@@ -6,13 +6,13 @@ Referencia de operación para los flujos masivos de la Fase 4/5 (SPEC-013, ADR-0
 
 Cada tipo de operación fija actor, permiso y la única columna que puede modificar (contrato cerrado en `packages/contracts`). El backend rechaza con `403` cualquier intento cruzado entre actores.
 
-| Operación                       | Actor     | Permiso                            | Columna modificable | Vista en la aplicación   |
-| ------------------------------- | --------- | ---------------------------------- | ------------------- | ------------------------ |
-| `ASSIGN_DISPENSATION_LOCATION`  | MEDICARTE | `bulk_updates.dispensation_location` | `lugar_dispensacion` | Puntos de aplicación   |
-| `REPORT_DISPENSATION_DATE`      | OLP       | `bulk_updates.dispensation_date`     | `fecha_dispensacion` | Logística OLP          |
-| `REPORT_APPLICATION_DATE`       | MEDICARTE | `bulk_updates.application_date`      | `fecha_aplicacion`   | Puntos de aplicación*  |
+| Operación                      | Actor     | Permiso                              | Columna modificable                       | Vista en la aplicación |
+| ------------------------------ | --------- | ------------------------------------ | ----------------------------------------- | ---------------------- |
+| `ASSIGN_DISPENSATION_LOCATION` | MEDICARTE | `bulk_updates.dispensation_location` | `lugar_dispensacion` + `fecha_programada` | Puntos de aplicación   |
+| `REPORT_DISPENSATION_DATE`     | OLP       | `bulk_updates.dispensation_date`     | `fecha_dispensacion`                      | Logística OLP          |
+| `REPORT_APPLICATION_DATE`      | MEDICARTE | `bulk_updates.application_date`      | `fecha_aplicacion`                        | Puntos de aplicación\* |
 
-*La carga de `fecha_aplicacion` reutiliza el mismo mecanismo; su vista dedicada puede habilitarse con el mismo componente.
+\*La carga de `fecha_aplicacion` reutiliza el mismo mecanismo; su vista dedicada puede habilitarse con el mismo componente.
 
 ## Flujo estándar (los cuatro pasos)
 
@@ -25,13 +25,33 @@ Cada tipo de operación fija actor, permiso y la única columna que puede modifi
 
 Formato CSV o XLSX, máximo 20 MB, sin columnas adicionales, alias ni campos arbitrarios.
 
-| Operación                       | Encabezados exactos (fila 1)                              | Formato del valor      |
-| ------------------------------- | --------------------------------------------------------- | ---------------------- |
-| `ASSIGN_DISPENSATION_LOCATION`  | `authorization_key,lugar_dispensacion`                    | texto no vacío         |
-| `REPORT_DISPENSATION_DATE`      | `authorization_key,fecha_dispensacion`                    | fecha `YYYY-MM-DD`     |
-| `REPORT_APPLICATION_DATE`       | `numero_autorizacion,codigo_medicamento,fecha_aplicacion` | fecha `YYYY-MM-DD`     |
+| Operación                      | Encabezados exactos (fila 1)                              | Formato del valor                  |
+| ------------------------------ | --------------------------------------------------------- | ---------------------------------- |
+| `ASSIGN_DISPENSATION_LOCATION` | `authorization_key,lugar_dispensacion,fecha_programada`   | lugar no vacío; fecha `YYYY-MM-DD` |
+| `REPORT_DISPENSATION_DATE`     | `authorization_key,fecha_dispensacion`                    | fecha `YYYY-MM-DD`                 |
+| `REPORT_APPLICATION_DATE`      | `numero_autorizacion,codigo_medicamento,fecha_aplicacion` | fecha `YYYY-MM-DD`                 |
 
 `lugar_dispensacion` es texto libre: el sistema exige valor no vacío y normaliza espacios; no valida estructura de dirección.
+
+## Notificaciones por correo
+
+Las notificaciones se generan mediante el outbox transaccional y el worker existente. Los
+destinatarios se configuran en `/administracion` por organización lógica y tipo de evento; el
+remitente funcional se configura en la misma vista. Las credenciales de Gmail (`GMAIL_SENDER`,
+`GOOGLE_SERVICE_ACCOUNT_EMAIL` y `GOOGLE_PRIVATE_KEY`) siguen siendo secretos de infraestructura.
+
+| Evento                                     | Organización destinataria                             |
+| ------------------------------------------ | ----------------------------------------------------- |
+| Autorizaciones disponibles                 | MEDICARTE (y OLP, según el aviso operativo existente) |
+| Rechazos/omisiones de validación de cargue | COMPENSAR                                             |
+| Punto de aplicación registrado             | OLP                                                   |
+| Fecha de dispensación registrada           | MTD y MEDICARTE                                       |
+| Fecha de aplicación registrada             | MTD                                                   |
+
+Cada evento conserva lote o ítem, destinatario, destinatarios concretos, remitente, estado,
+intentos e identificador del proveedor en `notifications`. Las claves idempotentes incluyen el
+evento, ítem, versión operativa y organización destinataria. En desarrollo sin credenciales Gmail
+se utiliza el adaptador fake y el identificador `fake-*`; no representa entrega externa.
 
 ## Precondiciones por operación
 

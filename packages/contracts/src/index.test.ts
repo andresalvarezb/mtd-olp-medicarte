@@ -117,7 +117,7 @@ describe('phase four and five contracts', () => {
     expect(bulkUpdateOperationContracts.ASSIGN_DISPENSATION_LOCATION).toMatchObject({
       actorOrganizationCode: 'MEDICARTE',
       mutableField: 'LUGAR_DISPENSACION',
-      requiredColumns: ['CLAVE_AUTORIZACION', 'LUGAR_DISPENSACION'],
+      requiredColumns: ['CLAVE_AUTORIZACION', 'LUGAR_DISPENSACION', 'FECHA_PROGRAMADA'],
     });
     expect(bulkUpdateOperationContracts.REPORT_DISPENSATION_DATE).toMatchObject({
       actorOrganizationCode: 'OLP',
