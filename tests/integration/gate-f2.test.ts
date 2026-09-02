@@ -1009,7 +1009,11 @@ describe('Gate F2', () => {
         );
         const initial = await requestUpdate();
         expect(initial.status).toBe(200);
-        expect(sourceUpdateResponseSchema.parse(await initial.json()).item.sourceData).toBeNull();
+        expect(sourceUpdateResponseSchema.parse(await initial.json()).item.sourceData).toEqual({
+          NUM_DOCUMENTO: '',
+          NOMBRE_PACIENTE: '',
+          CUPS_AUTORIZADO: '',
+        });
 
         await database.query(
           `insert into role_permissions (role_id, permission_id)
@@ -1038,7 +1042,11 @@ describe('Gate F2', () => {
         expect(redactedReplay.status).toBe(200);
         expect(
           sourceUpdateResponseSchema.parse(await redactedReplay.json()).item.sourceData,
-        ).toBeNull();
+        ).toEqual({
+          NUM_DOCUMENTO: '',
+          NOMBRE_PACIENTE: '',
+          CUPS_AUTORIZADO: '',
+        });
 
         const itemLock = new Client({ connectionString: databaseUrl });
         const permissionRevocation = new Client({ connectionString: databaseUrl });
@@ -1085,7 +1093,11 @@ describe('Gate F2', () => {
           expect(serializedReplay.status).toBe(200);
           expect(
             sourceUpdateResponseSchema.parse(await serializedReplay.json()).item.sourceData,
-          ).toBeNull();
+          ).toEqual({
+            NUM_DOCUMENTO: '',
+            NOMBRE_PACIENTE: '',
+            CUPS_AUTORIZADO: '',
+          });
           await revocation;
         } finally {
           await itemLock.query('rollback').catch(() => undefined);

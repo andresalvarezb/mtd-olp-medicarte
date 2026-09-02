@@ -113,6 +113,15 @@ function rawText(value: unknown): string {
   return JSON.stringify(value) ?? '';
 }
 
+function publicSourceData(value: unknown): Record<string, unknown> {
+  const source = sourceDataRecord(value);
+  return {
+    NUM_DOCUMENTO: source ? rawText(source.NUM_DOCUMENTO ?? source.IDENTIFICACION_PACIENTE) : null,
+    NOMBRE_PACIENTE: source ? rawText(source.NOMBRE_PACIENTE) : null,
+    CUPS_AUTORIZADO: source ? rawText(source.CUPS_AUTORIZADO) : null,
+  };
+}
+
 function evidenceHash(value: unknown): string {
   return createHash('sha256')
     .update(JSON.stringify(value) ?? 'null')
@@ -133,7 +142,9 @@ function toItemResponse(row: ItemRow, includeSourceData: boolean): Authorization
     coverageType: row.coverage_type as AuthorizationItemResponse['coverageType'],
     directionStatus: row.direction_status as AuthorizationItemResponse['directionStatus'],
     operationStatus: row.operation_status as AuthorizationItemResponse['operationStatus'],
-    sourceData: includeSourceData ? sourceDataRecord(row.source_data) : null,
+    sourceData: includeSourceData
+      ? sourceDataRecord(row.source_data)
+      : publicSourceData(row.source_data),
     sourcePrescripcionNormalized: row.source_prescripcion_normalized,
     noPrescripcion: row.no_prescripcion,
     lugarDispensacion: row.lugar_dispensacion,
@@ -357,7 +368,7 @@ export class AuthorizationItemsService {
             message: 'Idempotency key reused with another payload',
           });
         }
-        let replaySourceData: Record<string, unknown> | null = null;
+        let replaySourceData: Record<string, unknown> = publicSourceData(item.source_data);
         if (currentReadSensitive) {
           const replayEvidence = await client.query<{ raw_data: unknown }>(
             `select r.raw_data
@@ -367,8 +378,9 @@ export class AuthorizationItemsService {
                and b.organization_id = $3`,
             [previous.response.rowId, itemId, input.scope.organizationId],
           );
-          replaySourceData = sourceDataRecord(replayEvidence.rows[0]?.raw_data);
-          if (!replaySourceData) throw new Error('Idempotent source evidence was not found');
+          const sensitiveSourceData = sourceDataRecord(replayEvidence.rows[0]?.raw_data);
+          if (!sensitiveSourceData) throw new Error('Idempotent source evidence was not found');
+          replaySourceData = sensitiveSourceData;
           await this.insertReadAudit(itemId, input.scope, client);
         }
         await client.query('commit');
