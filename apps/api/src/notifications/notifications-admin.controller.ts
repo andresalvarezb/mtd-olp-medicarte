@@ -196,7 +196,7 @@ export class NotificationsAdminController {
     @Req() request: AuthenticatedRequest,
   ) {
     const organization = uuidSchema.parse(organizationId);
-    const profile = await this.access.requirePermission(
+    await this.access.requirePermission(
       request.auth.sub,
       organization,
       'notifications.manage',
