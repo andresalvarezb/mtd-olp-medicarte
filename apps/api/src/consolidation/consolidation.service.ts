@@ -46,6 +46,7 @@ type ExportRow = {
   version: number;
   created_at: Date;
   updated_at: Date;
+  audit_observations: string | null;
   nombre_paciente: string | null;
   numero_documento: string | null;
   cdgn001: string | null;
@@ -73,16 +74,27 @@ function safeSpreadsheetValue(value: string | number | boolean): string {
 }
 
 const processColumns = [
-  'CLAVE_AUTORIZACION', 'ESTADO_HABILITACION', 'TIPO_COBERTURA',
-  'ESTADO_DIRECCIONAMIENTO', 'ESTADO_OPERACION', 'LUGAR_DISPENSACION',
-  'FECHA_DISPENSACION', 'FECHA_APLICACION', 'ESTADO_AUDITORIA',
-  'ESTADO_ADMISION', 'ESTADO_PUNTO_APLICACION', 'VERSION',
-  'FECHA_CREACION', 'FECHA_ACTUALIZACION',
+  'CLAVE_AUTORIZACION',
+  'ESTADO_HABILITACION',
+  'TIPO_COBERTURA',
+  'ESTADO_DIRECCIONAMIENTO',
+  'ESTADO_OPERACION',
+  'LUGAR_DISPENSACION',
+  'FECHA_DISPENSACION',
+  'FECHA_APLICACION',
+  'ESTADO_AUDITORIA',
+  'OBSERVACIONES_AUDITORIA',
+  'ESTADO_ADMISION',
+  'ESTADO_PUNTO_APLICACION',
+  'VERSION',
+  'FECHA_CREACION',
+  'FECHA_ACTUALIZACION',
 ] as const;
 
 /**
  * SPEC-006/ADR-018: el consolidado definitivo solo incluye registros
- * audit_status = APPROVED; el archivo se genera on-demand y no se persiste.
+ * audit_status = APPROVED. La exportación de la base completa usa includeAll
+ * y no filtra por estado de validación u operación.
  */
 @Injectable()
 export class ConsolidationService {
@@ -173,21 +185,29 @@ export class ConsolidationService {
       `select i.id, i.authorization_key, i.numero_autorizacion, i.codigo_medicamento,
               i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
               i.lugar_dispensacion, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
-              i.audit_status, i.admission_status, i.version, i.created_at, i.updated_at,
-              ${sourceBaseSelectSql('i')}
+               i.audit_status, i.admission_status, i.version, i.created_at, i.updated_at,
+               (select string_agg(
+                  format('Revision %s [%s]: %s', ar.review_number, ar.status, ar.observations),
+                  ' | ' order by ar.review_number
+                )
+                from audit_reviews ar
+                where ar.authorization_item_id = i.id
+                  and ar.observations is not null
+                  and btrim(ar.observations) <> '') as audit_observations,
+               ${sourceBaseSelectSql('i')}
        from authorization_items i
-       where i.audit_status = 'APPROVED' ${coverageFilter}
+        where ${input.query.includeAll ? 'true' : "i.audit_status = 'APPROVED'"} ${coverageFilter}
          and ${condition.sql}
        order by i.created_at asc, i.id asc`,
       values,
     );
-     const columns = ['IDENTIFICADOR_REGISTRO', ...sourceBaseColumns, ...processColumns] as string[];
+    const columns = ['IDENTIFICADOR_REGISTRO', ...sourceBaseColumns, ...processColumns] as string[];
     const rows: Array<Record<string, string | number | null>> = result.rows.map((row) => ({
       NUMERO_AUTORIZACION: row.numero_autorizacion,
       NUM_DOCUMENTO: row.numero_documento,
       NOMBRE_PACIENTE: row.nombre_paciente,
       CDGN001: row.cdgn001,
-       CODIGO_COMERCIAL: row.codigo_medicamento,
+      CODIGO_COMERCIAL: row.codigo_medicamento,
       CUPS_AUTORIZADO: row.cups_autorizado,
       CANTIDAD: row.cantidad,
       DOSIS: row.dosis,
@@ -195,25 +215,26 @@ export class ConsolidationService {
       FECHA_FINAL_VIGENCIA: row.fecha_final_vigencia,
       ESTADO_AUTORIZACION: row.estado_autorizacion,
       OBS_AUTORIZACION: row.obs_autorizacion,
-       VALOR_CUOTA_MODERADORA: row.valor_cuota_moderadora,
-       NUMERO_PRESCRIPCION: row.no_prescripcion,
-       IDENTIFICADOR_REGISTRO: row.id,
-       CLAVE_AUTORIZACION: row.authorization_key,
-       ESTADO_HABILITACION: row.enablement_status,
-       TIPO_COBERTURA: row.coverage_type,
-       ESTADO_DIRECCIONAMIENTO: row.direction_status,
-       ESTADO_OPERACION: row.operation_status,
-       LUGAR_DISPENSACION: row.lugar_dispensacion,
-       FECHA_DISPENSACION: row.fecha_dispensacion,
-       FECHA_APLICACION: row.fecha_aplicacion,
-       ESTADO_AUDITORIA: row.audit_status,
-       ESTADO_ADMISION: row.admission_status,
-       ESTADO_PUNTO_APLICACION: deriveApplicationSiteStatus(row.lugar_dispensacion),
-       VERSION: row.version,
-       FECHA_CREACION: row.created_at.toISOString(),
-       FECHA_ACTUALIZACION: row.updated_at.toISOString(),
+      VALOR_CUOTA_MODERADORA: row.valor_cuota_moderadora,
+      NUMERO_PRESCRIPCION: row.no_prescripcion,
+      IDENTIFICADOR_REGISTRO: row.id,
+      CLAVE_AUTORIZACION: row.authorization_key,
+      ESTADO_HABILITACION: row.enablement_status,
+      TIPO_COBERTURA: row.coverage_type,
+      ESTADO_DIRECCIONAMIENTO: row.direction_status,
+      ESTADO_OPERACION: row.operation_status,
+      LUGAR_DISPENSACION: row.lugar_dispensacion,
+      FECHA_DISPENSACION: row.fecha_dispensacion,
+      FECHA_APLICACION: row.fecha_aplicacion,
+      ESTADO_AUDITORIA: row.audit_status,
+      OBSERVACIONES_AUDITORIA: row.audit_observations,
+      ESTADO_ADMISION: row.admission_status,
+      ESTADO_PUNTO_APLICACION: deriveApplicationSiteStatus(row.lugar_dispensacion),
+      VERSION: row.version,
+      FECHA_CREACION: row.created_at.toISOString(),
+      FECHA_ACTUALIZACION: row.updated_at.toISOString(),
     }));
-    const filename = `consolidado-aprobado`;
+    const filename = input.query.includeAll ? 'autorizaciones-completas' : 'consolidado-aprobado';
     if (input.query.format === 'xlsx') {
       const safeRows = rows.map((row) =>
         Object.fromEntries(

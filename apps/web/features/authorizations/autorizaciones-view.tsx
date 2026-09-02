@@ -85,14 +85,15 @@ export function AutorizacionesView() {
   const [exporting, setExporting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const handleExport = () => {
+  const handleExport = (format: 'csv' | 'xlsx') => {
     setExporting(true);
     setActionError(null);
     downloadFile(
-      '/exports/authorization-items.csv',
+      `/exports/authorization-items.${format}`,
       organizationId,
-      'autorizaciones-aprobadas.csv',
+      `autorizaciones-completas.${format}`,
       {
+        includeAll: 'true',
         ...(applied && applied.coverage !== 'todos' ? { coverageType: applied.coverage } : {}),
       },
     )
@@ -136,9 +137,24 @@ export function AutorizacionesView() {
         actions={
           <>
             {canExport ? (
-              <button type="button" className="btn" disabled={exporting} onClick={handleExport}>
-                {exporting ? 'Exportando…' : 'Exportar aprobados (CSV)'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={exporting}
+                  onClick={() => handleExport('csv')}
+                >
+                  {exporting ? 'Exportando…' : 'Descargar base completa (CSV)'}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={exporting}
+                  onClick={() => handleExport('xlsx')}
+                >
+                  {exporting ? 'Exportando…' : 'Descargar base completa (Excel)'}
+                </button>
+              </>
             ) : null}
             <RoleActionButton allowedRole="MTD">
               <Link

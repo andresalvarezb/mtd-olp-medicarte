@@ -485,20 +485,20 @@ export const bulkUpdateOperationContracts = {
   ASSIGN_DISPENSATION_LOCATION: {
     actorOrganizationCode: 'MEDICARTE',
     permission: 'bulk_updates.dispensation_location',
-     mutableField: 'LUGAR_DISPENSACION',
-     requiredColumns: ['CLAVE_AUTORIZACION', 'LUGAR_DISPENSACION'],
+    mutableField: 'LUGAR_DISPENSACION',
+    requiredColumns: ['CLAVE_AUTORIZACION', 'LUGAR_DISPENSACION'],
   },
   REPORT_DISPENSATION_DATE: {
     actorOrganizationCode: 'OLP',
     permission: 'bulk_updates.dispensation_date',
-     mutableField: 'FECHA_DISPENSACION',
-     requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_DISPENSACION'],
+    mutableField: 'FECHA_DISPENSACION',
+    requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_DISPENSACION'],
   },
   REPORT_APPLICATION_DATE: {
     actorOrganizationCode: 'MEDICARTE',
     permission: 'bulk_updates.application_date',
-     mutableField: 'FECHA_APLICACION',
-     requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_APLICACION'],
+    mutableField: 'FECHA_APLICACION',
+    requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_APLICACION'],
   },
 } as const satisfies Record<
   BulkUpdateOperationType,
@@ -766,10 +766,15 @@ export const operationalIndicatorsResponseSchema = z.object({
 });
 export type OperationalIndicatorsResponse = z.infer<typeof operationalIndicatorsResponseSchema>;
 
-/** Consolidado on-demand (ADR-018): solo APPROVED es elegible (SPEC-006). */
+/** Exportaciones on-demand: el consolidado por defecto solo incluye APPROVED. */
 export const consolidatedExportQuerySchema = z.object({
   format: operationalExportFormatSchema.default('csv'),
   coverageType: coverageTypeSchema.exclude(['UNCLASSIFIED']).optional(),
+  includeAll: z.preprocess(
+    (value) =>
+      value === undefined ? false : value === 'true' ? true : value === 'false' ? false : value,
+    z.boolean(),
+  ),
 });
 export type ConsolidatedExportQuery = z.infer<typeof consolidatedExportQuerySchema>;
 

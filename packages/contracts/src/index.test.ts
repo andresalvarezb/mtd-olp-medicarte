@@ -285,6 +285,8 @@ describe('phase six contracts', () => {
 
   it('restringe el consolidado bajo demanda a formatos cerrados', () => {
     expect(consolidatedExportQuerySchema.parse({}).format).toBe('csv');
+    expect(consolidatedExportQuerySchema.parse({ includeAll: 'true' }).includeAll).toBe(true);
+    expect(consolidatedExportQuerySchema.parse({ includeAll: 'false' }).includeAll).toBe(false);
     expect(consolidatedExportQuerySchema.safeParse({ format: 'pdf' }).success).toBe(false);
   });
 });

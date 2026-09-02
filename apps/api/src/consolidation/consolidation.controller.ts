@@ -56,10 +56,12 @@ export class ConsolidationController {
   @Get('authorization-items.csv')
   @Header('Cache-Control', 'no-store')
   @ApiOkResponse({
-    description: 'On-demand consolidated export of APPROVED items only; not persisted',
+    description:
+      'On-demand export of the consolidated or complete authorization base; not persisted',
     content: { 'text/csv': { schema: { type: 'string', format: 'binary' } } },
   })
   @ApiQuery({ name: 'coverageType', enum: ['PBS', 'NO_PBS'], required: false })
+  @ApiQuery({ name: 'includeAll', enum: ['true', 'false'], required: false })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   async exportCsv(
@@ -74,7 +76,8 @@ export class ConsolidationController {
   @Get('authorization-items.xlsx')
   @Header('Cache-Control', 'no-store')
   @ApiOkResponse({
-    description: 'On-demand consolidated XLSX export of APPROVED items only; not persisted',
+    description:
+      'On-demand XLSX export of the consolidated or complete authorization base; not persisted',
     content: {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
         schema: { type: 'string', format: 'binary' },
@@ -82,6 +85,7 @@ export class ConsolidationController {
     },
   })
   @ApiQuery({ name: 'coverageType', enum: ['PBS', 'NO_PBS'], required: false })
+  @ApiQuery({ name: 'includeAll', enum: ['true', 'false'], required: false })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
   async exportXlsx(

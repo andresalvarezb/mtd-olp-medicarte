@@ -20,7 +20,13 @@ import {
   startAuditReview,
   type AuditReview,
 } from '@/lib/authorization-items-api';
-import { auditPill, AUDIT_STATUS_LABELS, patientName, patientDocument, medicationName } from '@/lib/labels';
+import {
+  auditPill,
+  AUDIT_STATUS_LABELS,
+  patientName,
+  patientDocument,
+  medicationName,
+} from '@/lib/labels';
 import type { AuthorizationItemResponse } from '@authorization/contracts';
 
 const COLUMNS = [
@@ -157,7 +163,7 @@ export function AuditoriaView() {
   const buildRows = (filter: TabFilter) =>
     (pages[filter]?.items ?? []).map((item) => {
       const actions: React.ReactNode[] = [];
-      if (filter === 'READY' && canStart) {
+      if ((filter === 'READY' || filter === 'REJECTED') && canStart) {
         actions.push(
           <button
             key={`start-${item.id}`}
@@ -168,7 +174,11 @@ export function AuditoriaView() {
               void handleStart(item.id, item.version, item.numeroAutorizacion);
             }}
           >
-            {busy === `start-${item.id}` ? 'Iniciando…' : 'Iniciar auditoría'}
+            {busy === `start-${item.id}`
+              ? 'Iniciando…'
+              : filter === 'REJECTED'
+                ? 'Volver a revisar'
+                : 'Iniciar auditoría'}
           </button>,
         );
       }

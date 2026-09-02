@@ -21,6 +21,13 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
+function createIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `bulk-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export interface BulkUpdateUploadProps {
   operationType: BulkUpdateOperationType;
   buttonLabel: string;
@@ -99,12 +106,18 @@ export function BulkUpdateUpload({
   };
 
   const handleUpload = async () => {
-    if (!file || uploading || !organizationId) return;
+    if (!file || uploading) return;
+    if (!organizationId) {
+      setBulkError(
+        'No fue posible identificar la organización activa. Recarga la página e inténtalo de nuevo.',
+      );
+      return;
+    }
     setUploading(true);
     setBulkError(null);
     setRejectedRows([]);
-    idempotencyKeyRef.current = crypto.randomUUID();
     try {
+      idempotencyKeyRef.current = createIdempotencyKey();
       const created = await createBulkUpdate(
         operationType,
         file,
@@ -214,7 +227,8 @@ export function BulkUpdateUpload({
             <ul style={{ marginTop: 6, paddingLeft: 20 }}>
               {rejectedRows.map((row) => (
                 <li key={row.id}>
-                  Fila {formatNumber(row.rowNumber)}: {resultLabel(row.resultCode)} — {row.resultMessage}
+                  Fila {formatNumber(row.rowNumber)}: {resultLabel(row.resultCode)} —{' '}
+                  {row.resultMessage}
                 </li>
               ))}
             </ul>

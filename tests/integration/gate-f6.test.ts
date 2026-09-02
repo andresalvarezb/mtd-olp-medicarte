@@ -348,7 +348,10 @@ describe('Gate F6', () => {
       adminToken,
       mtdOrganizationId,
       `/api/v1/audit-reviews/${review.rows[0]!.id}/approve`,
-      { expectedVersion: itemRow.rows[0]!.version },
+      {
+        expectedVersion: itemRow.rows[0]!.version,
+        observations: 'Soportes verificados y completos.',
+      },
     );
     expect(approval.status).toBe(200);
 
@@ -359,7 +362,16 @@ describe('Gate F6', () => {
     const csvText = await csv.text();
     expect(csvText).toContain(approved.authorization);
     expect(csvText).not.toContain(rejected.authorization);
-    expect(csvText).toContain('admission_status');
+    expect(csvText).toContain('OBSERVACIONES_AUDITORIA');
+    expect(csvText).toContain('Soportes verificados y completos.');
+
+    const allCsv = await fetch(`${apiUrl}/api/v1/exports/authorization-items.csv?includeAll=true`, {
+      headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
+    });
+    expect(allCsv.status).toBe(200);
+    const allCsvText = await allCsv.text();
+    expect(allCsvText).toContain(approved.authorization);
+    expect(allCsvText).toContain(rejected.authorization);
 
     const xlsx = await fetch(`${apiUrl}/api/v1/exports/authorization-items.xlsx?coverageType=PBS`, {
       headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
