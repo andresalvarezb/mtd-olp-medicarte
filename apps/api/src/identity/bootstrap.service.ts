@@ -6,21 +6,15 @@ import { hashPassword } from './password';
 
 type Database = ReturnType<typeof createDatabase>;
 
-/**
- * Bootstrap seguro del primer administrador local (ADR-026).
- *
- * Reglas:
- * - Sin AUTH_BOOTSTRAP_ADMIN_PASSWORD configurada, no hace nada.
- * - Si ya existe un administrador válido (usuario activo con rol MTD_ADMIN en
- *   la organización MTD y contraseña local), no hace nada: el bootstrap nunca
- *   altera cuentas existentes en cada arranque.
- * - Si el username indicado existe sin password_hash (usuario histórico
- *   migrado desde Keycloak), se le asigna la contraseña de bootstrap.
- * - Si no existe ningún admin válido, crea/actualiza ÚNICAMENTE la cuenta
- *   bootstrap y su asignación MTD_ADMIN@MTD.
- * - Nunca imprime contraseñas; idempotente ante arranques concurrentes por la
- *   restricción única lower(username) + advisory lock.
- */
+type BootstrapTarget = {
+  username: string;
+  password: string | undefined;
+  displayName: string;
+  organizationCode: string;
+  roleCode: string;
+};
+
+/** Creates the initial local accounts without replacing existing credentials. */
 @Injectable()
 export class BootstrapAdminService implements OnApplicationBootstrap {
   private readonly logger = new Logger(BootstrapAdminService.name);
@@ -31,9 +25,31 @@ export class BootstrapAdminService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    const password = this.config.AUTH_BOOTSTRAP_ADMIN_PASSWORD;
-    if (!password) return;
-    const username = this.config.AUTH_BOOTSTRAP_ADMIN_USERNAME.toLowerCase();
+    const targets: BootstrapTarget[] = [
+      {
+        username: this.config.AUTH_BOOTSTRAP_ADMIN_USERNAME,
+        password: this.config.AUTH_BOOTSTRAP_ADMIN_PASSWORD,
+        displayName: 'Foundation Admin',
+        organizationCode: 'MTD',
+        roleCode: 'MTD_ADMIN',
+      },
+      {
+        username: 'mtd-general',
+        password: this.config.AUTH_BOOTSTRAP_MTD_GENERAL_PASSWORD,
+        displayName: 'MTD General',
+        organizationCode: 'MTD',
+        roleCode: 'MTD_GENERAL',
+      },
+      {
+        username: 'mtd-auditoria',
+        password: this.config.AUTH_BOOTSTRAP_MTD_AUDITORIA_PASSWORD,
+        displayName: 'MTD Auditoria',
+        organizationCode: 'MTD',
+        roleCode: 'MTD_AUDITORIA',
+      },
+    ].filter((target) => target.password);
+
+    if (!targets.length) return;
 
     const client = await this.database.pool.connect();
     try {
@@ -50,56 +66,60 @@ export class BootstrapAdminService implements OnApplicationBootstrap {
            join organizations o on o.id = uor.organization_id and o.code = 'MTD'
           where u.active = true and u.password_hash is not null`,
       );
-      if (Number(admins.rows[0]?.count ?? 0) > 0) {
-        await client.query('commit');
-        return;
-      }
+      const hasAdmin = Number(admins.rows[0]?.count ?? 0) > 0;
 
-      const existing = await client.query<{ id: string; password_hash: string | null }>(
-        'select id, password_hash from users where lower(username) = $1',
-        [username],
-      );
-      const row = existing.rows[0];
-      const hash = await hashPassword(password);
-      if (row) {
-        if (row.password_hash) {
-          // El usuario ya tiene credencial local: no se sobrescribe.
-          await client.query('commit');
-          return;
+      for (const target of targets) {
+        if (target.roleCode === 'MTD_ADMIN' && hasAdmin) continue;
+
+        const username = target.username.toLowerCase();
+        const existing = await client.query<{ id: string; password_hash: string | null }>(
+          'select id, password_hash from users where lower(username) = $1',
+          [username],
+        );
+        const row = existing.rows[0];
+        if (row?.password_hash) continue;
+
+        const password = target.password;
+        if (!password) continue;
+        const hash = await hashPassword(password);
+
+        if (row) {
+          await client.query(
+            `update users
+                set password_hash = $2, password_changed_at = now(), active = true, updated_at = now()
+              where id = $1`,
+            [row.id, hash],
+          );
+          await client.query(
+            `insert into user_organization_roles (user_id, organization_id, role_id, active)
+             select $1, o.id, r.id, true
+               from organizations o, roles r
+              where o.code = $2 and r.code = $3
+             on conflict (user_id, organization_id, role_id) do update set active = true`,
+            [row.id, target.organizationCode, target.roleCode],
+          );
+          this.logger.log(`bootstrap user "${username}" recovered local credentials`);
+          continue;
         }
-        await client.query(
-          `update users
-              set password_hash = $2, password_changed_at = now(), updated_at = now()
-            where id = $1`,
-          [row.id, hash],
-        );
-        await client.query(
-          `insert into user_organization_roles (user_id, organization_id, role_id, active)
-           select $1, o.id, r.id, true
-             from organizations o, roles r
-            where o.code = 'MTD' and r.code = 'MTD_ADMIN'
-           on conflict (user_id, organization_id, role_id) do update set active = true`,
-          [row.id],
-        );
-        this.logger.log(`bootstrap administrator "${username}" recovered local credentials`);
-      } else {
+
         const inserted = await client.query<{ id: string }>(
           `insert into users (username, display_name, password_hash, password_changed_at, active)
-           values ($1, $1, $2, now(), true)
+           values ($1, $2, $3, now(), true)
            returning id`,
-          [username, hash],
+          [username, target.displayName, hash],
         );
         const userId = inserted.rows[0]?.id;
-        if (!userId) throw new Error('bootstrap admin insert returned no row');
+        if (!userId) throw new Error(`bootstrap user insert returned no row for ${username}`);
         await client.query(
           `insert into user_organization_roles (user_id, organization_id, role_id, active)
            select $1, o.id, r.id, true
              from organizations o, roles r
-            where o.code = 'MTD' and r.code = 'MTD_ADMIN'`,
-          [userId],
+            where o.code = $2 and r.code = $3`,
+          [userId, target.organizationCode, target.roleCode],
         );
-        this.logger.log(`bootstrap administrator "${username}" created`);
+        this.logger.log(`bootstrap user "${username}" created`);
       }
+
       await client.query('commit');
     } catch (error) {
       await client.query('rollback').catch(() => undefined);

@@ -55,6 +55,8 @@ const authConfigSchema = {
   AUTH_JWT_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(28_800),
   AUTH_BOOTSTRAP_ADMIN_USERNAME: z.string().min(3).max(160).default('foundation-admin'),
   AUTH_BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).max(128).optional(),
+  AUTH_BOOTSTRAP_MTD_GENERAL_PASSWORD: z.string().min(12).max(128).optional(),
+  AUTH_BOOTSTRAP_MTD_AUDITORIA_PASSWORD: z.string().min(12).max(128).optional(),
 };
 
 const gmailConfigSchema = {

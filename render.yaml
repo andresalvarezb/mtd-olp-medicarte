@@ -53,6 +53,10 @@ services:
         value: foundation-admin
       - key: AUTH_BOOTSTRAP_ADMIN_PASSWORD
         sync: false
+      - key: AUTH_BOOTSTRAP_MTD_GENERAL_PASSWORD
+        sync: false
+      - key: AUTH_BOOTSTRAP_MTD_AUDITORIA_PASSWORD
+        sync: false
       - key: API_PUBLIC_URL
         fromService:
           name: authorization-api

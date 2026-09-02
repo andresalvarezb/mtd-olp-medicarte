@@ -91,6 +91,8 @@ Todas son runtime. `packages/config/src/index.ts` valida el conjunto al arrancar
 | `AUTH_JWT_TTL_SECONDS`                | vigencia del access token                                 | No      | No      | `28800` (8 h)                                     |
 | `AUTH_BOOTSTRAP_ADMIN_USERNAME`       | usuario del bootstrap local                               | No      | No      | `foundation-admin`                                |
 | `AUTH_BOOTSTRAP_ADMIN_PASSWORD`       | contraseña inicial del admin (solo primer arranque)       | No      | Sí      | `sync: false`                                     |
+| `AUTH_BOOTSTRAP_MTD_GENERAL_PASSWORD` | contraseña inicial de `mtd-general`                      | No      | Sí      | `sync: false`                                     |
+| `AUTH_BOOTSTRAP_MTD_AUDITORIA_PASSWORD` | contraseña inicial de `mtd-auditoria`                  | No      | Sí      | `sync: false`                                     |
 | `PORT`                                 | puerto preferido del listener HTTP                        | No      | No      | `10000`                                           |
 | `API_PORT`                             | fallback local cuando no existe `PORT`                    | No      | No      | Omitida; default `3001`                           |
 | `API_PUBLIC_URL`                       | validación de URL pública HTTPS                           | No      | No      | URL pública de API                                |
@@ -165,6 +167,9 @@ autenticación (no recibe variables `AUTH_*`).
 
 - `AUTH_BOOTSTRAP_ADMIN_PASSWORD`: definida con `sync: false`; debe suministrarse como secreto
   externo en el primer despliegue y nunca se genera ni se escribe en el Blueprint.
+- `AUTH_BOOTSTRAP_MTD_GENERAL_PASSWORD` y `AUTH_BOOTSTRAP_MTD_AUDITORIA_PASSWORD`: definidas con
+  `sync: false`; crean las cuentas `mtd-general` y `mtd-auditoria` al arrancar la API cuando se
+  suministran como secretos externos.
 - `MIPRES_NIT` y `MIPRES_INITIAL_TOKEN`.
 - `GMAIL_SENDER`, `GOOGLE_SERVICE_ACCOUNT_EMAIL` y `GOOGLE_PRIVATE_KEY`.
 
