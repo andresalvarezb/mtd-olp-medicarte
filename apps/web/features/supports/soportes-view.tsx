@@ -141,7 +141,7 @@ export function SoportesView() {
             operationType="REPORT_APPLICATION_DATE"
             buttonLabel="Reportar fecha de aplicación (archivo)"
             fileTitle="Archivo de actualización de fecha de aplicación"
-            columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, FECHA_APLICACION"
+             columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, FECHA_APLICACION, COD_AUTORIZACION_MEDICARTE"
             onCompleted={() => {
               reported.reload();
               dispensed.reload();
@@ -182,7 +182,8 @@ export function SoportesView() {
           <Note>
             Esta vista muestra ítems con fecha de dispensación reportada por OLP. Medicarte puede
             descargar la base, completar únicamente <strong>CLAVE_AUTORIZACION</strong> y
-            <strong> FECHA_APLICACION</strong>, y cargarla para actualizar ese campo.
+             <strong> FECHA_APLICACION</strong> y <strong>COD_AUTORIZACION_MEDICARTE</strong>, y
+             cargarla para actualizar esos campos.
           </Note>
         </div>
       </Card>

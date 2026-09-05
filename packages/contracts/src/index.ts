@@ -498,7 +498,6 @@ export const bulkUpdateOperationContracts = {
       'CLAVE_AUTORIZACION',
       'LUGAR_DISPENSACION',
       'FECHA_PROGRAMADA',
-      'COD_AUTORIZACION_MEDICARTE',
     ],
   },
   ASSIGN_PURCHASE_ORDER: {
@@ -517,7 +516,7 @@ export const bulkUpdateOperationContracts = {
     actorOrganizationCode: 'MEDICARTE',
     permission: 'bulk_updates.application_date',
     mutableField: 'FECHA_APLICACION',
-    requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_APLICACION'],
+    requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_APLICACION', 'COD_AUTORIZACION_MEDICARTE'],
   },
 } as const satisfies Record<
   BulkUpdateOperationType,

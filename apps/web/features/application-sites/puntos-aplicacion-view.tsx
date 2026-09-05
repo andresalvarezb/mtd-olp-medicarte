@@ -164,7 +164,7 @@ export function PuntosAplicacionView() {
             operationType="ASSIGN_DISPENSATION_LOCATION"
             buttonLabel="Asignar punto (archivo)"
             fileTitle="Archivo de asignación de lugar de dispensación"
-             columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, LUGAR_DISPENSACION, FECHA_PROGRAMADA, COD_AUTORIZACION_MEDICARTE"
+             columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, LUGAR_DISPENSACION, FECHA_PROGRAMADA"
             onCompleted={reload}
           />
         ) : null}

@@ -120,7 +120,6 @@ describe('phase four and five contracts', () => {
         'CLAVE_AUTORIZACION',
         'LUGAR_DISPENSACION',
         'FECHA_PROGRAMADA',
-        'COD_AUTORIZACION_MEDICARTE',
       ],
     });
     expect(bulkUpdateOperationContracts.ASSIGN_PURCHASE_ORDER).toMatchObject({
@@ -128,6 +127,11 @@ describe('phase four and five contracts', () => {
       mutableField: 'ORDEN_COMPRA',
       requiredColumns: ['CLAVE_AUTORIZACION', 'ORDEN_COMPRA'],
     });
+    expect(bulkUpdateOperationContracts.REPORT_APPLICATION_DATE.requiredColumns).toEqual([
+      'CLAVE_AUTORIZACION',
+      'FECHA_APLICACION',
+      'COD_AUTORIZACION_MEDICARTE',
+    ]);
     expect(bulkUpdateOperationContracts.REPORT_DISPENSATION_DATE).toMatchObject({
       actorOrganizationCode: 'OLP',
       mutableField: 'FECHA_DISPENSACION',
@@ -136,7 +140,7 @@ describe('phase four and five contracts', () => {
     expect(bulkUpdateOperationContracts.REPORT_APPLICATION_DATE).toMatchObject({
       actorOrganizationCode: 'MEDICARTE',
       mutableField: 'FECHA_APLICACION',
-      requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_APLICACION'],
+       requiredColumns: ['CLAVE_AUTORIZACION', 'FECHA_APLICACION', 'COD_AUTORIZACION_MEDICARTE'],
     });
   });
 

@@ -28,17 +28,17 @@ Formato XLSX (`.xlsx`) únicamente, máximo 20 MB, sin columnas adicionales, ali
 
 | Operación                      | Encabezados exactos (fila 1)                              | Formato del valor                  |
 | ------------------------------ | --------------------------------------------------------- | ---------------------------------- |
-| `ASSIGN_DISPENSATION_LOCATION` | `CLAVE_AUTORIZACION,LUGAR_DISPENSACION,FECHA_PROGRAMADA,COD_AUTORIZACION_MEDICARTE` | lugar no vacío; fecha `YYYY-MM-DD` |
+| `ASSIGN_DISPENSATION_LOCATION` | `CLAVE_AUTORIZACION,LUGAR_DISPENSACION,FECHA_PROGRAMADA` | lugar no vacío; fecha `YYYY-MM-DD` |
 | `REPORT_DISPENSATION_DATE`     | `authorization_key,fecha_dispensacion`                    | fecha `YYYY-MM-DD`                 |
-| `REPORT_APPLICATION_DATE`      | `numero_autorizacion,codigo_medicamento,fecha_aplicacion` | fecha `YYYY-MM-DD`                 |
+| `REPORT_APPLICATION_DATE`      | `CLAVE_AUTORIZACION,FECHA_APLICACION,COD_AUTORIZACION_MEDICARTE` | fecha `YYYY-MM-DD`                 |
 
 `lugar_dispensacion` es texto libre: el sistema exige valor no vacío y normaliza espacios; no valida estructura de dirección.
 
 ## Órdenes de compra
 
 La vista `/ordenes-compra` y su descarga XLSX solo muestran registros que MEDICARTE
-ya completó con `LUGAR_DISPENSACION`, `FECHA_PROGRAMADA` y
-`COD_AUTORIZACION_MEDICARTE`. La carga para asignar la orden utiliza exactamente:
+ya completó con `LUGAR_DISPENSACION` y `FECHA_PROGRAMADA`, y cuyo
+`COD_AUTORIZACION_MEDICARTE` fue registrado posteriormente en `/soportes`. La carga para asignar la orden utiliza exactamente:
 `CLAVE_AUTORIZACION` y `ORDEN_COMPRA`.
 
 ## Notificaciones

@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   bulkUpdateJobSchema,
   BULK_UPDATE_CONTRACT_VERSION,
@@ -19,8 +19,9 @@ import {
   isValidOperationalDate,
   isOperationalUpdateAllowed,
   deriveOperationalStatuses,
+  noveltyForBulkResult,
 } from '@authorization/domain';
-import type { createDatabase } from '@authorization/database';
+import { insertNovelty, resolveNovelties, type createDatabase } from '@authorization/database';
 import { parseBulkFile, BulkFileError } from './bulk-parser';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -48,6 +49,8 @@ type ItemRow = {
   fecha_programada: string | null;
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
+  cod_autorizacion_medicarte: string | null;
+  orden_compra: string | null;
   audit_status: AuditStatus;
   operational_version: number;
   operation_status: string | null;
@@ -267,6 +270,21 @@ export class BulkUpdateProcessor {
           bulkUpdateRowResultMessages[code],
         ],
       );
+      const novelty = noveltyForBulkResult(code);
+      if (novelty) {
+        await insertNovelty(client, {
+          authorizationItemId: itemId,
+          bulkUpdateBatchId: input.batchId,
+          sourceRowNumber: input.row.rowNumber,
+          originalRow: input.row.rawData,
+          code: novelty.code,
+          stage: input.operationType,
+          field: extras.fieldName === undefined ? input.mutableField : extras.fieldName,
+          receivedValue: extras.newValue ?? null,
+          description: bulkUpdateRowResultMessages[code],
+          actorId: input.actorId,
+        });
+      }
       return code;
     };
 
@@ -293,14 +311,16 @@ export class BulkUpdateProcessor {
     }
 
     const newValue =
-      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION' ||
+      input.operationType === 'ASSIGN_PURCHASE_ORDER'
         ? normalizeOperationalText(input.row.rawData[input.mutableField])
         : normalizeOperationalDate(input.row.rawData[input.mutableField]);
     if (!newValue) {
       return await reject('MISSING_VALUE', null, { newValue: null });
     }
     if (
-      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION' ||
+      input.operationType === 'ASSIGN_PURCHASE_ORDER'
         ? !isValidOperationalText(newValue)
         : !isValidOperationalDate(newValue)
     ) {
@@ -325,6 +345,16 @@ export class BulkUpdateProcessor {
         newValue: scheduledDate,
       });
     }
+    const medicarteCode =
+      input.operationType === 'REPORT_APPLICATION_DATE'
+        ? normalizeOperationalText(input.row.rawData['COD_AUTORIZACION_MEDICARTE'])
+        : null;
+    if (input.operationType === 'REPORT_APPLICATION_DATE' && !medicarteCode) {
+      return await reject('MISSING_VALUE', null, {
+        fieldName: 'COD_AUTORIZACION_MEDICARTE',
+        newValue: null,
+      });
+    }
     // La llave solo se marca como vista cuando la fila alcanzó la validación
     // de valor: una fila inválida no convierte en duplicada a la fila válida.
     input.seenKeys.add(authorizationKey);
@@ -347,7 +377,8 @@ export class BulkUpdateProcessor {
     }
     const itemResult = await client.query<ItemRow>(
       `select i.id, i.authorization_key, i.lugar_dispensacion, i.fecha_programada::text,
-              i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status,
+               i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.cod_autorizacion_medicarte,
+               i.orden_compra, i.audit_status,
               i.operational_version, i.operation_status
        from authorization_items i
        inner join authorization_item_organizations aio
@@ -374,6 +405,8 @@ export class BulkUpdateProcessor {
     const previousValue =
       input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
         ? item.lugar_dispensacion
+        : input.operationType === 'ASSIGN_PURCHASE_ORDER'
+          ? item.orden_compra
         : input.operationType === 'REPORT_DISPENSATION_DATE'
           ? item.fecha_dispensacion
           : item.fecha_aplicacion;
@@ -404,7 +437,12 @@ export class BulkUpdateProcessor {
             item.operational_version,
           )
         : null;
-    if (previousValue === newValue && previousScheduledDate === scheduledDate) {
+    if (
+      previousValue === newValue &&
+      previousScheduledDate === scheduledDate &&
+      (input.operationType !== 'REPORT_APPLICATION_DATE' ||
+        item.cod_autorizacion_medicarte === medicarteCode)
+    ) {
       await client.query(
         `insert into bulk_update_rows
            (batch_id, row_number, raw_data, authorization_key, authorization_item_id, field_name,
@@ -438,25 +476,49 @@ export class BulkUpdateProcessor {
     const updateSql =
       input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
         ? `update authorization_items set lugar_dispensacion = $2, fecha_programada = $3::date,
-              operation_status = $4, audit_status = $5, operational_version = $6,
-              version = version + 1, updated_at = now()
-            where id = $1 and operational_version = $7 returning id`
-        : input.operationType === 'REPORT_DISPENSATION_DATE'
-          ? `update authorization_items set fecha_dispensacion = $2::date, operation_status = $3, audit_status = $4,
-               operational_version = $5, version = version + 1, updated_at = now()
-             where id = $1 and operational_version = $6 returning id`
-          : `update authorization_items set fecha_aplicacion = $2::date, operation_status = $3, audit_status = $4,
-               operational_version = $5, version = version + 1, updated_at = now()
-             where id = $1 and operational_version = $6 returning id`;
-    const updated = await client.query<{ id: string }>(updateSql, [
-      item.id,
-      newValue,
-      ...(input.operationType === 'ASSIGN_DISPENSATION_LOCATION' ? [scheduledDate] : []),
-      statuses.operationStatus,
-      statuses.auditStatus,
-      newOperationalVersion,
-      item.operational_version,
-    ]);
+             process_status = 'PENDIENTE_ORDEN_COMPRA', operation_status = $4, audit_status = $5,
+             operational_version = $6, version = version + 1, updated_at = now(), updated_by = $7
+           where id = $1 and operational_version = $8 returning id`
+        : input.operationType === 'ASSIGN_PURCHASE_ORDER'
+          ? `update authorization_items set orden_compra = $2, process_status = 'PENDIENTE_DISPENSACION',
+               operation_status = 'READY_TO_DISPENSE', version = version + 1, updated_at = now(),
+               updated_by = $3, operational_version = operational_version + 1
+             where id = $1 and operational_version = $4 returning id`
+          : input.operationType === 'REPORT_DISPENSATION_DATE'
+            ? `update authorization_items set fecha_dispensacion = $2::date, process_status = 'PENDIENTE_APLICACION',
+                 operation_status = $3, audit_status = $4, operational_version = $5,
+                 version = version + 1, updated_at = now(), updated_by = $6
+               where id = $1 and operational_version = $7 returning id`
+             : `update authorization_items set fecha_aplicacion = $2::date,
+                  cod_autorizacion_medicarte = $3, process_status = 'LISTO_PARA_AUDITORIA',
+                  operation_status = $4, audit_status = $5, operational_version = $6,
+                  version = version + 1, updated_at = now(), updated_by = $7
+                where id = $1 and operational_version = $8 returning id`;
+    const updateValues =
+      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+        ? [
+            item.id,
+            newValue,
+            scheduledDate,
+            statuses.operationStatus,
+            statuses.auditStatus,
+            newOperationalVersion,
+            input.actorId,
+            item.operational_version,
+          ]
+        : input.operationType === 'ASSIGN_PURCHASE_ORDER'
+          ? [item.id, newValue, input.actorId, item.operational_version]
+          : [
+              item.id,
+              newValue,
+              medicarteCode,
+              statuses.operationStatus,
+              statuses.auditStatus,
+              newOperationalVersion,
+              input.actorId,
+              item.operational_version,
+            ];
+    const updated = await client.query<{ id: string }>(updateSql, updateValues);
     if (updated.rowCount === 0) {
       return await reject('VERSION_CONFLICT', item.id, {
         previousValue,
@@ -484,6 +546,17 @@ export class BulkUpdateProcessor {
       ],
     );
     const bulkUpdateRowId = rowInsert.rows[0]?.id ?? null;
+
+    await resolveNovelties(client, {
+      authorizationItemId: item.id,
+      authorizationKey,
+      codes: ['CSV_002', 'CSV_004', 'CSV_005', 'LOCK_001', 'CONC_001', 'TECH_001'],
+      reason: `BULK_UPDATE_APPLIED:${input.operationType}`,
+      actorType: 'USER',
+      actorId: input.actorId,
+      organizationId: input.organizationId,
+      correlationId: input.correlationId,
+    });
 
     await client.query(
       `insert into operational_field_changes
@@ -573,72 +646,6 @@ export class BulkUpdateProcessor {
       ],
     );
 
-    if (locationTransition?.eventType) {
-      const eventId = randomUUID();
-      const notificationKey =
-        `${locationTransition.eventType}:${item.id}:${newOperationalVersion}:OLP`.slice(0, 200);
-      const payload = {
-        eventId,
-        notificationType: locationTransition.eventType,
-        itemId: item.id,
-        recipientOrganizationId:
-          (await client.query<{ id: string }>(`select id from organizations where code = 'OLP'`))
-            .rows[0]?.id ?? null,
-        batchId: input.batchId,
-        period: null,
-        correlationId: input.correlationId,
-        idempotencyKey: notificationKey,
-      };
-      await client.query(
-        `insert into outbox_events
-           (id, event_type, version, payload, correlation_id, idempotency_key)
-         values ($1, 'notification.email', 1, $2::jsonb, $3, $4)
-         on conflict (idempotency_key) do nothing`,
-        [eventId, JSON.stringify(payload), input.correlationId, notificationKey],
-      );
-    }
-    if (
-      input.operationType === 'REPORT_DISPENSATION_DATE' ||
-      input.operationType === 'REPORT_APPLICATION_DATE'
-    ) {
-      const recipientCodes =
-        input.operationType === 'REPORT_DISPENSATION_DATE' ? ['MTD', 'MEDICARTE'] : ['MTD'];
-      for (const recipientCode of recipientCodes) {
-        const recipientId = (
-          await client.query<{ id: string }>('select id from organizations where code = $1', [
-            recipientCode,
-          ])
-        ).rows[0]?.id;
-        if (!recipientId) continue;
-        const notificationType =
-          input.operationType === 'REPORT_DISPENSATION_DATE'
-            ? 'DISPENSATION_DATE_REPORTED'
-            : 'APPLICATION_DATE_REPORTED';
-        const notificationKey = `${notificationType}:${item.id}:${newOperationalVersion}:${recipientCode}`;
-        const eventId = randomUUID();
-        await client.query(
-          `insert into outbox_events
-             (id, event_type, version, payload, correlation_id, idempotency_key)
-           values ($1, 'notification.email', 1, $2::jsonb, $3, $4)
-           on conflict (idempotency_key) do nothing`,
-          [
-            eventId,
-            JSON.stringify({
-              eventId,
-              notificationType,
-              itemId: item.id,
-              recipientOrganizationId: recipientId,
-              batchId: input.batchId,
-              period: null,
-              correlationId: input.correlationId,
-              idempotencyKey: notificationKey,
-            }),
-            input.correlationId,
-            notificationKey,
-          ],
-        );
-      }
-    }
     return 'ROW_UPDATED';
   }
 
