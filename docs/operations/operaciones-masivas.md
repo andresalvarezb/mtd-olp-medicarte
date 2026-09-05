@@ -17,7 +17,7 @@ Cada tipo de operación fija actor, permiso y la única columna que puede modifi
 
 ## Flujo estándar (los cuatro pasos)
 
-1. **Descargar la base.** Botón "Exportar base (XLSX)" en la vista del rol. La descarga es on-demand, no deja copia en la plataforma y queda auditada. La base de OLP (`REPORT_DISPENSATION_DATE`) solo incluye registros con `lugar_dispensacion` ya asignado por MEDICARTE; los pendientes de asignación se omiten. La descarga incluye la columna `authorization_key` que sirve como llave para la carga.
+1. **Descargar la base.** Botón "Exportar base (XLSX)" en la vista del rol. La descarga es on-demand, no deja copia en la plataforma y queda auditada. Cada base solo incluye registros habilitados para su siguiente etapa y conserva los campos operativos ya registrados, incluida `ORDEN_COMPRA`. La descarga incluye la columna `authorization_key` que sirve como llave para la carga.
 2. **Diligenciar el archivo.** Mantener exactamente las columnas de la plantilla (ver tabla siguiente). Para lugar y fecha de dispensación la única llave es `authorization_key` (pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL` que viene en la descarga).
 3. **Cargar el archivo.** Botón de carga en la misma vista. La plataforma responde con un número de lote y procesa en segundo plano; la tabla se refresca sola al terminar.
 4. **Verificar el resultado.** El resumen del lote muestra procesadas, actualizadas, sin cambio y rechazadas; las filas rechazadas listan su causal y permiten descargar únicamente las novedades de ese lote en XLSX.
@@ -29,6 +29,7 @@ Formato XLSX (`.xlsx`) únicamente, máximo 20 MB, sin columnas adicionales, ali
 | Operación                      | Encabezados exactos (fila 1)                              | Formato del valor                  |
 | ------------------------------ | --------------------------------------------------------- | ---------------------------------- |
 | `ASSIGN_DISPENSATION_LOCATION` | `CLAVE_AUTORIZACION,LUGAR_DISPENSACION,FECHA_PROGRAMADA` | lugar no vacío; fecha `YYYY-MM-DD` |
+| `ASSIGN_PURCHASE_ORDER`        | `CLAVE_AUTORIZACION,ORDEN_COMPRA`                     | orden no vacía                         |
 | `REPORT_DISPENSATION_DATE`     | `authorization_key,fecha_dispensacion`                    | fecha `YYYY-MM-DD`                 |
 | `REPORT_APPLICATION_DATE`      | `CLAVE_AUTORIZACION,FECHA_APLICACION,COD_AUTORIZACION_MEDICARTE` | fecha `YYYY-MM-DD`                 |
 
@@ -37,9 +38,13 @@ Formato XLSX (`.xlsx`) únicamente, máximo 20 MB, sin columnas adicionales, ali
 ## Órdenes de compra
 
 La vista `/ordenes-compra` y su descarga XLSX solo muestran registros que MEDICARTE
-ya completó con `LUGAR_DISPENSACION` y `FECHA_PROGRAMADA`, y cuyo
-`COD_AUTORIZACION_MEDICARTE` fue registrado posteriormente en `/soportes`. La carga para asignar la orden utiliza exactamente:
+ya completó con `LUGAR_DISPENSACION` y `FECHA_PROGRAMADA`, y que todavía no tienen
+`ORDEN_COMPRA`. Esta etapa no depende de `COD_AUTORIZACION_MEDICARTE`; ese campo
+se exige posteriormente en `/soportes`. La carga para asignar la orden utiliza exactamente:
 `CLAVE_AUTORIZACION` y `ORDEN_COMPRA`.
+
+Después de asignar `ORDEN_COMPRA`, el registro aparece en `/logistica-olp` para que
+OLP informe `FECHA_DISPENSACION`.
 
 ## Notificaciones
 
@@ -49,16 +54,17 @@ operativa para consultar y descargar los registros rechazados.
 
 ## Precondiciones por operación
 
-- Las tres operaciones exigen un ítem visible para la organización y `operation_status` distinto de `BLOCKED`.
+- Las operaciones exigen un ítem visible para la organización y `operation_status` distinto de `BLOCKED`.
 - `ASSIGN_DISPENSATION_LOCATION`: ítem en `READY_TO_DISPENSE` o posterior.
-- `REPORT_DISPENSATION_DATE`: `lugar_dispensacion` definido (asignado previamente por MEDICARTE) y estado `READY_TO_DISPENSE` o `DISPENSATION_REPORTED`.
-- `REPORT_APPLICATION_DATE`: `lugar_dispensacion` definido y auditoría no aprobada. Una vez `audit_status = APPROVED` el campo queda inmutable y la fila se rechaza con `OPERATION_NOT_ALLOWED`.
+- `ASSIGN_PURCHASE_ORDER`: `lugar_dispensacion` y `fecha_programada` definidos, sin `orden_compra` previa.
+- `REPORT_DISPENSATION_DATE`: `lugar_dispensacion` y `orden_compra` definidos, y estado `READY_TO_DISPENSE` o `DISPENSATION_REPORTED`.
+- `REPORT_APPLICATION_DATE`: `fecha_dispensacion` definida, auditoría no aprobada y archivo con `FECHA_APLICACION` y `COD_AUTORIZACION_MEDICARTE`. Una vez `audit_status = APPROVED` el campo queda inmutable y la fila se rechaza con `OPERATION_NOT_ALLOWED`.
 
 ## Cadena operativa de referencia
 
 ```text
-MEDICARTE asigna lugar -> OLP reporta fecha de dispensación -> MEDICARTE reporta fecha de aplicación
-        (READY_TO_DISPENSE)         (DISPENSATION_REPORTED)         (ambas fechas derivan audit_status = READY)
+MEDICARTE asigna lugar/fecha -> MTD asigna orden -> OLP reporta dispensación -> MEDICARTE reporta aplicación
+       (READY_TO_DISPENSE)       (READY_TO_DISPENSE)      (DISPENSATION_REPORTED)   (ambas fechas derivan audit_status = READY)
 ```
 
 Con ambas fechas el registro queda habilitado para revisión del auditor MTD; solo una decisión humana produce `APPROVED` e ingresa el registro al consolidado (SPEC-006).

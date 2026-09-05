@@ -56,10 +56,11 @@ Una fila no válida no revierte otras filas válidas. Reprocesar el mismo lote o
 
 ## Precondiciones
 
-- Las tres operaciones exigen un ítem visible para la organización y `operation_status` no igual a `BLOCKED`.
+- Las operaciones exigen un ítem visible para la organización y `operation_status` no igual a `BLOCKED`.
 - `ASSIGN_DISPENSATION_LOCATION` requiere que el ítem haya alcanzado `READY_TO_DISPENSE` o un estado operacional posterior.
-- `REPORT_DISPENSATION_DATE` requiere `lugar_dispensacion` definido y estado `READY_TO_DISPENSE` o `DISPENSATION_REPORTED`.
-- `REPORT_APPLICATION_DATE` requiere `lugar_dispensacion` definido y `audit_status` distinto de `APPROVED` (equivalente a `operation_status` distinto de `DISPENSED`).
+- `ASSIGN_PURCHASE_ORDER` requiere `lugar_dispensacion` y `fecha_programada` definidos, y `orden_compra` ausente.
+- `REPORT_DISPENSATION_DATE` requiere `lugar_dispensacion` y `orden_compra` definidos, y estado `READY_TO_DISPENSE` o `DISPENSATION_REPORTED`.
+- `REPORT_APPLICATION_DATE` requiere `fecha_dispensacion` definida, `audit_status` distinto de `APPROVED` y los campos `FECHA_APLICACION` y `COD_AUTORIZACION_MEDICARTE`.
 - Una corrección por el mismo actor autorizado se permite y siempre crea historial si cambia el valor.
 - `fecha_aplicacion` puede corregirse siempre que la auditoría del registro no esté aprobada; una vez `audit_status = APPROVED` el campo queda inmutable y la fila se rechaza con `OPERATION_NOT_ALLOWED`.
 
@@ -68,7 +69,8 @@ Estas precondiciones ordenan el flujo solicitado; no validan automáticamente so
 ## Descargas
 
 - MEDICARTE descarga la base completa de registros listos o posteriores dentro de su alcance, para asignar `lugar_dispensacion` y reportar `fecha_aplicacion`.
-- OLP descarga únicamente los registros con `lugar_dispensacion` ya asignado por MEDICARTE, incluyendo el valor vigente y la `authorization_key` para el reporte de `fecha_dispensacion`; los registros pendientes de asignación se omiten.
+- MTD descarga únicamente los registros con `lugar_dispensacion` y `fecha_programada` asignados, sin `orden_compra` previa.
+- OLP descarga únicamente los registros con `lugar_dispensacion` y `orden_compra` ya asignados, incluyendo los campos operativos vigentes y la `authorization_key` para el reporte de `fecha_dispensacion`.
 - “Completa” significa todos los campos disponibles que el permiso de lectura y la política de datos sensibles permitan; nunca omite silenciosamente la seguridad por columna.
 - XLSX se genera on-demand, no se conserva copia y se auditan actor, organización, filtros, formato, columnas efectivas, cantidad y resultado.
 

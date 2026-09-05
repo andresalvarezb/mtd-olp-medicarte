@@ -64,7 +64,7 @@ export class OperationalExportsController {
   })
   @ApiQuery({
     name: 'operationType',
-    enum: ['ASSIGN_DISPENSATION_LOCATION', 'REPORT_DISPENSATION_DATE', 'REPORT_APPLICATION_DATE'],
+     enum: ['ASSIGN_DISPENSATION_LOCATION', 'ASSIGN_PURCHASE_ORDER', 'REPORT_DISPENSATION_DATE', 'REPORT_APPLICATION_DATE'],
   })
    @ApiQuery({ name: 'format', enum: ['xlsx'], required: false })
   @ApiForbiddenResponse({ schema: errorSchema })

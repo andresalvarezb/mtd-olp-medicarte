@@ -30,6 +30,7 @@ const COLUMNS = [
   { label: 'Estado punto' },
   { label: 'Sede / dirección' },
   { label: 'Fecha programada' },
+  { label: 'Orden de compra' },
   { label: 'Fecha de dispensación' },
 ];
 
@@ -49,6 +50,7 @@ export function LogisticaOlpView() {
         limit: 50,
         operationStatus: 'READY_TO_DISPENSE',
         applicationSiteStatus: 'ASSIGNED',
+        purchaseOrderAssigned: true,
         ...(cursor ? { cursor } : {}),
       }),
     [organizationId],
@@ -86,6 +88,7 @@ export function LogisticaOlpView() {
     </StatusBadge>,
     item.lugarDispensacion ?? '—',
     item.fechaProgramada ?? '—',
+    item.ordenCompra ?? '—',
     item.fechaDispensacion ? formatDispensationDate(item.fechaDispensacion) : '—',
   ]);
 

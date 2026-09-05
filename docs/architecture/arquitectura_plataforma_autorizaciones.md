@@ -329,7 +329,7 @@ Un único pipeline soporta tres tipos cerrados:
 | `REPORT_DISPENSATION_DATE`     | OLP       | `authorization_key`, `fecha_dispensacion`                         |
 | `REPORT_APPLICATION_DATE`      | MEDICARTE | `numero_autorizacion`, `codigo_medicamento`, `fecha_aplicacion`   |
 
-`authorization_key` es la pareja normalizada `numero_autorizacion + codigo_medicamento` entregada por la descarga operativa. La descarga de OLP solo incluye registros con `lugar_dispensacion` asignado; los pendientes de asignación se omiten.
+`authorization_key` es la pareja normalizada `numero_autorizacion + codigo_medicamento` entregada por la descarga operativa. Las descargas operativas entregan registros habilitados para su siguiente etapa: órdenes de compra requiere punto y fecha programada sin orden previa; OLP requiere punto y orden de compra asignados. `COD_AUTORIZACION_MEDICARTE` se exige únicamente al reportar la fecha de aplicación en `/soportes`.
 
 Máximo 20 MB; PostgreSQL conserva temporalmente el binario en una tabla separada `BYTEA`; BullMQ recibe solo identificadores. El worker crea staging, valida existencia, alcance, permiso, estado y valor por fila. Cada actualización válida escribe valor vigente, versión, historial y auditoría en una transacción; el lugar agrega outbox. El resultado informa procesadas, actualizadas, sin cambio y rechazadas con causal estable. No hay atomicidad de archivo completo.
 

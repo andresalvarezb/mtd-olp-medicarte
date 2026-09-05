@@ -336,6 +336,10 @@ export const authorizationItemListQuerySchema = z.object({
     (value) => (value === 'true' ? true : value === 'false' ? false : value),
     z.boolean(),
   ).optional(),
+  purchaseOrderAssigned: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean(),
+  ).optional(),
   authorizationKey: z.string().trim().min(1).max(300).optional(),
   numeroAutorizacion: z.string().trim().min(1).max(100).optional(),
   identificacionPaciente: z.string().trim().min(1).max(100).optional(),
@@ -360,6 +364,7 @@ export const authorizationItemResponseSchema = z.object({
   fechaProgramada: operationalDateSchema.nullable(),
   fechaDispensacion: operationalDateSchema.nullable(),
   fechaAplicacion: operationalDateSchema.nullable(),
+  ordenCompra: z.string().nullable(),
   auditStatus: auditStatusSchema,
   admissionStatus: admissionStatusSchema,
   applicationSiteStatus: applicationSiteStatusSchema,

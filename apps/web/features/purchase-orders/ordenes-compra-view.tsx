@@ -86,7 +86,7 @@ export function OrdenesCompraView() {
             emptyTitle={list.loading ? 'Cargando…' : 'No hay registros disponibles'}
             emptyDescription={list.loading
               ? 'Consultando la API…'
-              : 'Aparecerán cuando MEDICARTE haya informado punto, fecha programada y código de autorización.'}
+              : 'Aparecerán cuando MEDICARTE haya informado punto y fecha programada.'}
           />
           <TablePagination
             page={list.page}

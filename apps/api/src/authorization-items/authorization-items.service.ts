@@ -60,6 +60,7 @@ type ItemRow = {
   fecha_programada: string | null;
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
+  orden_compra: string | null;
   audit_status: AuthorizationItemResponse['auditStatus'];
   admission_status: string;
   operational_version: number;
@@ -182,6 +183,7 @@ function toItemResponse(row: ItemRow, includeSourceData: boolean): Authorization
     fechaProgramada: row.fecha_programada,
     fechaDispensacion: row.fecha_dispensacion,
     fechaAplicacion: row.fecha_aplicacion,
+    ordenCompra: row.orden_compra,
     auditStatus: row.audit_status,
     admissionStatus: row.admission_status as AuthorizationItemResponse['admissionStatus'],
     applicationSiteStatus: deriveApplicationSiteStatus(row.lugar_dispensacion),
@@ -231,8 +233,11 @@ export class AuthorizationItemsService {
     if (query.auditStatus) conditions.push(`i.audit_status = ${add(query.auditStatus)}`);
     if (query.purchaseOrderEligible === true) {
       conditions.push(
-        `i.lugar_dispensacion is not null and i.lugar_dispensacion <> '' and i.fecha_programada is not null and i.cod_autorizacion_medicarte is not null and i.cod_autorizacion_medicarte <> ''`,
+        `i.lugar_dispensacion is not null and i.lugar_dispensacion <> '' and i.fecha_programada is not null and (i.orden_compra is null or i.orden_compra = '')`,
       );
+    }
+    if (query.purchaseOrderAssigned === true) {
+      conditions.push(`i.orden_compra is not null and i.orden_compra <> ''`);
     }
     if (query.authorizationKey)
       conditions.push(
@@ -258,7 +263,7 @@ export class AuthorizationItemsService {
       `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
               i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-               i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
+               i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.orden_compra, i.audit_status, i.admission_status, i.operational_version, i.version,
               i.created_at, i.updated_at
        from authorization_items i
        where ${conditions.join(' and ')}
@@ -383,7 +388,7 @@ export class AuthorizationItemsService {
         `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key, i.source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                  i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-                  i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version,
+                   i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.orden_compra, i.audit_status, i.admission_status, i.operational_version,
                  i.tariff_membership_status, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
@@ -1096,7 +1101,7 @@ export class AuthorizationItemsService {
                 ${includeSourceData ? 'i.source_data' : 'null::jsonb'} as source_data,
                 i.source_status_normalized, i.source_prescripcion_normalized, i.no_prescripcion, i.enablement_status,
                  i.coverage_type, i.direction_status, i.operation_status, i.coverage_rule_version, i.lugar_dispensacion,
-                  i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.audit_status, i.admission_status, i.operational_version, i.version,
+                   i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.orden_compra, i.audit_status, i.admission_status, i.operational_version, i.version,
                 i.created_at, i.updated_at
          from authorization_items i
          where i.id = $1

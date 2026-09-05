@@ -27,6 +27,7 @@ type ExportRow = {
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
   cod_autorizacion_medicarte: string | null;
+  orden_compra: string | null;
   audit_status: string;
   operational_version: number;
   version: number;
@@ -61,6 +62,7 @@ const processColumns = [
   'FECHA_DISPENSACION',
   'FECHA_APLICACION',
   'COD_AUTORIZACION_MEDICARTE',
+  'ORDEN_COMPRA',
   'ESTADO_AUDITORIA',
   'ESTADO_PUNTO_APLICACION',
   'VERSION_OPERATIVA',
@@ -99,13 +101,14 @@ export class OperationalExportsService {
       `select i.id, i.authorization_key, i.numero_autorizacion, i.codigo_medicamento,
               i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
                  i.lugar_dispensacion, i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
-                i.cod_autorizacion_medicarte,
+                i.cod_autorizacion_medicarte, i.orden_compra,
                i.audit_status, i.operational_version, i.version, i.created_at, i.updated_at,
                ${sourceBaseSelectSql('i')}
        from authorization_items i
        where i.operation_status in ('READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED')
            ${onlyAssignedLocation ? 'and i.lugar_dispensacion is not null' : ''}
-           ${onlyPurchaseOrderEligible ? "and i.operation_status = 'READY_TO_DISPENSE' and i.lugar_dispensacion is not null and i.lugar_dispensacion <> '' and i.fecha_programada is not null and i.cod_autorizacion_medicarte is not null and i.cod_autorizacion_medicarte <> ''" : ''}
+            ${onlyPurchaseOrderEligible ? "and i.operation_status = 'READY_TO_DISPENSE' and i.lugar_dispensacion is not null and i.lugar_dispensacion <> '' and i.fecha_programada is not null and (i.orden_compra is null or i.orden_compra = '')" : ''}
+           ${operationType === 'REPORT_DISPENSATION_DATE' ? "and i.orden_compra is not null and i.orden_compra <> ''" : ''}
           ${operationType === 'REPORT_APPLICATION_DATE' ? 'and i.fecha_dispensacion is not null' : ''}
           and ($1::boolean = true or exists (
            select 1 from authorization_item_organizations aio
@@ -140,6 +143,7 @@ export class OperationalExportsService {
       FECHA_DISPENSACION: row.fecha_dispensacion,
       FECHA_APLICACION: row.fecha_aplicacion,
       COD_AUTORIZACION_MEDICARTE: row.cod_autorizacion_medicarte,
+      ORDEN_COMPRA: row.orden_compra,
       ESTADO_AUDITORIA: row.audit_status,
       ESTADO_PUNTO_APLICACION: deriveApplicationSiteStatus(row.lugar_dispensacion),
       VERSION_OPERATIVA: row.operational_version,

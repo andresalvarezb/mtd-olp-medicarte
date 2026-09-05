@@ -13,6 +13,7 @@ export interface AuthorizationItemListQuery {
   applicationSiteStatus?: 'PENDING_ASSIGNMENT' | 'ASSIGNED';
   auditStatus?: 'NOT_STARTED' | 'READY' | 'IN_REVIEW' | 'REJECTED' | 'APPROVED';
   purchaseOrderEligible?: boolean;
+  purchaseOrderAssigned?: boolean;
   authorizationKey?: string;
   numeroAutorizacion?: string;
   identificacionPaciente?: string;

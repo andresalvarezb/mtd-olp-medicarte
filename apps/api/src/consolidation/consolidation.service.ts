@@ -72,6 +72,7 @@ const processColumns = [
   'ESTADO_OPERACION',
   'LUGAR_DISPENSACION',
   'FECHA_PROGRAMADA',
+  'ORDEN_COMPRA',
   'FECHA_DISPENSACION',
   'FECHA_APLICACION',
   'ESTADO_AUDITORIA',
@@ -174,7 +175,8 @@ export class ConsolidationService {
     const result = await this.database.pool.query<ExportRow>(
       `select i.id, i.authorization_key, i.numero_autorizacion, i.codigo_medicamento,
               i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
-               i.lugar_dispensacion, i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
+                i.lugar_dispensacion, i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
+                i.orden_compra,
                i.audit_status, i.admission_status, i.version, i.created_at, i.updated_at,
                (select string_agg(
                   format('Revision %s [%s]: %s', ar.review_number, ar.status, ar.observations),
@@ -215,6 +217,7 @@ export class ConsolidationService {
       ESTADO_OPERACION: row.operation_status,
       LUGAR_DISPENSACION: row.lugar_dispensacion,
       FECHA_PROGRAMADA: row.fecha_programada,
+      ORDEN_COMPRA: row.orden_compra,
       FECHA_DISPENSACION: row.fecha_dispensacion,
       FECHA_APLICACION: row.fecha_aplicacion,
       ESTADO_AUDITORIA: row.audit_status,
