@@ -168,10 +168,7 @@ describe('Gate F5', () => {
         headers: { authorization: `Bearer ${olpToken}`, 'x-organization-id': olpOrganizationId },
       },
     );
-    expect(xlsxReport.status).toBe(200);
-    expect(xlsxReport.headers.get('content-type')).toContain(
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
+    expect(xlsxReport.status).toBe(400);
 
     const afterDispensing = await database.query<{
       fecha_dispensacion: string;
@@ -230,8 +227,8 @@ describe('Gate F5', () => {
       [item.id],
     );
     expect(history.rows.map((row) => row.field_name)).toEqual([
-      'fecha_dispensacion',
-      'fecha_aplicacion',
+      'FECHA_DISPENSACION',
+      'FECHA_APLICACION',
     ]);
     expect(
       history.rows.every(
@@ -260,7 +257,7 @@ describe('Gate F5', () => {
     }
     const history = await database.query<{ previous_value: string | null; new_value: string }>(
       `select previous_value, new_value from operational_field_changes
-       where authorization_item_id = $1 and field_name = 'fecha_dispensacion' order by created_at`,
+       where authorization_item_id = $1 and field_name = 'FECHA_DISPENSACION' order by created_at`,
       [item.id],
     );
     expect(history.rows).toEqual([
@@ -374,14 +371,14 @@ describe('Gate F5', () => {
     const csv = await exportResponse.text();
     expect(csv).toContain('LUGAR_DISPENSACION');
     expect(csv).toContain('FECHA_PROGRAMADA');
-    expect(csv).toContain('fecha_dispensacion');
-    expect(csv).toContain('fecha_aplicacion');
+    expect(csv).toContain('FECHA_DISPENSACION');
+    expect(csv).toContain('FECHA_APLICACION');
     expect(csv).toContain(item.authorization);
     expect(csv).not.toContain(pending.authorization);
     expect(csv).toContain('NOMBRE_PACIENTE');
-    expect(csv).toContain('NUM_DOCUMENTO');
+    expect(csv).toContain('IDENTIFICACION_PACIENTE');
     expect(csv).toContain('CUPS_AUTORIZADO');
-    expect(csv).toContain('No.PRESCRIPCION');
+    expect(csv).toContain('NUMERO_PRESCRIPCION');
 
     const mtdExport = await fetch(
       `${apiUrl}/api/v1/operational-exports/authorization-items?operationType=REPORT_DISPENSATION_DATE&format=csv`,
@@ -419,7 +416,7 @@ describe('Gate F5', () => {
     }>(
       `select i.operational_version,
               (select count(*)::text from operational_field_changes c
-               where c.authorization_item_id = i.id and c.field_name = 'fecha_dispensacion') as history_count
+               where c.authorization_item_id = i.id and c.field_name = 'FECHA_DISPENSACION') as history_count
        from authorization_items i where i.id = $1`,
       [item.id],
     );
@@ -434,7 +431,7 @@ describe('Gate F5', () => {
     await new Promise((resolve) => setTimeout(resolve, 1200));
     const afterRedelivery = await database.query<{ count: string }>(
       `select count(*)::text as count from operational_field_changes
-       where authorization_item_id = $1 and field_name = 'fecha_dispensacion'`,
+       where authorization_item_id = $1 and field_name = 'FECHA_DISPENSACION'`,
       [item.id],
     );
     expect(afterRedelivery.rows[0]?.count).toBe('2');

@@ -6,6 +6,7 @@ import {
   deriveDirectionStatus,
   deriveEnablementStatus,
   deriveOperationStatus,
+  isTariffCoverageConsistent,
   parseVigenciaDate,
   derivePrescripcion,
   normalizeSourceText,
@@ -13,6 +14,14 @@ import {
 } from './authorization-classification';
 
 describe('authorization classification', () => {
+  it('requires prescription and tariff inclusion to agree', () => {
+    expect(isTariffCoverageConsistent('PBS', 'PBS')).toBe(true);
+    expect(isTariffCoverageConsistent('NO_PBS', 'NO PBS')).toBe(true);
+    expect(isTariffCoverageConsistent('PBS', 'NO PBS')).toBe(false);
+    expect(isTariffCoverageConsistent('NO_PBS', 'PBS')).toBe(false);
+    expect(isTariffCoverageConsistent('PBS', null)).toBe(false);
+  });
+
   it('normalizes source text with exact technical normalization', () => {
     expect(normalizeSourceText('  medicamentos   no pos ')).toBe('MEDICAMENTOS NO POS');
     expect(normalizeSourceText('Medicamentos no pos - alto costo')).toBe(
@@ -22,19 +31,19 @@ describe('authorization classification', () => {
 
   it('uses presence of No.PRESCRIPCION for PBS and NO_PBS', () => {
     expect(deriveCoverageType('')).toBe('PBS');
-    expect(deriveCoverageType('20260915123')).toBe('NO_PBS');
+    expect(deriveCoverageType('20260915123000000000')).toBe('NO_PBS');
   });
 
   it('derives the MIPRES prescription by removing the last three digits', () => {
-    expect(derivePrescripcion(' 20260000000000000000123 ')).toEqual({
-      normalized: '20260000000000000000123',
-      derived: '20260000000000000000',
+    expect(derivePrescripcion(' 20260000000000000123 ')).toEqual({
+      normalized: '20260000000000000123',
+      derived: '20260000000000000',
     });
     expect(derivePrescripcion('')).toEqual({ normalized: '', derived: '' });
     expect(derivePrescripcion(null)).toEqual({ normalized: '', derived: '' });
-    expect(derivePrescripcion(20260915123)).toEqual({
-      normalized: '20260915123',
-      derived: '20260915',
+    expect(derivePrescripcion('20260915000000000123')).toEqual({
+      normalized: '20260915000000000123',
+      derived: '20260915000000000',
     });
   });
 
@@ -43,6 +52,8 @@ describe('authorization classification', () => {
     expect(derivePrescripcion('12.34')).toBeNull();
     expect(derivePrescripcion('2026-09-15')).toBeNull();
     expect(derivePrescripcion('123')).toBeNull();
+    expect(derivePrescripcion('1234567890123456789')).toBeNull();
+    expect(derivePrescripcion('123456789012345678901')).toBeNull();
     expect(derivePrescripcion('12 34')).toBeNull();
   });
 
@@ -190,15 +201,15 @@ describe('authorization classification', () => {
       deriveAuthorizationClassification({
         numeroAutorizacion: 'a-1',
         codigoComercial: 'm-1',
-        noPrescripcion: 20260915123,
+        noPrescripcion: '20260915000000000123',
         estadoAutorizacion: 5,
       }),
     ).toMatchObject({
       coverageType: 'NO_PBS',
       enablementStatus: 'ENABLED',
       directionStatus: 'PENDING',
-      prescripcionNormalized: '20260915123',
-      noPrescripcion: '20260915',
+      prescripcionNormalized: '20260915000000000123',
+      noPrescripcion: '20260915000000000',
       operationStatus: null,
     });
     expect(

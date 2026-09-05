@@ -242,8 +242,8 @@ describe('Gate F2', () => {
     const authorization = `AUTH-F2-${randomUUID()}`;
     const content = authorizationCsv([
       { authorization, medication: 'MED-PBS', prescripcion: '', status: '5' },
-      { authorization, medication: 'MED-NO-PBS', prescripcion: '20260915123', status: '5' },
-      { authorization, medication: 'MED-NO-PBS', prescripcion: '20260915123', status: '5' },
+      { authorization, medication: 'MED-NO-PBS', prescripcion: '20260915123456789012', status: '5' },
+      { authorization, medication: 'MED-NO-PBS', prescripcion: '20260915123456789012', status: '5' },
     ]);
     const batch = await createImport(adminToken, content);
     const ready = await waitForBatch(adminToken, batch.id);
@@ -322,7 +322,7 @@ describe('Gate F2', () => {
       importHistory: unknown[];
     };
     expect(detailResult.item.sourceData?.NUMERO_AUTORIZACION).toBe(authorization);
-    expect(typeof detailResult.item.sourceData?.COD_COMERCIAL).toBe('string');
+    expect(typeof detailResult.item.sourceData?.CODIGO_COMERCIAL).toBe('string');
     expect(detailResult.importHistory.length).toBeGreaterThanOrEqual(2);
 
     const olpInbox = await fetch(
@@ -340,7 +340,12 @@ describe('Gate F2', () => {
       item: { sourceData: Record<string, unknown> | null };
     };
     expect(olpDetailResult.item.sourceData).not.toBeNull();
-    expect(olpDetailResult.item.sourceData?.NUMERO_AUTORIZACION).toBe(authorization);
+    expect(Object.keys(olpDetailResult.item.sourceData!).sort()).toEqual([
+      'CUPS_AUTORIZADO',
+      'NOMBRE_PACIENTE',
+      'NUM_DOCUMENTO',
+    ]);
+    expect(olpDetailResult.item.sourceData?.NUMERO_AUTORIZACION).toBeUndefined();
 
     for (const path of [
       `/api/v1/imports/${batch.id}`,
@@ -407,7 +412,7 @@ describe('Gate F2', () => {
         {
           authorization,
           medication: 'MED-PRES-NO-PBS',
-          prescripcion: ' 20260915123 ',
+          prescripcion: ' 20260915123456789012 ',
           status: '5',
         },
         { authorization, medication: 'MED-PRES-INVALID', prescripcion: '123', status: '5' },
@@ -433,10 +438,10 @@ describe('Gate F2', () => {
       }>;
     };
     expect(rows.items[0]?.normalized).toMatchObject({ noPrescripcion: '' });
-    expect(rows.items[1]?.normalized).toMatchObject({ noPrescripcion: '20260915' });
+    expect(rows.items[1]?.normalized).toMatchObject({ noPrescripcion: '20260915123456789' });
     expect(rows.items[2]).toMatchObject({ resultCode: 'INVALID_FIELD_FORMAT' });
     expect(rows.items[2]?.validationErrors[0]).toMatchObject({
-      field: 'No.PRESCRIPCION',
+      field: 'NUMERO_PRESCRIPCION',
       code: 'INVALID_FIELD_FORMAT',
     });
 
@@ -460,8 +465,8 @@ describe('Gate F2', () => {
     expect(items.rows).toEqual([
       {
         codigo_medicamento: 'MED-PRES-NO-PBS',
-        source_prescripcion_normalized: '20260915123',
-        no_prescripcion: '20260915',
+        source_prescripcion_normalized: '20260915123456789012',
+        no_prescripcion: '20260915123456789',
         coverage_type: 'NO_PBS',
         direction_status: 'PENDING',
         coverage_rule_version: 'F2-COVERAGE-2',
@@ -507,7 +512,7 @@ describe('Gate F2', () => {
     const batch = await createImport(
       adminToken,
       authorizationCsv([
-        { authorization, medication: 'MED-UPDATE', prescripcion: '20260915123000', status: '5' },
+        { authorization, medication: 'MED-UPDATE', prescripcion: '20260915123456789013', status: '5' },
       ]),
     );
     await waitForBatch(adminToken, batch.id);
@@ -562,13 +567,13 @@ describe('Gate F2', () => {
       },
       {
         name: 'blocks a NO_PBS item pending MIPRES',
-        prescripcion: '20260915123',
+        prescripcion: '20260915123456789012',
         status: '5',
         expectedOperationStatus: 'BLOCKED',
         expectedEnablementStatus: 'ENABLED',
         expectedCoverageType: 'NO_PBS',
         expectedDirectionStatus: 'PENDING',
-        expectedNoPrescripcion: '20260915',
+        expectedNoPrescripcion: '20260915123456789',
       },
     ] as const;
 
@@ -1009,11 +1014,11 @@ describe('Gate F2', () => {
         );
         const initial = await requestUpdate();
         expect(initial.status).toBe(200);
-        expect(sourceUpdateResponseSchema.parse(await initial.json()).item.sourceData).toEqual({
-          NUM_DOCUMENTO: '',
-          NOMBRE_PACIENTE: '',
-          CUPS_AUTORIZADO: '',
-        });
+        expect(Object.keys(sourceUpdateResponseSchema.parse(await initial.json()).item.sourceData!).sort()).toEqual([
+          'CUPS_AUTORIZADO',
+          'NOMBRE_PACIENTE',
+          'NUM_DOCUMENTO',
+        ]);
 
         await database.query(
           `insert into role_permissions (role_id, permission_id)
@@ -1041,12 +1046,10 @@ describe('Gate F2', () => {
         const redactedReplay = await requestUpdate();
         expect(redactedReplay.status).toBe(200);
         expect(
-          sourceUpdateResponseSchema.parse(await redactedReplay.json()).item.sourceData,
-        ).toEqual({
-          NUM_DOCUMENTO: '',
-          NOMBRE_PACIENTE: '',
-          CUPS_AUTORIZADO: '',
-        });
+          Object.keys(
+            sourceUpdateResponseSchema.parse(await redactedReplay.json()).item.sourceData!,
+          ).sort(),
+        ).toEqual(['CUPS_AUTORIZADO', 'NOMBRE_PACIENTE', 'NUM_DOCUMENTO']);
 
         const itemLock = new Client({ connectionString: databaseUrl });
         const permissionRevocation = new Client({ connectionString: databaseUrl });
@@ -1094,9 +1097,9 @@ describe('Gate F2', () => {
           expect(
             sourceUpdateResponseSchema.parse(await serializedReplay.json()).item.sourceData,
           ).toEqual({
-            NUM_DOCUMENTO: '',
-            NOMBRE_PACIENTE: '',
-            CUPS_AUTORIZADO: '',
+            NUM_DOCUMENTO: '123',
+            NOMBRE_PACIENTE: 'Paciente de prueba',
+            CUPS_AUTORIZADO: 'Medicamento autorizado',
           });
           await revocation;
         } finally {
@@ -1249,13 +1252,13 @@ describe('Gate F2', () => {
     };
     expect(missingRows.items[0]).toMatchObject({ resultCode: 'MISSING_REQUIRED_FIELD' });
     expect(missingRows.items[0]?.validationErrors.map((entry) => entry.field)).toEqual(
-      expect.arrayContaining(['No.PRESCRIPCION', 'ESTADO_AUTORIZACION']),
+      expect.arrayContaining(['NUMERO_PRESCRIPCION', 'ESTADO_AUTORIZACION']),
     );
 
     const blockedBatch = await createImport(
       adminToken,
       authorizationCsv([
-        { authorization, medication: 'MED-BLOCKED', prescripcion: '20260915123', status: '4' },
+        { authorization, medication: 'MED-BLOCKED', prescripcion: '20260915123456789012', status: '4' },
       ]),
     );
     await waitForBatch(adminToken, blockedBatch.id);

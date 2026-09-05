@@ -29,8 +29,6 @@ import { BulkUpdatesController } from './bulk-updates/bulk-updates.controller';
 import { BulkUpdatesService } from './bulk-updates/bulk-updates.service';
 import { OperationalExportsController } from './operational-exports/operational-exports.controller';
 import { OperationalExportsService } from './operational-exports/operational-exports.service';
-import { NotificationsAdminController } from './notifications/notifications-admin.controller';
-import { NotificationsAdminService } from './notifications/notifications-admin.service';
 import { AuditsController } from './audits/audits.controller';
 import { AuditsService } from './audits/audits.service';
 import { ConsolidationController } from './consolidation/consolidation.controller';
@@ -38,6 +36,10 @@ import { ConsolidationService } from './consolidation/consolidation.service';
 import { IndicatorsController } from './consolidation/indicators.controller';
 import { TariffAnnexController } from './tariff-annex/tariff-annex.controller';
 import { TariffAnnexService } from './tariff-annex/tariff-annex.service';
+import { NoveltiesController } from './novelties/novelties.controller';
+import { NoveltiesService } from './novelties/novelties.service';
+import { SettingsController } from './settings/settings.controller';
+import { SettingsService } from './settings/settings.service';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
 
 const config = parseApiConfig(process.env);
@@ -83,14 +85,17 @@ new Gauge({
     AuthorizationItemsController,
     BulkUpdatesController,
     OperationalExportsController,
-    NotificationsAdminController,
     AuditsController,
     ConsolidationController,
     IndicatorsController,
     TariffAnnexController,
+    NoveltiesController,
+    SettingsController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
+    NoveltiesService,
+    SettingsService,
     AuthGuard,
     AccessService,
     AuthService,
@@ -101,7 +106,6 @@ new Gauge({
     AuthorizationItemsService,
     BulkUpdatesService,
     OperationalExportsService,
-    NotificationsAdminService,
     AuditsService,
     ConsolidationService,
     TariffAnnexService,

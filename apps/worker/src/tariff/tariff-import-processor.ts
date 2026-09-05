@@ -4,8 +4,8 @@ import {
   tariffImportRowResultMessages,
   type TariffImportJob,
 } from '@authorization/contracts';
-import { isValidTariffProductCode } from '@authorization/domain';
-import type { createDatabase } from '@authorization/database';
+import { isValidTariffProductCode, noveltyForTariffImportResult } from '@authorization/domain';
+import { insertNovelty, type createDatabase } from '@authorization/database';
 import { parseTariffImportFile, TariffFileError } from './tariff-import-parser';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -211,6 +211,20 @@ export class TariffImportProcessor {
             outcome.productId,
           ],
         );
+        const novelty = noveltyForTariffImportResult(outcome.code);
+        if (novelty) {
+          await insertNovelty(client, {
+            tariffAnnexImportId: batch.id,
+            sourceRowNumber: row.rowNumber,
+            originalRow: row.rawData,
+            code: novelty.code,
+            stage: novelty.stage,
+            field: outcome.code === 'INVALID_PRODUCT_CODE' ? 'CODIGO_PRODUCTO' : (novelty.field ?? null),
+            receivedValue: outcome.codigo ?? null,
+            description: tariffImportRowResultMessages[outcome.code],
+            actorId: batch.created_by,
+          });
+        }
       }
 
       await client.query(

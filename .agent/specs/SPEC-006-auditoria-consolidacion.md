@@ -34,7 +34,7 @@ Solo un auditor MTD autorizado puede producir `APPROVED` o `REJECTED`. Cada deci
 - Solo `audit_status = APPROVED` es elegible para el consolidado definitivo.
 - Un registro rechazado o pendiente no entra al consolidado.
 - `APPROVED` deriva `operation_status = DISPENSED` y habilita la derivación de `admission_status = READY`.
-- CSV/XLSX se genera on-demand, sin copia persistente, y se audita.
+- XLSX se genera on-demand, sin copia persistente, y se audita.
 - `admission_status = READY` se deriva; la UI no puede marcarlo manualmente. La descarga de la base de registros en ese estado inicia el proceso de admisión, que es externo a la plataforma: no existe handoff, cola ni estados posteriores de admisión en el núcleo.
 
 ## Aceptación

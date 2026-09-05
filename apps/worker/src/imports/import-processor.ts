@@ -7,8 +7,8 @@ import {
   type AuthorizationImportJob,
   type ImportRowResultCode,
 } from '@authorization/contracts';
-import { deriveAuthorizationClassification } from '@authorization/domain';
-import type { createDatabase } from '@authorization/database';
+import { deriveAuthorizationClassification, noveltyForImportResult, type NoveltyProjection } from '@authorization/domain';
+import { insertNovelty, type createDatabase } from '@authorization/database';
 import { parseImportFile, ImportFileError, type ParsedImportRow } from './import-parser';
 import { importTerminalErrorClassifications, NonRetryableImportError } from './import-errors';
 
@@ -17,6 +17,7 @@ type Database = ReturnType<typeof createDatabase>;
 type SourceFileRow = {
   batch_id: string;
   organization_id: string;
+  created_by: string;
   batch_status: string;
   batch_sha256: string;
   batch_processor_version: number;
@@ -48,12 +49,16 @@ function hasValue(row: Record<string, unknown>, field: string): boolean {
   );
 }
 
-function missingFields(row: Record<string, unknown>, headers: string[]): string[] {
-  const missing = ['NUMERO_AUTORIZACION', 'CODIGO_COMERCIAL', 'ESTADO_AUTORIZACION'].filter(
-    (field) => !headers.includes(field) || !hasValue(row, field),
+function missingRequiredHeaders(headers: string[]): string[] {
+  return ['NUMERO_AUTORIZACION', 'CODIGO_COMERCIAL', 'ESTADO_AUTORIZACION', 'NUMERO_PRESCRIPCION'].filter(
+    (field) => !headers.includes(field),
   );
-  if (!headers.includes('NUMERO_PRESCRIPCION')) missing.push('NUMERO_PRESCRIPCION');
-  return missing;
+}
+
+function missingRequiredValues(row: Record<string, unknown>, headers: string[]): string[] {
+  return ['NUMERO_AUTORIZACION', 'CODIGO_COMERCIAL', 'ESTADO_AUTORIZACION'].filter(
+    (field) => headers.includes(field) && !hasValue(row, field),
+  );
 }
 
 function hashContent(content: Buffer): string {
@@ -79,24 +84,6 @@ export class ImportProcessor {
       throw new NonRetryableImportError(
         importTerminalErrorClassifications.processorVersionMismatch,
       );
-    }
-
-    // Defensa secundaria: el request HTTP no es la única entrada al worker.
-    const tariff = await this.database.pool.query<{ id: string }>(
-      `select id from tariff_annex_products
-       where organization_id = $1 and active = true limit 1`,
-      [source.organization_id],
-    );
-    if (tariff.rows.length === 0) {
-      await this.markFailed(source.batch_id, 'TARIFF_ANNEX_REQUIRED');
-      return {
-        status: 'FAILED',
-        totalRows: 0,
-        validRows: 0,
-        rejectedRows: 0,
-        duplicateRows: 0,
-        existingRows: 0,
-      };
     }
 
     if (source.batch_status === 'READY_TO_CONFIRM' || source.batch_status === 'COMPLETED') {
@@ -175,6 +162,10 @@ export class ImportProcessor {
 
       await client.query('delete from import_rows where import_batch_id = $1', [source.batch_id]);
       await client.query(
+        'delete from novelties where import_batch_id = $1 and authorization_item_id is null',
+        [source.batch_id],
+      );
+      await client.query(
         `update import_batches
          set status = 'VALIDATING', started_at = coalesce(started_at, now()), last_error_code = null
          where id = $1`,
@@ -228,6 +219,21 @@ export class ImportProcessor {
           }
         } else if (resultCode !== 'ROW_VALID') {
           rejectedRows += 1;
+        }
+
+        const projection = this.noveltyForClassifiedRow(classified, resultCode);
+        if (projection) {
+          await insertNovelty(client, {
+            importBatchId: source.batch_id,
+            sourceRowNumber: classified.row.rowNumber,
+            originalRow: classified.row.rawData,
+            code: projection.code,
+            stage: projection.stage,
+            field: projection.field,
+            receivedValue: classified.classification?.authorizationKey ?? null,
+            description: projection.message,
+            actorId: source.created_by,
+          });
         }
 
         const inserted = await client.query<{ id: string }>(
@@ -286,6 +292,19 @@ export class ImportProcessor {
     }
   }
 
+  private noveltyForClassifiedRow(
+    classified: {
+      classification: AuthorizationClassification | null;
+      resultCode: ImportRowResultCode;
+      novelty: NoveltyProjection | null;
+    },
+    finalResultCode: ImportRowResultCode,
+  ): NoveltyProjection | null {
+    if (finalResultCode === 'DUPLICATE_IN_FILE') return noveltyForImportResult('DUPLICATE_IN_FILE');
+    if (finalResultCode === 'EXISTING_ITEM_REVIEW_REQUIRED') return null;
+    return classified.novelty;
+  }
+
   private classifyRow(
     row: ParsedImportRow,
     headers: string[],
@@ -294,18 +313,22 @@ export class ImportProcessor {
     classification: AuthorizationClassification | null;
     resultCode: ImportRowResultCode;
     errors: Array<{ field: string; code: string; message: string }>;
+    novelty: NoveltyProjection | null;
   } {
-    const missing = missingFields(row.rawData, headers);
-    if (missing.length > 0) {
+    const missingHeaders = missingRequiredHeaders(headers);
+    const missingValues = missingRequiredValues(row.rawData, headers);
+    if (missingHeaders.length > 0 || missingValues.length > 0) {
+      const fields = [...missingHeaders, ...missingValues];
       return {
         row,
         classification: null,
         resultCode: 'MISSING_REQUIRED_FIELD',
-        errors: missing.map((field) => ({
+        errors: fields.map((field) => ({
           field,
           code: 'MISSING_REQUIRED_FIELD',
           message: `Falta el campo obligatorio ${field}.`,
         })),
+        novelty: noveltyForImportResult('MISSING_REQUIRED_FIELD', missingHeaders),
       };
     }
     const classification = deriveAuthorizationClassification({
@@ -326,14 +349,15 @@ export class ImportProcessor {
             message: messages.INVALID_FIELD_FORMAT,
           },
         ],
+        novelty: noveltyForImportResult('INVALID_FIELD_FORMAT', [], 'NUMERO_PRESCRIPCION'),
       };
     }
-    return { row, classification, resultCode: 'ROW_VALID', errors: [] };
+    return { row, classification, resultCode: 'ROW_VALID', errors: [], novelty: null };
   }
 
   private async getSource(job: AuthorizationImportJob): Promise<SourceFileRow | undefined> {
     const result = await this.database.pool.query<SourceFileRow>(
-      `select b.id as batch_id, b.organization_id, b.status as batch_status, b.sha256 as batch_sha256,
+      `select b.id as batch_id, b.organization_id, b.created_by, b.status as batch_status, b.sha256 as batch_sha256,
               b.processor_version as batch_processor_version, f.id as source_file_id,
               f.original_filename, f.mime_type, f.size_bytes, f.sha256 as source_sha256, f.content
        from import_batches b

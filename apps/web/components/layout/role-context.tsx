@@ -57,6 +57,7 @@ export function rolesFromProfile(me: MeResponse | null): Role[] {
     if (organization.code === 'COMPENSAR') result.add('COMPENSAR');
     if (organization.code === 'OLP') result.add('OLP');
     if (organization.code === 'MEDICARTE') result.add('MEDICARTE');
+    if (organization.roles.includes('READ_ONLY')) result.add('READ_ONLY');
   }
   return ROLES.filter((candidate) => result.has(candidate));
 }

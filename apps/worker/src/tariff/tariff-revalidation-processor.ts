@@ -1,15 +1,15 @@
-import { randomUUID } from 'node:crypto';
 import {
   tariffAnnexRevalidationJobSchema,
   type TariffAnnexRevalidationJob,
 } from '@authorization/contracts';
 import {
   currentBogotaDate,
+  deriveEarlyProcessStatus,
   deriveEpsNovedadCausales,
   deriveOperationStatus,
   TARIFF_ANNEX_RULE_VERSION,
 } from '@authorization/domain';
-import type { createDatabase } from '@authorization/database';
+import { resolveNovelties, type createDatabase } from '@authorization/database';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -152,6 +152,14 @@ export class TariffRevalidationProcessor {
          where id = $1`,
         [item.id, TARIFF_ANNEX_RULE_VERSION],
       );
+      await resolveNovelties(client, {
+        authorizationItemId: item.id,
+        codes: ['ANX_001', 'ANX_002', 'ANX_003'],
+        reason: 'TARIFF_ANNEX_REVALIDATED',
+        actorType: 'SYSTEM',
+        actorId: job.payload.actorId,
+        correlationId: job.correlationId,
+      });
       const operationStatus = deriveOperationStatus({
         enablementStatus: item.enablement_status,
         coverageType: item.coverage_type,
@@ -171,10 +179,15 @@ export class TariffRevalidationProcessor {
       });
       let becameReady = false;
       if (operationStatus !== item.operation_status) {
+        const processStatus = deriveEarlyProcessStatus({
+          operationStatus,
+          coverageType: item.coverage_type,
+          directionStatus: item.direction_status,
+        });
         const materialized = await client.query<{ version: number }>(
-          `update authorization_items set operation_status = $2, version = version + 1, updated_at = now()
+          `update authorization_items set operation_status = $2, process_status = $3, version = version + 1, updated_at = now()
            where id = $1 returning version`,
-          [item.id, operationStatus],
+          [item.id, operationStatus, processStatus],
         );
         const readinessVersion = materialized.rows[0]?.version ?? item.version + 1;
         await client.query(
@@ -212,30 +225,6 @@ export class TariffRevalidationProcessor {
               job.correlationId,
             ],
           );
-          const recipients = await client.query<{ id: string; code: string }>(
-            `select id, code from organizations where code = any($1::text[])`,
-            [['OLP', 'MEDICARTE']],
-          );
-          for (const recipient of recipients.rows) {
-            const key = `ready:${item.id}:${readinessVersion}:${recipient.code}`.slice(0, 200);
-            const eventId = randomUUID();
-            const payload = {
-              eventId,
-              notificationType: 'AUTHORIZATION_READY_TO_DISPENSE',
-              itemId: item.id,
-              recipientOrganizationId: recipient.id,
-              period: null,
-              correlationId: job.correlationId,
-              idempotencyKey: key,
-            };
-            await client.query(
-              `insert into outbox_events
-                 (id, event_type, version, payload, correlation_id, organization_id, idempotency_key)
-               values ($1, 'notification.email', 1, $2::jsonb, $3, $4, $5)
-               on conflict (idempotency_key) do nothing`,
-              [eventId, JSON.stringify(payload), job.correlationId, recipient.id, key],
-            );
-          }
         }
       }
       await client.query(

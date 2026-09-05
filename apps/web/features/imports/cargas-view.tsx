@@ -109,7 +109,9 @@ function downloadTemplate(): void {
 }
 
 export function CargasView() {
-  const { organizationId } = useRole();
+  const { organizationId, hasPermission } = useRole();
+  const canCreate = hasPermission('imports.create');
+  const canConfirm = hasPermission('imports.confirm');
 
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [rowsByBatch, setRowsByBatch] = useState<Record<string, ImportRow[]>>({});
@@ -126,12 +128,13 @@ export function CargasView() {
   const rowsRequested = useRef(new Set<string>());
 
   useEffect(() => {
+    if (!canCreate) return;
     const controller = new AbortController();
     void listTariffProducts(organizationId, { active: 'true', limit: 1 }, controller.signal)
       .then((page) => setTariffAvailable(page.items.length > 0))
       .catch(() => setTariffAvailable(null));
     return () => controller.abort();
-  }, [organizationId]);
+  }, [canCreate, organizationId]);
 
   const activeBatch = useMemo(
     () => batches.find((batch) => batch.id === selectedBatchId) ?? null,
@@ -297,51 +300,58 @@ export function CargasView() {
             }
           />
           <CardBody>
-            <div
-              className={`upload-box${dragging ? ' dragging' : ''}`}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={handleDrop}
-              role="button"
-              tabIndex={0}
-              aria-label="Zona de carga de archivo de autorizaciones"
-              onClick={() => fileInputRef.current?.click()}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') fileInputRef.current?.click();
-              }}
-            >
-              <div className="upload-icon">↑</div>
-              <h4>Arrastra el archivo aquí</h4>
-              <p>
-                o selecciónalo desde tu equipo. El archivo no se aplicará directamente a producción.
-              </p>
-              <button
-                type="button"
-                className="btn primary"
-                disabled={uploading}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void fileInputRef.current?.click();
+            {canCreate ? (
+              <div
+                className={`upload-box${dragging ? ' dragging' : ''}`}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={handleDrop}
+                role="button"
+                tabIndex={0}
+                aria-label="Zona de carga de archivo de autorizaciones"
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') fileInputRef.current?.click();
                 }}
               >
-                Seleccionar archivo
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx"
-                style={{ display: 'none' }}
-                onChange={handleFileChange}
-              />
-              {file ? (
-                <p style={{ marginTop: 10 }}>
-                  <strong>{file.name}</strong> — {formatBytes(file.size)}
+                <div className="upload-icon">↑</div>
+                <h4>Arrastra el archivo aquí</h4>
+                <p>
+                  o selecciónalo desde tu equipo. El archivo no se aplicará directamente a
+                  producción.
                 </p>
-              ) : null}
-            </div>
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={uploading}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void fileInputRef.current?.click();
+                  }}
+                >
+                  Seleccionar archivo
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx"
+                  style={{ display: 'none' }}
+                  onChange={handleFileChange}
+                />
+                {file ? (
+                  <p style={{ marginTop: 10 }}>
+                    <strong>{file.name}</strong> — {formatBytes(file.size)}
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <Note>
+                Esta vista está disponible en modo consulta. No puedes crear ni confirmar cargas.
+              </Note>
+            )}
             {error ? (
               <div className="login-error" role="alert" style={{ marginTop: 12 }}>
                 {error}
@@ -349,15 +359,15 @@ export function CargasView() {
             ) : null}
             {tariffAvailable === false ? (
               <Note>
-                No es posible procesar autorizaciones porque no existe un Anexo Tarifario disponible.
-                Cargue o configure el Anexo Tarifario antes de continuar.
+                No es posible procesar autorizaciones porque no existe un Anexo Tarifario
+                disponible. Cargue o configure el Anexo Tarifario antes de continuar.
               </Note>
             ) : null}
             <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
               <button
                 type="button"
                 className="btn primary"
-                disabled={!file || uploading || tariffAvailable !== true}
+                disabled={!canCreate || !file || uploading || tariffAvailable !== true}
                 onClick={() => {
                   void handleUpload();
                 }}
@@ -414,7 +424,7 @@ export function CargasView() {
                     <strong>{formatNumber(activeBatch.confirmedRows)}</strong>
                   </li>
                 </ul>
-                {activeBatch.status === 'READY_TO_CONFIRM' ? (
+                {activeBatch.status === 'READY_TO_CONFIRM' && canConfirm ? (
                   <button
                     type="button"
                     className="btn primary"

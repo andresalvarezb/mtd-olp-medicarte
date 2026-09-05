@@ -95,12 +95,6 @@ services:
         sync: false
       - key: MIPRES_INITIAL_TOKEN
         sync: false
-      - key: GMAIL_SENDER
-        sync: false
-      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
-        sync: false
-      - key: GOOGLE_PRIVATE_KEY
-        sync: false
 
   - type: keyvalue
     name: authorization-keyvalue

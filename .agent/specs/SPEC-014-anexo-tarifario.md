@@ -20,9 +20,9 @@ Catálogo administrativo de MTD que define los códigos de producto habilitados 
 - `POST /admin/tariff-annex/products` — crear; idempotente: activo existente devuelve `PRODUCT_EXISTING`; inactivo existente se reactiva (`PRODUCT_REACTIVATED`) y emite el evento de revalidación (`tariff_annex.create`, `Idempotency-Key`).
 - `PATCH /admin/tariff-annex/products/:id` — activar/desactivar (`tariff_annex.update`).
 - `DELETE /admin/tariff-annex/products/:id` — desactivación lógica, sin destruir historial (`tariff_annex.delete`).
-- `POST /admin/tariff-annex/imports` — cargue masivo CSV/XLSX, 20 MB, 202 (`tariff_annex.import`, `Idempotency-Key`).
+- `POST /admin/tariff-annex/imports` — cargue masivo XLSX, 20 MB, 202 (`tariff_annex.import`, `Idempotency-Key`).
 - `GET /admin/tariff-annex/imports`, `GET /admin/tariff-annex/imports/:id` y `GET /admin/tariff-annex/imports/:id/rows` — progreso y resultado por fila (`tariff_annex.read`).
-- `GET /admin/tariff-annex/eps-novedades?format=csv|xlsx` — base de novedades EPS on-demand (solo MTD, `operational_exports.create`).
+- Las novedades del Anexo Tarifario se consultan y descargan exclusivamente desde la bandeja transversal `novelties`, filtradas por el lote seleccionado (`GET /api/v1/novelties/xlsx?batchId=…`).
 
 Todos los endpoints exigen organización MTD validada en backend. El encabezado `Idempotency-Key` es obligatorio en mutaciones.
 
@@ -78,11 +78,11 @@ En la confirmación del cargue, cada fila evalúa la membresía del Anexo. Un pr
 
 La función central `deriveOperationStatus()` exige `productInTariffAnnex`; se aplica en la confirmación, el reprocesamiento MIPRES y la actualización explícita. PBS no consulta MIPRES; NO PBS continúa exigiendo direccionamiento vigente.
 
-## Causal y novedades EPS
+## Causales y bandeja transversal
 
 - Causal estable: `PRODUCT_NOT_IN_TARIFF_ANNEX` — "Producto no incluido en el Anexo Tarifario".
 - Las causales se derivan por registro (`deriveEpsNovedadCausales`): `SOURCE_STATUS_BLOCKED`, `AUTHORIZATION_EXPIRED`, `DIRECTION_PENDING`, `DIRECTION_QUERY_ERROR`, `PRODUCT_NOT_IN_TARIFF_ANNEX`. Un registro puede acumular varias.
-- La base de novedades EPS contiene únicamente registros que no alcanzaron `READY_TO_DISPENSE` y conserva todas las causales activas. Columnas mínimas: `authorization_key`, `numero_autorizacion`, `codigo_medicamento`, `coverage_type`, `causal`, `detalle_novedad`, más los campos operativos de identificación. On-demand, sin copia persistente (ADR-018), auditada.
+- Las causales del Anexo Tarifario se proyectan en `novelties` y se consultan junto con las novedades de las demás etapas. La descarga se realiza únicamente para el lote seleccionado, en XLSX, on-demand, sin copia persistente (ADR-018), y queda auditada. Si una autorización tiene varias causales activas, todas se conservan en la bandeja.
 
 ## Revalidación automática
 
@@ -113,7 +113,7 @@ resolver causal → re-ejecutar deriveOperationStatus → transición normal
 
 ## UI
 
-Vista `Anexo Tarifario` (solo MTD): listado, búsqueda, estado activo/inactivo, fechas, crear, activar/desactivar, cargue masivo CSV/XLSX, resultado por fila del cargue, plantilla descargable y descarga de novedades EPS (CSV/XLSX). La UI oculta acciones según permisos, pero toda autorización se valida en backend.
+Vista `Anexo Tarifario` (solo MTD): listado, búsqueda, estado activo/inactivo, fechas, crear, activar/desactivar, cargue masivo XLSX, resultado por fila del cargue, plantilla descargable y descarga en XLSX de las novedades del lote seleccionado desde la bandeja transversal. La UI oculta acciones según permisos, pero toda autorización se valida en backend.
 
 ## Aceptación
 

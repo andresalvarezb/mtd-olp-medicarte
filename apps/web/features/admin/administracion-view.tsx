@@ -1,297 +1,99 @@
 'use client';
 
-import { useState } from 'react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardHead, CardBody } from '@/components/ui/card';
-import { StatusBadge } from '@/components/ui/status-badge';
 import { Note } from '@/components/ui/timeline';
 import { useRole } from '@/components/layout/role-context';
 import { useApiData } from '@/hooks/use-api-data';
-import {
-  createNotificationRecipient,
-  deleteNotificationRecipient,
-  listNotificationRecipients,
-  type NotificationType,
-  getNotificationSender,
-  setNotificationSender,
-} from '@/lib/notifications-api';
-import { ORGANIZATION_IDS } from '@/lib/config';
-import { UsersAdminSection } from '@/features/admin/users-admin';
+import { getDriveUrl, updateDriveUrl } from '@/lib/drive-api';
+import { UsersAdminSection } from './users-admin';
+import { useState } from 'react';
 
-const RECIPIENT_TYPES: Array<{
-  label: string;
-  hint: string;
-  type: NotificationType;
-  placeholder: string;
-  targetOrganizationId: string;
-}> = [
-  {
-    label: 'OLP — Disponibilidad',
-    hint: 'AUTHORIZATION_READY_TO_DISPENSE',
-    type: 'AUTHORIZATION_READY_TO_DISPENSE',
-    placeholder: 'logistica@olp.com',
-    targetOrganizationId: ORGANIZATION_IDS.MEDICARTE,
-  },
-  {
-    label: 'OLP — Punto de aplicación',
-    hint: 'DISPENSATION_LOCATION_ASSIGNED',
-    type: 'DISPENSATION_LOCATION_ASSIGNED',
-    placeholder: 'logistica@olp.com',
-    targetOrganizationId: ORGANIZATION_IDS.OLP,
-  },
-  {
-    label: 'OLP — Cambio de punto de aplicación',
-    hint: 'DISPENSATION_LOCATION_CHANGED',
-    type: 'DISPENSATION_LOCATION_CHANGED',
-    placeholder: 'logistica@olp.com',
-    targetOrganizationId: ORGANIZATION_IDS.OLP,
-  },
-  {
-    label: 'EPS — Direccionamiento pendiente',
-    hint: 'EPS_DIRECTION_PENDING',
-    type: 'EPS_DIRECTION_PENDING',
-    placeholder: 'eps@compensar.com',
-    targetOrganizationId: ORGANIZATION_IDS.COMPENSAR,
-  },
-  {
-    label: 'MTD — Dispensación reportada',
-    hint: 'DISPENSATION_DATE_REPORTED',
-    type: 'DISPENSATION_DATE_REPORTED',
-    placeholder: 'mtd@example.com',
-    targetOrganizationId: ORGANIZATION_IDS.MTD,
-  },
-  {
-    label: 'Medicarte — Dispensación reportada',
-    hint: 'DISPENSATION_DATE_REPORTED',
-    type: 'DISPENSATION_DATE_REPORTED',
-    placeholder: 'medicarte@example.com',
-    targetOrganizationId: ORGANIZATION_IDS.MEDICARTE,
-  },
-  {
-    label: 'MTD — Aplicación reportada',
-    hint: 'APPLICATION_DATE_REPORTED',
-    type: 'APPLICATION_DATE_REPORTED',
-    placeholder: 'mtd@example.com',
-    targetOrganizationId: ORGANIZATION_IDS.MTD,
-  },
-  {
-    label: 'Compensar — Rechazos de cargue',
-    hint: 'AUTHORIZATION_IMPORT_REJECTED',
-    type: 'AUTHORIZATION_IMPORT_REJECTED',
-    placeholder: 'compensar@example.com',
-    targetOrganizationId: ORGANIZATION_IDS.COMPENSAR,
-  },
-];
+const ROLE_ACTIONS = [
+  [
+    'MTD_ADMIN',
+    'Usuarios, organizaciones, catálogos, integraciones, parámetros y operación completa.',
+  ],
+  [
+    'MTD_OPERATOR',
+    'Cargas, autorizaciones, direccionamientos MIPRES, exportaciones y auditoría operativa.',
+  ],
+  [
+    'MTD_GENERAL',
+    'Lectura y exportación de MIPRES, disponibles, puntos, logística, soportes y consolidado.',
+  ],
+  [
+    'MTD_AUDITORIA',
+    'Lectura de resumen y autorizaciones; inicia, revisa, rechaza y aprueba auditorías.',
+  ],
+  [
+    'COMPENSAR_VIEWER',
+    'Consulta de autorizaciones y consolidado únicamente si tiene el permiso explícito.',
+  ],
+  [
+    'OLP_OPERATOR',
+    'Consulta y descarga de su operación; reporta fechas de dispensación masivamente.',
+  ],
+  [
+    'MEDICARTE_OPERATOR',
+    'Consulta y descarga de su operación; actualiza lugar y fecha de aplicación.',
+  ],
+  [
+    'READ_ONLY',
+    'Lectura de la aplicación completa, sin escritura, Administración ni Anexo Tarifario.',
+  ],
+] as const;
 
-function RecipientBlock({
-  label,
-  hint,
-  type,
-  placeholder,
-  organizationId,
-  targetOrganizationId,
-}: {
-  label: string;
-  hint: string;
-  type: NotificationType;
-  placeholder: string;
-  organizationId: string;
-  targetOrganizationId: string;
-}) {
-  const { data, reload } = useApiData(
-    () => listNotificationRecipients(organizationId, type),
-    [organizationId, type],
-  );
-  const [email, setEmail] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const recipients = (data ?? []).filter(
-    (recipient) => recipient.active && recipient.organizationId === targetOrganizationId,
-  );
-
-  const handleAdd = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await createNotificationRecipient(organizationId, {
-        notificationType: type,
-        organizationId: targetOrganizationId,
-        email: email.trim(),
-      });
-      setEmail('');
-      reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible agregar el destinatario.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleRemove = async (id: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await deleteNotificationRecipient(organizationId, id);
-      reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible retirar el destinatario.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="config-block" style={{ marginTop: 10 }}>
-      <h4>{label}</h4>
-      <p>{hint}</p>
-      {recipients.length ? (
-        <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
-          {recipients.map((recipient) => (
-            <li key={recipient.id} style={{ marginBottom: 4 }}>
-              {recipient.email}{' '}
-              <button
-                type="button"
-                className="btn"
-                style={{ padding: '2px 8px', fontSize: 10 }}
-                disabled={busy}
-                onClick={() => {
-                  void handleRemove(recipient.id);
-                }}
-              >
-                Retirar
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p style={{ color: 'var(--muted)' }}>Sin destinatarios activos.</p>
-      )}
-      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-        <input
-          className="control"
-          placeholder={placeholder}
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-        <button
-          type="button"
-          className="btn"
-          disabled={busy || !email.includes('@')}
-          onClick={() => {
-            void handleAdd();
-          }}
-        >
-          Agregar
-        </button>
-      </div>
-      {error ? (
-        <div className="login-error" role="alert" style={{ marginTop: 8 }}>
-          {error}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function SenderBlock({ organizationId }: { organizationId: string }) {
-  const { data, reload } = useApiData(
-    () => getNotificationSender(organizationId),
-    [organizationId],
-  );
-  const [email, setEmail] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const current = data?.email ?? '';
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await setNotificationSender(organizationId, email.trim());
-      setEmail('');
-      reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible guardar el remitente.');
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="config-block" style={{ marginTop: 10 }}>
-      <h4>Remitente funcional</h4>
-      <p>{current || 'Sin configurar. Se usará la configuración técnica solo como respaldo.'}</p>
-      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-        <input
-          className="control"
-          type="email"
-          placeholder="notificaciones@mtd.net.co"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-        <button
-          type="button"
-          className="btn"
-          disabled={busy || !email.includes('@')}
-          onClick={() => void save()}
-        >
-          Guardar
-        </button>
-      </div>
-      {error ? (
-        <div className="login-error" role="alert" style={{ marginTop: 8 }}>
-          {error}
-        </div>
-      ) : null}
-    </div>
-  );
-}
+const PERMISSION_GROUPS = [
+  ['Consulta', 'authorizations.read, application_site.read, audit.read, consolidated.read'],
+  [
+    'Navegación',
+    'view.dashboard, view.authorizations, view.imports, view.mipres, view.available, view.application, view.purchase_orders, view.logistics, view.supports, view.audit, view.consolidated, view.failures',
+  ],
+  [
+    'Operación',
+    'imports.create, imports.confirm, mipres.recheck, audit.start, audit.reject, audit.approve',
+  ],
+  ['Exportación', 'exports.create, operational_exports.create'],
+  [
+    'Actualizaciones masivas',
+    'bulk_updates.dispensation_location, bulk_updates.dispensation_date, bulk_updates.application_date, bulk_updates.purchase_order',
+  ],
+  ['Administración', 'users.manage, tariff_annex.read/create/import/update/delete'],
+] as const;
 
 export function AdministracionView() {
   const { organizationId, hasPermission } = useRole();
-  const canManage = hasPermission('notifications.manage');
+  const drive = useApiData(() => getDriveUrl(organizationId), [organizationId]);
+  const [driveUrl, setDriveUrl] = useState<string | null>(null);
+  const [driveMessage, setDriveMessage] = useState<string | null>(null);
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const [savingDrive, setSavingDrive] = useState(false);
   const canManageUsers = hasPermission('users.manage');
+
+  const currentDriveUrl = driveUrl ?? drive.data?.url ?? '';
+  const saveDriveUrl = async () => {
+    setSavingDrive(true);
+    setDriveMessage(null);
+    setDriveError(null);
+    try {
+      const result = await updateDriveUrl(organizationId, currentDriveUrl.trim());
+      setDriveUrl(result.url);
+      setDriveMessage('Enlace de Google Drive guardado.');
+    } catch (error) {
+      setDriveError(error instanceof Error ? error.message : 'No fue posible guardar el enlace.');
+    } finally {
+      setSavingDrive(false);
+    }
+  };
 
   return (
     <>
       <PageHeader
         title="Administración"
-        description="Configuración operativa del producto y gestión de accesos. Los cambios sensibles quedan auditados."
-        actions={
-          canManageUsers ? (
-            <span className="pill green">Gestión de usuarios activa</span>
-          ) : (
-            <span className="pill orange">Requiere users.manage</span>
-          )
-        }
+        description="Configuración de soportes y parámetros operativos del producto."
       />
-      <UsersAdminSection organizationId={organizationId} enabled={canManageUsers} />
       <div className="config-grid">
-        <Card>
-          <CardHead
-            title="Destinatarios de notificaciones"
-            subtitle="Alta y baja en tiempo real vía /admin/notification-recipients."
-          />
-          <CardBody>
-            {canManage ? (
-              <>
-                <SenderBlock organizationId={organizationId} />
-                {RECIPIENT_TYPES.map((config) => (
-                  <RecipientBlock
-                    key={`${config.type}-${config.targetOrganizationId}`}
-                    {...config}
-                    organizationId={organizationId}
-                  />
-                ))}
-              </>
-            ) : (
-              <Note>
-                Tu organización no tiene el permiso notifications.manage para administrar
-                destinatarios.
-              </Note>
-            )}
-          </CardBody>
-        </Card>
-
         <Card>
           <CardHead
             title="Google Drive corporativo"
@@ -299,73 +101,115 @@ export function AdministracionView() {
           />
           <CardBody>
             <div className="field">
-              <label>ID del Drive / carpeta</label>
-              <input className="control" placeholder="1AbC..." disabled />
+              <label htmlFor="drive-url">Enlace de Google Drive / carpeta</label>
+              <input
+                id="drive-url"
+                className="control"
+                type="url"
+                placeholder="https://drive.google.com/..."
+                value={currentDriveUrl}
+                disabled={!canManageUsers || drive.loading || savingDrive}
+                onChange={(event) => setDriveUrl(event.target.value)}
+              />
+            </div>
+            <div style={{ marginTop: 12 }}>
+              {canManageUsers ? (
+                <button type="button" className="btn" disabled={savingDrive || !currentDriveUrl.trim()} onClick={() => void saveDriveUrl()}>
+                  {savingDrive ? 'Guardando…' : 'Guardar enlace'}
+                </button>
+              ) : <Note>Solo un administrador puede modificar este enlace.</Note>}
+              {driveMessage ? <p>{driveMessage}</p> : null}
+              {driveError ? <div className="login-error" role="alert">{driveError}</div> : null}
+            </div>
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHead
+            title="Usuarios y acceso"
+            subtitle="La autenticación es local y los permisos se asignan por organización y rol."
+          />
+          <CardBody>
+            <Note>
+              Solo un usuario con <strong>users.manage</strong>, otorgado a{' '}
+              <strong>MTD_ADMIN</strong>, puede crear cuentas, cambiar asignaciones, restablecer
+              contraseñas o desactivar usuarios.
+            </Note>
+            <p style={{ margin: '14px 0 0' }}>
+              Las cuentas se crean administrativamente, usan contraseña local con hash Argon2id y
+              toda modificación relevante queda registrada en auditoría.
+            </p>
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHead
+            title="Roles y acciones"
+            subtitle="El alcance también depende de la organización asignada."
+          />
+          <CardBody>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Rol</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ROLE_ACTIONS.map(([role, actions]) => (
+                    <tr key={role}>
+                      <td>
+                        <strong>{role}</strong>
+                      </td>
+                      <td>{actions}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHead
+            title="Catálogo de permisos"
+            subtitle="La API vuelve a validar cada operación."
+          />
+          <CardBody>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Grupo</th>
+                    <th>Permisos</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {PERMISSION_GROUPS.map(([group, permissions]) => (
+                    <tr key={group}>
+                      <td>
+                        <strong>{group}</strong>
+                      </td>
+                      <td>
+                        <code>{permissions}</code>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
             <div style={{ marginTop: 12 }}>
               <Note>
-                La configuración de Drive aún no expone endpoint en la API; permanece como parámetro
-                de despliegue. Las referencias históricas conservan el identificador del destino
-                usado originalmente.
+                <strong>READ_ONLY</strong> recibe permisos de consulta y navegación, pero no recibe
+                permisos de escritura ni acceso a <strong>/administracion</strong> o{' '}
+                <strong>/anexo-tarifario</strong>.
               </Note>
             </div>
           </CardBody>
         </Card>
-
-        <Card>
-          <CardHead title="Reporte diario" subtitle="Resumen del día anterior." />
-          <CardBody>
-            <div className="split-status">
-              <div className="status-box">
-                <h4>Hora de ejecución</h4>
-                <p>
-                  <strong style={{ fontSize: 18, color: '#172033' }}>08:00</strong>
-                  <br />
-                  America/Bogota
-                </p>
-              </div>
-              <div className="status-box">
-                <h4>Ventana</h4>
-                <p>Día calendario inmediatamente anterior.</p>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHead title="Integraciones" subtitle="Estado esperado de servicios externos." />
-          <CardBody>
-            <div className="split-status">
-              <div className="status-box">
-                <h4>MIPRES</h4>
-                <p>
-                  <StatusBadge tone="green">Configurado (mock)</StatusBadge>
-                </p>
-              </div>
-              <div className="status-box">
-                <h4>Identidad</h4>
-                <p>
-                  <StatusBadge tone="green">Autenticación local (PostgreSQL)</StatusBadge>
-                </p>
-              </div>
-            </div>
-            <div className="split-status" style={{ marginTop: 10 }}>
-              <div className="status-box">
-                <h4>PostgreSQL</h4>
-                <p>
-                  <StatusBadge tone="green">Conectado</StatusBadge>
-                </p>
-              </div>
-              <div className="status-box">
-                <h4>Redis / BullMQ</h4>
-                <p>
-                  <StatusBadge tone="green">Conectado</StatusBadge>
-                </p>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
       </div>
+      <UsersAdminSection
+        organizationId={organizationId}
+        enabled={hasPermission('users.manage')}
+      />
     </>
   );
 }

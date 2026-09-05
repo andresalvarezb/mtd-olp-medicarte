@@ -25,6 +25,7 @@ export const organizations = pgTable('organizations', {
   id: uuid('id').primaryKey().defaultRandom(),
   code: varchar('code', { length: 50 }).notNull().unique(),
   name: varchar('name', { length: 160 }).notNull(),
+  driveUrl: varchar('drive_url', { length: 2048 }),
   active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -166,6 +167,7 @@ export const authorizationItems = pgTable(
     numeroAutorizacion: varchar('numero_autorizacion', { length: 255 }).notNull(),
     codigoMedicamento: varchar('codigo_medicamento', { length: 255 }).notNull(),
     authorizationKey: varchar('authorization_key', { length: 511 }).notNull(),
+    processStatus: varchar('process_status', { length: 40 }),
     sourceData: jsonb('source_data').notNull(),
     sourceStatusNormalized: varchar('source_status_normalized', { length: 80 }).notNull(),
     sourcePrescripcionNormalized: varchar('source_prescripcion_normalized', {
@@ -183,6 +185,8 @@ export const authorizationItems = pgTable(
     fechaProgramada: date('fecha_programada'),
     fechaDispensacion: date('fecha_dispensacion'),
     fechaAplicacion: date('fecha_aplicacion'),
+    codAutorizacionMedicarte: varchar('cod_autorizacion_medicarte', { length: 255 }),
+    ordenCompra: varchar('orden_compra', { length: 255 }),
     auditStatus: varchar('audit_status', { length: 30 }).notNull().default('NOT_STARTED'),
     admissionStatus: varchar('admission_status', { length: 20 }).notNull().default('NOT_READY'),
     operationalVersion: integer('operational_version').notNull().default(0),
@@ -199,6 +203,8 @@ export const authorizationItems = pgTable(
       .notNull()
       .references(() => importBatches.id, { onDelete: 'restrict' }),
     version: integer('version').notNull().default(1),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'restrict' }),
+    lastLoadId: uuid('last_load_id').references(() => importBatches.id, { onDelete: 'restrict' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -207,6 +213,7 @@ export const authorizationItems = pgTable(
       table.numeroAutorizacion,
       table.codigoMedicamento,
     ),
+    uniqueIndex('authorization_items_authorization_key_idx').on(table.authorizationKey),
     index('authorization_items_coverage_idx').on(table.coverageType, table.enablementStatus),
     index('authorization_items_audit_status_idx').on(table.auditStatus, table.createdAt, table.id),
     index('authorization_items_created_idx').on(table.createdAt, table.id),
@@ -233,6 +240,10 @@ export const authorizationItems = pgTable(
     check(
       'authorization_items_operation_status_check',
       sql`${table.operationStatus} IS NULL OR ${table.operationStatus} IN ('BLOCKED', 'READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED', 'EXPIRED')`,
+    ),
+    check(
+      'authorization_items_process_status_check',
+      sql`${table.processStatus} IS NULL OR ${table.processStatus} IN ('NOVEDAD', 'PENDIENTE_VALIDACION_MIPRES', 'LISTO_PARA_DISPENSAR', 'PENDIENTE_ORDEN_COMPRA', 'PENDIENTE_DISPENSACION', 'PENDIENTE_APLICACION', 'LISTO_PARA_AUDITORIA', 'AUDITORIA_APROBADA', 'AUDITORIA_RECHAZADA')`,
     ),
     check(
       'authorization_items_ready_prerequisites_check',
@@ -666,103 +677,6 @@ export const bulkUpdateRows = pgTable(
   ],
 );
 
-export const notificationTemplates = pgTable(
-  'notification_templates',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    notificationType: varchar('notification_type', { length: 60 }).notNull(),
-    version: integer('version').notNull(),
-    subjectTemplate: text('subject_template').notNull(),
-    bodyTemplate: text('body_template').notNull(),
-    active: boolean('active').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('notification_templates_type_version_idx').on(
-      table.notificationType,
-      table.version,
-    ),
-    check('notification_templates_version_check', sql`${table.version} > 0`),
-  ],
-);
-
-export const notificationRecipients = pgTable(
-  'notification_recipients',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    notificationType: varchar('notification_type', { length: 60 }).notNull(),
-    organizationId: uuid('organization_id')
-      .notNull()
-      .references(() => organizations.id, { onDelete: 'restrict' }),
-    email: varchar('email', { length: 320 }).notNull(),
-    active: boolean('active').notNull().default(true),
-    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'restrict' }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('notification_recipients_unique_idx').on(
-      table.notificationType,
-      table.organizationId,
-      table.email,
-    ),
-    index('notification_recipients_lookup_idx').on(
-      table.notificationType,
-      table.organizationId,
-      table.active,
-    ),
-  ],
-);
-
-export const notificationEmailSettings = pgTable('notification_email_settings', {
-  id: integer('id').primaryKey(),
-  senderEmail: varchar('sender_email', { length: 320 }),
-  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'restrict' }),
-  updatedAt: timestamp('updated_at', { withTimezone: true }),
-});
-
-export const notifications = pgTable(
-  'notifications',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    notificationType: varchar('notification_type', { length: 60 }).notNull(),
-    recipientOrganizationId: uuid('recipient_organization_id').references(() => organizations.id, {
-      onDelete: 'restrict',
-    }),
-    itemId: uuid('item_id').references(() => authorizationItems.id, { onDelete: 'restrict' }),
-    period: date('period'),
-    itemSetHash: varchar('item_set_hash', { length: 64 }),
-    templateVersion: integer('template_version').notNull(),
-    subject: text('subject').notNull(),
-    body: text('body').notNull(),
-    recipients: jsonb('recipients').notNull(),
-    params: jsonb('params').notNull(),
-    payload: jsonb('payload').notNull(),
-    status: varchar('status', { length: 20 }).notNull().default('PENDING'),
-    attempts: integer('attempts').notNull().default(0),
-    lastError: text('last_error'),
-    gmailMessageId: varchar('gmail_message_id', { length: 255 }),
-    correlationId: uuid('correlation_id').notNull(),
-    idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    sentAt: timestamp('sent_at', { withTimezone: true }),
-    senderEmail: varchar('sender_email', { length: 320 }),
-  },
-  (table) => [
-    uniqueIndex('notifications_idempotency_key_idx').on(table.idempotencyKey),
-    index('notifications_status_idx').on(table.status, table.createdAt),
-    index('notifications_type_idx').on(table.notificationType, table.createdAt),
-    check(
-      'notifications_status_check',
-      sql`${table.status} IN ('PENDING', 'SENT', 'FAILED', 'SKIPPED')`,
-    ),
-    check(
-      'notifications_type_check',
-      sql`${table.notificationType} IN ('AUTHORIZATION_READY_TO_DISPENSE', 'DISPENSATION_LOCATION_ASSIGNED', 'DISPENSATION_LOCATION_CHANGED', 'EPS_DIRECTION_PENDING', 'EPS_TARIFF_ANNEX_REJECTED', 'DAILY_OPERATIONAL_REPORT')`,
-    ),
-  ],
-);
-
 export const auditReviews = pgTable(
   'audit_reviews',
   {
@@ -962,5 +876,54 @@ export const tariffAnnexImportRows = pgTable(
       'tariff_annex_import_rows_result_code_check',
       sql`${table.resultCode} IN ('PRODUCT_CREATED', 'PRODUCT_REACTIVATED', 'PRODUCT_EXISTING', 'INVALID_PRODUCT_CODE', 'DUPLICATE_IN_FILE', 'INVALID_FILE_FORMAT', 'PROCESSING_ERROR')`,
     ),
+  ],
+);
+
+export const noveltyCodes = pgTable('novelty_codes', {
+  code: varchar('code', { length: 30 }).primaryKey(),
+  stage: varchar('stage', { length: 60 }).notNull(),
+  field: varchar('field', { length: 160 }),
+  description: text('description').notNull(),
+  errorType: varchar('error_type', { length: 32 }).notNull(),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const novelties = pgTable(
+  'novelties',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    authorizationItemId: uuid('authorization_item_id').references(() => authorizationItems.id, {
+      onDelete: 'restrict',
+    }),
+    importBatchId: uuid('import_batch_id').references(() => importBatches.id, {
+      onDelete: 'restrict',
+    }),
+    bulkUpdateBatchId: uuid('bulk_update_batch_id').references(() => bulkUpdateBatches.id, {
+      onDelete: 'restrict',
+    }),
+    tariffAnnexImportId: uuid('tariff_annex_import_id').references(() => tariffAnnexImports.id, {
+      onDelete: 'restrict',
+    }),
+    sourceRowNumber: integer('source_row_number'),
+    originalRow: jsonb('original_row').notNull(),
+    code: varchar('code', { length: 30 }).notNull().references(() => noveltyCodes.code, {
+      onDelete: 'restrict',
+    }),
+    stage: varchar('stage', { length: 60 }).notNull(),
+    field: varchar('field', { length: 160 }),
+    receivedValue: text('received_value'),
+    description: text('description').notNull(),
+    active: boolean('active').notNull().default(true),
+    attemptNumber: integer('attempt_number').notNull().default(1),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'restrict' }),
+    processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('novelties_item_active_idx').on(table.authorizationItemId, table.active, table.processedAt),
+    index('novelties_code_idx').on(table.code, table.processedAt),
+    index('novelties_batch_idx').on(table.importBatchId, table.bulkUpdateBatchId),
+    index('novelties_attempt_idx').on(table.code, table.authorizationItemId, table.attemptNumber),
+    check('novelties_attempt_number_check', sql`${table.attemptNumber} > 0`),
   ],
 );

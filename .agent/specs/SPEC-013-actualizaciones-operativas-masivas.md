@@ -51,7 +51,7 @@ Una fila no válida no revierte otras filas válidas. Reprocesar el mismo lote o
 
 - Cada fila rechazada se proyecta además en la bandeja transversal `novelties` (mapeo estable causal → `novelty_codes` ya implementado en el worker), con `error_type` de catálogo: `CORREGIBLE_POR_CARGUE` (valores/llaves del archivo), `REQUIERE_VALIDACION` (estado operacional o alcance que exige decisión humana) o `REPROCESABLE_INTERNAMENTE` (`VERSION_CONFLICT`, `TECH_001`: el archivo es válido y basta reintentar o resolver la condición interna).
 - El lote permanece íntegro: una fila rechazada no revierte las filas aplicadas (transacción por fila, ya exigida por ADR-022).
-- La descarga de rechazados se sirve desde la bandeja (`GET /api/v1/novelties/csv?bulkUpdateBatchId=…`) con las columnas originales de la fila más los diagnósticos de ADR-027 §6; el reporte del lote (`GET /bulk-updates/:batchId/report`) conserva su forma actual para el detalle técnico-operativo.
+- La descarga de rechazados se sirve desde la bandeja transversal (`GET /api/v1/novelties/xlsx?batchId=…`) y se habilita directamente en la etapa de la operación, usando el lote seleccionado. Incluye únicamente las novedades de ese lote, con las columnas originales de la fila más los diagnósticos de ADR-027 §6; el reporte del lote (`GET /bulk-updates/:batchId/report`) conserva su forma actual para el detalle técnico-operativo.
 - Al recargarse la fila corregida y aplicarse con éxito, la novedad previa se cierra (`active = false`, auditoría `NOVELTY_RESOLVED`); los intentos anteriores quedan append-only en `bulk_update_rows`/`novelties`/`audit_events`.
 
 ## Precondiciones
@@ -80,7 +80,7 @@ Estas precondiciones ordenan el flujo solicitado; no validan automáticamente so
 - `GET /api/v1/bulk-updates/:batchId/rows`
 - `GET /api/v1/bulk-updates/:batchId/report?format=xlsx`
 
-`POST` responde `202` con `batchId`, estado y URL de consulta. Consultas y reportes vuelven a validar organización, permiso y alcance. El reporte de resultados no habilita modificar el lote.
+`POST` responde `202` con `batchId`, estado y URL de consulta. Consultas, descargas de novedades y reportes vuelven a validar organización, permiso y alcance. El reporte de resultados no habilita modificar el lote.
 
 `operationType` es obligatorio en la descarga para aplicar el alcance de etapa y actor. No reduce las columnas consultables: la descarga conserva la vista completa permitida, mientras la plantilla de carga de dispensación queda limitada a `authorization_key` + columna mutable (la de `REPORT_APPLICATION_DATE` conserva tres columnas).
 

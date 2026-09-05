@@ -88,7 +88,6 @@ export function deriveEnablementStatus(value: unknown): 'ENABLED' | 'BLOCKED_SOU
   return normalizeSourceText(value) === '5' ? 'ENABLED' : 'BLOCKED_SOURCE_STATUS';
 }
 
-const MIN_PRESCRIPCION_LENGTH = 4;
 const MIPRES_PRESCRIPCION_SUFFIX_LENGTH = 3;
 
 export type DerivedPrescripcion = Readonly<{
@@ -100,12 +99,12 @@ export type DerivedPrescripcion = Readonly<{
  * DEC-016: el valor original de `No.PRESCRIPCION` es numérico y opcional. Vacío
  * clasifica PBS. Cuando tiene valor, la API MIPRES consume el mismo valor sin
  * sus últimos 3 dígitos de la derecha. Devuelve null cuando el valor no cumple
- * el formato técnico (solo dígitos, longitud mayor a 3).
+ * el formato funcional (exactamente 20 dígitos).
  */
 export function derivePrescripcion(value: unknown): DerivedPrescripcion | null {
   const normalized = normalizeSourceText(value);
   if (normalized === '') return { normalized: '', derived: '' };
-  if (!/^\d+$/.test(normalized) || normalized.length < MIN_PRESCRIPCION_LENGTH) return null;
+  if (!/^\d{20}$/.test(normalized)) return null;
   return {
     normalized,
     derived: normalized.slice(0, -MIPRES_PRESCRIPCION_SUFFIX_LENGTH),
@@ -114,6 +113,16 @@ export function derivePrescripcion(value: unknown): DerivedPrescripcion | null {
 
 export function deriveCoverageType(prescripcionNormalized: string): 'PBS' | 'NO_PBS' {
   return prescripcionNormalized === '' ? 'PBS' : 'NO_PBS';
+}
+
+/** La cobertura de la autorización debe coincidir con el Anexo Tarifario. */
+export function isTariffCoverageConsistent(
+  coverageType: 'PBS' | 'NO_PBS',
+  tipoInclusion: unknown,
+): boolean {
+  const normalized = normalizeSourceText(tipoInclusion).replace(/\s+/g, '');
+  return (coverageType === 'PBS' && normalized === 'PBS') ||
+    (coverageType === 'NO_PBS' && normalized === 'NOPBS');
 }
 
 export function deriveDirectionStatus(
@@ -184,4 +193,26 @@ export function deriveAuthorizationClassification(
     directionStatus: deriveDirectionStatus(coverageType),
     operationStatus: null,
   };
+}
+
+export type EarlyProcessStatus =
+  | 'NOVEDAD'
+  | 'PENDIENTE_VALIDACION_MIPRES'
+  | 'LISTO_PARA_DISPENSAR';
+
+/**
+ * ADR-027/SPEC-014: etapa funcional temprana de un ítem recién creado o
+ * reprocesado, antes de cualquier avance operativo. Refleja el CASE de la
+ * migración 0023 y nunca debe retroceder ítems ya avanzados.
+ */
+export function deriveEarlyProcessStatus(input: Readonly<{
+  operationStatus: 'BLOCKED' | 'READY_TO_DISPENSE' | 'DISPENSATION_REPORTED' | 'DISPENSED' | 'EXPIRED' | null;
+  coverageType: 'PBS' | 'NO_PBS';
+  directionStatus: 'NOT_APPLICABLE' | 'PENDING' | 'CONFIRMED' | 'QUERY_ERROR';
+}>): EarlyProcessStatus {
+  if (input.operationStatus === 'READY_TO_DISPENSE') return 'LISTO_PARA_DISPENSAR';
+  if (input.coverageType === 'NO_PBS' && input.directionStatus === 'PENDING') {
+    return 'PENDIENTE_VALIDACION_MIPRES';
+  }
+  return 'NOVEDAD';
 }

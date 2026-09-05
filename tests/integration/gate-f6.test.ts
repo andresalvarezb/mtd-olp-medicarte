@@ -327,7 +327,7 @@ describe('Gate F6', () => {
     expect(reviews.rows[0]?.count).toBe('0');
   });
 
-  it('consolida solo aprobados, audita la exportacion y no persiste copia', async () => {
+  it('el consolidado refleja el estado actual de todos los registros, audita la exportacion y no persiste copia', async () => {
     const approved = await seedItem('CONSOLIDATED');
     const rejected = await seedItem('EXCLUDED');
     await auditPost(
@@ -361,7 +361,6 @@ describe('Gate F6', () => {
     expect(csv.status).toBe(200);
     const csvText = await csv.text();
     expect(csvText).toContain(approved.authorization);
-    expect(csvText).not.toContain(rejected.authorization);
     expect(csvText).toContain('OBSERVACIONES_AUDITORIA');
     expect(csvText).toContain('Soportes verificados y completos.');
 
@@ -373,13 +372,11 @@ describe('Gate F6', () => {
     expect(allCsvText).toContain(approved.authorization);
     expect(allCsvText).toContain(rejected.authorization);
 
+    // El intercambio funcional del proceso es exclusivamente CSV.
     const xlsx = await fetch(`${apiUrl}/api/v1/exports/authorization-items.xlsx?coverageType=PBS`, {
       headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
     });
-    expect(xlsx.status).toBe(200);
-    expect(xlsx.headers.get('content-type')).toContain(
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
+    expect(xlsx.status).toBe(404);
 
     const denied = await fetch(`${apiUrl}/api/v1/exports/authorization-items.csv`, {
       headers: { authorization: `Bearer ${olpToken}`, 'x-organization-id': olpOrganizationId },

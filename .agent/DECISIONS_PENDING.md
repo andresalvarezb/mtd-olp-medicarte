@@ -16,7 +16,7 @@ Estados:
 | DEC-004 | ACCEPTED | OLP reporta `fecha_dispensacion` por carga masiva; el sistema usa `DISPENSATION_REPORTED` hasta aprobación humana.                                                                      |
 | DEC-005 | ACCEPTED | Los reportes se envían todos los días a las 08:00 `America/Bogota`, con novedades del día anterior. Los destinatarios son parametrizables.                                              |
 | DEC-006 | ACCEPTED | La auditoría es humana y visual. La aprobación explícita del auditor es condición suficiente para `APPROVED`; no existe aprobación automática.                                          |
-| DEC-007 | ACCEPTED | Medicarte administra soportes directamente en Drive fuera de la aplicación; las exportaciones CSV/XLSX son on-demand y no persistentes.                                                 |
+| DEC-007 | ACCEPTED | Medicarte administra soportes directamente en Drive fuera de la aplicación; las exportaciones XLSX son on-demand y no persistentes.                                                   |
 | DEC-008 | ACCEPTED | Máximo 20 MB por archivo para importaciones y actualizaciones masivas.                                                                                                                  |
 | DEC-009 | ACCEPTED | Despliegue esperado en Render, Google Cloud como alternativa, región de producción aprobada: Virginia (USA).                                                                            |
 | DEC-010 | ACCEPTED | El código se alojará en un repositorio nuevo e independiente en GitHub, estructurado como monorepo.                                                                                     |

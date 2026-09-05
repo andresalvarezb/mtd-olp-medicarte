@@ -28,12 +28,6 @@ const mipresConfigSchema = {
   MIPRES_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().min(1).default(5),
   MIPRES_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().min(1000).default(30_000),
   MIPRES_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(2),
-  MIPRES_AUTO_REVALIDATION_INTERVAL_MS: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .default(12 * 60 * 60 * 1000),
-  MIPRES_AUTO_REVALIDATION_BATCH: z.coerce.number().int().positive().max(500).default(100),
   MIPRES_MANUAL_RECHECK_DAILY_LIMIT: z.coerce.number().int().positive().default(5),
 };
 
@@ -59,23 +53,14 @@ const authConfigSchema = {
   AUTH_BOOTSTRAP_MTD_AUDITORIA_PASSWORD: z.string().min(12).max(128).optional(),
 };
 
-const gmailConfigSchema = {
-  GMAIL_SENDER: z.string().email().optional(),
-  GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().email().optional(),
-  GOOGLE_PRIVATE_KEY: z.string().min(1).optional(),
-  GMAIL_TIMEOUT_MS: z.coerce.number().int().min(1000).default(15_000),
-};
-
 const bulkConfigSchema = {
   BULK_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
-  NOTIFICATION_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(5),
 };
 
 export const apiConfigSchema = commonSchema.extend({
   ...importConfigSchema,
   ...mipresConfigSchema,
   ...authConfigSchema,
-  ...gmailConfigSchema,
   PORT: z.coerce.number().int().positive().optional(),
   API_PORT: z.coerce.number().int().positive().default(3001),
   API_PUBLIC_URL: z.string().url(),
@@ -85,7 +70,6 @@ export const apiConfigSchema = commonSchema.extend({
 export const workerConfigSchema = commonSchema.extend({
   ...importConfigSchema,
   ...mipresConfigSchema,
-  ...gmailConfigSchema,
   ...bulkConfigSchema,
   IMPORT_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
   SCHEDULER_ENABLED: z

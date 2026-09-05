@@ -42,9 +42,6 @@ async function cleanupF7Users(): Promise<void> {
   await database.query(
     `delete from user_organization_roles where user_id in (select id from users where username like 'f7-%')`,
   );
-  await database.query(
-    `delete from notification_recipients where created_by in (select id from users where username like 'f7-%')`,
-  );
   await database.query(`delete from users where username like 'f7-%'`);
 }
 

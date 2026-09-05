@@ -22,6 +22,8 @@ import {
   auditPill,
 } from '@/lib/labels';
 import type { AuthorizationItemResponse } from '@authorization/contracts';
+import { useApiData } from '@/hooks/use-api-data';
+import { getDriveUrl } from '@/lib/drive-api';
 
 const COLUMNS = [
   { label: 'Autorización' },
@@ -44,6 +46,7 @@ const OPERATION_LABELS: Record<string, string> = {
 
 export function SoportesView() {
   const { organizationId, hasPermission } = useRole();
+  const drive = useApiData(() => getDriveUrl(organizationId), [organizationId]);
   const [tab, setTab] = useState(0);
   const [exporting, setExporting] = useState<'xlsx' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -116,7 +119,9 @@ export function SoportesView() {
         title="Soportes de aplicación"
         description="Fórmula y soporte de aplicación por ítem, versionados en el Drive corporativo."
         actions={
-          canExport ? (
+          <>
+          {drive.data?.url ? <a className="btn ghost" href={drive.data.url} target="_blank" rel="noreferrer">Abrir Google Drive</a> : null}
+          {canExport ? (
             <>
               <button
                 type="button"
@@ -127,7 +132,8 @@ export function SoportesView() {
                 {exporting === 'xlsx' ? 'Generando…' : 'Exportar base (XLSX)'}
               </button>
             </>
-          ) : null
+          ) : null}
+          </>
         }
       />
       <Card>

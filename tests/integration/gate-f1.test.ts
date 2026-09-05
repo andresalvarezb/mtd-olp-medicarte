@@ -39,7 +39,6 @@ async function apiCall(
 /** Elimina usuario de prueba y sus asignaciones (auditoría append-only queda). */
 async function purgeUser(userId: string): Promise<void> {
   await database.query(`delete from user_organization_roles where user_id = $1`, [userId]);
-  await database.query(`delete from notification_recipients where created_by = $1`, [userId]);
   await database.query(`delete from users where id = $1`, [userId]);
 }
 

@@ -26,6 +26,8 @@ const ORGANIZATIONS: Array<{ id: string; code: string; label: string }> = [
 const ROLES: Array<{ code: string; label: string }> = [
   { code: 'MTD_ADMIN', label: 'MTD Admin' },
   { code: 'MTD_OPERATOR', label: 'MTD Operación' },
+  { code: 'MTD_GENERAL', label: 'MTD General' },
+  { code: 'MTD_AUDITORIA', label: 'MTD Auditoría' },
   { code: 'COMPENSAR_VIEWER', label: 'Compensar Consulta' },
   { code: 'OLP_OPERATOR', label: 'OLP Operador' },
   { code: 'MEDICARTE_OPERATOR', label: 'Medicarte Operador' },
@@ -330,10 +332,12 @@ export function UsersAdminCard({ organizationId }: { organizationId: string }) {
                   Cancelar
                 </button>
               </div>
-              <div style={{ marginTop: 8 }}><Note>
-                La contraseña se muestra una sola vez: compártela por un canal seguro. El usuario
-                deberá cambiarla al ingresar.
-              </Note></div>
+              <div style={{ marginTop: 8 }}>
+                <Note>
+                  La contraseña se muestra una sola vez: compártela por un canal seguro. El usuario
+                  deberá cambiarla al ingresar.
+                </Note>
+              </div>
             </div>
           ) : null}
 

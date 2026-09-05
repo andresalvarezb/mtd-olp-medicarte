@@ -12,6 +12,7 @@ export const MTD_ORGANIZATION_ID = '10000000-0000-4000-8000-000000000001';
 export async function registerTariffProducts(
   adminToken: string,
   codes: readonly string[],
+  tipoInclusion: 'PBS' | 'NO PBS' = 'PBS',
 ): Promise<void> {
   for (const code of codes) {
     const response = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/products`, {
@@ -22,7 +23,7 @@ export async function registerTariffProducts(
         'x-organization-id': MTD_ORGANIZATION_ID,
         'idempotency-key': randomUUID(),
       },
-      body: JSON.stringify({ codigoProducto: code }),
+      body: JSON.stringify({ codigoProducto: code, tipoInclusion }),
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as { code?: string };

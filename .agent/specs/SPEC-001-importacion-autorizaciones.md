@@ -4,7 +4,7 @@
 
 ## Objetivo
 
-Cargar CSV/XLSX de forma idempotente, conservar evidencia por fila y confirmar ítems válidos.
+Cargar XLSX de forma idempotente, conservar evidencia por fila y confirmar ítems válidos.
 
 ## Entrada mínima conocida
 
@@ -93,7 +93,7 @@ Excepciones: `FAILED`, `CANCELLED`.
 
 - Un error de una fila no rechaza el archivo: las filas válidas continúan y se confirman; cada fila rechazada se proyecta en `novelties` con `code`, `stage`, `field`, `received_value`, `original_row`, lote y fila de origen. El rechazo del lote completo (`FAILED`) queda reservado a errores de archivo que impiden interpretarlo (formato, encabezados estructurales, checksum, hash, archivo vacío).
 - La confirmación persiste efectos con una transacción por registro: un fallo técnico en una fila se registra en esa fila (`PROCESSING_ERROR`, novedad `TECH_001`) y el lote continúa; el cierre del lote actualiza totales al final.
-- La descarga de rechazados (`GET /api/v1/novelties/csv` filtrable por lote, con las columnas de diagnóstico de ADR-027) produce un archivo corregible que puede recargarse como carga parcial (solo los corregidos).
+- La descarga de rechazados (`GET /api/v1/novelties/xlsx?batchId=…`) se ofrece desde el resultado del lote y desde la etapa de autorizaciones. Incluye únicamente las novedades del lote seleccionado y las columnas de diagnóstico de ADR-027; produce un archivo corregible que puede recargarse como carga parcial (solo los corregidos).
 - Códigos de novedad aplicables a importación: `CSV_002` (duplicado en archivo), `CSV_003`/`CSV_004` (columna o valor obligatorio), `CSV_005` (formato), `CLS_001`/`CLS_002` (prescripción/clasificación), `ANX_001` (producto inexistente en Anexo; el ítem se conserva y es reprocesable automáticamente al crear el producto, ADR-024), `TECH_001` (error técnico reprocesable). Recargar un registro corregido cierra sus novedades activas (`active = false`) con auditoría `NOVELTY_RESOLVED`; nunca se elimina historial.
 - Reprocesamiento sin nueva carga (ADR-027 §8): automático para causas internas determinables (Anexo Tarifario, resolución MIPRES); manual mediante `POST /api/v1/authorization-items/:id/reprocess` con permiso atómico `authorizations.reprocess`.
 

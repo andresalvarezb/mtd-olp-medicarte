@@ -76,7 +76,8 @@ Los roles disponibles (`MTD_ADMIN`, `MTD_OPERATOR`, `MTD_GENERAL`, `MTD_AUDITORI
 viven en las migraciones (`packages/database/migrations/0000_foundation.sql` y siguientes).
 Crear un rol nuevo requiere migración, no es parte del CRUD.
 
-`MTD_ADMIN` conserva todos los permisos. `MTD_GENERAL` solo tiene lectura y exportación en
+`MTD_ADMIN` conserva todos los permisos. `READ_ONLY` tiene lectura de toda la operación, sin
+permisos de escritura, administración ni Anexo Tarifario. `MTD_GENERAL` solo tiene lectura y exportación en
 MIPRES, listos para dispensar, puntos de aplicación, logística OLP, soportes y consolidado.
 `MTD_AUDITORIA` tiene lectura de resumen y autorizaciones, lectura/exportación de consolidado
 y lectura/escritura exclusivamente del flujo de Auditoría. OLP y Medicarte conservan sus
@@ -84,18 +85,18 @@ permisos operativos y ya no tienen `dashboard.read`.
 
 ### Matriz efectiva de vistas
 
-| Vista | foundation-admin | mtd-general | mtd-auditoria | OLP | Medicarte |
-| --- | --- | --- | --- | --- | --- |
-| Resumen ejecutivo | total | sin acceso | lectura | sin acceso | sin acceso |
-| Autorizaciones | total | sin acceso | lectura | actual | actual |
-| Direccionamientos MIPRES | total | lectura/exportación | sin acceso | actual | actual |
-| Listos para dispensar | total | lectura/exportación | sin acceso | actual | actual |
-| Puntos de aplicación | total | lectura/exportación | sin acceso | actual | actual |
-| Logística OLP | total | lectura/exportación | sin acceso | actual | actual |
-| Soportes | total | lectura/exportación | sin acceso | actual | actual |
-| Auditoría | total | sin acceso | completo del módulo | actual | actual |
-| Consolidado | total | lectura/exportación | lectura/exportación | actual | actual |
-| Administración/configuración | total | sin acceso | sin acceso | actual | actual |
+| Vista                        | foundation-admin | mtd-general         | mtd-auditoria       | OLP        | Medicarte  |
+| ---------------------------- | ---------------- | ------------------- | ------------------- | ---------- | ---------- |
+| Resumen ejecutivo            | total            | sin acceso          | lectura             | sin acceso | sin acceso |
+| Autorizaciones               | total            | sin acceso          | lectura             | actual     | actual     |
+| Direccionamientos MIPRES     | total            | lectura/exportación | sin acceso          | actual     | actual     |
+| Listos para dispensar        | total            | lectura/exportación | sin acceso          | actual     | actual     |
+| Puntos de aplicación         | total            | lectura/exportación | sin acceso          | actual     | actual     |
+| Logística OLP                | total            | lectura/exportación | sin acceso          | actual     | actual     |
+| Soportes                     | total            | lectura/exportación | sin acceso          | actual     | actual     |
+| Auditoría                    | total            | sin acceso          | completo del módulo | actual     | actual     |
+| Consolidado                  | total            | lectura/exportación | lectura/exportación | actual     | actual     |
+| Administración/configuración | total            | sin acceso          | sin acceso          | actual     | actual     |
 
 La navegación y el guard de rutas usan `view.*`, mientras los controladores vuelven a validar
 las capacidades de lectura, escritura y exportación. La exportación `includeAll` de la base
@@ -127,3 +128,10 @@ El gate F7 cubre: permiso `users.manage`, creación local con hash Argon2id, dup
 voluntario de contraseña, reset administrativo con cambio forzado, desactivación (rechaza login y
 corta tokens vigentes), reactivación, revocación de asignación, auto-desactivación y protección
 del último administrador.
+
+## Enlace de Google Drive
+
+MTD_ADMIN puede configurar en `/administracion` el enlace HTTPS de la carpeta corporativa de
+Google Drive. El valor se persiste en la organización MTD y queda auditado. Los usuarios con acceso
+a Soportes o Auditoría lo visualizan en la cabecera como el enlace `Abrir Google Drive`; la
+aplicación no carga ni administra archivos del Drive.

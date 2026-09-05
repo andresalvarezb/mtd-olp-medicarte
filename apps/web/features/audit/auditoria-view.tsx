@@ -29,6 +29,8 @@ import {
   medicationQuantity,
 } from '@/lib/labels';
 import type { AuthorizationItemResponse } from '@authorization/contracts';
+import { useApiData as useDriveData } from '@/hooks/use-api-data';
+import { getDriveUrl } from '@/lib/drive-api';
 
 const COLUMNS = [
   { label: 'Autorización' },
@@ -46,6 +48,7 @@ type TabFilter = 'READY' | 'IN_REVIEW' | 'REJECTED' | 'APPROVED';
 
 export function AuditoriaView() {
   const { organizationId, hasPermission } = useRole();
+  const drive = useDriveData(() => getDriveUrl(organizationId), [organizationId]);
   const [tab, setTab] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionInfo, setActionInfo] = useState<string | null>(null);
@@ -234,7 +237,10 @@ export function AuditoriaView() {
         title="Auditoría de soportes"
         description="La aprobación explícita marca el ítem como DISPENSED y habilita su descarga en el consolidado."
         actions={
-          <span className="pill blue">{indicators?.readyForReview ?? 0} listas para revisar</span>
+          <>
+            {drive.data?.url ? <a className="btn ghost" href={drive.data.url} target="_blank" rel="noreferrer">Abrir Google Drive</a> : null}
+            <span className="pill blue">{indicators?.readyForReview ?? 0} listas para revisar</span>
+          </>
         }
       />
       {actionError ? (

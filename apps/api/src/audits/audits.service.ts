@@ -23,10 +23,15 @@ import {
 } from '@authorization/contracts';
 import {
   canDecideAuditReview,
+  canApproveAuditReview,
   canStartAuditReview,
   deriveAdmissionStatus,
 } from '@authorization/domain';
-import type { createDatabase } from '@authorization/database';
+import {
+  insertNoveltyForItemIfAbsent,
+  resolveNovelties,
+  type createDatabase,
+} from '@authorization/database';
 import { deriveApplicationSiteStatus } from '@authorization/domain';
 import { DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
@@ -53,6 +58,7 @@ type ItemRow = {
   version: number;
   created_at: Date;
   updated_at: Date;
+  source_data?: unknown;
 };
 
 type ReviewRow = {
@@ -130,7 +136,7 @@ function toReviewResponse(review: ReviewRow, findings: FindingRow[]): AuditRevie
 const ITEM_SELECT = `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key,
         i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
         i.coverage_rule_version, i.lugar_dispensacion, i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
-        i.audit_status, i.admission_status, i.operational_version, i.version, i.created_at, i.updated_at
+        i.audit_status, i.admission_status, i.operational_version, i.version, i.source_data, i.created_at, i.updated_at
  from authorization_items i`;
 
 @Injectable()
@@ -348,6 +354,15 @@ export class AuditsService {
             message: 'Authorization item version has changed',
           });
         }
+        if (decision === 'APPROVED' && !canApproveAuditReview({
+          coverageType: item.coverage_type,
+          directionStatus: item.direction_status,
+        })) {
+          throw new ConflictException({
+            code: 'MIPRES_HUMAN_DECISION_REQUIRED',
+            message: 'La aprobación requiere un direccionamiento MIPRES confirmado.',
+          });
+        }
         if (decision === 'REJECTED' && !observations) {
           throw new ConflictException({
             code: 'AUDIT_OBSERVATIONS_REQUIRED',
@@ -372,14 +387,40 @@ export class AuditsService {
                   auditStatus: 'APPROVED',
                   currentAdmissionStatus: item.admission_status as AdmissionStatus,
                 }),
+                process_status: 'AUDITORIA_APROBADA',
               }
-            : { audit_status: nextAuditStatus };
+            : { audit_status: nextAuditStatus, process_status: 'AUDITORIA_RECHAZADA' };
         const updatedItem = await this.updateItem(
           client,
           item,
           input.body.expectedVersion,
           itemPatch,
         );
+        if (decision === 'REJECTED') {
+          await insertNoveltyForItemIfAbsent(client, {
+            authorizationItemId: item.id,
+            originalRow: (item.source_data ?? {
+              NUMERO_AUTORIZACION: item.numero_autorizacion,
+              CODIGO_COMERCIAL: item.codigo_medicamento,
+            }) as Record<string, unknown>,
+            code: 'AUD_001',
+            stage: 'AUDITORIA',
+            field: 'observations',
+            receivedValue: observations ?? null,
+            description: 'La autorización fue rechazada en auditoría.',
+            actorId: input.scope.userId,
+          });
+        } else {
+          await resolveNovelties(client, {
+            authorizationItemId: item.id,
+            codes: ['AUD_001'],
+            reason: 'AUDIT_APPROVED',
+            actorType: 'USER',
+            actorId: input.scope.userId,
+            organizationId: input.scope.organizationId,
+            correlationId: input.scope.correlationId,
+          });
+        }
         await this.insertAudit(client, input.scope, {
           action: decision === 'APPROVED' ? 'AUDIT_APPROVED' : 'AUDIT_REJECTED',
           itemId: item.id,
@@ -538,25 +579,32 @@ export class AuditsService {
     client: Client,
     item: ItemRow,
     expectedVersion: number,
-    patch: { audit_status?: string; operation_status?: string; admission_status?: string },
+    patch: {
+      audit_status?: string;
+      operation_status?: string;
+      admission_status?: string;
+      process_status?: string;
+    },
   ): Promise<ItemRow> {
     const result = await client.query<ItemRow>(
       `update authorization_items set
          audit_status = coalesce($2, audit_status),
          operation_status = coalesce($3, operation_status),
          admission_status = coalesce($4, admission_status),
+         process_status = coalesce($6, process_status),
          version = version + 1, updated_at = now()
        where id = $1 and version = $5` +
         ` returning id, numero_autorizacion, codigo_medicamento, authorization_key,
            enablement_status, coverage_type, direction_status, operation_status,
            coverage_rule_version, lugar_dispensacion, fecha_programada::text, fecha_dispensacion::text, fecha_aplicacion::text,
-           audit_status, admission_status, operational_version, version, created_at, updated_at`,
+           audit_status, admission_status, operational_version, version, source_data, created_at, updated_at`,
       [
         item.id,
         patch.audit_status ?? null,
         patch.operation_status ?? null,
         patch.admission_status ?? null,
         expectedVersion,
+        patch.process_status ?? null,
       ],
     );
     const updated = result.rows[0];

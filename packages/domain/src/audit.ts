@@ -17,6 +17,14 @@ export function canDecideAuditReview(reviewStatus: 'IN_REVIEW' | 'APPROVED' | 'R
   return reviewStatus === 'IN_REVIEW';
 }
 
+/** NO PBS requiere que MIPRES haya confirmado el direccionamiento antes de aprobar. */
+export function canApproveAuditReview(input: Readonly<{
+  coverageType: string;
+  directionStatus: string;
+}>): boolean {
+  return input.coverageType !== 'NO_PBS' || input.directionStatus === 'CONFIRMED';
+}
+
 /**
  * DEC-003/DEC-006/SPEC-006: la aprobación humana produce DISPENSED y deriva
  * admission_status = READY ("listo para admisión"), que habilita la descarga

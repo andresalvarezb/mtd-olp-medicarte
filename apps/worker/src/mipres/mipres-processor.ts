@@ -10,8 +10,7 @@ import {
   MIPRES_VIGENCIA_RULE_VERSION,
   type MipresPort,
 } from '@authorization/domain';
-import type { createDatabase } from '@authorization/database';
-import { randomUUID } from 'node:crypto';
+import { resolveNovelties, type createDatabase } from '@authorization/database';
 import { MipresNotConfiguredError, MipresQueryError } from './mipres-token-provider';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -148,6 +147,15 @@ export class MipresProcessor {
         `update authorization_items set direction_status = $2, updated_at = now() where id = $1`,
         [item.id, outcome],
       );
+      if (outcome === 'CONFIRMED') {
+        await resolveNovelties(client, {
+          authorizationItemId: item.id,
+          codes: ['MIP_001'],
+          reason: 'MIPRES_DIRECTION_CONFIRMED',
+          actorType: 'SYSTEM',
+          correlationId: job.correlationId,
+        });
+      }
       const operationStatus = deriveOperationStatus({
         enablementStatus: item.enablement_status as 'ENABLED' | 'BLOCKED_SOURCE_STATUS',
         coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
@@ -192,30 +200,6 @@ export class MipresProcessor {
               job.correlationId,
             ],
           );
-          const recipients = await client.query<{ id: string; code: string }>(
-            `select id, code from organizations where code = any($1::text[])`,
-            [['OLP', 'MEDICARTE']],
-          );
-          for (const recipient of recipients.rows) {
-            const key = `ready:${item.id}:${readinessVersion}:${recipient.code}`.slice(0, 200);
-            const eventId = randomUUID();
-            const payload = {
-              eventId,
-              notificationType: 'AUTHORIZATION_READY_TO_DISPENSE',
-              itemId: item.id,
-              recipientOrganizationId: recipient.id,
-              period: null,
-              correlationId: job.correlationId,
-              idempotencyKey: key,
-            };
-            await client.query(
-              `insert into outbox_events
-                 (id, event_type, version, payload, correlation_id, organization_id, idempotency_key)
-               values ($1, 'notification.email', 1, $2::jsonb, $3, $4, $5)
-               on conflict (idempotency_key) do nothing`,
-              [eventId, JSON.stringify(payload), job.correlationId, recipient.id, key],
-            );
-          }
         }
       }
       await client.query(

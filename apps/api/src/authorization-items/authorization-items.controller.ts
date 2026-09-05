@@ -38,6 +38,30 @@ import type { AuthenticatedRequest } from '../types';
 import { AuthorizationItemsService } from './authorization-items.service';
 
 const uuidSchema = z.string().uuid();
+
+const authorizationReprocessSwaggerSchema = {
+  type: 'object',
+  required: [
+    'itemId',
+    'authorizationKey',
+    'previousOperationStatus',
+    'operationStatus',
+    'previousProcessStatus',
+    'processStatus',
+    'resolvedNovelties',
+    'remainingCausales',
+  ],
+  properties: {
+    itemId: { type: 'string', format: 'uuid' },
+    authorizationKey: { type: 'string' },
+    previousOperationStatus: { type: 'string', nullable: true },
+    operationStatus: { type: 'string', nullable: true },
+    previousProcessStatus: { type: 'string', nullable: true },
+    processStatus: { type: 'string', nullable: true },
+    resolvedNovelties: { type: 'number' },
+    remainingCausales: { type: 'array', items: { type: 'string' } },
+  },
+};
 const errorSchema = {
   type: 'object',
   required: ['code', 'message', 'correlationId'],
@@ -247,6 +271,37 @@ export class AuthorizationItemsController {
     );
     const scope = scopeFromProfile(profile, organization, request);
     return this.authorizationItems.updateFromImport({ itemId: id, ...body, idempotencyKey, scope });
+  }
+
+  @Post(':id/reprocess')
+  @HttpCode(200)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiHeader({ name: 'Idempotency-Key', required: true })
+  @ApiHeader({ name: 'X-Organization-Id', required: true })
+  @ApiOkResponse({
+    description: 'Authorization item re-evaluated against the current system state',
+    schema: authorizationReprocessSwaggerSchema,
+  })
+  @ApiBadRequestResponse({ schema: errorSchema })
+  @ApiForbiddenResponse({ schema: errorSchema })
+  @ApiConflictResponse({ schema: errorSchema })
+  @ApiNotFoundResponse({ schema: errorSchema })
+  async reprocess(
+    @Param('id') rawId: string,
+    @Headers('idempotency-key') rawIdempotencyKey: string | undefined,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const id = uuidSchema.parse(rawId);
+    const idempotencyKey = idempotencyKeySchema.parse(rawIdempotencyKey);
+    const organization = uuidSchema.parse(organizationId);
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'authorizations.reprocess',
+    );
+    const scope = scopeFromProfile(profile, organization, request);
+    return this.authorizationItems.reprocess({ itemId: id, idempotencyKey, scope });
   }
 
   @Post(':id/mipres-rechecks')

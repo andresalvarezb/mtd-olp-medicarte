@@ -20,7 +20,7 @@ Cada tipo de operación fija actor, permiso y la única columna que puede modifi
 1. **Descargar la base.** Botón "Exportar base (XLSX)" en la vista del rol. La descarga es on-demand, no deja copia en la plataforma y queda auditada. La base de OLP (`REPORT_DISPENSATION_DATE`) solo incluye registros con `lugar_dispensacion` ya asignado por MEDICARTE; los pendientes de asignación se omiten. La descarga incluye la columna `authorization_key` que sirve como llave para la carga.
 2. **Diligenciar el archivo.** Mantener exactamente las columnas de la plantilla (ver tabla siguiente). Para lugar y fecha de dispensación la única llave es `authorization_key` (pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL` que viene en la descarga).
 3. **Cargar el archivo.** Botón de carga en la misma vista. La plataforma responde con un número de lote y procesa en segundo plano; la tabla se refresca sola al terminar.
-4. **Verificar el resultado.** El resumen del lote muestra procesadas, actualizadas, sin cambio y rechazadas; las filas rechazadas listan su causal.
+4. **Verificar el resultado.** El resumen del lote muestra procesadas, actualizadas, sin cambio y rechazadas; las filas rechazadas listan su causal y permiten descargar únicamente las novedades de ese lote en XLSX.
 
 ## Archivos de carga
 
@@ -77,12 +77,12 @@ Con ambas fechas el registro queda habilitado para revisión del auditor MTD; so
 Después de cada carga el resumen del lote informa: total recibido, procesados correctamente, rechazados, actualizados y sin cambio cuando aplique, más el estado general del lote. Desde allí:
 
 1. **Consultar/ver errores:** vista **Novedades** (`/novedades`), filtrable por autorización, documento del paciente, etapa, tipo de error, estado (pendiente/resuelta) y lote, con acceso según permisos del rol.
-2. **Descargar errores:** `Descargar novedades (XLSX)` exporta únicamente las filas seleccionadas por el filtro, con las columnas originales de cada fila más `ESTADO_PROCESAMIENTO`, `ETAPA_ERROR`, `CODIGO_ERROR`, `TIPO_ERROR` y `DESCRIPCION_ERROR`.
-3. **Corregir y recargar:** el archivo descargado se corrige externamente y se recarga como carga parcial; solo se procesan esos registros y sus novedades previas se cierran automáticamente.
+2. **Descargar errores:** cada etapa ofrece `Descargar novedades del lote (XLSX)` para el lote seleccionado. La descarga usa la bandeja transversal `novelties` y contiene únicamente las filas rechazadas de ese lote, con las columnas originales de cada fila más `ESTADO_PROCESAMIENTO`, `ETAPA_ERROR`, `CODIGO_ERROR`, `TIPO_ERROR` y `DESCRIPCION_ERROR`.
+3. **Corregir y recargar:** el archivo descargado se corrige externamente y se recarga como carga parcial; solo se procesan esos registros y sus novedades previas se cierran automáticamente. Las novedades de otros lotes nunca se incluyen ni se reprocesan.
 4. **Reprocesar sin recargar:** si el tipo de error es `REPROCESABLE_INTERNAMENTE` (p. ej. el producto se creó después en el Anexo Tarifario, o fue un conflicto de concurrencia), la acción **Reprocesar** en la novedad re-evalúa el registro contra el estado actual del sistema; no se exige subir el archivo original de nuevo. La revalidación por creación de producto es además automática.
 5. **Rechazo de auditoría:** no es un error técnico; se registra con motivo obligatorio y devuelve el registro a su etapa según SPEC-006 (los conceptos `PENDIENTE/APROBADO/RECHAZADO` se conservan).
 
-Los tipos de error son: `CORREGIBLE_POR_CARGUE` (el dato externo debe corregirse y recargarse), `REQUIERE_VALIDACION` (interviene un usuario autorizado) y `REPROCESABLE_INTERNAMENTE` (el dato original sigue siendo válido; basta resolver la condición interna).
+Los tipos de error son: `CORREGIBLE_POR_CARGUE` (el dato externo debe corregirse y recargarse), `REQUIERE_VALIDACION` (interviene un usuario autorizado) y `REPROCESABLE_INTERNAMENTE` (el dato original sigue siendo válido; basta resolver la condición interna). La bandeja transversal es la única fuente para consultar y descargar novedades de cualquier etapa.
 
 ## Causales de rechazo por fila
 

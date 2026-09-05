@@ -152,7 +152,7 @@ async function confirmImport(token: string, batchId: string): Promise<void> {
 
 async function importNoPbsItem(suffix: string): Promise<{ itemId: string; prescription: string }> {
   const authorization = `AUTH-F3-${randomUUID()}`;
-  const prescription = `20260915123${suffix}000`;
+  const prescription = `2026091512345678${suffix}000`;
   const medication = `MED-F3-${suffix}`.toUpperCase();
   await registerTariffProducts(adminToken, [medication]);
   const batch = await createImport(

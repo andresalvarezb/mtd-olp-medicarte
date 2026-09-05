@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { canDecideAuditReview, canStartAuditReview, deriveAdmissionStatus } from './audit';
+import {
+  canApproveAuditReview,
+  canDecideAuditReview,
+  canStartAuditReview,
+  deriveAdmissionStatus,
+} from './audit';
 
 describe('canStartAuditReview', () => {
   it('solo habilita revisión desde READY o REJECTED', () => {
@@ -19,6 +24,18 @@ describe('canDecideAuditReview', () => {
     expect(canDecideAuditReview('IN_REVIEW')).toBe(true);
     expect(canDecideAuditReview('APPROVED')).toBe(false);
     expect(canDecideAuditReview('REJECTED')).toBe(false);
+  });
+});
+
+describe('canApproveAuditReview', () => {
+  it('permite PBS y NO PBS con direccionamiento confirmado', () => {
+    expect(canApproveAuditReview({ coverageType: 'PBS', directionStatus: 'NOT_APPLICABLE' })).toBe(true);
+    expect(canApproveAuditReview({ coverageType: 'NO_PBS', directionStatus: 'CONFIRMED' })).toBe(true);
+  });
+
+  it('bloquea NO PBS mientras MIPRES este pendiente o tenga error', () => {
+    expect(canApproveAuditReview({ coverageType: 'NO_PBS', directionStatus: 'PENDING' })).toBe(false);
+    expect(canApproveAuditReview({ coverageType: 'NO_PBS', directionStatus: 'QUERY_ERROR' })).toBe(false);
   });
 });
 

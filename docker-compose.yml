@@ -108,7 +108,6 @@ services:
       MIPRES_BASE_URL: http://mipres-mock:8090
       MIPRES_NIT: 900123456
       MIPRES_INITIAL_TOKEN: initial-secret
-      MIPRES_AUTO_REVALIDATION_INTERVAL_MS: 0
     depends_on:
       migrate:
         condition: service_completed_successfully

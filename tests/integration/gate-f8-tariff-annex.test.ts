@@ -325,22 +325,28 @@ describe('Gate F8 — Anexo Tarifario', () => {
     );
     expect(audits.rows.some((row) => row.action === 'TARIFF_ANNEX_REVALIDATION_STARTED')).toBe(true);
     expect(audits.rows.some((row) => row.action === 'AUTHORIZATION_READY_TO_DISPENSE')).toBe(true);
-    const notifications = await database.query<{ count: string }>(
-      `select count(*)::text as count from notifications
-       where item_id = $1 and notification_type = 'AUTHORIZATION_READY_TO_DISPENSE'`,
+    // ADR-027: la revalidación automática tras crear el producto cierra la
+    // novedad del Anexo sin recargar el archivo de autorizaciones.
+    let openNovelties = await database.query<{ count: string }>(
+      `select count(*)::text as count from novelties
+       where authorization_item_id = $1 and active = true and code = 'ANX_001'`,
       [blocked.id],
     );
     for (let attempt = 0; attempt < 80; attempt += 1) {
-      if (Number(notifications.rows[0]?.count ?? 0) === 2) break;
+      if (Number(openNovelties.rows[0]?.count ?? '0') === 0) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
-      const refreshed = await database.query<{ count: string }>(
-        `select count(*)::text as count from notifications
-         where item_id = $1 and notification_type = 'AUTHORIZATION_READY_TO_DISPENSE'`,
+      openNovelties = await database.query<{ count: string }>(
+        `select count(*)::text as count from novelties
+         where authorization_item_id = $1 and active = true and code = 'ANX_001'`,
         [blocked.id],
       );
-      notifications.rows = refreshed.rows;
     }
-    expect(Number(notifications.rows[0]?.count ?? 0)).toBe(2);
+    expect(Number(openNovelties.rows[0]?.count ?? '1')).toBe(0);
+    const resolutionAudit = await database.query<{ count: string }>(
+      `select count(*)::text as count from audit_events
+       where action = 'NOVELTY_RESOLVED' and after->'novelties' @> '[{"code":"ANX_001"}]'::jsonb`,
+    );
+    expect(Number(resolutionAudit.rows[0]?.count ?? '0')).toBeGreaterThan(0);
 
     exportResponse = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/eps-novedades?format=csv`, {
       headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
@@ -351,7 +357,8 @@ describe('Gate F8 — Anexo Tarifario', () => {
   it('does not add a tariff causal to PBS and preserves NO PBS MIPRES validation', async () => {
     const pbsCode = `PBS-F8-${randomUUID()}`;
     const noPbsCode = `NO-PBS-F8-${randomUUID()}`;
-    await registerTariffProducts(adminToken, [pbsCode, noPbsCode]);
+    await registerTariffProducts(adminToken, [pbsCode]);
+    await registerTariffProducts(adminToken, [noPbsCode], 'NO PBS');
 
     const pbsAuthorization = `AUTH-F8-PBS-${randomUUID()}`;
     const pbsBatch = await createAuthorizationImport(
@@ -372,7 +379,7 @@ describe('Gate F8 — Anexo Tarifario', () => {
       authorizationCsv({
         authorization: noPbsAuthorization,
         medication: noPbsCode,
-        prescription: '20260915123',
+        prescription: '20260915000000000123',
       }),
     );
     await waitForAuthorizationImport(noPbsBatch.id);

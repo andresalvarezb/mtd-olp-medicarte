@@ -6,10 +6,12 @@ export type ActorContext = Readonly<{
 
 export {
   buildAuthorizationKey,
+  deriveEarlyProcessStatus,
   deriveAuthorizationClassification,
   deriveCoverageType,
   deriveDirectionStatus,
   deriveEnablementStatus,
+  isTariffCoverageConsistent,
   deriveOperationStatus,
   derivePrescripcion,
   normalizeSourceText,
@@ -18,6 +20,7 @@ export {
 } from './authorization-classification';
 export type {
   AuthorizationClassificationInput,
+  EarlyProcessStatus,
   DerivedPrescripcion,
   OperationStatusInput,
 } from './authorization-classification';
@@ -43,12 +46,11 @@ export {
 export type { OperationalFieldTransition } from './operational';
 export {
   AUDIT_RULE_VERSION,
+  canApproveAuditReview,
   canDecideAuditReview,
   canStartAuditReview,
   deriveAdmissionStatus,
 } from './audit';
-export { GmailSendError } from './gmail';
-export type { GmailPort, GmailSendInput, GmailSendResult } from './gmail';
 export {
   MAX_TARIFF_PRODUCT_CODE_LENGTH,
   TARIFF_ANNEX_RULE_VERSION,
@@ -59,3 +61,13 @@ export {
   normalizeTariffProductCode,
 } from './tariff-annex';
 export type { EpsNovedadCausal, EpsNovedadInput, TariffMembershipStatus } from './tariff-annex';
+export {
+  EPS_CAUSAL_TO_NOVELTY,
+  NOVELTY_ERROR_TYPES,
+  NOVELTY_UNKNOWN_ERROR_TYPE,
+  noveltyForBulkResult,
+  noveltyForImportResult,
+  noveltyForTariffImportResult,
+  noveltyErrorTypeFor,
+} from './novelties';
+export type { NoveltyErrorType, NoveltyProjection } from './novelties';

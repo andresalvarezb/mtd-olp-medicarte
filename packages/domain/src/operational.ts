@@ -46,9 +46,10 @@ export function isOperationalUpdateAllowed(
 ): boolean {
   if (input.operationStatus === null || input.operationStatus === 'BLOCKED') return false;
   if (input.operationType === 'ASSIGN_DISPENSATION_LOCATION') {
-    return ['READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED'].includes(
-      input.operationStatus,
-    );
+    return input.operationStatus === 'READY_TO_DISPENSE';
+  }
+  if (input.operationType === 'ASSIGN_PURCHASE_ORDER') {
+    return input.operationStatus === 'READY_TO_DISPENSE';
   }
   if (!input.lugarDispensacion) return false;
   if (input.operationType === 'REPORT_DISPENSATION_DATE') {

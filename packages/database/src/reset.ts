@@ -29,7 +29,6 @@ const OPERATIONAL_TABLES = [
   'coverage_evaluations',
   'authorization_item_organizations',
   'authorization_items',
-  'notifications',
   'outbox_events',
   'job_results',
   'idempotency_records',
@@ -42,8 +41,6 @@ const PRESERVED_TABLES = [
   'permissions',
   'role_permissions',
   'user_organization_roles',
-  'notification_templates',
-  'notification_recipients',
   'pending_user_requests',
 ] as const;
 
@@ -56,7 +53,7 @@ async function main(): Promise<void> {
   const flag = process.argv[2];
   if (flag !== '--yes') {
     console.error(
-      `This deletes ALL operational data from the database (users, organizations, roles, permissions and notification config are preserved).\n` +
+      `This deletes ALL operational data from the database (users, organizations, roles and permissions are preserved).\n` +
         `Tables to truncate:\n  ${OPERATIONAL_TABLES.join('\n  ')}\n` +
         `Tables preserved:\n  ${PRESERVED_TABLES.join('\n  ')}\n` +
         `Run again with --yes to confirm.`,
