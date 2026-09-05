@@ -294,12 +294,13 @@ Después se agregan los campos generados durante el flujo:
 authorization_key
 enablement_status
 coverage_type
+direction_status
 operation_status
 lugar_dispensacion
 fecha_dispensacion
 fecha_aplicacion
+cod_autorizacion_medicarte
 audit_status
-admission_status
 application_site_status
 operational_version
 version

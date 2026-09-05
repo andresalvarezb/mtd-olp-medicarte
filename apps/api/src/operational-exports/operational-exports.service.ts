@@ -26,6 +26,7 @@ type ExportRow = {
   fecha_programada: string | null;
   fecha_dispensacion: string | null;
   fecha_aplicacion: string | null;
+  cod_autorizacion_medicarte: string | null;
   audit_status: string;
   operational_version: number;
   version: number;
@@ -59,6 +60,7 @@ const processColumns = [
   'FECHA_PROGRAMADA',
   'FECHA_DISPENSACION',
   'FECHA_APLICACION',
+  'COD_AUTORIZACION_MEDICARTE',
   'ESTADO_AUDITORIA',
   'ESTADO_PUNTO_APLICACION',
   'VERSION_OPERATIVA',
@@ -96,7 +98,8 @@ export class OperationalExportsService {
     const result = await this.database.pool.query<ExportRow>(
       `select i.id, i.authorization_key, i.numero_autorizacion, i.codigo_medicamento,
               i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
-                i.lugar_dispensacion, i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
+                 i.lugar_dispensacion, i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text,
+                i.cod_autorizacion_medicarte,
                i.audit_status, i.operational_version, i.version, i.created_at, i.updated_at,
                ${sourceBaseSelectSql('i')}
        from authorization_items i
@@ -113,7 +116,7 @@ export class OperationalExportsService {
     const columns = ['IDENTIFICADOR_REGISTRO', ...exportSourceColumns, ...processColumns];
     const rows: Array<Record<string, string | number | null>> = result.rows.map((row) => ({
       NUMERO_AUTORIZACION: row.numero_autorizacion,
-       IDENTIFICACION_PACIENTE: row.numero_documento,
+      IDENTIFICACION_PACIENTE: row.numero_documento,
       NOMBRE_PACIENTE: row.nombre_paciente,
       CDGN001: row.cdgn001,
       CODIGO_COMERCIAL: row.codigo_medicamento,
@@ -136,6 +139,7 @@ export class OperationalExportsService {
       FECHA_PROGRAMADA: row.fecha_programada,
       FECHA_DISPENSACION: row.fecha_dispensacion,
       FECHA_APLICACION: row.fecha_aplicacion,
+      COD_AUTORIZACION_MEDICARTE: row.cod_autorizacion_medicarte,
       ESTADO_AUDITORIA: row.audit_status,
       ESTADO_PUNTO_APLICACION: deriveApplicationSiteStatus(row.lugar_dispensacion),
       VERSION_OPERATIVA: row.operational_version,
