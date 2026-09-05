@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import * as XLSX from 'xlsx';
 import type { WorkerConfig } from '@authorization/config';
 import type { AuthorizationImportJob } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
@@ -25,11 +26,22 @@ const job: AuthorizationImportJob = {
 
 const config = { IMPORT_PROCESSOR_VERSION: 2 } as WorkerConfig;
 
+function validXlsx(): Buffer {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet([
+      ['NUMERO_AUTORIZACION', 'CODIGO_COMERCIAL', 'ESTADO_AUTORIZACION', 'NUMERO_PRESCRIPCION'],
+      ['A', 'M', 'ACTIVA', '20260915123'],
+    ]),
+    'Datos',
+  );
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+}
+
 function source(
   processorVersion: number,
-  content = Buffer.from(
-    'NUMERO_AUTORIZACION,COD_COMERCIAL,ESTADO_AUTORIZACION,No.PRESCRIPCION\nA,M,ACTIVA,20260915123',
-  ),
+  content = validXlsx(),
 ) {
   const sha256 = createHash('sha256').update(content).digest('hex');
   return {
@@ -38,8 +50,8 @@ function source(
     batch_sha256: sha256,
     batch_processor_version: processorVersion,
     source_file_id: job.payload.sourceFileId,
-    original_filename: 'authorizations.csv',
-    mime_type: 'text/csv',
+    original_filename: 'authorizations.xlsx',
+    mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     size_bytes: content.length,
     source_sha256: sha256,
     content,

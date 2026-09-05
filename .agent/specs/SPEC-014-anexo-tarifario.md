@@ -30,9 +30,9 @@ Todos los endpoints exigen organización MTD validada en backend. El encabezado 
 
 Contrato de encabezados exactos del archivo comercial:
 
-`Codigo Medicamento`, `Tarifa de la unidad`, `Número de Expediente del INVIMA`, `Consecutivo INVIMA (Presentación)`, `Descripción Genérica del Medicamento (DCI)`, `Descripción Comercial del Medicamento`, `Laboratorio del Medicamento`, `Tipo de Inclusion del Medicamento (PBS/NOPBS)`.
+`CODIGO_MEDICAMENTO`, `TARIFA_UNIDAD`, `NUMERO_EXPEDIENTE_INVIMA`, `CONSECUTIVO_INVIMA_PRESENTACION`, `DESCRIPCION_GENERICA_MEDICAMENTO`, `DESCRIPCION_COMERCIAL_MEDICAMENTO`, `LABORATORIO_MEDICAMENTO`, `TIPO_INCLUSION_MEDICAMENTO`.
 
-`Codigo Medicamento` se mapea a `codigo_producto`, que pertenece al mismo dominio de `codigo_medicamento`.
+`CODIGO_MEDICAMENTO` se mapea a `codigo_producto`, que pertenece al mismo dominio de `codigo_medicamento`.
 
 Resultados por fila (códigos estables):
 
@@ -49,6 +49,8 @@ Resultados por fila (códigos estables):
 - Una fila inválida no impide procesar las demás.
 - Idempotente: cargar dos veces el mismo archivo no duplica productos (unicidad total + llave lógica organización+sha256).
 - Archivo vacío o sin encabezado `codigo_producto` falla el lote (`EMPTY_FILE`/`INVALID_FILE_FORMAT` en `last_error_code`).
+- Proyección transversal (ADR-027): cada fila rechazada del cargue también crea su novedad en `novelties` con `stage = ANEXO_TARIFARIO` (`CSV_002` duplicado en archivo, `CSV_004` código obligatorio vacío, `CSV_005` formato inválido, `TECH_001` error técnico reprocesable), quedando filtrable y descargable desde la bandeja sin tocar las filas válidas ya cargadas.
+- Crear o reactivar un producto además de revalidar ítems (debajo) cierra las novedades activas `ANX_001`/`ANX_002` de los ítems revalidados, con auditoría `NOVELTY_RESOLVED` (append-only; la novedad histórica permanece).
 
 ## Auditoría
 

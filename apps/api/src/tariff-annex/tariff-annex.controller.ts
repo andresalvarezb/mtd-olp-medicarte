@@ -58,7 +58,7 @@ const rowsQuerySchema = z.object({
   cursor: z.string().min(1).max(500).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
-const exportQuerySchema = z.object({ format: z.enum(['csv', 'xlsx']).default('csv') });
+const exportQuerySchema = z.object({ format: z.literal('xlsx').default('xlsx') });
 
 type UploadedTariffFile = Readonly<{
   originalname: string;
@@ -495,11 +495,10 @@ export class TariffAnnexController {
 
   @Get('eps-novedades')
   @Header('Cache-Control', 'no-store')
-  @ApiQuery({ name: 'format', enum: ['csv', 'xlsx'], required: false })
+  @ApiQuery({ name: 'format', enum: ['xlsx'], required: false })
   @ApiOkResponse({
     description: 'On-demand EPS novedades export; not persisted',
     content: {
-      'text/csv': { schema: { type: 'string', format: 'binary' } },
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
         schema: { type: 'string', format: 'binary' },
       },
@@ -525,9 +524,7 @@ export class TariffAnnexController {
     });
     response.setHeader(
       'Content-Type',
-      query.format === 'xlsx'
-        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        : 'text/csv; charset=utf-8',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
     response.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     response.setHeader('Content-Length', String(result.content.length));

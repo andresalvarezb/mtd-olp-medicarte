@@ -16,11 +16,12 @@ export type ParsedImportFile = Readonly<{
 }>;
 
 export class ImportFileError extends Error {
-  readonly code = 'INVALID_FIELD_FORMAT' as const;
+  readonly code: 'INVALID_FILE_FORMAT' | 'INVALID_HEADERS';
 
-  constructor(message: string) {
+  constructor(message: string, code: 'INVALID_FILE_FORMAT' | 'INVALID_HEADERS' = 'INVALID_FILE_FORMAT') {
     super(message);
     this.name = 'ImportFileError';
+    this.code = code;
   }
 }
 
@@ -45,16 +46,12 @@ function isBlank(value: unknown): boolean {
 
 function isSupportedFile(filename: string, mimeType: string): boolean {
   const normalizedFilename = filename.toLowerCase();
-  if (normalizedFilename.endsWith('.csv'))
-    return mimeType === 'text/csv' || mimeType === 'application/octet-stream' || mimeType === '';
-  if (normalizedFilename.endsWith('.xlsx')) {
-    return (
-      mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+  return (
+    normalizedFilename.endsWith('.xlsx') &&
+    (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
       mimeType === 'application/octet-stream' ||
-      mimeType === ''
-    );
-  }
-  return false;
+      mimeType === '')
+  );
 }
 
 export function parseImportFile(
@@ -63,7 +60,7 @@ export function parseImportFile(
   mimeType: string,
 ): ParsedImportFile {
   if (!isSupportedFile(filename, mimeType)) {
-    throw new ImportFileError('Solo se admiten archivos CSV o XLSX.');
+    throw new ImportFileError('Solo se admiten archivos XLSX (.xlsx).');
   }
 
   let workbook: XLSX.WorkBook;
@@ -97,6 +94,12 @@ export function parseImportFile(
   const missingHeaders = requiredAuthorizationSourceColumns.filter(
     (column) => !headers.includes(column),
   );
+  if (missingHeaders.length > 0) {
+    throw new ImportFileError(
+      `Faltan encabezados obligatorios: ${missingHeaders.join(', ')}.`,
+      'INVALID_HEADERS',
+    );
+  }
   const rows: ParsedImportRow[] = [];
   for (let index = 1; index < matrix.length; index += 1) {
     const values = matrix[index] ?? [];

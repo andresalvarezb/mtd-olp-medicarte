@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import * as XLSX from 'xlsx';
 import {
   bulkUpdateOperationContracts,
   type BulkUpdateOperationType,
@@ -10,6 +9,7 @@ import type { createDatabase } from '@authorization/database';
 import { DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
 import { sourceBaseColumns, sourceBaseSelectSql } from '../common/source-base-columns';
+import { createXlsxExport } from '../common/xlsx-export';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -67,21 +67,9 @@ const processColumns = [
   'FECHA_ACTUALIZACION',
 ] as const;
 
-function csvValue(value: string | number | boolean | null | undefined): string {
-  if (value === null || value === undefined) return '';
-  const text = safeSpreadsheetValue(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-}
-
-function safeSpreadsheetValue(value: string | number | boolean): string {
-  const text = `${value}`;
-  return /^[=+\-@]/.test(text.trimStart()) ? `'${text}` : text;
-}
-
 /**
  * Fase 4 (SPEC-013/DEC-007/ADR-018): descarga on-demand de la base completa
- * permitida. CSV/XLSX se genera durante la respuesta y no se conserva copia
+ * permitida. XLSX se genera durante la respuesta y no se conserva copia
  * persistente; la operación queda auditada.
  */
 @Injectable()
@@ -104,6 +92,7 @@ export class OperationalExportsService {
     // La base de OLP solo expone registros con punto de aplicación asignado;
     // los pendientes de asignación se omiten.
     const onlyAssignedLocation = operationType === 'REPORT_DISPENSATION_DATE';
+    const onlyPurchaseOrderEligible = operationType === 'ASSIGN_PURCHASE_ORDER';
     const result = await this.database.pool.query<ExportRow>(
       `select i.id, i.authorization_key, i.numero_autorizacion, i.codigo_medicamento,
               i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
@@ -112,7 +101,8 @@ export class OperationalExportsService {
                ${sourceBaseSelectSql('i')}
        from authorization_items i
        where i.operation_status in ('READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED')
-          ${onlyAssignedLocation ? 'and i.lugar_dispensacion is not null' : ''}
+           ${onlyAssignedLocation ? 'and i.lugar_dispensacion is not null' : ''}
+           ${onlyPurchaseOrderEligible ? "and i.operation_status = 'READY_TO_DISPENSE' and i.lugar_dispensacion is not null and i.lugar_dispensacion <> '' and i.fecha_programada is not null and i.cod_autorizacion_medicarte is not null and i.cod_autorizacion_medicarte <> ''" : ''}
           ${operationType === 'REPORT_APPLICATION_DATE' ? 'and i.fecha_dispensacion is not null' : ''}
           and ($1::boolean = true or exists (
            select 1 from authorization_item_organizations aio
@@ -123,7 +113,7 @@ export class OperationalExportsService {
     const columns = ['IDENTIFICADOR_REGISTRO', ...exportSourceColumns, ...processColumns];
     const rows: Array<Record<string, string | number | null>> = result.rows.map((row) => ({
       NUMERO_AUTORIZACION: row.numero_autorizacion,
-      NUM_DOCUMENTO: row.numero_documento,
+       IDENTIFICACION_PACIENTE: row.numero_documento,
       NOMBRE_PACIENTE: row.nombre_paciente,
       CDGN001: row.cdgn001,
       CODIGO_COMERCIAL: row.codigo_medicamento,
@@ -154,30 +144,9 @@ export class OperationalExportsService {
       FECHA_ACTUALIZACION: row.updated_at.toISOString(),
     }));
     const filename = `authorization-items-${operationType.toLowerCase()}`;
-    if (input.query.format === 'xlsx') {
-      const safeRows = rows.map((row) =>
-        Object.fromEntries(
-          Object.entries(row).map(([key, value]) => [
-            key,
-            typeof value === 'string' ? safeSpreadsheetValue(value) : value,
-          ]),
-        ),
-      );
-      const sheet = XLSX.utils.json_to_sheet(safeRows, { header: [...columns] });
-      const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, sheet, 'authorization-items');
-      const content = Buffer.from(
-        XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as ArrayBuffer,
-      );
-      return { filename: `${filename}.xlsx`, content, rowCount: rows.length, columns };
-    }
-    const lines = [columns.join(',')];
-    for (const row of rows) {
-      lines.push(columns.map((column) => csvValue(row[column])).join(','));
-    }
     return {
-      filename: `${filename}.csv`,
-      content: Buffer.from(`${lines.join('\n')}\n`, 'utf8'),
+      filename: `${filename}.xlsx`,
+      content: createXlsxExport(columns, rows),
       rowCount: rows.length,
       columns,
     };

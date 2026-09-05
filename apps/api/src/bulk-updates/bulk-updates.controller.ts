@@ -52,7 +52,7 @@ const rowsQuerySchema = z.object({
   cursor: z.string().min(1).max(500).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
-const reportQuerySchema = z.object({ format: z.enum(['csv', 'xlsx']).default('csv') });
+const reportQuerySchema = z.object({ format: z.literal('xlsx').default('xlsx') });
 
 type UploadedBulkFile = Readonly<{
   originalname: string;
@@ -256,11 +256,10 @@ export class BulkUpdatesController {
   @Get(':batchId/report')
   @ApiParam({ name: 'batchId', format: 'uuid' })
   @ApiHeader({ name: 'X-Organization-Id', required: true })
-  @ApiQuery({ name: 'format', enum: ['csv', 'xlsx'], required: false })
+   @ApiQuery({ name: 'format', enum: ['xlsx'], required: false })
   @ApiOkResponse({
-    description: 'On-demand CSV/XLSX processing report; not persisted',
+    description: 'On-demand XLSX processing report; not persisted',
     content: {
-      'text/csv': { schema: { type: 'string', format: 'binary' } },
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
         schema: { type: 'string', format: 'binary' },
       },

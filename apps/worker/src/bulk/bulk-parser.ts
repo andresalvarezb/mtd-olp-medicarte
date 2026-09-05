@@ -46,20 +46,16 @@ function isBlank(value: unknown): boolean {
 
 function isSupportedFile(filename: string, mimeType: string): boolean {
   const normalizedFilename = filename.toLowerCase();
-  if (normalizedFilename.endsWith('.csv'))
-    return mimeType === 'text/csv' || mimeType === 'application/octet-stream' || mimeType === '';
-  if (normalizedFilename.endsWith('.xlsx')) {
-    return (
-      mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+  return (
+    normalizedFilename.endsWith('.xlsx') &&
+    (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
       mimeType === 'application/octet-stream' ||
-      mimeType === ''
-    );
-  }
-  return false;
+      mimeType === '')
+  );
 }
 
 /**
- * SPEC-013/ADR-022: el archivo contiene exactamente las columnas del tipo de
+ * SPEC-013/ADR-022: el archivo XLSX contiene exactamente las columnas del tipo de
  * operación. Cualquier columna adicional, faltante o duplicada invalida el
  * archivo completo con INVALID_HEADERS.
  */
@@ -70,7 +66,7 @@ export function parseBulkFile(
   requiredColumns: readonly string[],
 ): ParsedBulkFile {
   if (!isSupportedFile(filename, mimeType)) {
-    throw new BulkFileError('INVALID_FILE_FORMAT', 'Solo se admiten archivos CSV o XLSX.');
+    throw new BulkFileError('INVALID_FILE_FORMAT', 'Solo se admiten archivos XLSX (.xlsx).');
   }
 
   let workbook: XLSX.WorkBook;

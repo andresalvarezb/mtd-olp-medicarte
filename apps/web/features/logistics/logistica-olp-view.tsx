@@ -13,12 +13,19 @@ import { usePaginatedList } from '@/hooks/use-paginated-list';
 import { TablePagination } from '@/components/ui/table-pagination';
 import { downloadFile, getIndicators, listAuthorizationItems } from '@/lib/authorization-items-api';
 import type { AuthorizationItemResponse } from '@authorization/contracts';
-import { SITE_STATUS_LABELS, patientName, patientDocument, medicationName } from '@/lib/labels';
+import {
+  SITE_STATUS_LABELS,
+  patientName,
+  patientDocument,
+  medicationName,
+  medicationQuantity,
+} from '@/lib/labels';
 
 const COLUMNS = [
   { label: 'Autorización' },
   { label: 'Documento' },
   { label: 'Paciente' },
+  { label: 'Cantidad' },
   { label: 'Medicamento' },
   { label: 'Estado punto' },
   { label: 'Sede / dirección' },
@@ -32,7 +39,7 @@ function formatDispensationDate(value: string) {
 
 export function LogisticaOlpView() {
   const { organizationId, hasPermission } = useRole();
-  const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
+  const [exporting, setExporting] = useState<'xlsx' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const { data: indicators } = useApiData(() => getIndicators(organizationId), [organizationId]);
@@ -48,14 +55,14 @@ export function LogisticaOlpView() {
   );
   const { items, loading, error, reload } = list;
 
-  const handleExport = (format: 'csv' | 'xlsx') => {
-    setExporting(format);
+  const handleExport = () => {
+    setExporting('xlsx');
     setActionError(null);
     downloadFile(
       '/operational-exports/authorization-items',
       organizationId,
-      `olp-dispensacion.${format}`,
-      { operationType: 'REPORT_DISPENSATION_DATE', format },
+       'olp-dispensacion.xlsx',
+       { operationType: 'REPORT_DISPENSATION_DATE', format: 'xlsx' },
     )
       .catch((err: unknown) =>
         setActionError(err instanceof Error ? err.message : 'No fue posible exportar.'),
@@ -72,6 +79,7 @@ export function LogisticaOlpView() {
     </span>,
     patientDocument(item.sourceData),
     patientName(item.sourceData),
+    medicationQuantity(item.sourceData),
     medicationName(item.sourceData),
     <StatusBadge key="site" tone={item.applicationSiteStatus === 'ASSIGNED' ? 'green' : 'orange'}>
       {SITE_STATUS_LABELS[item.applicationSiteStatus]}
@@ -93,17 +101,9 @@ export function LogisticaOlpView() {
                 type="button"
                 className="btn"
                 disabled={exporting !== null}
-                onClick={() => handleExport('csv')}
+                onClick={handleExport}
               >
-                {exporting === 'csv' ? 'Generando…' : 'Exportar base (CSV)'}
-              </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={exporting !== null}
-                onClick={() => handleExport('xlsx')}
-              >
-                {exporting === 'xlsx' ? 'Generando…' : 'Exportar Excel'}
+                {exporting === 'xlsx' ? 'Generando…' : 'Exportar base (XLSX)'}
               </button>
             </>
           ) : null

@@ -57,7 +57,6 @@ export class OperationalExportsController {
   @ApiOkResponse({
     description: 'On-demand full export; not persisted',
     content: {
-      'text/csv': { schema: { type: 'string', format: 'binary' } },
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
         schema: { type: 'string', format: 'binary' },
       },
@@ -67,7 +66,7 @@ export class OperationalExportsController {
     name: 'operationType',
     enum: ['ASSIGN_DISPENSATION_LOCATION', 'REPORT_DISPENSATION_DATE', 'REPORT_APPLICATION_DATE'],
   })
-  @ApiQuery({ name: 'format', enum: ['csv', 'xlsx'], required: false })
+   @ApiQuery({ name: 'format', enum: ['xlsx'], required: false })
   @ApiForbiddenResponse({ schema: errorSchema })
   async authorizationItems(
     @Headers('x-organization-id') organizationId: string | undefined,
@@ -114,9 +113,7 @@ export class OperationalExportsController {
     });
     response.setHeader(
       'Content-Type',
-      query.format === 'xlsx'
-        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        : 'text/csv; charset=utf-8',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
     response.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     response.setHeader('Content-Length', String(result.content.length));

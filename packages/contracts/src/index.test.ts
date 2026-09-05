@@ -29,8 +29,6 @@ import {
   foundationJobSchema,
   importBatchResponseSchema,
   importRowResultCodeSchema,
-  notificationJobSchema,
-  notificationRecipientOrganizations,
   operationalIndicatorsResponseSchema,
   rejectAuditReviewRequestSchema,
   loginRequestSchema,
@@ -70,8 +68,8 @@ describe('phase two contracts', () => {
     const batch = {
       id: '10000000-0000-4000-8000-000000000001',
       status: 'FAILED',
-      originalFilename: 'authorizations.csv',
-      mimeType: 'text/csv',
+      originalFilename: 'authorizations.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       sizeBytes: 100,
       sha256: 'a'.repeat(64),
       totalRows: 1,
@@ -111,13 +109,24 @@ describe('phase four and five contracts', () => {
   it('mantiene el catálogo cerrado de ADR-022 con actor y columna por tipo', () => {
     expect(bulkUpdateOperationTypeSchema.options).toEqual([
       'ASSIGN_DISPENSATION_LOCATION',
+      'ASSIGN_PURCHASE_ORDER',
       'REPORT_DISPENSATION_DATE',
       'REPORT_APPLICATION_DATE',
     ]);
     expect(bulkUpdateOperationContracts.ASSIGN_DISPENSATION_LOCATION).toMatchObject({
       actorOrganizationCode: 'MEDICARTE',
       mutableField: 'LUGAR_DISPENSACION',
-      requiredColumns: ['CLAVE_AUTORIZACION', 'LUGAR_DISPENSACION', 'FECHA_PROGRAMADA'],
+      requiredColumns: [
+        'CLAVE_AUTORIZACION',
+        'LUGAR_DISPENSACION',
+        'FECHA_PROGRAMADA',
+        'COD_AUTORIZACION_MEDICARTE',
+      ],
+    });
+    expect(bulkUpdateOperationContracts.ASSIGN_PURCHASE_ORDER).toMatchObject({
+      actorOrganizationCode: 'MTD',
+      mutableField: 'ORDEN_COMPRA',
+      requiredColumns: ['CLAVE_AUTORIZACION', 'ORDEN_COMPRA'],
     });
     expect(bulkUpdateOperationContracts.REPORT_DISPENSATION_DATE).toMatchObject({
       actorOrganizationCode: 'OLP',
@@ -159,39 +168,6 @@ describe('phase four and five contracts', () => {
     }
   });
 
-  it('valida el job de notificación y sus destinatarios', () => {
-    const id = '10000000-0000-4000-8000-000000000001';
-    const job = notificationJobSchema.parse({
-      name: 'notification.email',
-      version: 1,
-      payload: {
-        eventId: id,
-        notificationType: 'DISPENSATION_LOCATION_ASSIGNED',
-        itemId: id,
-        recipientOrganizationId: null,
-        period: null,
-        correlationId: id,
-        idempotencyKey: 'location-key-1',
-      },
-      correlationId: id,
-      idempotencyKey: 'location-key-1',
-    });
-    expect(job.payload.notificationType).toBe('DISPENSATION_LOCATION_ASSIGNED');
-    expect(notificationRecipientOrganizations.AUTHORIZATION_READY_TO_DISPENSE).toEqual([
-      'OLP',
-      'MEDICARTE',
-    ]);
-    expect(notificationRecipientOrganizations.DISPENSATION_LOCATION_CHANGED).toEqual(['OLP']);
-    expect(
-      notificationJobSchema.safeParse({
-        name: 'notification.email',
-        version: 1,
-        payload: { eventId: id, notificationType: 'OTHER' },
-        correlationId: id,
-        idempotencyKey: 'bad-key-1',
-      }).success,
-    ).toBe(false);
-  });
 });
 
 describe('phase six contracts', () => {
@@ -284,7 +260,7 @@ describe('phase six contracts', () => {
   });
 
   it('restringe el consolidado bajo demanda a formatos cerrados', () => {
-    expect(consolidatedExportQuerySchema.parse({}).format).toBe('csv');
+    expect(consolidatedExportQuerySchema.parse({}).format).toBe('xlsx');
     expect(consolidatedExportQuerySchema.parse({ includeAll: 'true' }).includeAll).toBe(true);
     expect(consolidatedExportQuerySchema.parse({ includeAll: 'false' }).includeAll).toBe(false);
     expect(consolidatedExportQuerySchema.safeParse({ format: 'pdf' }).success).toBe(false);

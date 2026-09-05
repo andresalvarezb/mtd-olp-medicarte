@@ -11,47 +11,41 @@ Cada tipo de operación fija actor, permiso y la única columna que puede modifi
 | `ASSIGN_DISPENSATION_LOCATION` | MEDICARTE | `bulk_updates.dispensation_location` | `lugar_dispensacion` + `fecha_programada` | Puntos de aplicación   |
 | `REPORT_DISPENSATION_DATE`     | OLP       | `bulk_updates.dispensation_date`     | `fecha_dispensacion`                      | Logística OLP          |
 | `REPORT_APPLICATION_DATE`      | MEDICARTE | `bulk_updates.application_date`      | `fecha_aplicacion`                        | Puntos de aplicación\* |
+| `ASSIGN_PURCHASE_ORDER`        | MTD       | `bulk_updates.purchase_order`        | `orden_compra`                            | Órdenes de compra      |
 
 \*La carga de `fecha_aplicacion` reutiliza el mismo mecanismo; su vista dedicada puede habilitarse con el mismo componente.
 
 ## Flujo estándar (los cuatro pasos)
 
-1. **Descargar la base.** Botón "Exportar base (CSV)" o "Exportar Excel" en la vista del rol. La descarga es on-demand, no deja copia en la plataforma y queda auditada. La base de OLP (`REPORT_DISPENSATION_DATE`) solo incluye registros con `lugar_dispensacion` ya asignado por MEDICARTE; los pendientes de asignación se omiten. La descarga incluye la columna `authorization_key` que sirve como llave para la carga.
+1. **Descargar la base.** Botón "Exportar base (XLSX)" en la vista del rol. La descarga es on-demand, no deja copia en la plataforma y queda auditada. La base de OLP (`REPORT_DISPENSATION_DATE`) solo incluye registros con `lugar_dispensacion` ya asignado por MEDICARTE; los pendientes de asignación se omiten. La descarga incluye la columna `authorization_key` que sirve como llave para la carga.
 2. **Diligenciar el archivo.** Mantener exactamente las columnas de la plantilla (ver tabla siguiente). Para lugar y fecha de dispensación la única llave es `authorization_key` (pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL` que viene en la descarga).
 3. **Cargar el archivo.** Botón de carga en la misma vista. La plataforma responde con un número de lote y procesa en segundo plano; la tabla se refresca sola al terminar.
 4. **Verificar el resultado.** El resumen del lote muestra procesadas, actualizadas, sin cambio y rechazadas; las filas rechazadas listan su causal.
 
 ## Archivos de carga
 
-Formato CSV o XLSX, máximo 20 MB, sin columnas adicionales, alias ni campos arbitrarios.
+Formato XLSX (`.xlsx`) únicamente, máximo 20 MB, sin columnas adicionales, alias ni campos arbitrarios.
 
 | Operación                      | Encabezados exactos (fila 1)                              | Formato del valor                  |
 | ------------------------------ | --------------------------------------------------------- | ---------------------------------- |
-| `ASSIGN_DISPENSATION_LOCATION` | `authorization_key,lugar_dispensacion,fecha_programada`   | lugar no vacío; fecha `YYYY-MM-DD` |
+| `ASSIGN_DISPENSATION_LOCATION` | `CLAVE_AUTORIZACION,LUGAR_DISPENSACION,FECHA_PROGRAMADA,COD_AUTORIZACION_MEDICARTE` | lugar no vacío; fecha `YYYY-MM-DD` |
 | `REPORT_DISPENSATION_DATE`     | `authorization_key,fecha_dispensacion`                    | fecha `YYYY-MM-DD`                 |
 | `REPORT_APPLICATION_DATE`      | `numero_autorizacion,codigo_medicamento,fecha_aplicacion` | fecha `YYYY-MM-DD`                 |
 
 `lugar_dispensacion` es texto libre: el sistema exige valor no vacío y normaliza espacios; no valida estructura de dirección.
 
-## Notificaciones por correo
+## Órdenes de compra
 
-Las notificaciones se generan mediante el outbox transaccional y el worker existente. Los
-destinatarios se configuran en `/administracion` por organización lógica y tipo de evento; el
-remitente funcional se configura en la misma vista. Las credenciales de Gmail (`GMAIL_SENDER`,
-`GOOGLE_SERVICE_ACCOUNT_EMAIL` y `GOOGLE_PRIVATE_KEY`) siguen siendo secretos de infraestructura.
+La vista `/ordenes-compra` y su descarga XLSX solo muestran registros que MEDICARTE
+ya completó con `LUGAR_DISPENSACION`, `FECHA_PROGRAMADA` y
+`COD_AUTORIZACION_MEDICARTE`. La carga para asignar la orden utiliza exactamente:
+`CLAVE_AUTORIZACION` y `ORDEN_COMPRA`.
 
-| Evento                                     | Organización destinataria                             |
-| ------------------------------------------ | ----------------------------------------------------- |
-| Autorizaciones disponibles                 | MEDICARTE (y OLP, según el aviso operativo existente) |
-| Rechazos/omisiones de validación de cargue | COMPENSAR                                             |
-| Punto de aplicación registrado             | OLP                                                   |
-| Fecha de dispensación registrada           | MTD y MEDICARTE                                       |
-| Fecha de aplicación registrada             | MTD                                                   |
+## Notificaciones
 
-Cada evento conserva lote o ítem, destinatario, destinatarios concretos, remitente, estado,
-intentos e identificador del proveedor en `notifications`. Las claves idempotentes incluyen el
-evento, ítem, versión operativa y organización destinataria. En desarrollo sin credenciales Gmail
-se utiliza el adaptador fake y el identificador `fake-*`; no representa entrega externa.
+Las notificaciones automáticas, los reportes diarios y el correo no forman parte del alcance
+vigente de este flujo. El resultado del lote y la bandeja transversal de novedades son la fuente
+operativa para consultar y descargar los registros rechazados.
 
 ## Precondiciones por operación
 
@@ -73,10 +67,22 @@ Con ambas fechas el registro queda habilitado para revisión del auditor MTD; so
 
 `UPLOADED -> QUEUED -> PROCESSING -> COMPLETED | FAILED`
 
-- Una fila inválida no revierte las demás; las filas válidas se aplican.
+- Una fila inválida no revierte las demás; las filas válidas se aplican (ADR-027). `FAILED` queda reservado a errores de archivo que impiden interpretarlo; el resumen del lote muestra la causa del rechazo.
 - Reprocesar el mismo archivo no duplica efectos ni notificaciones (idempotencia por lote y por fila).
 - El resultado por fila conserva causal estable; el reporte es descargable y no habilita modificar el lote.
 - El archivo fuente se nulifica al terminar; el staging y la auditoría permanecen consultables.
+
+## Resultados y errores por registro (ADR-027)
+
+Después de cada carga el resumen del lote informa: total recibido, procesados correctamente, rechazados, actualizados y sin cambio cuando aplique, más el estado general del lote. Desde allí:
+
+1. **Consultar/ver errores:** vista **Novedades** (`/novedades`), filtrable por autorización, documento del paciente, etapa, tipo de error, estado (pendiente/resuelta) y lote, con acceso según permisos del rol.
+2. **Descargar errores:** `Descargar novedades (XLSX)` exporta únicamente las filas seleccionadas por el filtro, con las columnas originales de cada fila más `ESTADO_PROCESAMIENTO`, `ETAPA_ERROR`, `CODIGO_ERROR`, `TIPO_ERROR` y `DESCRIPCION_ERROR`.
+3. **Corregir y recargar:** el archivo descargado se corrige externamente y se recarga como carga parcial; solo se procesan esos registros y sus novedades previas se cierran automáticamente.
+4. **Reprocesar sin recargar:** si el tipo de error es `REPROCESABLE_INTERNAMENTE` (p. ej. el producto se creó después en el Anexo Tarifario, o fue un conflicto de concurrencia), la acción **Reprocesar** en la novedad re-evalúa el registro contra el estado actual del sistema; no se exige subir el archivo original de nuevo. La revalidación por creación de producto es además automática.
+5. **Rechazo de auditoría:** no es un error técnico; se registra con motivo obligatorio y devuelve el registro a su etapa según SPEC-006 (los conceptos `PENDIENTE/APROBADO/RECHAZADO` se conservan).
+
+Los tipos de error son: `CORREGIBLE_POR_CARGUE` (el dato externo debe corregirse y recargarse), `REQUIERE_VALIDACION` (interviene un usuario autorizado) y `REPROCESABLE_INTERNAMENTE` (el dato original sigue siendo válido; basta resolver la condición interna).
 
 ## Causales de rechazo por fila
 
@@ -92,8 +98,8 @@ Cada fila válida incrementa la versión operativa del ítem y registra: valor a
 
 La UI consume estos endpoints; quedan disponibles para integraciones:
 
-- `GET /api/v1/operational-exports/authorization-items?operationType=...&format=csv|xlsx`
+- `GET /api/v1/operational-exports/authorization-items?operationType=...&format=xlsx`
 - `POST /api/v1/bulk-updates` (multipart: `operationType` + `file`, header `Idempotency-Key`)
-- `GET /api/v1/bulk-updates/{batchId}` · `/rows` · `/report?format=csv|xlsx`
+- `GET /api/v1/bulk-updates/{batchId}` · `/rows` · `/report?format=xlsx`
 
 Documentación interactiva: `GET /api/v1/docs` (Swagger UI) y contrato en `GET /api/v1/openapi.json`. Toda petición requiere `Authorization: Bearer <JWT>` y `X-Organization-Id`.

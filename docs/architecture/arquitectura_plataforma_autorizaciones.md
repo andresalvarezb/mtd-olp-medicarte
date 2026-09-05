@@ -100,7 +100,7 @@ flowchart TB
 | Identidad         | Autenticación local: usuarios PostgreSQL + JWT propio (ADR-026) | Menor costo e infraestructura para el alcance actual; RBAC granular sin proveedor externo. MFA/SSO/federación quedan como decisión futura. |
 | Soportes externos | Google Drive corporativo administrado por Medicarte | La aplicación conserva solo configuración administrativa; no carga ni cataloga documentos individuales.              |
 | Correo            | Gmail API                                           | Envío desde cuenta corporativa con trazabilidad del identificador externo.                                           |
-| Excel/CSV         | SheetJS o ExcelJS + parser CSV en streaming         | Lectura controlada, plantillas y reportes. Los archivos grandes deben procesarse en el worker.                       |
+| Excel XLSX        | SheetJS o ExcelJS                               | Lectura controlada, plantillas y reportes. Los archivos grandes deben procesarse en el worker.                       |
 | Pruebas           | Vitest/Jest, Supertest, Testcontainers y Playwright | Pruebas unitarias, integración real con PostgreSQL y flujos de interfaz.                                             |
 | Calidad           | ESLint, Prettier, commit hooks y CI                 | Reglas repetibles antes de integrar cambios.                                                                         |
 | Observabilidad    | OpenTelemetry + Sentry y logs JSON                  | Correlación de solicitudes, trabajos y errores externos.                                                             |
@@ -297,7 +297,7 @@ sequenceDiagram
     participant Q as Cola
     participant W as Worker
 
-    U->>A: Subir CSV/XLSX
+    U->>A: Subir XLSX
     A->>D: Crear batch + fuente temporal BYTEA + outbox
     D-->>Q: Dispatcher publica identificador desde outbox
     A-->>U: 202 + id del batch
@@ -574,16 +574,15 @@ Prefijo: `/api/v1`.
 | `GET /authorization-items/:id`                  | Detalle e historial.                                                                            |
 | `POST /authorization-items/:id/source-updates`  | Actualización explícita de una llave existente elegible, con control de versión e idempotencia. |
 | `POST /authorization-items/:id/mipres-rechecks` | Solicitar revalidación autorizada.                                                              |
-| `GET /operational-exports/authorization-items`  | Descargar CSV/XLSX completo; exige `operationType` y aplica actor, etapa y sensibilidad.        |
+| `GET /operational-exports/authorization-items`  | Descargar XLSX completo; exige `operationType` y aplica actor, etapa y sensibilidad.        |
 | `POST /bulk-updates`                            | Crear lote tipado con archivo multipart; responde `202`.                                        |
 | `GET /bulk-updates/:id`                         | Consultar estado y totales del lote.                                                            |
 | `GET /bulk-updates/:id/rows`                    | Consultar resultado y causal por fila.                                                          |
-| `GET /bulk-updates/:id/report`                  | Descargar reporte CSV/XLSX del procesamiento.                                                   |
+| `GET /bulk-updates/:id/report`                  | Descargar reporte XLSX del procesamiento.                                                   |
 | `POST /authorization-items/:id/audit-reviews`   | Iniciar revisión.                                                                               |
 | `POST /audit-reviews/:id/findings`              | Crear hallazgo.                                                                                 |
 | `POST /audit-reviews/:id/reject`                | Rechazar con causal.                                                                            |
 | `POST /audit-reviews/:id/approve`               | Aprobar.                                                                                        |
-| `GET /exports/authorization-items.csv`          | Generar/descargar consolidado CSV bajo demanda según filtros y permisos.                        |
 | `GET /exports/authorization-items.xlsx`         | Generar/descargar consolidado XLSX bajo demanda según filtros y permisos.                       |
 | `GET /admin/dead-letter-jobs`                   | Ver trabajos que agotaron reintentos.                                                           |
 
@@ -685,7 +684,7 @@ Este producto procesa información de pacientes y documentos clínico-operativos
 - Disponibilidad, latencia y error de MIPRES.
 - Errores y cuota de Gmail.
 - Correos pendientes/fallidos.
-- Tiempo y fallos de generación bajo demanda de consolidados CSV/XLSX.
+- Tiempo y fallos de generación bajo demanda de consolidados XLSX.
 - Fallos de autenticación y autorización.
 
 ### Indicadores de negocio
@@ -762,7 +761,7 @@ Entregables obligatorios:
 - Contrato MIPRES de direccionamientos aceptado en DEC-013 (integración de solo lectura con `WSSUMMIPRESNOPBS`); `noPrescripcion` proviene de `No.PRESCRIPCION` sin sus últimos 3 dígitos (DEC-016).
 - Direccionamiento válido: `current_date(America/Bogota) < fecha_maxima`; igualdad con `fecha_maxima` no es válida.
 - Reportes diarios a las 08:00 `America/Bogota`, con novedades del día anterior y destinatarios parametrizables.
-- Drive como repositorio corporativo externo sin carga individual desde la aplicación; exportaciones CSV/XLSX bajo demanda y no persistentes.
+- Drive como repositorio corporativo externo sin carga individual desde la aplicación; exportaciones XLSX bajo demanda y no persistentes.
 - Auditoría humana/visual; la aprobación explícita del auditor produce `APPROVED` y habilita consolidación.
 - Al llegar a `READY_TO_DISPENSE`, se notifica de forma event-driven a OLP y Medicarte.
 - MEDICARTE actualiza masivamente `lugar_dispensacion` y `fecha_aplicacion`; OLP actualiza masivamente `fecha_dispensacion`.
@@ -795,7 +794,7 @@ Entregables obligatorios:
 
 **Objetivo:** completar la primera historia vertical sin depender de MIPRES ni Google Workspace.
 
-- Carga CSV/XLSX y creación de `import_batches`.
+- Carga XLSX y creación de `import_batches`.
 - Staging en `import_rows`.
 - Normalización y validaciones por campo.
 - Detección de duplicados dentro del archivo y contra `authorization_items`.
@@ -872,7 +871,7 @@ El patrón outbox **no nace en esta fase**; debe existir desde Fase 1. Aquí se 
 - Inicio de revisión, hallazgos, rechazo, subsanación y aprobación.
 - Revisión humana externa de soportes; ninguna completitud automática.
 - `audit_status = READY` cuando existen `fecha_dispensacion` y `fecha_aplicacion`; esto no implica suficiencia documental.
-- Exportaciones/consolidados CSV/XLSX bajo demanda con filtros y permisos, sin conservar copia persistente; auditar la operación.
+- Exportaciones/consolidados XLSX bajo demanda con filtros y permisos, sin conservar copia persistente; auditar la operación.
 - Indicadores operativos.
 - Solo `audit_status = APPROVED` es elegible para consolidación.
 - Derivación de `admission_status = READY` únicamente desde reglas de dominio; nunca por edición libre de UI.
@@ -1013,7 +1012,7 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 ### ADR-018 — Exportaciones bajo demanda
 
 **Estado:** Aceptado.  
-**Decisión:** Generar CSV/XLSX a solicitud del usuario, con autorización y auditoría, sin almacenar persistentemente el archivo generado. Puede usarse streaming o almacenamiento temporal efímero con limpieza posterior.
+**Decisión:** Generar XLSX a solicitud del usuario, con autorización y auditoría, sin almacenar persistentemente el archivo generado. Puede usarse almacenamiento temporal efímero con limpieza posterior.
 
 ### ADR-019 — Repositorio GitHub independiente en monorepo
 
@@ -1120,7 +1119,7 @@ El MVP está listo solo cuando:
 8. MEDICARTE solo accede a su alcance y actualiza masivamente lugar/fecha de aplicación; OLP solo actualiza fecha de dispensación.
 9. Las cargas usan exactamente llave + un campo, máximo 20 MB, staging, idempotencia, auditoría e informe por fila.
 10. El auditor puede aprobar o rechazar con observaciones/hallazgos sin que la plataforma calcule completitud documental.
-11. El consolidado solo incorpora registros `APPROVED`, respeta permisos/filtros y se exporta bajo demanda en CSV o XLSX sin conservar copia del archivo.
+11. El consolidado solo incorpora registros `APPROVED`, respeta permisos/filtros y se exporta bajo demanda en XLSX sin conservar copia del archivo.
 12. Todo cambio y descarga sensible queda auditado.
 13. Un usuario de una empresa no puede ejecutar acciones ni ver campos fuera de su alcance.
 14. Backups, restauración, secretos, alertas y trabajos fallidos han sido probados.
@@ -1150,7 +1149,7 @@ Después, producir en este orden:
 4. Contrato OpenAPI inicial y paquetes compartidos.
 5. Esqueleto ejecutable de web/API/worker con PostgreSQL, Redis/BullMQ, autenticación local, auditoría y outbox.
 6. Prototipo de bandejas apoyado en los contratos ya definidos.
-7. Primera historia vertical de negocio: cargar un CSV pequeño, validarlo, persistirlo y descargar/consultar su reporte.
+7. Primera historia vertical de negocio: cargar un XLSX pequeño, validarlo, persistirlo y descargar/consultar su reporte.
 
 La primera historia vertical no debe depender de MIPRES ni Google Workspace. Su objetivo es probar de extremo a extremo frontend, API, base de datos, cola, permisos, auditoría e idempotencia antes de introducir integraciones externas.
 

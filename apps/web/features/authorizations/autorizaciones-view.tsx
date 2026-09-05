@@ -30,12 +30,14 @@ import {
   patientName,
   patientDocument,
   medicationName,
+  medicationQuantity,
 } from '@/lib/labels';
 
 const COLUMNS = [
   { label: 'Autorización' },
   { label: 'Documento' },
   { label: 'Paciente' },
+  { label: 'Cantidad' },
   { label: 'Medicamento' },
   { label: 'Cobertura' },
   { label: 'Direccionamiento' },
@@ -85,13 +87,13 @@ export function AutorizacionesView() {
   const [exporting, setExporting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const handleExport = (format: 'csv' | 'xlsx') => {
+  const handleExport = () => {
     setExporting(true);
     setActionError(null);
     downloadFile(
-      `/exports/authorization-items.${format}`,
+      '/exports/authorization-items.xlsx',
       organizationId,
-      `autorizaciones-completas.${format}`,
+        'autorizaciones-completas.xlsx',
       {
         includeAll: 'true',
         ...(applied && applied.coverage !== 'todos' ? { coverageType: applied.coverage } : {}),
@@ -109,6 +111,7 @@ export function AutorizacionesView() {
     </span>,
     patientDocument(item.sourceData),
     patientName(item.sourceData),
+    medicationQuantity(item.sourceData),
     medicationName(item.sourceData),
     <StatusBadge key="cov" tone={coveragePill(item.coverageType)}>
       {COVERAGE_LABELS[item.coverageType]}
@@ -142,17 +145,9 @@ export function AutorizacionesView() {
                   type="button"
                   className="btn"
                   disabled={exporting}
-                  onClick={() => handleExport('csv')}
+                   onClick={handleExport}
                 >
-                  {exporting ? 'Exportando…' : 'Descargar base completa (CSV)'}
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={exporting}
-                  onClick={() => handleExport('xlsx')}
-                >
-                  {exporting ? 'Exportando…' : 'Descargar base completa (Excel)'}
+                  {exporting ? 'Exportando…' : 'Descargar base completa (XLSX)'}
                 </button>
               </>
             ) : null}

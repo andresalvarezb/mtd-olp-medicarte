@@ -25,12 +25,14 @@ import {
   patientDocument,
   formatNumber,
   medicationName,
+  medicationQuantity,
 } from '@/lib/labels';
 
 const COLUMNS = [
   { label: 'Autorización' },
   { label: 'Documento' },
   { label: 'Paciente' },
+  { label: 'Cantidad' },
   { label: 'Medicamento' },
   { label: 'Cobertura' },
   { label: 'Direccionamiento' },
@@ -64,6 +66,7 @@ export function ListosParaDispensarView() {
     </span>,
     patientDocument(item.sourceData),
     patientName(item.sourceData),
+    medicationQuantity(item.sourceData),
     medicationName(item.sourceData),
     <StatusBadge key="cov" tone={coveragePill(item.coverageType)}>
       {COVERAGE_LABELS[item.coverageType]}

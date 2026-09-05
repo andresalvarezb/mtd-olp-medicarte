@@ -4,7 +4,7 @@ Fecha de auditoria: 2026-09-01
 
 ## Alcance revisado
 
-Se revisaron contratos compartidos, parsers CSV/XLSX, exportaciones, servicios
+Se revisaron contratos compartidos, parsers XLSX, exportaciones, servicios
 API, worker, dominio, esquema y migraciones SQL, frontend, pruebas, ADRs y
 especificaciones. Los valores de MIPRES se trataron como contrato externo y no
 se incluyeron en el renombrado del payload del proveedor.
@@ -84,7 +84,7 @@ reemplazo textual.
 | Autorizaciones ↔ Anexo Tarifario | `authorization_items.codigo_medicamento` contra `tariff_annex_products.codigo_producto` | Ambos lados deben exponerse como `CODIGO_PRODUCTO`; el valor se normaliza con la misma regla |
 | Cargue operativo ↔ autorizaciones | `authorization_key` o pareja `numero_autorizacion` + `codigo_medicamento` | Resolver aliases a `CLAVE_AUTORIZACION`, `NUMERO_AUTORIZACION` y `CODIGO_PRODUCTO` antes de procesar |
 | Autorizaciones ↔ MIPRES | `no_prescripcion` interno hacia adaptador MIPRES | Mantener `NoPrescripcion` y demás nombres en DTO externo; mapear a `NUMERO_PRESCRIPCION` internamente |
-| Autorizaciones ↔ exportaciones | SQL en `snake_case` y columnas exportadas mixtas | Usar el catálogo canonico para construir CSV/XLSX |
+| Autorizaciones ↔ exportaciones | SQL en `snake_case` y columnas exportadas mixtas | Usar el catálogo canonico para construir XLSX |
 
 ## Hallazgos de implementación
 

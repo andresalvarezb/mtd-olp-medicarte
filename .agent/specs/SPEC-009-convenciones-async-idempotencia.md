@@ -35,7 +35,7 @@ Un replay HTTP siempre revalida la autenticación, el permiso y el alcance organ
 
 ## Exportaciones bajo demanda
 
-Las exportaciones no son un artefacto persistente de background. CSV/XLSX se generan a solicitud del usuario y se entregan sin conservar una copia permanente.
+Las exportaciones no son un artefacto persistente de background. XLSX se genera a solicitud del usuario y se entrega sin conservar una copia permanente.
 
 Si se usa almacenamiento temporal, debe ser efímero y limpiarse al terminar o fallar la operación. Sí debe persistirse el evento de auditoría de exportación.
 

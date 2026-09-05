@@ -11,13 +11,21 @@ import { useRole } from '@/components/layout/role-context';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
 import { TablePagination } from '@/components/ui/table-pagination';
 import { downloadFile, listAuthorizationItems } from '@/lib/authorization-items-api';
-import { AUDIT_STATUS_LABELS, COVERAGE_LABELS, patientName, patientDocument, medicationName } from '@/lib/labels';
+import {
+  AUDIT_STATUS_LABELS,
+  COVERAGE_LABELS,
+  patientName,
+  patientDocument,
+  medicationName,
+  medicationQuantity,
+} from '@/lib/labels';
 import type { AuthorizationItemResponse } from '@authorization/contracts';
 
 const COLUMNS = [
   { label: 'Autorización' },
   { label: 'Documento' },
   { label: 'Paciente' },
+  { label: 'Cantidad' },
   { label: 'Medicamento' },
   { label: 'Cobertura' },
   { label: 'Punto aplicación' },
@@ -29,7 +37,11 @@ export function ConsolidadoView() {
   const { organizationId, hasPermission } = useRole();
   const [coverage, setCoverage] = useState<'todos' | 'PBS' | 'NO_PBS'>('todos');
   const [applied, setApplied] = useState<'todos' | 'PBS' | 'NO_PBS'>('todos');
-  const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
+  const [authorizationNumber, setAuthorizationNumber] = useState('');
+  const [patientDocumentFilter, setPatientDocumentFilter] = useState('');
+  const [appliedAuthorizationNumber, setAppliedAuthorizationNumber] = useState('');
+  const [appliedPatientDocument, setAppliedPatientDocument] = useState('');
+  const [exporting, setExporting] = useState<'xlsx' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const canExport = hasPermission('exports.create');
@@ -38,23 +50,27 @@ export function ConsolidadoView() {
     (cursor) =>
       listAuthorizationItems(organizationId, {
         limit: 50,
-        auditStatus: 'APPROVED',
-        ...(applied !== 'todos' ? { coverageType: applied } : {}),
+         ...(applied !== 'todos' ? { coverageType: applied } : {}),
+         ...(appliedAuthorizationNumber ? { numeroAutorizacion: appliedAuthorizationNumber } : {}),
+         ...(appliedPatientDocument ? { identificacionPaciente: appliedPatientDocument } : {}),
         ...(cursor ? { cursor } : {}),
       }),
-    [organizationId, applied],
+    [organizationId, applied, appliedAuthorizationNumber, appliedPatientDocument],
   );
   const { items, error, loading } = list;
 
-  const handleExport = (format: 'csv' | 'xlsx') => {
-    setExporting(format);
+  const handleExport = () => {
+    setExporting('xlsx');
     setActionError(null);
     downloadFile(
-      `/exports/authorization-items.${format}`,
+      '/exports/authorization-items.xlsx',
       organizationId,
-      `consolidado-aprobados.${format}`,
+      'consolidado.xlsx',
       {
+        includeAll: 'true',
         ...(applied !== 'todos' ? { coverageType: applied } : {}),
+        ...(appliedAuthorizationNumber ? { numeroAutorizacion: appliedAuthorizationNumber } : {}),
+        ...(appliedPatientDocument ? { identificacionPaciente: appliedPatientDocument } : {}),
       },
     )
       .catch((err: unknown) =>
@@ -69,6 +85,7 @@ export function ConsolidadoView() {
     </span>,
     patientDocument(item.sourceData),
     patientName(item.sourceData),
+    medicationQuantity(item.sourceData),
     medicationName(item.sourceData),
     <StatusBadge key="cov" tone={item.coverageType === 'PBS' ? 'blue' : 'purple'}>
       {COVERAGE_LABELS[item.coverageType]}
@@ -82,7 +99,7 @@ export function ConsolidadoView() {
     <>
       <PageHeader
         title="Consolidado"
-        description="Exportación on-demand de ítems con auditoría aprobada. No se persisten copias: cada descarga se genera y audita."
+        description="Vista completa de autorizaciones y estados operativos. No se persisten copias: cada descarga se genera y audita."
       />
       {actionError ? (
         <div className="login-error" role="alert" style={{ marginBottom: 14 }}>
@@ -102,8 +119,18 @@ export function ConsolidadoView() {
               <option value="NO_PBS">NO PBS</option>
             </select>
           </FilterField>
+          <FilterField label="Número autorización">
+            <input className="control" value={authorizationNumber} onChange={(event) => setAuthorizationNumber(event.target.value)} />
+          </FilterField>
+          <FilterField label="Identificación paciente">
+            <input className="control" value={patientDocumentFilter} onChange={(event) => setPatientDocumentFilter(event.target.value)} />
+          </FilterField>
           <FilterActions>
-            <button type="button" className="btn soft" onClick={() => setApplied(coverage)}>
+            <button type="button" className="btn soft" onClick={() => {
+              setApplied(coverage);
+              setAppliedAuthorizationNumber(authorizationNumber.trim());
+              setAppliedPatientDocument(patientDocumentFilter.trim());
+            }}>
               Aplicar filtros
             </button>
           </FilterActions>
@@ -117,12 +144,12 @@ export function ConsolidadoView() {
           columns={COLUMNS}
           rows={loading ? undefined : rows}
           aria-label="Consolidado"
-          emptyIcon="CSV"
-          emptyTitle={loading ? 'Cargando…' : 'No hay registros aprobados para consolidar'}
+          emptyIcon="XLSX"
+          emptyTitle={loading ? 'Cargando…' : 'No hay registros para consolidar'}
           emptyDescription={
             loading
               ? 'Consultando la API…'
-              : 'Los ítems se habilitan para consolidado cuando la auditoría humana los aprueba (DISPENSED).'
+              : 'Ajusta los filtros o verifica que existan autorizaciones cargadas.'
           }
         />
         <TablePagination
@@ -138,17 +165,9 @@ export function ConsolidadoView() {
               type="button"
               className="btn"
               disabled={exporting !== null}
-              onClick={() => handleExport('csv')}
+               onClick={handleExport}
             >
-              {exporting === 'csv' ? 'Generando…' : 'Exportar CSV'}
-            </button>
-            <button
-              type="button"
-              className="btn primary"
-              disabled={exporting !== null}
-              onClick={() => handleExport('xlsx')}
-            >
-              {exporting === 'xlsx' ? 'Generando…' : 'Exportar Excel'}
+              {exporting === 'xlsx' ? 'Generando…' : 'Exportar XLSX'}
             </button>
           </div>
         ) : (

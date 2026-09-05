@@ -26,6 +26,7 @@ import {
   patientName,
   patientDocument,
   medicationName,
+  medicationQuantity,
 } from '@/lib/labels';
 import type { AuthorizationItemResponse } from '@authorization/contracts';
 
@@ -33,6 +34,7 @@ const COLUMNS = [
   { label: 'Autorización' },
   { label: 'Documento' },
   { label: 'Paciente' },
+  { label: 'Cantidad' },
   { label: 'Medicamento' },
   { label: 'Punto aplicación' },
   { label: 'Fecha aplicación' },
@@ -215,6 +217,7 @@ export function AuditoriaView() {
         </span>,
         patientDocument(item.sourceData),
         patientName(item.sourceData),
+        medicationQuantity(item.sourceData),
         medicationName(item.sourceData),
         item.lugarDispensacion ?? '—',
         item.fechaAplicacion ?? '—',

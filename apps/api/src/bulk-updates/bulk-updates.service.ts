@@ -20,9 +20,9 @@ import {
   type BulkUpdateRowResponse,
 } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
-import * as XLSX from 'xlsx';
 import { DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
+import { createXlsxExport, XLSX_CONTENT_TYPE } from '../common/xlsx-export';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -117,18 +117,6 @@ function decodeRowCursor(cursor: string | undefined): number | undefined {
   } catch {
     throw new BadRequestException({ code: 'INVALID_CURSOR', message: 'Invalid pagination cursor' });
   }
-}
-
-function csvValue(value: string | number | boolean | null | undefined): string {
-  if (value === null || value === undefined) return '';
-  const text = safeSpreadsheetValue(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-}
-
-function safeSpreadsheetValue(value: string | number | boolean): string {
-  const text = `${value}`;
-  return /^[=+\-@]/.test(text.trimStart()) ? `'${text}` : text;
 }
 
 @Injectable()
@@ -403,7 +391,7 @@ export class BulkUpdatesService {
 
   async getReport(input: {
     batchId: string;
-    format: 'csv' | 'xlsx';
+    format: 'xlsx';
     scope: Scope;
   }): Promise<{ filename: string; content: Buffer; contentType: string; rowCount: number }> {
     const batchId = parseUuid(input.batchId, 'batchId');
@@ -432,48 +420,20 @@ export class BulkUpdatesService {
       'VALOR_NUEVO',
       'VERSION_CAMPO',
     ];
-    const lines = [header.join(',')];
-    for (const row of rows.rows) {
-      lines.push(
-        [
-          csvValue(row.row_number),
-          csvValue(row.authorization_key),
-          csvValue(row.result_code),
-          csvValue(row.result_message),
-          csvValue(row.field_name),
-          csvValue(row.previous_value),
-          csvValue(row.new_value),
-          csvValue(row.field_version),
-        ].join(','),
-      );
-    }
-    if (input.format === 'xlsx') {
-      const data = rows.rows.map((row) => ({
-         NUMERO_FILA: row.row_number,
-         CLAVE_AUTORIZACION: row.authorization_key
-          ? safeSpreadsheetValue(row.authorization_key)
-          : null,
-         CODIGO_RESULTADO: safeSpreadsheetValue(row.result_code),
-         MENSAJE_RESULTADO: safeSpreadsheetValue(row.result_message),
-         NOMBRE_CAMPO: row.field_name ? safeSpreadsheetValue(row.field_name) : null,
-         VALOR_ANTERIOR: row.previous_value ? safeSpreadsheetValue(row.previous_value) : null,
-         VALOR_NUEVO: row.new_value ? safeSpreadsheetValue(row.new_value) : null,
-         VERSION_CAMPO: row.field_version,
-      }));
-      const sheet = XLSX.utils.json_to_sheet(data, { header });
-      const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, sheet, 'bulk-update-results');
-      return {
-        filename: `bulk-update-${batchId}-report.xlsx`,
-        content: Buffer.from(XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as ArrayBuffer),
-        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        rowCount: rows.rows.length,
-      };
-    }
+    const reportRows = rows.rows.map((row) => ({
+      NUMERO_FILA: row.row_number,
+      CLAVE_AUTORIZACION: row.authorization_key,
+      CODIGO_RESULTADO: row.result_code,
+      MENSAJE_RESULTADO: row.result_message,
+      NOMBRE_CAMPO: row.field_name,
+      VALOR_ANTERIOR: row.previous_value,
+      VALOR_NUEVO: row.new_value,
+      VERSION_CAMPO: row.field_version,
+    }));
     return {
-      filename: `bulk-update-${batchId}-report.csv`,
-      content: Buffer.from(`${lines.join('\n')}\n`, 'utf8'),
-      contentType: 'text/csv; charset=utf-8',
+      filename: `bulk-update-${batchId}-report.xlsx`,
+      content: createXlsxExport(header, reportRows),
+      contentType: XLSX_CONTENT_TYPE,
       rowCount: rows.rows.length,
     };
   }

@@ -12,7 +12,10 @@ export interface AuthorizationItemListQuery {
   operationStatus?: 'BLOCKED' | 'READY_TO_DISPENSE' | 'DISPENSATION_REPORTED' | 'DISPENSED' | 'EXPIRED';
   applicationSiteStatus?: 'PENDING_ASSIGNMENT' | 'ASSIGNED';
   auditStatus?: 'NOT_STARTED' | 'READY' | 'IN_REVIEW' | 'REJECTED' | 'APPROVED';
+  purchaseOrderEligible?: boolean;
   authorizationKey?: string;
+  numeroAutorizacion?: string;
+  identificacionPaciente?: string;
   cursor?: string;
   limit?: number;
 }
@@ -121,7 +124,7 @@ export function getIndicators(organizationId: string, signal?: AbortSignal): Pro
   return apiRequest<Indicators>('/indicators', { organizationId, signal });
 }
 
-/** Descarga binaria autenticada (CSV/XLSX) y dispara el guardado del navegador. */
+/** Descarga binaria XLSX autenticada y dispara el guardado del navegador. */
 export async function downloadFile(
   path: string,
   organizationId: string,

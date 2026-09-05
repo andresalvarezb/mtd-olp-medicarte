@@ -182,7 +182,7 @@ Ruta web:
 Configuración > Anexo Tarifario
 ```
 
-El cargue masivo acepta CSV y XLSX con estos encabezados exactos:
+El cargue masivo acepta únicamente XLSX (`.xlsx`) con estos encabezados exactos:
 
 ```text
 Codigo Medicamento
@@ -218,7 +218,7 @@ tariff_annex_products.codigo_producto
 
 ## Archivo De Autorizaciones
 
-Formatos admitidos: CSV y XLSX. Para que una fila sea procesable, el archivo
+El único formato admitido es XLSX (`.xlsx`). Para que una fila sea procesable, el archivo
 debe incluir como mínimo estos encabezados:
 
 ```text

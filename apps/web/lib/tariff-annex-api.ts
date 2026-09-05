@@ -181,7 +181,7 @@ export function listTariffImportRows(
 
 export async function downloadEpsNovedades(
   organizationId: string,
-  format: 'csv' | 'xlsx',
+  format: 'xlsx',
 ): Promise<{ blob: Blob; filename: string }> {
   const headers: Record<string, string> = { 'X-Organization-Id': organizationId };
   const token = getAccessToken();

@@ -332,7 +332,13 @@ export const authorizationItemListQuerySchema = z.object({
   operationStatus: operationStatusSchema.optional(),
   applicationSiteStatus: applicationSiteStatusSchema.optional(),
   auditStatus: auditStatusSchema.optional(),
+  purchaseOrderEligible: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean(),
+  ).optional(),
   authorizationKey: z.string().trim().min(1).max(300).optional(),
+  numeroAutorizacion: z.string().trim().min(1).max(100).optional(),
+  identificacionPaciente: z.string().trim().min(1).max(100).optional(),
   cursor: z.string().min(1).max(500).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
@@ -474,6 +480,7 @@ export const sourceUpdateResponseSchema = z.object({
 
 export const bulkUpdateOperationTypeSchema = z.enum([
   'ASSIGN_DISPENSATION_LOCATION',
+  'ASSIGN_PURCHASE_ORDER',
   'REPORT_DISPENSATION_DATE',
   'REPORT_APPLICATION_DATE',
 ]);
@@ -487,7 +494,18 @@ export const bulkUpdateOperationContracts = {
     actorOrganizationCode: 'MEDICARTE',
     permission: 'bulk_updates.dispensation_location',
     mutableField: 'LUGAR_DISPENSACION',
-    requiredColumns: ['CLAVE_AUTORIZACION', 'LUGAR_DISPENSACION', 'FECHA_PROGRAMADA'],
+    requiredColumns: [
+      'CLAVE_AUTORIZACION',
+      'LUGAR_DISPENSACION',
+      'FECHA_PROGRAMADA',
+      'COD_AUTORIZACION_MEDICARTE',
+    ],
+  },
+  ASSIGN_PURCHASE_ORDER: {
+    actorOrganizationCode: 'MTD',
+    permission: 'bulk_updates.purchase_order',
+    mutableField: 'ORDEN_COMPRA',
+    requiredColumns: ['CLAVE_AUTORIZACION', 'ORDEN_COMPRA'],
   },
   REPORT_DISPENSATION_DATE: {
     actorOrganizationCode: 'OLP',
@@ -631,125 +649,10 @@ export const paginatedBulkUpdateRowsResponseSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
-export const notificationTypeSchema = z.enum([
-  'AUTHORIZATION_READY_TO_DISPENSE',
-  'DISPENSATION_LOCATION_ASSIGNED',
-  'DISPENSATION_LOCATION_CHANGED',
-  'EPS_DIRECTION_PENDING',
-  'EPS_TARIFF_ANNEX_REJECTED',
-  'AUTHORIZATION_IMPORT_REJECTED',
-  'DISPENSATION_DATE_REPORTED',
-  'APPLICATION_DATE_REPORTED',
-  'DAILY_OPERATIONAL_REPORT',
-]);
-export type NotificationType = z.infer<typeof notificationTypeSchema>;
-
-/** Organización destinataria de cada tipo de notificación (SPEC-004). */
-export const notificationRecipientOrganizations: Record<NotificationType, readonly string[]> = {
-  AUTHORIZATION_READY_TO_DISPENSE: ['OLP', 'MEDICARTE'],
-  DISPENSATION_LOCATION_ASSIGNED: ['OLP'],
-  DISPENSATION_LOCATION_CHANGED: ['OLP'],
-  EPS_DIRECTION_PENDING: ['COMPENSAR'],
-  EPS_TARIFF_ANNEX_REJECTED: ['COMPENSAR'],
-  AUTHORIZATION_IMPORT_REJECTED: ['COMPENSAR'],
-  DISPENSATION_DATE_REPORTED: ['MTD', 'MEDICARTE'],
-  APPLICATION_DATE_REPORTED: ['MTD'],
-  DAILY_OPERATIONAL_REPORT: ['MTD', 'COMPENSAR', 'OLP', 'MEDICARTE'],
-};
-
-export const NOTIFICATIONS_QUEUE = 'notifications';
-export const NOTIFICATIONS_DEAD_LETTER_QUEUE = 'notifications.dead-letter';
-export const NOTIFICATION_JOB_NAME = 'notification.email.v1';
-export const NOTIFICATION_JOB_OPTIONS = {
-  attempts: 5,
-  backoff: { type: 'exponential' as const, delay: 2000 },
-  removeOnComplete: { age: 3600, count: 1000 },
-  removeOnFail: false,
-};
-
-export const notificationJobPayloadSchema = z.object({
-  eventId: z.string().uuid(),
-  notificationType: notificationTypeSchema,
-  itemId: z.string().uuid().nullable(),
-  batchId: z.string().uuid().nullable().optional(),
-  recipientOrganizationId: z.string().uuid().nullable(),
-  /** Fecha calendario America/Bogota de la ventana consolidada. */
-  period: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .nullable(),
-  correlationId: correlationIdSchema,
-  idempotencyKey: idempotencyKeySchema,
-});
-export type NotificationJobPayload = z.infer<typeof notificationJobPayloadSchema>;
-
-export const notificationJobSchema = z.object({
-  name: z.literal('notification.email'),
-  version: z.literal(1),
-  payload: notificationJobPayloadSchema,
-  correlationId: correlationIdSchema,
-  idempotencyKey: idempotencyKeySchema,
-});
-export type NotificationJob = z.infer<typeof notificationJobSchema>;
-
-export const notificationStatusSchema = z.enum(['PENDING', 'SENT', 'FAILED', 'SKIPPED']);
-export type NotificationStatus = z.infer<typeof notificationStatusSchema>;
-
-export const notificationResponseSchema = z.object({
-  id: z.string().uuid(),
-  notificationType: notificationTypeSchema,
-  recipientOrganizationId: z.string().uuid().nullable(),
-  itemId: z.string().uuid().nullable(),
-  period: z.string().nullable(),
-  status: notificationStatusSchema,
-  attempts: z.number().int().nonnegative(),
-  subject: z.string(),
-  recipients: z.array(z.string().email()),
-  templateVersion: z.number().int().positive(),
-  gmailMessageId: z.string().nullable(),
-  lastError: z.string().nullable(),
-  createdAt: isoDateTimeSchema,
-  sentAt: isoDateTimeSchema.nullable(),
-  senderEmail: z.string().email().nullable(),
-});
-export type NotificationResponse = z.infer<typeof notificationResponseSchema>;
-
-export const notificationRecipientRequestSchema = z.object({
-  notificationType: notificationTypeSchema,
-  organizationId: z.string().uuid(),
-  email: z.string().email().max(320),
-});
-export type NotificationRecipientRequest = z.infer<typeof notificationRecipientRequestSchema>;
-
-export const notificationRecipientResponseSchema = z.object({
-  id: z.string().uuid(),
-  notificationType: notificationTypeSchema,
-  organizationId: z.string().uuid(),
-  email: z.string().email(),
-  active: z.boolean(),
-  createdAt: isoDateTimeSchema,
-});
-export type NotificationRecipientResponse = z.infer<typeof notificationRecipientResponseSchema>;
-
-export const notificationSenderRequestSchema = z.object({
-  email: z.string().email().max(320),
-});
-export const notificationSenderResponseSchema = z.object({
-  email: z.string().email().nullable(),
-  updatedAt: isoDateTimeSchema.nullable(),
-});
-
-export const notificationListQuerySchema = z.object({
-  status: notificationStatusSchema.optional(),
-  notificationType: notificationTypeSchema.optional(),
-  cursor: z.string().min(1).max(500).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-});
-
-export const operationalExportFormatSchema = z.enum(['csv', 'xlsx']);
+export const operationalExportFormatSchema = z.literal('xlsx');
 export const operationalExportQuerySchema = z.object({
   operationType: bulkUpdateOperationTypeSchema,
-  format: operationalExportFormatSchema.default('csv'),
+  format: operationalExportFormatSchema.default('xlsx'),
 });
 export type OperationalExportQuery = z.infer<typeof operationalExportQuerySchema>;
 
@@ -784,7 +687,7 @@ export type OperationalIndicatorsResponse = z.infer<typeof operationalIndicators
 
 /** Exportaciones on-demand: el consolidado por defecto solo incluye APPROVED. */
 export const consolidatedExportQuerySchema = z.object({
-  format: operationalExportFormatSchema.default('csv'),
+  format: operationalExportFormatSchema.default('xlsx'),
   coverageType: coverageTypeSchema.exclude(['UNCLASSIFIED']).optional(),
   includeAll: z.preprocess(
     (value) =>
@@ -1043,6 +946,90 @@ export const epsNovedadCausalSchema = z.enum([
 export type EpsNovedadCausal = z.infer<typeof epsNovedadCausalSchema>;
 
 export const epsNovedadesExportQuerySchema = z.object({
-  format: operationalExportFormatSchema.default('csv'),
+  format: operationalExportFormatSchema.default('xlsx'),
 });
 export type EpsNovedadesExportQuery = z.infer<typeof epsNovedadesExportQuerySchema>;
+
+/** ADR-027: clasificación transversal del error por registro. */
+export const noveltyErrorTypeSchema = z.enum([
+  'CORREGIBLE_POR_CARGUE',
+  'REQUIERE_VALIDACION',
+  'REPROCESABLE_INTERNAMENTE',
+]);
+export type NoveltyErrorType = z.infer<typeof noveltyErrorTypeSchema>;
+
+export const NOVELTY_ERROR_TYPE_VALUES = noveltyErrorTypeSchema.options;
+
+/** Códigos de novedad que una fila ya válida al confirmar debe cerrar si deja de estar vigente. */
+export const NOVELTY_EARLY_STAGE_CODES = [
+  'CSV_002',
+  'CSV_003',
+  'CSV_004',
+  'CSV_005',
+  'CLS_001',
+  'CLS_002',
+  'AUTH_001',
+  'TECH_001',
+] as const;
+
+/** Códigos que la bandeja deriva del estado actual del ítem (causales EPS). */
+export const NOVELTY_CAUSAL_CODES = [
+  'SRC_001',
+  'AUTH_002',
+  'AUTH_003',
+  'ANX_001',
+  'ANX_002',
+  'ANX_003',
+  'MIP_001',
+] as const;
+
+export const noveltyStatusSchema = z.enum(['PENDIENTE', 'RESUELTO']);
+export type NoveltyStatus = z.infer<typeof noveltyStatusSchema>;
+
+export const noveltyListItemSchema = z.object({
+  id: z.string().uuid(),
+  authorizationItemId: z.string().uuid().nullable(),
+  authorizationKey: z.string().nullable(),
+  numeroAutorizacion: z.string().nullable(),
+  identificacionPaciente: z.string().nullable(),
+  codigoProducto: z.string().nullable(),
+  code: z.string(),
+  errorType: noveltyErrorTypeSchema,
+  stage: z.string(),
+  field: z.string().nullable(),
+  receivedValue: z.string().nullable(),
+  description: z.string(),
+  status: noveltyStatusSchema,
+  attemptNumber: z.number().int().positive(),
+  attemptCount: z.number().int().nonnegative(),
+  importBatchId: z.string().uuid().nullable(),
+  bulkUpdateBatchId: z.string().uuid().nullable(),
+  tariffAnnexImportId: z.string().uuid().nullable(),
+  sourceRowNumber: z.number().int().nullable(),
+  processedAt: isoDateTimeSchema,
+});
+export type NoveltyListItem = z.infer<typeof noveltyListItemSchema>;
+
+export const noveltyListQuerySchema = z.object({
+  authorization: z.string().min(1).max(511).optional(),
+  document: z.string().min(1).max(60).optional(),
+  stage: z.string().min(1).max(60).optional(),
+  errorType: noveltyErrorTypeSchema.optional(),
+  status: noveltyStatusSchema.optional(),
+  batchId: z.string().uuid().optional(),
+  code: z.string().min(1).max(30).optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+export type NoveltyListQuery = z.infer<typeof noveltyListQuerySchema>;
+
+export const authorizationReprocessResponseSchema = z.object({
+  itemId: z.string().uuid(),
+  authorizationKey: z.string(),
+  previousOperationStatus: operationStatusSchema.nullable(),
+  operationStatus: operationStatusSchema.nullable(),
+  previousProcessStatus: z.string().nullable(),
+  processStatus: z.string().nullable(),
+  resolvedNovelties: z.number().int().nonnegative(),
+  remainingCausales: z.array(epsNovedadCausalSchema),
+});
+export type AuthorizationReprocessResponse = z.infer<typeof authorizationReprocessResponseSchema>;

@@ -29,6 +29,7 @@ import {
   type TariffProduct,
 } from '@/lib/tariff-annex-api';
 import { useApiData } from '@/hooks/use-api-data';
+import * as XLSX from 'xlsx';
 
 function newIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
@@ -49,8 +50,8 @@ function downloadBlob(blob: Blob, filename: string): void {
 }
 
 function downloadTemplate(): void {
-  const content = [
-    'CODIGO_PRODUCTO',
+  const headers = [
+    'CODIGO_MEDICAMENTO',
     'TARIFA_UNIDAD',
     'NUMERO_EXPEDIENTE_INVIMA',
     'CONSECUTIVO_INVIMA_PRESENTACION',
@@ -58,9 +59,14 @@ function downloadTemplate(): void {
     'DESCRIPCION_COMERCIAL_MEDICAMENTO',
     'LABORATORIO_MEDICAMENTO',
     'TIPO_INCLUSION_MEDICAMENTO',
-  ].join(',') + '\n';
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
-  downloadBlob(blob, 'plantilla-anexo-tarifario.csv');
+  ];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers]), 'Anexo Tarifario');
+  const content = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+  const blob = new Blob([content], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  downloadBlob(blob, 'plantilla-anexo-tarifario.xlsx');
 }
 
 export function AnexoTarifarioView() {
@@ -170,11 +176,11 @@ export function AnexoTarifarioView() {
     }
   };
 
-  const handleDownloadNovedades = async (format: 'csv' | 'xlsx') => {
+  const handleDownloadNovedades = async () => {
     setBusy(true);
     setError(null);
     try {
-      const { blob, filename } = await downloadEpsNovedades(organizationId, format);
+       const { blob, filename } = await downloadEpsNovedades(organizationId, 'xlsx');
       downloadBlob(blob, filename);
       flash('Exportación de novedades EPS generada.');
     } catch (err) {
@@ -212,7 +218,7 @@ export function AnexoTarifarioView() {
           canImport ? (
             <>
               <button type="button" className="btn ghost" onClick={downloadTemplate}>
-                Plantilla CSV
+                 Plantilla XLSX
               </button>
               {canExport ? (
                 <>
@@ -221,20 +227,10 @@ export function AnexoTarifarioView() {
                     className="btn ghost"
                     disabled={busy}
                     onClick={() => {
-                      void handleDownloadNovedades('csv');
+                       void handleDownloadNovedades();
                     }}
                   >
-                    Novedades EPS (CSV)
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    disabled={busy}
-                    onClick={() => {
-                      void handleDownloadNovedades('xlsx');
-                    }}
-                  >
-                    Novedades EPS (XLSX)
+                     Novedades EPS (XLSX)
                   </button>
                 </>
               ) : null}
@@ -366,7 +362,7 @@ export function AnexoTarifarioView() {
         <Card>
           <CardHead
             title="Cargue masivo"
-            subtitle="CSV o XLSX con los ocho encabezados comerciales del Anexo. Una fila inválida no impide procesar las demás."
+            subtitle="XLSX con los ocho encabezados comerciales del Anexo. Una fila inválida no impide procesar las demás."
           />
           <CardBody>
             {canImport ? (
@@ -374,7 +370,7 @@ export function AnexoTarifarioView() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".csv,.xlsx"
+                  accept=".xlsx"
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (file) void handleFile(file);

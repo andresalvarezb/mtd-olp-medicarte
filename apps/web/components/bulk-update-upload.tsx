@@ -86,8 +86,8 @@ export function BulkUpdateUpload({
 
   const acceptFile = useCallback((candidate: File) => {
     setBulkError(null);
-    if (!/\.(csv|xlsx)$/i.test(candidate.name)) {
-      setBulkError('Formato no soportado. Solo se aceptan archivos CSV o Excel (.csv, .xlsx).');
+    if (!/\.xlsx$/i.test(candidate.name)) {
+      setBulkError('Formato no soportado. Solo se aceptan archivos XLSX (.xlsx).');
       return;
     }
     if (candidate.size > IMPORT_MAX_FILE_BYTES) {
@@ -159,7 +159,7 @@ export function BulkUpdateUpload({
           >
             <div className="upload-icon">↑</div>
             <h4>{fileTitle}</h4>
-            <p>{columnsHint} (CSV/XLSX, máx. 20 MB).</p>
+            <p>{columnsHint} (XLSX, máx. 20 MB).</p>
             <button
               type="button"
               className="btn primary"
@@ -174,7 +174,7 @@ export function BulkUpdateUpload({
             <input
               id={inputId}
               type="file"
-              accept=".csv,.xlsx"
+               accept=".xlsx"
               style={{ display: 'none' }}
               onChange={handleFileChange}
             />

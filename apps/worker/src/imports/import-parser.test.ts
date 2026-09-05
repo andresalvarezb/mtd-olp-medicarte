@@ -2,78 +2,51 @@ import * as XLSX from 'xlsx';
 import { describe, expect, it } from 'vitest';
 import { parseImportFile } from './import-parser';
 
-const header =
-  'NUMERO_AUTORIZACION,COD_COMERCIAL,CUPS_PRINCIPAL,ESTADO_AUTORIZACION,No.PRESCRIPCION,OBS_AUTORIZACION';
+function xlsx(rows: unknown[][]): Buffer {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'Datos');
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+}
 
 describe('parseImportFile', () => {
-  it('parses CSV rows, keeps unknown source columns, and reports missing headers', () => {
-    const content = Buffer.from(
-      `\uFEFF${header}\nAUTH-1,MED-1,MEDICAMENTOS POS,5,20260915123,nota\nAUTH-2,MED-2,MEDICAMENTOS NO POS,4,,otra\n`,
-    );
-    const parsed = parseImportFile(content, 'authorizations.csv', 'text/csv');
+  it('parses XLSX rows, keeps unknown source columns, and reports missing headers', () => {
+    const content = xlsx([
+      ['NUMERO_AUTORIZACION', 'COD_COMERCIAL', 'CUPS_PRINCIPAL', 'ESTADO_AUTORIZACION', 'No.PRESCRIPCION', 'OBS_AUTORIZACION'],
+      ['AUTH-1', 'MED-1', 'MEDICAMENTOS POS', '5', '20260915000000000123', 'nota'],
+      ['AUTH-2', 'MED-2', 'MEDICAMENTOS NO POS', '4', null, 'otra'],
+    ]);
+    const parsed = parseImportFile(content, 'authorizations.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     expect(parsed.missingHeaders).toEqual([]);
-    expect(parsed.rows).toEqual([
-      {
-        rowNumber: 2,
-        rawData: {
-          NUMERO_AUTORIZACION: 'AUTH-1',
-        CODIGO_COMERCIAL: 'MED-1',
-          CUPS_PRINCIPAL: 'MEDICAMENTOS POS',
-          ESTADO_AUTORIZACION: '5',
-          NUMERO_PRESCRIPCION: '20260915123',
-          OBS_AUTORIZACION: 'nota',
-        },
-      },
-      {
-        rowNumber: 3,
-        rawData: {
-          NUMERO_AUTORIZACION: 'AUTH-2',
-        CODIGO_COMERCIAL: 'MED-2',
-          CUPS_PRINCIPAL: 'MEDICAMENTOS NO POS',
-          ESTADO_AUTORIZACION: '4',
-          NUMERO_PRESCRIPCION: null,
-          OBS_AUTORIZACION: 'otra',
-        },
-      },
-    ]);
-  });
-
-  it('parses XLSX input without depending on a local shared path', () => {
-    const worksheet = XLSX.utils.aoa_to_sheet([
-      [
-        'NUMERO_AUTORIZACION',
-        'COD_COMERCIAL',
-        'CUPS_PRINCIPAL',
-        'ESTADO_AUTORIZACION',
-          'NUMERO_PRESCRIPCION',
-      ],
-      ['AUTH-X', 'MED-X', 'MEDICAMENTOS POS', 5, 20260915123],
-    ]);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Hoja1');
-    const content = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-    const parsed = parseImportFile(
-      content,
-      'authorizations.xlsx',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
-    expect(parsed.rows).toHaveLength(1);
     expect(parsed.rows[0]?.rawData).toMatchObject({
-      NUMERO_AUTORIZACION: 'AUTH-X',
-      CODIGO_COMERCIAL: 'MED-X',
+      NUMERO_AUTORIZACION: 'AUTH-1',
+      CODIGO_COMERCIAL: 'MED-1',
+      CUPS_PRINCIPAL: 'MEDICAMENTOS POS',
+      ESTADO_AUTORIZACION: '5',
+      NUMERO_PRESCRIPCION: '20260915000000000123',
+      OBS_AUTORIZACION: 'nota',
     });
   });
 
+  it('rejects CSV input because XLSX is the only accepted format', () => {
+    expect(() => parseImportFile(Buffer.from('data'), 'authorizations.csv', 'text/csv'))
+      .toThrow('Solo se admiten archivos XLSX');
+  });
+
   it('rejects unsupported formats and duplicate headers', () => {
-    expect(() => parseImportFile(Buffer.from('data'), 'authorizations.txt', 'text/plain')).toThrow(
-      'Solo se admiten',
-    );
-    expect(() =>
-      parseImportFile(
-        Buffer.from('NUMERO_AUTORIZACION,NUMERO_AUTORIZACION\nA,A'),
-        'authorizations.csv',
-        'text/csv',
-      ),
-    ).toThrow('encabezados duplicados');
+    expect(() => parseImportFile(Buffer.from('data'), 'authorizations.txt', 'text/plain'))
+      .toThrow('Solo se admiten');
+    expect(() => parseImportFile(
+      xlsx([['NUMERO_AUTORIZACION', 'NUMERO_AUTORIZACION'], ['A', 'A']]),
+      'authorizations.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )).toThrow('encabezados duplicados');
+  });
+
+  it('rejects an XLSX with missing required headers', () => {
+    expect(() => parseImportFile(
+      xlsx([['NUMERO_AUTORIZACION', 'CODIGO_COMERCIAL'], ['AUTH-1', 'MED-1']]),
+      'authorizations.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )).toThrow('Faltan encabezados obligatorios');
   });
 });

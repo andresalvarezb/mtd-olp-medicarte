@@ -12,7 +12,7 @@ import {
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardHead, CardBody } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/data-table';
-import { Timeline, Note } from '@/components/ui/timeline';
+import { Note } from '@/components/ui/timeline';
 import { useRole } from '@/components/layout/role-context';
 import { ApiError } from '@/lib/api-client';
 import { resultLabel, formatNumber } from '@/lib/labels';
@@ -27,6 +27,7 @@ import {
   type ImportRow,
 } from '@/lib/imports-api';
 import { listTariffProducts } from '@/lib/tariff-annex-api';
+import * as XLSX from 'xlsx';
 
 const HISTORY_COLUMNS = [
   { label: 'Lote' },
@@ -92,12 +93,17 @@ function downloadTemplate(): void {
     'NOMBRE_PACIENTE',
     'IDENTIFICACION_PACIENTE',
   ];
-  const content = `${headers.join(',')}\n`;
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.aoa_to_sheet([headers]);
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Autorizaciones');
+  const content = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+  const blob = new Blob([content], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = 'plantilla-autorizaciones.csv';
+  anchor.download = 'plantilla-autorizaciones.xlsx';
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -171,8 +177,8 @@ export function CargasView() {
 
   const acceptFile = useCallback((candidate: File) => {
     setError(null);
-    if (!/\.(csv|xlsx)$/i.test(candidate.name)) {
-      setError('Formato no soportado. Solo se aceptan archivos CSV o Excel (.csv, .xlsx).');
+    if (!/\.xlsx$/i.test(candidate.name)) {
+      setError('Formato no soportado. Solo se aceptan archivos XLSX (.xlsx).');
       return;
     }
     if (candidate.size > IMPORT_MAX_FILE_BYTES) {
@@ -275,20 +281,20 @@ export function CargasView() {
           </button>
         }
       />
-      <div className="grid two-col">
+      <div className="grid two-col" style={{ marginTop: 16 }}>
         <Card>
           <CardHead
             title="Nueva carga"
-            subtitle="CSV o Excel. Máximo 20 MB por archivo."
-             aside={
-               <span className={tariffAvailable === false ? 'pill red' : 'pill green'}>
-                 {tariffAvailable === false
-                   ? 'Anexo Tarifario requerido'
-                   : tariffAvailable === null
-                     ? 'Verificando Anexo Tarifario…'
-                     : 'Anexo Tarifario disponible'}
-               </span>
-             }
+            subtitle="XLSX. Máximo 20 MB por archivo."
+            aside={
+              <span className={tariffAvailable === false ? 'pill red' : 'pill green'}>
+                {tariffAvailable === false
+                  ? 'Anexo Tarifario requerido'
+                  : tariffAvailable === null
+                    ? 'Verificando Anexo Tarifario…'
+                    : 'Anexo Tarifario disponible'}
+              </span>
+            }
           />
           <CardBody>
             <div
@@ -326,7 +332,7 @@ export function CargasView() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.xlsx"
+                accept=".xlsx"
                 style={{ display: 'none' }}
                 onChange={handleFileChange}
               />
@@ -351,7 +357,7 @@ export function CargasView() {
               <button
                 type="button"
                 className="btn primary"
-                 disabled={!file || uploading || tariffAvailable !== true}
+                disabled={!file || uploading || tariffAvailable !== true}
                 onClick={() => {
                   void handleUpload();
                 }}
@@ -387,14 +393,14 @@ export function CargasView() {
                     <span>Válidas</span>
                     <strong>{formatNumber(activeBatch.validRows)}</strong>
                   </li>
-                   <li className="metric-mini">
-                     <span>Rechazadas</span>
-                     <strong>{formatNumber(activeBatch.rejectedRows)}</strong>
-                   </li>
-                   <li className="metric-mini">
-                     <span>Fuera del Anexo Tarifario</span>
-                     <strong>{formatNumber(activeBatch.tariffRejectedRows)}</strong>
-                   </li>
+                  <li className="metric-mini">
+                    <span>Rechazadas</span>
+                    <strong>{formatNumber(activeBatch.rejectedRows)}</strong>
+                  </li>
+                  <li className="metric-mini">
+                    <span>Fuera del Anexo Tarifario</span>
+                    <strong>{formatNumber(activeBatch.tariffRejectedRows)}</strong>
+                  </li>
                   <li className="metric-mini">
                     <span>Duplicadas</span>
                     <strong>{formatNumber(activeBatch.duplicateRows)}</strong>
@@ -425,26 +431,6 @@ export function CargasView() {
                     Error del lote: <strong>{resultLabel(activeBatch.lastErrorCode)}</strong>
                   </Note>
                 ) : null}
-                {selectedRows && selectedRows.length > 0 ? (
-                  <div style={{ marginTop: 12 }}>
-                    <h4>Reporte por fila (primeras {formatNumber(selectedRows.length)})</h4>
-                    <DataTable
-                      columns={ROW_COLUMNS}
-                      rows={selectedRows.map((row: ImportRow) => [
-                        formatNumber(row.rowNumber),
-                        row.authorizationKey ?? '—',
-                        <span key={`${row.id}-msg`} title={row.resultMessage}>
-                          {resultLabel(row.resultCode)}
-                        </span>,
-                        row.confirmable ? 'Sí' : 'No',
-                      ])}
-                      emptyIcon="↑"
-                      emptyTitle="Sin filas"
-                      emptyDescription="El lote no tiene filas registradas."
-                      aria-label="Reporte por fila del lote"
-                    />
-                  </div>
-                ) : null}
                 {processing ? (
                   <p>Procesando lote… los totales se actualizan automáticamente.</p>
                 ) : null}
@@ -461,31 +447,6 @@ export function CargasView() {
         </Card>
         <Card>
           <CardHead
-            title="Validaciones principales"
-            subtitle="Controles previos a la confirmación."
-          />
-          <CardBody>
-            <Timeline
-              items={[
-                {
-                  title: 'Formato y campos obligatorios',
-                  description:
-                    'Incluye NUMERO_AUTORIZACION, COD_COMERCIAL y campos de negocio requeridos.',
-                },
-                {
-                  title: 'Duplicados',
-                  description: 'Dentro del archivo y contra la base de datos.',
-                },
-                { title: 'Clasificación', description: 'CUPS_PRINCIPAL determina PBS / NO PBS.' },
-                { title: 'Confirmación', description: 'Resultado por fila y causal estable.' },
-              ]}
-            />
-          </CardBody>
-        </Card>
-      </div>
-      <div style={{ marginTop: 16 }}>
-        <Card>
-          <CardHead
             title="Historial de cargas"
             subtitle="Lotes recibidos y su resultado en esta sesión."
           />
@@ -499,6 +460,31 @@ export function CargasView() {
           />
         </Card>
       </div>
+      {selectedRows ? (
+        <div style={{ marginTop: 16 }}>
+          <Card>
+            <CardHead
+              title="Reporte por fila"
+              subtitle={`Primeras ${formatNumber(selectedRows.length)} filas del lote seleccionado.`}
+            />
+            <DataTable
+              columns={ROW_COLUMNS}
+              rows={selectedRows.map((row: ImportRow) => [
+                formatNumber(row.rowNumber),
+                row.authorizationKey ?? '—',
+                <span key={`${row.id}-msg`} title={row.resultMessage}>
+                  {resultLabel(row.resultCode)}
+                </span>,
+                row.confirmable ? 'Sí' : 'No',
+              ])}
+              emptyIcon="↑"
+              emptyTitle="Sin filas"
+              emptyDescription="El lote no tiene filas registradas."
+              aria-label="Reporte por fila del lote"
+            />
+          </Card>
+        </div>
+      ) : null}
     </>
   );
 }

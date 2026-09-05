@@ -158,7 +158,7 @@ audit_status = APPROVED
 
 ### Exportaciones
 
-- Formatos: CSV y XLSX.
+- Formato: XLSX (`.xlsx`) únicamente.
 - Se generan cuando el usuario solicita exportar.
 - No se conserva una copia persistente en el sistema.
 - Puede usarse streaming, memoria o almacenamiento temporal efímero durante la respuesta.

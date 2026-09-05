@@ -13,24 +13,24 @@ import { useRole } from '@/components/layout/role-context';
 import { useApiData } from '@/hooks/use-api-data';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
 import { downloadFile, getIndicators, listAuthorizationItems } from '@/lib/authorization-items-api';
-import { patientName, patientDocument, medicationName } from '@/lib/labels';
+import { patientName, patientDocument, medicationName, medicationQuantity } from '@/lib/labels';
 import type { AuthorizationItemResponse } from '@authorization/contracts';
 
 const COLUMNS = [
   { label: 'Autorización' },
   { label: 'Documento' },
   { label: 'Paciente' },
+  { label: 'Cantidad' },
   { label: 'Medicamento' },
   { label: 'Punto / sede' },
   { label: 'Fecha programada' },
-  { label: 'Versión' },
   { label: 'Última actualización' },
 ];
 
 export function PuntosAplicacionView() {
   const { organizationId, hasPermission } = useRole();
   const [tab, setTab] = useState(0);
-  const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
+  const [exporting, setExporting] = useState<'xlsx' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const { data: indicators } = useApiData(() => getIndicators(organizationId), [organizationId]);
@@ -49,14 +49,14 @@ export function PuntosAplicacionView() {
   const { items, loading, error, reload } = list;
 
   const canExport = hasPermission('operational_exports.create');
-  const handleExport = (format: 'csv' | 'xlsx') => {
-    setExporting(format);
+  const handleExport = () => {
+    setExporting('xlsx');
     setActionError(null);
     downloadFile(
       '/operational-exports/authorization-items',
       organizationId,
-      `medicarte-asignacion-puntos.${format}`,
-      { operationType: 'ASSIGN_DISPENSATION_LOCATION', format },
+       'medicarte-asignacion-puntos.xlsx',
+       { operationType: 'ASSIGN_DISPENSATION_LOCATION', format: 'xlsx' },
     )
       .catch((err: unknown) =>
         setActionError(err instanceof Error ? err.message : 'No fue posible exportar.'),
@@ -73,6 +73,7 @@ export function PuntosAplicacionView() {
       </span>,
       patientDocument(item.sourceData),
       patientName(item.sourceData),
+      medicationQuantity(item.sourceData),
       medicationName(item.sourceData),
       item.lugarDispensacion ?? (
         <StatusBadge key="pend" tone="orange">
@@ -80,7 +81,6 @@ export function PuntosAplicacionView() {
         </StatusBadge>
       ),
       item.fechaProgramada ?? '—',
-      item.operationalVersion,
       new Date(item.updatedAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }),
     ]);
 
@@ -98,17 +98,9 @@ export function PuntosAplicacionView() {
                 type="button"
                 className="btn"
                 disabled={exporting !== null}
-                onClick={() => handleExport('csv')}
+                onClick={handleExport}
               >
-                {exporting === 'csv' ? 'Generando…' : 'Exportar base (CSV)'}
-              </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={exporting !== null}
-                onClick={() => handleExport('xlsx')}
-              >
-                {exporting === 'xlsx' ? 'Generando…' : 'Exportar Excel'}
+                {exporting === 'xlsx' ? 'Generando…' : 'Exportar base (XLSX)'}
               </button>
             </>
           ) : null
@@ -122,6 +114,14 @@ export function PuntosAplicacionView() {
           icon="PA"
           iconBg="#fff4e5"
           iconColor="#b54708"
+        />
+        <KpiCard
+          label="Registros con punto asignado"
+          value={indicators?.assignedDispensationLocation ?? 0}
+          foot="Tienen sede o dirección definida"
+          icon="PA"
+          iconBg="#eaf8f2"
+          iconColor="#16835d"
         />
         <KpiCard
           label="Pendientes fecha dispensación"
@@ -164,7 +164,7 @@ export function PuntosAplicacionView() {
             operationType="ASSIGN_DISPENSATION_LOCATION"
             buttonLabel="Asignar punto (archivo)"
             fileTitle="Archivo de asignación de lugar de dispensación"
-            columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, LUGAR_DISPENSACION, FECHA_PROGRAMADA"
+             columnsHint="Columnas requeridas: CLAVE_AUTORIZACION, LUGAR_DISPENSACION, FECHA_PROGRAMADA, COD_AUTORIZACION_MEDICARTE"
             onCompleted={reload}
           />
         ) : null}

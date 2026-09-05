@@ -14,6 +14,15 @@
 
 El orquestador asigna tareas por SPEC, no por “haz el backend completo”. Las tareas deben poder verificarse de forma independiente.
 
+## Decisión transversal vigente
+
+- ADR-027: manejo de errores por registro en toda operación masiva; bandeja transversal `novelties`, clasificación `error_type`, recarga parcial de rechazados y reprocesamiento interno. Aplicar antes de tocar cualquier pipeline de carga.
+
+## Decisiones UI vigentes
+
+- La navegación y las exclusiones de Administración están documentadas en `.agent/DECISIONES_UI_ACTUALES.md`.
+- Notificaciones, destinatarios, reporte diario e integraciones no forman parte de la interfaz funcional vigente.
+
 ## Dependencias F0
 
 - `.agent/contracts/AUTHORIZATION_IMPORT_DATA_DICTIONARY.md`: contrato aceptado de las 26 columnas y causales de carga; versión 2 con clasificación por `No.PRESCRIPCION` (DEC-016).
@@ -21,7 +30,7 @@ El orquestador asigna tareas por SPEC, no por “haz el backend completo”. Las
 - Specs afectadas: SPEC-001, 002, 003, 004, 005, 006, 008, 009, 011, 012 y 013.
 - Agentes: Orchestrator y Architect.
 
-- ADR-018: exportaciones CSV/XLSX bajo demanda, sin persistencia del archivo generado.
+- ADR-018: exportaciones XLSX bajo demanda, sin persistencia del archivo generado.
 
 - DEC-010: repositorio nuevo e independiente en GitHub, monorepo.
 

@@ -4,11 +4,11 @@
 
 ## Contexto
 
-Los usuarios necesitan descargar consolidados en CSV o Excel, pero no se requiere conservar una copia de cada exportación.
+Los usuarios necesitan descargar consolidados en Excel (`.xlsx`), pero no se requiere conservar una copia de cada exportación.
 
 ## Decisión
 
-- Generar CSV/XLSX cuando el usuario solicita exportar.
+- Generar XLSX cuando el usuario solicita exportar.
 - No almacenar persistentemente el archivo generado.
 - Permitir streaming, memoria o almacenamiento temporal efímero.
 - Eliminar cualquier temporal al completar o fallar.

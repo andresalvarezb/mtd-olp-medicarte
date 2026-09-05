@@ -24,7 +24,7 @@ El contrato normativo de tipo, obligatoriedad, normalización, validaciones, lla
 | `CODEPS`                 | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `NUMERO_AUTORIZACION`    | Negocio   | Obligatoria; se recorta, convierte a mayúsculas y colapsa espacios para la llave.                                                                                         |
 | `TIP_DOCUMENTO`          | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
-| `NUM_DOCUMENTO`          | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
+| `IDENTIFICACION_PACIENTE` | Evidencia | El alias de entrada `NUM_DOCUMENTO` se normaliza a este nombre y no se conserva como columna paralela.                                                                  |
 | `NOMBRE_PACIENTE`        | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `NUMERO_TELEFONO`        | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `COD_CUPS_PRINCIPAL`     | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
@@ -40,7 +40,7 @@ El contrato normativo de tipo, obligatoriedad, normalización, validaciones, lla
 | `FECHA_ASIGNACION`       | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `FECHA_FINAL_VIGENCIA`   | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `ESTADO_AUTORIZACION`    | Negocio   | Obligatoria; el valor normalizado `5` habilita y cualquier otro valor bloquea por estado de origen.                                                                       |
-| `No.PRESCRIPCION`        | Negocio   | Encabezado obligatorio; valor opcional. Vacío produce `PBS`; no vacío (solo dígitos, longitud > 3) produce `NO_PBS` y deriva `no_prescripcion` sin los últimos 3 dígitos. |
+| `No.PRESCRIPCION`        | Negocio   | Encabezado obligatorio; vacío debe coincidir con producto `PBS` del Anexo; no vacío debe ser numérico de 20 dígitos y coincidir con producto `NO PBS`; deriva `no_prescripcion` sin los últimos 3 dígitos. |
 | `OBS_AUTORIZACION`       | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `MEDICO_REMITENTE`       | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
 | `CMNT`                   | Evidencia | Se conserva sin validación semántica adicional.                                                                                                                           |
@@ -87,7 +87,15 @@ Excepciones: `FAILED`, `CANCELLED`.
 
 ## Persistencia
 
-`import_batches` (incluye `tariff_rejected_rows`), `import_rows`, `validation_errors`, `authorization_items`, `audit_events`.
+`import_batches` (incluye `tariff_rejected_rows`), `import_rows`, `validation_errors`, `authorization_items`, `audit_events`, `novelties` (proyección transversal de la fila rechazada, ADR-027).
+
+## Errores por registro (ADR-027)
+
+- Un error de una fila no rechaza el archivo: las filas válidas continúan y se confirman; cada fila rechazada se proyecta en `novelties` con `code`, `stage`, `field`, `received_value`, `original_row`, lote y fila de origen. El rechazo del lote completo (`FAILED`) queda reservado a errores de archivo que impiden interpretarlo (formato, encabezados estructurales, checksum, hash, archivo vacío).
+- La confirmación persiste efectos con una transacción por registro: un fallo técnico en una fila se registra en esa fila (`PROCESSING_ERROR`, novedad `TECH_001`) y el lote continúa; el cierre del lote actualiza totales al final.
+- La descarga de rechazados (`GET /api/v1/novelties/csv` filtrable por lote, con las columnas de diagnóstico de ADR-027) produce un archivo corregible que puede recargarse como carga parcial (solo los corregidos).
+- Códigos de novedad aplicables a importación: `CSV_002` (duplicado en archivo), `CSV_003`/`CSV_004` (columna o valor obligatorio), `CSV_005` (formato), `CLS_001`/`CLS_002` (prescripción/clasificación), `ANX_001` (producto inexistente en Anexo; el ítem se conserva y es reprocesable automáticamente al crear el producto, ADR-024), `TECH_001` (error técnico reprocesable). Recargar un registro corregido cierra sus novedades activas (`active = false`) con auditoría `NOVELTY_RESOLVED`; nunca se elimina historial.
+- Reprocesamiento sin nueva carga (ADR-027 §8): automático para causas internas determinables (Anexo Tarifario, resolución MIPRES); manual mediante `POST /api/v1/authorization-items/:id/reprocess` con permiso atómico `authorizations.reprocess`.
 
 ## Aceptación
 
@@ -97,3 +105,5 @@ Excepciones: `FAILED`, `CANCELLED`.
 - se puede consultar progreso y reporte paginado;
 - confirmación es transaccional.
 - actualización explícita, auditoría, consumo de la fila e idempotencia confirman o revierten como una sola unidad.
+- archivo parcialmente inválido: las filas válidas se confirman sin rollback y las inválidas quedan individualmente identificadas y descargables (ADR-027).
+- recargar solo los registros corregidos los procesa sin duplicar los ya confirmados ni alterar los demás lotes.

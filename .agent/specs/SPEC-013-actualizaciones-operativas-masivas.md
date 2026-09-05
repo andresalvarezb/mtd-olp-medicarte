@@ -47,6 +47,13 @@ Una fila no válida no revierte otras filas válidas. Reprocesar el mismo lote o
 
 `UNCHANGED_VALUE` se reporta como procesada sin actualización y no emite evento. Los mensajes humanos pueden evolucionar; los códigos no cambian sin versionar el contrato.
 
+## Novedades, clasificación y recarga de rechazados (ADR-027)
+
+- Cada fila rechazada se proyecta además en la bandeja transversal `novelties` (mapeo estable causal → `novelty_codes` ya implementado en el worker), con `error_type` de catálogo: `CORREGIBLE_POR_CARGUE` (valores/llaves del archivo), `REQUIERE_VALIDACION` (estado operacional o alcance que exige decisión humana) o `REPROCESABLE_INTERNAMENTE` (`VERSION_CONFLICT`, `TECH_001`: el archivo es válido y basta reintentar o resolver la condición interna).
+- El lote permanece íntegro: una fila rechazada no revierte las filas aplicadas (transacción por fila, ya exigida por ADR-022).
+- La descarga de rechazados se sirve desde la bandeja (`GET /api/v1/novelties/csv?bulkUpdateBatchId=…`) con las columnas originales de la fila más los diagnósticos de ADR-027 §6; el reporte del lote (`GET /bulk-updates/:batchId/report`) conserva su forma actual para el detalle técnico-operativo.
+- Al recargarse la fila corregida y aplicarse con éxito, la novedad previa se cierra (`active = false`, auditoría `NOVELTY_RESOLVED`); los intentos anteriores quedan append-only en `bulk_update_rows`/`novelties`/`audit_events`.
+
 ## Precondiciones
 
 - Las tres operaciones exigen un ítem visible para la organización y `operation_status` no igual a `BLOCKED`.
@@ -63,15 +70,15 @@ Estas precondiciones ordenan el flujo solicitado; no validan automáticamente so
 - MEDICARTE descarga la base completa de registros listos o posteriores dentro de su alcance, para asignar `lugar_dispensacion` y reportar `fecha_aplicacion`.
 - OLP descarga únicamente los registros con `lugar_dispensacion` ya asignado por MEDICARTE, incluyendo el valor vigente y la `authorization_key` para el reporte de `fecha_dispensacion`; los registros pendientes de asignación se omiten.
 - “Completa” significa todos los campos disponibles que el permiso de lectura y la política de datos sensibles permitan; nunca omite silenciosamente la seguridad por columna.
-- CSV/XLSX se genera on-demand, no se conserva copia y se auditan actor, organización, filtros, formato, columnas efectivas, cantidad y resultado.
+- XLSX se genera on-demand, no se conserva copia y se auditan actor, organización, filtros, formato, columnas efectivas, cantidad y resultado.
 
 ## API
 
-- `GET /api/v1/operational-exports/authorization-items?operationType=ASSIGN_DISPENSATION_LOCATION|REPORT_DISPENSATION_DATE|REPORT_APPLICATION_DATE&format=csv|xlsx`
+- `GET /api/v1/operational-exports/authorization-items?operationType=ASSIGN_DISPENSATION_LOCATION|REPORT_DISPENSATION_DATE|REPORT_APPLICATION_DATE&format=xlsx`
 - `POST /api/v1/bulk-updates` multipart con `operationType` y `file`
 - `GET /api/v1/bulk-updates/:batchId`
 - `GET /api/v1/bulk-updates/:batchId/rows`
-- `GET /api/v1/bulk-updates/:batchId/report?format=csv|xlsx`
+- `GET /api/v1/bulk-updates/:batchId/report?format=xlsx`
 
 `POST` responde `202` con `batchId`, estado y URL de consulta. Consultas y reportes vuelven a validar organización, permiso y alcance. El reporte de resultados no habilita modificar el lote.
 

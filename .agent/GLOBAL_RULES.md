@@ -21,9 +21,18 @@
 - Medicarte define `lugar_dispensacion` y reporta `fecha_aplicacion` mediante cargas masivas separadas.
 - OLP reporta `fecha_dispensacion` mediante carga masiva; la primera persistencia produce `DISPENSATION_REPORTED`.
 - `DISPENSED` solo se produce tras una decisión humana `audit_status = APPROVED`.
-- Los reportes operativos son diarios y cubren el día calendario anterior en `America/Bogota`.
 - La referencia administrativa al Drive corporativo es parametrizable por MTD Admin; no controla cargas dentro de la aplicación.
 - Tamaño máximo inicial para importaciones y actualizaciones masivas: 20 MB.
+
+## Manejo de errores por registro (regla global, ADR-027)
+
+- Toda operación masiva se procesa a nivel de registro: los registros válidos se procesan y conservan su avance; los inválidos quedan en la bandeja transversal `novelties` con causa exacta, etapa, lote de origen, tipo de error y evidencia completa de la fila.
+- Un error en un registro no rechaza ni revierte los demás registros del archivo. El archivo completo solo se rechaza cuando no puede interpretarse con seguridad (formato, separador incompatible, encabezados requeridos inexistentes, estructura global inválida o archivo de otro tipo de carga).
+- Cuando la causa pueda resolverse con un cambio interno (producto creado/activado después en el Anexo Tarifario, parametrización, validación humana completada), el sistema permite reprocesar el registro sin exigir una nueva carga del archivo original.
+- Cada error tiene un tipo estable de catálogo: `CORREGIBLE_POR_CARGUE`, `REQUIERE_VALIDACION` o `REPROCESABLE_INTERNAMENTE`; el reprocesamiento automático solo aplica a causas internas determinables, lo demás exige acción humana con control de permisos.
+- La descarga de rechazados contiene las columnas originales de la fila más `ESTADO_PROCESAMIENTO`, `ETAPA_ERROR`, `CODIGO_ERROR`, `TIPO_ERROR` y `DESCRIPCION_ERROR`, para corregir y recargar únicamente esos registros; no es obligatorio volver a subir el archivo completo.
+- Nunca se elimina una novedad ni un evento histórico: se cierra (`active = false`) con auditoría del cierre.
+- La confirmación de efectos de una carga usa transacciones por registro; no se envuelve el archivo completo en una única transacción de persistencia.
 
 ## Prohibiciones
 
@@ -51,21 +60,18 @@
 
 - Una actualización explícita de evidencia F2 para una llave existente solo puede ejecutarse si `operation_status = READY_TO_DISPENSE`; queda bloqueada desde `DISPENSATION_REPORTED`. Esta regla no bloquea correcciones operativas tipadas de ADR-022.
 - Una actualización explícita reemplaza la evidencia y reevalúa las cuatro columnas de negocio (`NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `ESTADO_AUTORIZACION`, `No.PRESCRIPCION`), manteniendo la pareja normalizada `NUMERO_AUTORIZACION + COD_COMERCIAL`; recalcula `operation_status`: solo `ENABLED + PBS + NOT_APPLICABLE` o `ENABLED + NO_PBS + CONFIRMED` conserva `READY_TO_DISPENSE`; cualquier otra combinación queda `BLOCKED`.
-- Los reportes diarios se ejecutan a las 08:00 `America/Bogota` y cubren el día anterior.
-- Los destinatarios son parametrizables y sus cambios se auditan.
+- No se envían notificaciones automáticas, reportes diarios ni correos desde este flujo.
 - Solo una persona autorizada puede producir `audit_status = APPROVED`; no existe aprobación automática.
 - La aplicación no gobierna retención, versiones ni completitud de los soportes del Drive corporativo.
-- Las exportaciones CSV/XLSX son on-demand y no persistentes.
+- Las exportaciones XLSX son on-demand y no persistentes.
 - Máximo 20 MB por archivo de importación o actualización masiva; no existe límite mensual de soportes porque la aplicación no los recibe.
 - Despliegue esperado: Render; alternativa Google Cloud; región de producción aprobada: Virginia (USA); la ausencia de región Colombia no bloquea producción.
 
 - El producto vive en un repositorio nuevo e independiente de GitHub, estructurado como monorepo; no se integra en `vita-back` ni `vita-core`.
 
-- Al entrar en `READY_TO_DISPENSE`, se notifica a OLP y Medicarte.
 - Medicarte es el único actor operativo que define/modifica masivamente `lugar_dispensacion` y reporta masivamente `fecha_aplicacion`.
 - OLP es el único actor operativo que reporta masivamente `fecha_dispensacion`.
 - Los tres valores vigentes se persisten en `authorization_items`; cada cambio conserva historial append-only, versión y auditoría.
-- Asignar o cambiar `lugar_dispensacion` notifica a OLP mediante outbox después del commit.
 - `application_site_status` es derivado de `lugar_dispensacion`; `support_status` no se persiste.
 - `authorization_items` es un registro global único; su lectura multi-organización se controla con permisos y `authorization_item_organizations`, sin duplicarlo por empresa.
 - En Fase 2 las cuatro columnas de negocio validadas son `NUMERO_AUTORIZACION`, `COD_COMERCIAL`, `ESTADO_AUTORIZACION` y `No.PRESCRIPCION`; las demás columnas del archivo se conservan como evidencia sin reglas semánticas adicionales no documentadas.

@@ -8,7 +8,6 @@ import {
   NotFoundException,
   PayloadTooLargeException,
 } from '@nestjs/common';
-import * as XLSX from 'xlsx';
 import {
   createTariffProductRequestSchema,
   paginatedTariffImportRowsResponseSchema,
@@ -32,6 +31,7 @@ import {
 } from '@authorization/domain';
 import { API_CONFIG, DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
+import { createXlsxExport } from '../common/xlsx-export';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -223,18 +223,6 @@ function toImportBatchResponse(row: ImportBatchRow): TariffImportBatchResponse {
 
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
-}
-
-function csvValue(value: string | number | boolean | null | undefined): string {
-  if (value === null || value === undefined) return '';
-  const text = safeSpreadsheetValue(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-}
-
-function safeSpreadsheetValue(value: string | number | boolean): string {
-  const text = `${value}`;
-  return /^[=+\-@]/.test(text.trimStart()) ? `'${text}` : text;
 }
 
 /**
@@ -928,13 +916,13 @@ export class TariffAnnexService {
   }
 
   /**
-   * SPEC-014: base de novedades EPS on-demand (CSV/XLSX). Contiene los
+   * SPEC-014: base de novedades EPS on-demand en XLSX. Contiene los
    * registros que no alcanzaron READY_TO_DISPENSE con todas sus causales
    * activas derivadas; no se conserva copia persistente y la operación queda
    * auditada.
    */
   async epsNovedadesExport(input: {
-    format: 'csv' | 'xlsx';
+    format: 'xlsx';
     scope: Scope;
   }): Promise<{ filename: string; content: Buffer; rowCount: number; columns: string[] }> {
     requireMtd(input.scope);
@@ -1025,30 +1013,9 @@ export class TariffAnnexService {
     });
     await this.auditNovedadesExport(input.scope, input.format, rows.length, columns);
     const filename = 'eps-novedades';
-    if (input.format === 'xlsx') {
-      const safeRows = rows.map((row) =>
-        Object.fromEntries(
-          Object.entries(row).map(([key, value]) => [
-            key,
-            typeof value === 'string' ? safeSpreadsheetValue(value) : value,
-          ]),
-        ),
-      );
-      const sheet = XLSX.utils.json_to_sheet(safeRows, { header: [...columns] });
-      const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, sheet, 'eps-novedades');
-      const content = Buffer.from(
-        XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as ArrayBuffer,
-      );
-      return { filename: `${filename}.xlsx`, content, rowCount: rows.length, columns };
-    }
-    const lines = [columns.join(',')];
-    for (const row of rows) {
-      lines.push(columns.map((column) => csvValue(row[column])).join(','));
-    }
     return {
-      filename: `${filename}.csv`,
-      content: Buffer.from(`${lines.join('\n')}\n`, 'utf8'),
+      filename: `${filename}.xlsx`,
+      content: createXlsxExport(columns, rows),
       rowCount: rows.length,
       columns,
     };

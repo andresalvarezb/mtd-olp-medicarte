@@ -17,12 +17,14 @@ import {
   patientName,
   patientDocument,
   medicationName,
+  medicationQuantity,
 } from '@/lib/labels';
 
 const COLUMNS = [
   { label: 'Autorización' },
   { label: 'Documento' },
   { label: 'Paciente' },
+  { label: 'Cantidad' },
   { label: 'Medicamento' },
   { label: 'Prescripción' },
   { label: 'Cobertura' },
@@ -111,6 +113,7 @@ export function MipresView() {
         </span>,
         patientDocument(item.sourceData),
         patientName(item.sourceData),
+        medicationQuantity(item.sourceData),
         medicationName(item.sourceData),
         item.noPrescripcion || '—',
         COVERAGE_LABELS[item.coverageType],

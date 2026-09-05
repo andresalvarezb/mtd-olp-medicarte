@@ -12,19 +12,29 @@ import {
 import {
   authorizationClassificationSchema,
   authorizationItemListQuerySchema,
+  authorizationReprocessResponseSchema,
   importRowResultMessages,
   mipresRecheckRequestResponseSchema,
+  NOVELTY_CAUSAL_CODES,
+  NOVELTY_EARLY_STAGE_CODES,
   type AuthorizationItemDetailResponse,
   type AuthorizationItemResponse,
   type AuthorizationItemListQuery,
+  type AuthorizationReprocessResponse,
   type MipresRecheckRequestResponse,
 } from '@authorization/contracts';
 import type { ApiConfig } from '@authorization/config';
-import type { createDatabase } from '@authorization/database';
+import { syncItemNovelties, type createDatabase } from '@authorization/database';
 import {
   currentBogotaDate,
   deriveApplicationSiteStatus,
+  deriveEarlyProcessStatus,
+  deriveEpsNovedadCausales,
   deriveOperationStatus,
+  deriveTariffMembershipStatus,
+  epsNovedadCausalMessages,
+  EPS_CAUSAL_TO_NOVELTY,
+  TARIFF_ANNEX_RULE_VERSION,
 } from '@authorization/domain';
 import { API_CONFIG, DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
@@ -57,6 +67,25 @@ type ItemRow = {
   version: number;
   created_at: Date;
   updated_at: Date;
+};
+
+type ReprocessItemRow = {
+  id: string;
+  numero_autorizacion: string;
+  codigo_medicamento: string;
+  authorization_key: string;
+  source_data: unknown;
+  source_status_normalized: string;
+  source_prescripcion_normalized: string;
+  no_prescripcion: string;
+  enablement_status: string;
+  coverage_type: string;
+  direction_status: string;
+  operation_status: string | null;
+  tariff_membership_status: string;
+  audit_status: string;
+  process_status: string | null;
+  version: number;
 };
 
 type HistoryRow = {
@@ -116,7 +145,9 @@ function rawText(value: unknown): string {
 function publicSourceData(value: unknown): Record<string, unknown> {
   const source = sourceDataRecord(value);
   return {
-    NUM_DOCUMENTO: source ? rawText(source.NUM_DOCUMENTO ?? source.IDENTIFICACION_PACIENTE) : null,
+    IDENTIFICACION_PACIENTE: source
+      ? rawText(source.IDENTIFICACION_PACIENTE ?? source.NUM_DOCUMENTO)
+      : null,
     NOMBRE_PACIENTE: source ? rawText(source.NOMBRE_PACIENTE) : null,
     CUPS_AUTORIZADO: source ? rawText(source.CUPS_AUTORIZADO) : null,
   };
@@ -198,9 +229,22 @@ export class AuthorizationItemsService {
           : `(i.lugar_dispensacion is null or i.lugar_dispensacion = '')`,
       );
     if (query.auditStatus) conditions.push(`i.audit_status = ${add(query.auditStatus)}`);
+    if (query.purchaseOrderEligible === true) {
+      conditions.push(
+        `i.lugar_dispensacion is not null and i.lugar_dispensacion <> '' and i.fecha_programada is not null and i.cod_autorizacion_medicarte is not null and i.cod_autorizacion_medicarte <> ''`,
+      );
+    }
     if (query.authorizationKey)
       conditions.push(
         `i.authorization_key ilike ${add(`%${escapeLikePattern(query.authorizationKey)}%`)} escape '\\'`,
+      );
+    if (query.numeroAutorizacion)
+      conditions.push(
+        `i.numero_autorizacion ilike ${add(`%${escapeLikePattern(String(query.numeroAutorizacion))}%`)} escape '\\'`,
+      );
+    if (query.identificacionPaciente)
+      conditions.push(
+        `(coalesce(i.source_data->>'NUM_DOCUMENTO', i.source_data->>'IDENTIFICACION_PACIENTE')) ilike ${add(`%${escapeLikePattern(String(query.identificacionPaciente))}%`)} escape '\\'`,
       );
     if (cursor) {
       const createdAt = add(cursor.createdAt);
@@ -408,11 +452,13 @@ export class AuthorizationItemsService {
 
       const sourceRow = await client.query<{
         id: string;
+        row_number: number;
         raw_data: unknown;
         normalized_data: unknown;
+        batch_id: string;
         authorization_item_id: string | null;
       }>(
-        `select r.id, r.raw_data, r.normalized_data, r.authorization_item_id
+        `select r.id, r.row_number, r.raw_data, r.normalized_data, r.authorization_item_id, b.id as batch_id
          from import_rows r
          inner join import_batches b on b.id = r.import_batch_id
           where r.id = $1 and r.authorization_item_id = $2 and r.result_code = 'EXISTING_ITEM_REVIEW_REQUIRED'
@@ -502,8 +548,47 @@ export class AuthorizationItemsService {
         `update import_rows set result_code = 'ITEM_UPDATED', result_message = $2, confirmable = false where id = $1`,
         [rowId, importRowResultMessages.ITEM_UPDATED],
       );
+      const processStatus = deriveEarlyProcessStatus({
+        operationStatus,
+        coverageType: classification.data.coverageType,
+        directionStatus: classification.data.directionStatus,
+      });
+      await client.query(
+        `update authorization_items set process_status = $2, updated_by = $3 where id = $1`,
+        [itemId, processStatus, input.scope.userId],
+      );
+      const remainingCausales = deriveEpsNovedadCausales({
+        enablementStatus: classification.data.enablementStatus,
+        operationStatus,
+        coverageType: classification.data.coverageType,
+        directionStatus: classification.data.directionStatus,
+        tariffMembershipStatus: item.tariff_membership_status,
+        fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
+        today: currentBogotaDate(),
+      });
+      const activeCausales = remainingCausales.flatMap((causal) => {
+        const code = EPS_CAUSAL_TO_NOVELTY[causal];
+        return code ? [{ code, description: epsNovedadCausalMessages[causal] }] : [];
+      });
+      const activeCodes = new Set(activeCausales.map((causal) => causal.code));
+      const closableCodes = [...NOVELTY_EARLY_STAGE_CODES, ...NOVELTY_CAUSAL_CODES].filter(
+        (code) => !activeCodes.has(code),
+      );
+      await syncItemNovelties(client, {
+        itemId,
+        importBatchId: row.batch_id,
+        sourceRowNumber: row.row_number,
+        originalRow: rawSource,
+        activeCausales,
+        resolveCodes: closableCodes,
+        reason: 'SOURCE_EVIDENCE_UPDATED',
+        actorType: 'USER',
+        actorId: input.scope.userId,
+        organizationId: input.scope.organizationId,
+        correlationId: input.scope.correlationId,
+      });
       const storedResponse = {
-        item: toItemResponse(changed, false),
+        item: { ...toItemResponse(changed, false), sourceData: null },
         rowId,
         resultCode: 'ITEM_UPDATED' as const,
       };
@@ -569,9 +654,233 @@ export class AuthorizationItemsService {
         ...storedResponse,
         item: {
           ...storedResponse.item,
-          sourceData: currentReadSensitive ? sourceDataRecord(changed.source_data) : null,
+          sourceData: currentReadSensitive
+            ? sourceDataRecord(changed.source_data)
+            : publicSourceData(changed.source_data),
         },
       };
+      await client.query('commit');
+      return response;
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * ADR-027 §8: reprocesamiento manual de un registro detenido por una causa
+   * interna. Re-evaluta membresía del Anexo, vigencia y habilitación contra el
+   * estado actual del sistema; resuelve o mantiene las novedades activas. Los
+   * ítems avanzados (dispensación reportada o dispensados) nunca se tocan y
+   * NO PBS con direccionamiento pendiente continúa gestionado por su flujo
+   * MIPRES (recheck explícito), sin llamada externa en el request.
+   */
+  async reprocess(input: {
+    itemId: string;
+    idempotencyKey: string;
+    scope: Scope;
+  }): Promise<AuthorizationReprocessResponse> {
+    const itemId = parseUuid(input.itemId);
+    const idempotencyScope = `authorization-items.reprocess:${input.scope.organizationId}:${itemId}`;
+    const requestHash = createHash('sha256').update(itemId).digest('hex');
+    const client = await this.database.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [
+        `${idempotencyScope}:${input.idempotencyKey}`,
+      ]);
+      await client.query(
+        'delete from idempotency_records where scope = $1 and key = $2 and expires_at <= now()',
+        [idempotencyScope, input.idempotencyKey],
+      );
+      const existing = await client.query<{
+        request_hash: string;
+        response: AuthorizationReprocessResponse;
+      }>('select request_hash, response from idempotency_records where scope = $1 and key = $2', [
+        idempotencyScope,
+        input.idempotencyKey,
+      ]);
+      const previous = existing.rows[0];
+      if (previous) {
+        if (previous.request_hash !== requestHash) {
+          throw new ConflictException({
+            code: 'IDEMPOTENCY_CONFLICT',
+            message: 'Idempotency key reused with another payload',
+          });
+        }
+        await client.query('commit');
+        return previous.response;
+      }
+
+      const locked = await client.query<ReprocessItemRow>(
+        `select id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
+                source_status_normalized, source_prescripcion_normalized, no_prescripcion,
+                enablement_status, coverage_type, direction_status, operation_status,
+                tariff_membership_status, audit_status, process_status, version
+         from authorization_items where id = $1 for update`,
+        [itemId],
+      );
+      const item = locked.rows[0];
+      if (!item) {
+        throw new NotFoundException({
+          code: 'AUTHORIZATION_ITEM_NOT_FOUND',
+          message: 'Authorization item not found',
+        });
+      }
+      if (input.scope.organizationCode !== 'MTD') {
+        throw new ForbiddenException({
+          code: 'REPROCESS_FORBIDDEN',
+          message: 'Only the MTD organization can reprocess authorization items',
+        });
+      }
+      if (
+        item.operation_status === 'DISPENSATION_REPORTED' ||
+        item.operation_status === 'DISPENSED' ||
+        item.audit_status === 'APPROVED' ||
+        item.audit_status === 'REJECTED'
+      ) {
+        throw new ConflictException({
+          code: 'REPROCESS_NOT_ALLOWED',
+          message: 'El registro ya avanzó a una etapa operacional o de auditoría.',
+        });
+      }
+      const sourceData = (item.source_data ?? {}) as Record<string, unknown>;
+      const product = await client.query<{ version: number }>(
+        `select version from tariff_annex_products
+          where organization_id = $1 and codigo_producto = $2 and active = true
+          order by version desc limit 1`,
+        [input.scope.organizationId, item.codigo_medicamento],
+      );
+      const productInTariffAnnex = product.rows.length > 0;
+      const tariffMembershipStatus = deriveTariffMembershipStatus(productInTariffAnnex);
+      const today = currentBogotaDate();
+      const operationStatus = deriveOperationStatus({
+        enablementStatus: item.enablement_status as 'ENABLED' | 'BLOCKED_SOURCE_STATUS',
+        coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
+        directionStatus: item.direction_status as
+          | 'NOT_APPLICABLE'
+          | 'PENDING'
+          | 'CONFIRMED'
+          | 'QUERY_ERROR',
+        productInTariffAnnex,
+        fechaFinalVigencia: sourceData.FECHA_FINAL_VIGENCIA,
+        today,
+      });
+      const processStatus = deriveEarlyProcessStatus({
+        operationStatus,
+        coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
+        directionStatus: item.direction_status as
+          | 'NOT_APPLICABLE'
+          | 'PENDING'
+          | 'CONFIRMED'
+          | 'QUERY_ERROR',
+      });
+      const changed =
+        item.tariff_membership_status !== tariffMembershipStatus ||
+        item.operation_status !== operationStatus ||
+        item.process_status !== processStatus;
+      if (changed) {
+        await client.query(
+          `update authorization_items
+             set tariff_membership_status = $2, tariff_membership_evaluated_at = now(),
+                 tariff_rule_version = $3, operation_status = $4, process_status = $5,
+                 version = version + 1, updated_at = now(), updated_by = $6
+           where id = $1`,
+          [
+            itemId,
+            tariffMembershipStatus,
+            `${TARIFF_ANNEX_RULE_VERSION}:${Number(product.rows[0]?.version ?? 0)}`,
+            operationStatus,
+            processStatus,
+            input.scope.userId,
+          ],
+        );
+      }
+      const remainingCausales = deriveEpsNovedadCausales({
+        enablementStatus: item.enablement_status as 'ENABLED' | 'BLOCKED_SOURCE_STATUS',
+        operationStatus,
+        coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
+        directionStatus: item.direction_status as
+          | 'NOT_APPLICABLE'
+          | 'PENDING'
+          | 'CONFIRMED'
+          | 'QUERY_ERROR',
+        tariffMembershipStatus,
+        fechaFinalVigencia: sourceData.FECHA_FINAL_VIGENCIA,
+        today,
+      });
+      const activeCausales = remainingCausales.flatMap((causal) => {
+        const code = EPS_CAUSAL_TO_NOVELTY[causal];
+        return code ? [{ code, description: epsNovedadCausalMessages[causal] }] : [];
+      });
+      const activeCodes = new Set(activeCausales.map((causal) => causal.code));
+      const closableCodes = [...NOVELTY_EARLY_STAGE_CODES, ...NOVELTY_CAUSAL_CODES].filter(
+        (code) => !activeCodes.has(code),
+      );
+      const resolvedNovelties = await syncItemNovelties(client, {
+        itemId,
+        originalRow: sourceData,
+        activeCausales,
+        resolveCodes: closableCodes,
+        reason: 'AUTHORIZATION_ITEM_REPROCESSED',
+        actorType: 'USER',
+        actorId: input.scope.userId,
+        organizationId: input.scope.organizationId,
+        correlationId: input.scope.correlationId,
+      });
+      if (changed) {
+        await this.insertAudit(client, {
+          actorId: input.scope.userId,
+          organizationId: input.scope.organizationId,
+          action: 'AUTHORIZATION_REPROCESSED',
+          resourceType: 'authorization_item',
+          resourceId: itemId,
+          before: {
+            operationStatus: item.operation_status,
+            processStatus: item.process_status,
+            tariffMembershipStatus: item.tariff_membership_status,
+            version: item.version,
+          },
+          after: { operationStatus, processStatus, tariffMembershipStatus, remainingCausales },
+          correlationId: input.scope.correlationId,
+        });
+        if (operationStatus === 'READY_TO_DISPENSE') {
+          const ready = await client.query<{ version: number }>(
+            'select version from authorization_items where id = $1',
+            [itemId],
+          );
+          await this.insertAudit(client, {
+            actorId: input.scope.userId,
+            organizationId: input.scope.organizationId,
+            action: 'AUTHORIZATION_READY_TO_DISPENSE',
+            resourceType: 'authorization_item',
+            resourceId: itemId,
+            before: { operationStatus },
+            after: {
+              readinessVersion: ready.rows[0]?.version,
+              revalidation: 'MANUAL_REPROCESS',
+            },
+            correlationId: input.scope.correlationId,
+          });
+        }
+      }
+      const response = authorizationReprocessResponseSchema.parse({
+        itemId,
+        authorizationKey: item.authorization_key,
+        previousOperationStatus: item.operation_status,
+        operationStatus,
+        previousProcessStatus: item.process_status,
+        processStatus,
+        resolvedNovelties,
+        remainingCausales,
+      });
+      await client.query(
+        `insert into idempotency_records (scope, key, request_hash, status_code, response, expires_at)
+         values ($1, $2, $3, 200, $4::jsonb, now() + interval '24 hours')`,
+        [idempotencyScope, input.idempotencyKey, requestHash, JSON.stringify(response)],
+      );
       await client.query('commit');
       return response;
     } catch (error) {

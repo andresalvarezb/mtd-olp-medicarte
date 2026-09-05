@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import * as XLSX from 'xlsx';
 import type {
   ConsolidatedExportQuery,
   OperationalIndicatorsResponse,
@@ -14,6 +13,7 @@ import type { createDatabase } from '@authorization/database';
 import { DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
 import { sourceBaseColumns, sourceBaseSelectSql } from '../common/source-base-columns';
+import { createXlsxExport } from '../common/xlsx-export';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -44,6 +44,8 @@ type ExportRow = {
   fecha_aplicacion: string | null;
   audit_status: string;
   admission_status: string;
+  process_status: string;
+  orden_compra: string | null;
   version: number;
   created_at: Date;
   updated_at: Date;
@@ -61,18 +63,6 @@ type ExportRow = {
   valor_cuota_moderadora: string | null;
   no_prescripcion: string | null;
 };
-
-function csvValue(value: string | number | boolean | null | undefined): string {
-  if (value === null || value === undefined) return '';
-  const text = safeSpreadsheetValue(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-}
-
-function safeSpreadsheetValue(value: string | number | boolean): string {
-  const text = `${value}`;
-  return /^[=+\-@]/.test(text.trimStart()) ? `'${text}` : text;
-}
 
 const processColumns = [
   'CLAVE_AUTORIZACION',
@@ -94,9 +84,7 @@ const processColumns = [
 ] as const;
 
 /**
- * SPEC-006/ADR-018: el consolidado definitivo solo incluye registros
- * audit_status = APPROVED. La exportación de la base completa usa includeAll
- * y no filtra por estado de validación u operación.
+ * El consolidado no filtra por estado de validación u operación.
  */
 @Injectable()
 export class ConsolidationService {
@@ -238,30 +226,9 @@ export class ConsolidationService {
       FECHA_ACTUALIZACION: row.updated_at.toISOString(),
     }));
     const filename = input.query.includeAll ? 'autorizaciones-completas' : 'consolidado-aprobado';
-    if (input.query.format === 'xlsx') {
-      const safeRows = rows.map((row) =>
-        Object.fromEntries(
-          Object.entries(row).map(([key, value]) => [
-            key,
-            typeof value === 'string' ? safeSpreadsheetValue(value) : value,
-          ]),
-        ),
-      );
-      const sheet = XLSX.utils.json_to_sheet(safeRows, { header: [...columns] });
-      const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, sheet, 'consolidado');
-      const content = Buffer.from(
-        XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as ArrayBuffer,
-      );
-      return { filename: `${filename}.xlsx`, content, rowCount: rows.length, columns };
-    }
-    const lines = [columns.join(',')];
-    for (const row of rows) {
-      lines.push(columns.map((column) => csvValue(row[column])).join(','));
-    }
     return {
-      filename: `${filename}.csv`,
-      content: Buffer.from(`${lines.join('\n')}\n`, 'utf8'),
+      filename: `${filename}.xlsx`,
+      content: createXlsxExport(columns, rows),
       rowCount: rows.length,
       columns,
     };

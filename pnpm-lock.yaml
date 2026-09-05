@@ -162,6 +162,9 @@ importers:
       react-dom:
         specifier: 19.1.1
         version: 19.1.1(react@19.1.1)
+      xlsx:
+        specifier: 0.18.5
+        version: 0.18.5
     devDependencies:
       '@types/node':
         specifier: 22.18.0

@@ -13,13 +13,22 @@ import { usePaginatedList } from '@/hooks/use-paginated-list';
 import { TablePagination } from '@/components/ui/table-pagination';
 import { listAuthorizationItems } from '@/lib/authorization-items-api';
 import { downloadFile } from '@/lib/authorization-items-api';
-import { patientName, patientDocument, AUDIT_STATUS_LABELS, auditPill } from '@/lib/labels';
+import {
+  patientName,
+  patientDocument,
+  medicationName,
+  medicationQuantity,
+  AUDIT_STATUS_LABELS,
+  auditPill,
+} from '@/lib/labels';
 import type { AuthorizationItemResponse } from '@authorization/contracts';
 
 const COLUMNS = [
   { label: 'Autorización' },
   { label: 'Documento' },
   { label: 'Paciente' },
+  { label: 'Cantidad' },
+  { label: 'Medicamento' },
   { label: 'Punto aplicación' },
   { label: 'Fecha aplicación' },
   { label: 'Estado operación' },
@@ -36,7 +45,7 @@ const OPERATION_LABELS: Record<string, string> = {
 export function SoportesView() {
   const { organizationId, hasPermission } = useRole();
   const [tab, setTab] = useState(0);
-  const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
+  const [exporting, setExporting] = useState<'xlsx' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const reported = usePaginatedList<AuthorizationItemResponse>(
@@ -70,14 +79,14 @@ export function SoportesView() {
   const canExport = hasPermission('operational_exports.create');
   const canReport = hasPermission('bulk_updates.application_date');
 
-  const handleExport = (format: 'csv' | 'xlsx') => {
-    setExporting(format);
+  const handleExport = () => {
+    setExporting('xlsx');
     setActionError(null);
     downloadFile(
       '/operational-exports/authorization-items',
       organizationId,
-      `medicarte-fecha-aplicacion.${format}`,
-      { operationType: 'REPORT_APPLICATION_DATE', format },
+       'medicarte-fecha-aplicacion.xlsx',
+       { operationType: 'REPORT_APPLICATION_DATE', format: 'xlsx' },
     )
       .catch((err: unknown) =>
         setActionError(err instanceof Error ? err.message : 'No fue posible exportar.'),
@@ -91,6 +100,8 @@ export function SoportesView() {
     </span>,
     patientDocument(item.sourceData),
     patientName(item.sourceData),
+    medicationQuantity(item.sourceData),
+    medicationName(item.sourceData),
     item.lugarDispensacion ?? '—',
     item.fechaAplicacion ?? '—',
     OPERATION_LABELS[item.operationStatus ?? ''] ?? '—',
@@ -111,17 +122,9 @@ export function SoportesView() {
                 type="button"
                 className="btn"
                 disabled={exporting !== null}
-                onClick={() => handleExport('csv')}
+                onClick={handleExport}
               >
-                {exporting === 'csv' ? 'Generando…' : 'Exportar base (CSV)'}
-              </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={exporting !== null}
-                onClick={() => handleExport('xlsx')}
-              >
-                {exporting === 'xlsx' ? 'Generando…' : 'Exportar Excel'}
+                {exporting === 'xlsx' ? 'Generando…' : 'Exportar base (XLSX)'}
               </button>
             </>
           ) : null

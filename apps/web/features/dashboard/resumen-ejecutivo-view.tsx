@@ -14,7 +14,7 @@ import { useApiData } from '@/hooks/use-api-data';
 import { getIndicators } from '@/lib/authorization-items-api';
 
 const FLOW_STEPS: FlowStepData[] = [
-  { title: 'Ingesta', description: 'Archivo CSV/XLSX, staging y validación.' },
+  { title: 'Ingesta', description: 'Archivo XLSX, staging y validación.' },
   { title: 'PBS / NO PBS', description: 'Clasificación y estado de origen.' },
   {
     title: 'MIPRES',

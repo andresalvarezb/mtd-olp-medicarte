@@ -44,21 +44,17 @@ function isBlank(value: unknown): boolean {
 
 function isSupportedFile(filename: string, mimeType: string): boolean {
   const normalizedFilename = filename.toLowerCase();
-  if (normalizedFilename.endsWith('.csv'))
-    return mimeType === 'text/csv' || mimeType === 'application/octet-stream' || mimeType === '';
-  if (normalizedFilename.endsWith('.xlsx')) {
-    return (
-      mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+  return (
+    normalizedFilename.endsWith('.xlsx') &&
+    (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
       mimeType === 'application/octet-stream' ||
-      mimeType === ''
-    );
-  }
-  return false;
+      mimeType === '')
+  );
 }
 
 /**
  * SPEC-014: el contrato del cargue masivo del Anexo Tarifario exige el
- * encabezado exacto `Codigo Medicamento`. El valor se normaliza con la misma
+ * encabezado exacto `CODIGO_MEDICAMENTO`. El valor se normaliza con la misma
  * regla técnica de COD_COMERCIAL; filas sin código se conservan para el
  * reporte por fila.
  */
@@ -68,7 +64,7 @@ export function parseTariffImportFile(
   mimeType: string,
 ): ParsedTariffFile {
   if (!isSupportedFile(filename, mimeType)) {
-    throw new TariffFileError('INVALID_FILE_FORMAT', 'Solo se admiten archivos CSV o XLSX.');
+    throw new TariffFileError('INVALID_FILE_FORMAT', 'Solo se admiten archivos XLSX (.xlsx).');
   }
 
   let workbook: XLSX.WorkBook;
@@ -77,7 +73,6 @@ export function parseTariffImportFile(
       type: 'buffer',
       raw: true,
       cellDates: true,
-      codepage: 65001,
       WTF: true,
     });
   } catch {

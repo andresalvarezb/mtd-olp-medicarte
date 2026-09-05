@@ -53,31 +53,11 @@ export class ConsolidationController {
     private readonly access: AccessService,
   ) {}
 
-  @Get('authorization-items.csv')
-  @Header('Cache-Control', 'no-store')
-  @ApiOkResponse({
-    description:
-      'On-demand export of the consolidated or complete authorization base; not persisted',
-    content: { 'text/csv': { schema: { type: 'string', format: 'binary' } } },
-  })
-  @ApiQuery({ name: 'coverageType', enum: ['PBS', 'NO_PBS'], required: false })
-  @ApiQuery({ name: 'includeAll', enum: ['true', 'false'], required: false })
-  @ApiBadRequestResponse({ schema: errorSchema })
-  @ApiForbiddenResponse({ schema: errorSchema })
-  async exportCsv(
-    @Headers('x-organization-id') organizationId: string | undefined,
-    @Query() query: Record<string, string>,
-    @Req() request: AuthenticatedRequest,
-    @Res() response: Response,
-  ) {
-    return this.export(organizationId, { ...query, format: 'csv' }, request, response);
-  }
-
   @Get('authorization-items.xlsx')
   @Header('Cache-Control', 'no-store')
   @ApiOkResponse({
     description:
-      'On-demand XLSX export of the consolidated or complete authorization base; not persisted',
+      'On-demand export of the consolidated or complete authorization base; not persisted',
     content: {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
         schema: { type: 'string', format: 'binary' },
@@ -88,7 +68,7 @@ export class ConsolidationController {
   @ApiQuery({ name: 'includeAll', enum: ['true', 'false'], required: false })
   @ApiBadRequestResponse({ schema: errorSchema })
   @ApiForbiddenResponse({ schema: errorSchema })
-  async exportXlsx(
+  async exportCsv(
     @Headers('x-organization-id') organizationId: string | undefined,
     @Query() query: Record<string, string>,
     @Req() request: AuthenticatedRequest,
@@ -158,9 +138,7 @@ export class ConsolidationController {
     });
     response.setHeader(
       'Content-Type',
-      query.format === 'xlsx'
-        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        : 'text/csv; charset=utf-8',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
     response.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     response.setHeader('Content-Length', String(result.content.length));

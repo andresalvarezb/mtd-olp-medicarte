@@ -1,106 +1,59 @@
-import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
+import { describe, expect, it } from 'vitest';
 import { parseBulkFile, BulkFileError } from './bulk-parser';
 
 const requiredColumns = ['NUMERO_AUTORIZACION', 'CODIGO_PRODUCTO', 'LUGAR_DISPENSACION'];
-
-function csv(content: string): Buffer {
-  return Buffer.from(content, 'utf8');
-}
+const xlsx = (rows: unknown[][]): Buffer => {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'Datos');
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+};
+const file = (rows: unknown[][]) => xlsx(rows);
+const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 describe('parseBulkFile', () => {
   it('acepta columnas exactas en cualquier orden', () => {
-    const parsed = parseBulkFile(
-      csv('codigo_medicamento,numero_autorizacion,lugar_dispensacion\nMED,A1,Calle 1\n'),
-      'bulk.csv',
-      'text/csv',
-      requiredColumns,
-    );
-    const firstRow = parsed.rows[0];
+    const parsed = parseBulkFile(file([
+      ['codigo_producto', 'numero_autorizacion', 'lugar_dispensacion'], ['MED', 'A1', 'Calle 1'],
+    ]), 'bulk.xlsx', mime, requiredColumns);
     expect(parsed.rows).toHaveLength(1);
-    expect(firstRow?.rawData['NUMERO_AUTORIZACION']).toBe('A1');
+    expect(parsed.rows[0]?.rawData['NUMERO_AUTORIZACION']).toBe('A1');
   });
 
   it('rechaza columnas adicionales con INVALID_HEADERS', () => {
-    expect(() =>
-      parseBulkFile(
-        csv('numero_autorizacion,codigo_medicamento,lugar_dispensacion,extra\nA,M,C,X\n'),
-        'bulk.csv',
-        'text/csv',
-        requiredColumns,
-      ),
-    ).toThrow(BulkFileError);
+    expect(() => parseBulkFile(file([
+      ['numero_autorizacion', 'codigo_producto', 'lugar_dispensacion', 'extra'], ['A', 'M', 'C', 'X'],
+    ]), 'bulk.xlsx', mime, requiredColumns)).toThrow(BulkFileError);
     try {
-      parseBulkFile(
-        csv('numero_autorizacion,codigo_medicamento,lugar_dispensacion,extra\nA,M,C,X\n'),
-        'bulk.csv',
-        'text/csv',
-        requiredColumns,
-      );
+      parseBulkFile(file([
+        ['numero_autorizacion', 'codigo_producto', 'lugar_dispensacion', 'extra'], ['A', 'M', 'C', 'X'],
+      ]), 'bulk.xlsx', mime, requiredColumns);
     } catch (error) {
       expect((error as BulkFileError).code).toBe('INVALID_HEADERS');
     }
   });
 
-  it('rechaza columnas faltantes con INVALID_HEADERS', () => {
-    expect(() =>
-      parseBulkFile(
-        csv('numero_autorizacion,codigo_medicamento\nA,M\n'),
-        'bulk.csv',
-        'text/csv',
-        requiredColumns,
-      ),
-    ).toThrow(BulkFileError);
-  });
-
-  it('rechaza celdas adicionales aunque no tengan encabezado', () => {
-    expect(() =>
-      parseBulkFile(
-        csv('numero_autorizacion,codigo_medicamento,lugar_dispensacion\nA,M,C,oculta\n'),
-        'bulk.csv',
-        'text/csv',
-        requiredColumns,
-      ),
-    ).toThrow(BulkFileError);
-  });
-
-  it('rechaza encabezados duplicados', () => {
-    expect(() =>
-      parseBulkFile(
-        csv('numero_autorizacion,numero_autorizacion,lugar_dispensacion\nA,A,C\n'),
-        'bulk.csv',
-        'text/csv',
-        requiredColumns,
-      ),
-    ).toThrow(/duplicados/);
+  it('rechaza columnas faltantes, celdas adicionales y encabezados duplicados', () => {
+    expect(() => parseBulkFile(file([
+      ['numero_autorizacion', 'codigo_producto'], ['A', 'M'],
+    ]), 'bulk.xlsx', mime, requiredColumns)).toThrow(BulkFileError);
+    expect(() => parseBulkFile(file([
+      ['numero_autorizacion', 'codigo_producto', 'lugar_dispensacion'], ['A', 'M', 'C', 'oculta'],
+    ]), 'bulk.xlsx', mime, requiredColumns)).toThrow(BulkFileError);
+    expect(() => parseBulkFile(file([
+      ['numero_autorizacion', 'numero_autorizacion', 'lugar_dispensacion'], ['A', 'A', 'C'],
+    ]), 'bulk.xlsx', mime, requiredColumns)).toThrow(/duplicados/);
   });
 
   it('omite filas completamente vacías', () => {
-    const parsed = parseBulkFile(
-      csv('numero_autorizacion,codigo_medicamento,lugar_dispensacion\nA,M,Calle 1\n,,\n'),
-      'bulk.csv',
-      'text/csv',
-      requiredColumns,
-    );
+    const parsed = parseBulkFile(file([
+      ['numero_autorizacion', 'codigo_producto', 'lugar_dispensacion'], ['A', 'M', 'Calle 1'], [null, null, null],
+    ]), 'bulk.xlsx', mime, requiredColumns);
     expect(parsed.rows).toHaveLength(1);
   });
 
-  it('normaliza una fecha calendario nativa de XLSX sin convertirla en timestamp', () => {
-    const sheet = XLSX.utils.aoa_to_sheet([
-      ['NUMERO_AUTORIZACION', 'CODIGO_PRODUCTO', 'FECHA_DISPENSACION'],
-      ['A', 'M', new Date(2026, 7, 30)],
-    ]);
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, 'actualizacion');
-    const content = Buffer.from(
-      XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as ArrayBuffer,
-    );
-    const parsed = parseBulkFile(
-      content,
-      'bulk.xlsx',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      ['NUMERO_AUTORIZACION', 'CODIGO_PRODUCTO', 'FECHA_DISPENSACION'],
-    );
-    expect(parsed.rows[0]?.rawData['FECHA_DISPENSACION']).toBe('2026-08-30');
+  it('rechaza CSV porque XLSX es el único formato aceptado', () => {
+    expect(() => parseBulkFile(Buffer.from('data'), 'bulk.csv', 'text/csv', requiredColumns))
+      .toThrow('Solo se admiten archivos XLSX');
   });
 });

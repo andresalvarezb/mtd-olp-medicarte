@@ -15,8 +15,8 @@ Entregables obligatorios:
 - Llave existente: revisión humana; actualización explícita solo si `operation_status = READY_TO_DISPENSE`, recalcula el estado operacional y queda `BLOCKED` si la nueva clasificación no cumple los prerrequisitos; bloqueada desde `DISPENSATION_REPORTED` en adelante.
 - Contrato MIPRES de direccionamientos aceptado en DEC-013: integración de lectura `WSSUMMIPRESNOPBS` con `GenerarToken`, `DireccionamientoXPrescripcion` y `MipresTokenProvider`, según `contracts/MIPRES_DIRECCIONAMIENTOS_CONTRATO.md`. `noPrescripcion` proviene de `No.PRESCRIPCION` sin sus últimos 3 dígitos (DEC-016).
 - Regla de direccionamiento confirmada: `current_date(America/Bogota) < fecha_maxima`; igualdad con la fecha máxima no es válida.
-- Reportes diarios a las 08:00 `America/Bogota`, con novedades del día anterior y destinatarios parametrizables.
-- Drive conservado como repositorio corporativo externo; Medicarte administra allí los soportes sin carga individual desde la aplicación; exportaciones CSV/XLSX on-demand y no persistentes.
+- No se implementan notificaciones automáticas, reporte diario ni destinatarios configurables para este flujo.
+- Drive conservado como repositorio corporativo externo; Medicarte administra allí los soportes sin carga individual desde la aplicación; exportaciones XLSX on-demand y no persistentes.
 - Auditoría humana/visual sin cálculo automático de completitud; la aprobación explícita produce `APPROVED` y habilita consolidación.
 - OLP reporta masivamente `fecha_dispensacion` (`DISPENSATION_REPORTED`); Medicarte reporta `fecha_aplicacion`; `DISPENSED` ocurre únicamente después de auditoría `APPROVED`.
 - Pipeline genérico de bulk updates cerrado por tipo, llave + un campo, 20 MB, fuente temporal PostgreSQL `BYTEA`, BullMQ con identificadores, staging y reporte por fila.
@@ -49,7 +49,7 @@ Entregables obligatorios:
 
 **Objetivo:** completar la primera historia vertical sin depender de MIPRES ni Google Workspace.
 
-- Carga CSV/XLSX y creación de `import_batches`.
+- Carga XLSX (`.xlsx`) y creación de `import_batches`.
 - Staging en `import_rows`.
 - Normalización y validaciones por campo.
 - Detección de duplicados dentro del archivo y contra `authorization_items`.
@@ -87,22 +87,18 @@ Entregables obligatorios:
 
 **Gate F3:** tests de timeout/401/500/respuesta inválida/sin direccionamiento/direccionamiento anulado/direccionamiento vigente/igualdad de `FecMaxEnt`; un reintento no duplica checks ni altera incorrectamente el estado; la evidencia no contiene tokens.
 
-### Fase 4 — Disponibilidad y notificaciones
+### Fase 4 — Disponibilidad operativa
 
 **Objetivo:** convertir estados técnicos en acciones operativas y comunicaciones confiables.
 
 - Regla de derivación de `operation_status` y `READY_TO_DISPENSE`, centralizada en dominio y reutilizada por actualizaciones explícitas.
-- Evento de pendiente de direccionamiento para EPS cuando corresponda.
-- Evento de disponibilidad para OLP y MEDICARTE cuando corresponda.
+- Estados de disponibilidad para OLP y MEDICARTE, sin envío de notificaciones.
 - Descarga on-demand de base completa permitida para MEDICARTE.
 - Pipeline reutilizable de bulk updates: lote, fuente `BYTEA`, staging, resultados y consulta.
 - Operación MEDICARTE para `lugar_dispensacion`, con esquema exacto de llave + campo.
 - Persistencia del valor vigente en `authorization_items`, historial append-only y estado de sitio derivado.
 - Eventos `DISPENSATION_LOCATION_ASSIGNED` y `DISPENSATION_LOCATION_CHANGED` para OLP.
-- Plantillas versionadas y destinatarios configurables.
-- Handlers de outbox para Gmail.
-- Consolidación diaria a las 08:00 de novedades del día calendario anterior (`America/Bogota`), destinatarios parametrizables, deduplicación, idempotency keys y bandeja administrativa de fallos.
-- Historial de notificaciones y `gmail_message_id`.
+- No se crean plantillas de correo, handlers Gmail ni historial de notificaciones.
 
 El patrón outbox **no nace en esta fase**; debe existir desde Fase 1. Aquí se implementan los eventos y handlers específicos del negocio.
 
@@ -130,9 +126,9 @@ El patrón outbox **no nace en esta fase**; debe existir desde Fase 1. Aquí se 
 - Inicio de revisión, hallazgos, rechazo, subsanación y aprobación.
 - Revisión manual externa de soportes; la plataforma no calcula completitud.
 - Derivación `NOT_STARTED -> READY` cuando existen ambas fechas operativas, sin inferir suficiencia documental.
-- Exportaciones CSV/XLSX bajo demanda con filtros y permisos, sin conservar copia persistente; auditar la operación.
+- Exportaciones XLSX bajo demanda con filtros y permisos, sin conservar copia persistente; auditar la operación.
 - Indicadores operativos.
-- Solo registros con `audit_status = APPROVED` pueden entrar al consolidado.
+- El consolidado refleja el estado actual de todos los registros.
 - Derivación de `admission_status = READY` únicamente desde reglas de dominio; nunca por edición libre de UI.
 
 **Gate F6:** ambas fechas habilitan revisión; solo un auditor puede decidir y ningún proceso automático aprueba; actor, fecha, observaciones y hallazgos quedan trazables; exportaciones no bloquean la API y lecturas/descargas sensibles quedan auditadas.
@@ -167,7 +163,7 @@ La estimación original de **12 a 16 semanas** para una sola persona sigue siend
 
 ## Regla transversal de exportación
 
-CSV/XLSX se generan bajo demanda y no se conserva una copia persistente. Solo se conserva la auditoría de la operación.
+XLSX se genera bajo demanda y no se conserva una copia persistente. Solo se conserva la auditoría de la operación.
 
 ## Cierre de Fase 0
 

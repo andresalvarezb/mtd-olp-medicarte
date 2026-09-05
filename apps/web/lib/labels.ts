@@ -144,15 +144,22 @@ export function patientName(sourceData: Record<string, unknown> | null): string 
   return typeof value === 'string' && value.trim() ? value : '—';
 }
 
-/** Documento del paciente (NUM_DOCUMENTO) según el archivo original. */
+/** Identificación del paciente según el contrato canónico de autorizaciones. */
 export function patientDocument(sourceData: Record<string, unknown> | null): string {
-  const value = sourceData?.NUM_DOCUMENTO;
+  const value = sourceData?.IDENTIFICACION_PACIENTE;
   return typeof value === 'string' && value.trim() ? value : '—';
 }
 
 /** Nombre del medicamento (CUPS_AUTORIZADO) según el archivo original. */
 export function medicationName(sourceData: Record<string, unknown> | null): string {
   const value = sourceData?.CUPS_AUTORIZADO;
+  return typeof value === 'string' && value.trim() ? value : '—';
+}
+
+/** Cantidad del medicamento según el archivo original. */
+export function medicationQuantity(sourceData: Record<string, unknown> | null): string {
+  const value = sourceData?.CANTIDAD;
+  if (typeof value === 'number') return String(value);
   return typeof value === 'string' && value.trim() ? value : '—';
 }
 
