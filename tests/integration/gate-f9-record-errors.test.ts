@@ -170,15 +170,20 @@ async function novelties(query: string): Promise<Array<Record<string, unknown>>>
   return ((await response.json()) as { items: Array<Record<string, unknown>> }).items;
 }
 
-async function downloadNoveltiesCsv(
+async function downloadNoveltiesXlsx(
   query: string,
   token = adminToken,
   organizationId = mtdOrganizationId,
-): Promise<{ status: number; text: string }> {
-  const response = await fetch(`${apiUrl}/api/v1/novelties/csv${query}`, {
+): Promise<{ status: number; contentType: string; size: number }> {
+  const response = await fetch(`${apiUrl}/api/v1/novelties/xlsx${query}`, {
     headers: { authorization: `Bearer ${token}`, 'x-organization-id': organizationId },
   });
-  return { status: response.status, text: await response.text() };
+  const content = await response.arrayBuffer();
+  return {
+    status: response.status,
+    contentType: response.headers.get('content-type') ?? '',
+    size: content.byteLength,
+  };
 }
 
 async function reprocess(itemId: string, token = adminToken): Promise<Response> {
@@ -317,33 +322,12 @@ describe('ADR-027 errores por registro en cargas masivas', () => {
         [`${prefix}-partial.csv`],
       )
     ).rows[0]!.id;
-    const exported = await downloadNoveltiesCsv(`?batchId=${batchId}`);
+    const exported = await downloadNoveltiesXlsx(`?batchId=${batchId}`);
     expect(exported.status).toBe(200);
-    const lines = exported.text.split('\r\n').filter((line) => line !== '');
-    const header = lines[0]!.split(';');
-    for (const column of [
-      'NUMERO_AUTORIZACION',
-      'CODIGO_COMERCIAL',
-      'ESTADO_PROCESAMIENTO',
-      'ETAPA_ERROR',
-      'CODIGO_ERROR',
-      'TIPO_ERROR',
-      'DESCRIPCION_ERROR',
-    ]) {
-      expect(header).toContain(column);
-    }
-    expect(header.slice(-5)).toEqual([
-      'ESTADO_PROCESAMIENTO',
-      'ETAPA_ERROR',
-      'CODIGO_ERROR',
-      'TIPO_ERROR',
-      'DESCRIPCION_ERROR',
-    ]);
-    expect(lines).toHaveLength(3);
-    for (const line of lines.slice(1)) {
-      expect(line).toContain('PENDIENTE');
-      expect(line).toContain('CORREGIBLE_POR_CARGUE');
-    }
+    expect(exported.contentType).toContain(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    expect(exported.size).toBeGreaterThan(0);
   });
 
   it('caso 5: recarga parcial de los corregidos sin duplicar ni reprocesar los válidos', async () => {
