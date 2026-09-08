@@ -600,12 +600,9 @@ export const bulkUpdateBatches = pgTable(
   (table) => [
     index('bulk_update_batches_org_idx').on(table.organizationId, table.createdAt),
     index('bulk_update_batches_hash_idx').on(table.sha256),
-    uniqueIndex('bulk_update_batches_logical_key_idx').on(
-      table.organizationId,
-      table.operationType,
-      table.sha256,
-      table.contractVersion,
-    ),
+    uniqueIndex('bulk_update_batches_logical_key_idx')
+      .on(table.organizationId, table.operationType, table.sha256, table.contractVersion)
+      .where(sql`${table.status} <> 'FAILED'`),
     check(
       'bulk_update_batches_size_bytes_check',
       sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 20971520`,

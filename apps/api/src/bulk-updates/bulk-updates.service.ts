@@ -210,15 +210,15 @@ export class BulkUpdatesService {
         return previous.response;
       }
 
-      // SPEC-009: la clave de bulk update es operation_type + organización +
-      // file_hash + contrato. Reenviar el mismo archivo deduplica al lote
-      // original en lugar de crear otro trabajo.
+      // Reenviar el mismo archivo deduplica lotes activos o completados. Un
+      // lote fallido debe poder reintentarse con el mismo archivo.
       const replay = await client.query<BatchRow>(
         `select id, organization_id, operation_type, contract_version, original_filename, mime_type,
                 size_bytes, sha256, status, total_rows, processed_rows, updated_rows, unchanged_rows,
                 rejected_rows, last_error_code, created_at, completed_at
          from bulk_update_batches
-         where organization_id = $1 and operation_type = $2 and sha256 = $3 and contract_version = $4`,
+          where organization_id = $1 and operation_type = $2 and sha256 = $3 and contract_version = $4
+            and status <> 'FAILED'`,
         [input.scope.organizationId, operationType, contentHash, BULK_UPDATE_CONTRACT_VERSION],
       );
       const replayed = replay.rows[0];
