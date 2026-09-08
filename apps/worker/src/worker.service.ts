@@ -785,6 +785,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     const job = await queue.getJob(jobId);
     if (!job) return;
     const importJob = authorizationImportJobSchema.safeParse(job.data);
+    const bulkUpdateJob = bulkUpdateJobSchema.safeParse(job.data);
     const classification = classifyTerminalImportError(failedReason);
     const isDiscardedImport = importJob.success && classification === 'PROCESSOR_VERSION_MISMATCH';
     if (!isDiscardedImport && job.attemptsMade < (job.opts.attempts ?? 1)) return;
@@ -795,6 +796,12 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         attemptsMade: job.attemptsMade,
         classification,
       });
+    } else if (bulkUpdateJob.success) {
+      await this.persistTerminalBulkUpdateFailure(
+        bulkUpdateJob.data.payload.batchId,
+        bulkUpdateJob.data.payload.eventId,
+        failedReason,
+      );
     } else {
       await this.database.db
         .update(outboxEvents)
@@ -814,6 +821,42 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       { jobId: `dlq-${queueName}-${jobId}`, removeOnComplete: false, removeOnFail: false },
     );
     this.logger.error({ jobId, queue: queueName, failedReason }, 'job moved to dead-letter queue');
+  }
+
+  private async persistTerminalBulkUpdateFailure(
+    batchId: string,
+    eventId: string,
+    failedReason: string,
+  ): Promise<void> {
+    const client = await this.database.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query(
+        `update bulk_update_batches
+         set status = 'FAILED', completed_at = coalesce(completed_at, now()),
+             last_error_code = 'PROCESSING_ERROR'
+         where id = $1 and status in ('UPLOADED', 'QUEUED', 'PROCESSING')`,
+        [batchId],
+      );
+      await client.query(
+        `update bulk_update_source_files
+         set content = null, processed_at = coalesce(processed_at, now())
+         where batch_id = $1`,
+        [batchId],
+      );
+      await client.query(
+        `update outbox_events
+         set status = 'FAILED', last_error = $2
+         where id = $1`,
+        [eventId, failedReason],
+      );
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   private eventIdForJob(job: WorkerJob): string {

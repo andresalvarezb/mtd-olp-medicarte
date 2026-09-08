@@ -83,6 +83,7 @@ const BULK_ROW_RESULT_LABELS: Record<string, string> = {
   INVALID_VALUE_FORMAT: 'Formato del valor inválido',
   INVALID_OPERATION_STATE: 'Estado operativo no permite la operación',
   VERSION_CONFLICT: 'Conflicto de versión',
+  PROCESSING_ERROR: 'Error interno de procesamiento',
 };
 
 const RESULT_CODE_LABELS: Record<string, string> = {
