@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
+import * as XLSX from 'xlsx';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminLogin, apiUrl, ensureOperatorTokens, ORGANIZATION_IDS } from './helpers/auth';
 import { registerTariffProducts } from './helpers/tariff';
@@ -54,13 +55,9 @@ type ImportRowInput = Readonly<{
   vigencia?: string;
 }>;
 
-function csvValue(value: string): string {
-  return /[;"]/u.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
-}
-
-function authorizationCsv(rows: ImportRowInput[]): string {
-  return [
-    sourceColumns.map(csvValue).join(';'),
+function authorizationXlsx(rows: ImportRowInput[]): Buffer {
+  const values = [
+    sourceColumns,
     ...rows.map((row) =>
       [
         'EPS-1',
@@ -89,17 +86,25 @@ function authorizationCsv(rows: ImportRowInput[]): string {
         'source-1',
         'FPRO-1',
         '0',
-      ]
-        .map(csvValue)
-        .join(';'),
+      ],
     ),
-    '',
-  ].join('\n');
+  ];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(values), 'Autorizaciones');
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
 
-async function createImport(content: string, filename = 'authorizations.csv'): Promise<string> {
+async function createImport(content: string | Buffer, filename = 'authorizations.xlsx'): Promise<string> {
   const form = new FormData();
-  form.append('file', new Blob([content], { type: 'text/csv' }), filename);
+  form.append(
+    'file',
+    new Blob([content], {
+      type: filename.endsWith('.xlsx')
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'text/plain',
+    }),
+    filename,
+  );
   const response = await fetch(`${apiUrl}/api/v1/imports`, {
     method: 'POST',
     headers: {
@@ -267,8 +272,8 @@ describe('ADR-027 errores por registro en cargas masivas', () => {
 
   it('caso 1: archivo 100% válido procesa todos los registros', async () => {
     const batchId = await createImport(
-      authorizationCsv([rowInput(1), rowInput(2)]),
-      `${prefix}-ok.csv`,
+      authorizationXlsx([rowInput(1), rowInput(2)]),
+      `${prefix}-ok.xlsx`,
     );
     const ready = await waitForBatch(batchId, 'READY_TO_CONFIRM');
     expect(ready.totalRows).toBe(2);
@@ -297,7 +302,7 @@ describe('ADR-027 errores por registro en cargas masivas', () => {
     for (let index = 10; index < 20; index += 1) rows.push(rowInput(index));
     rows.push(rowInput(20, { authorization: '' }));
     rows.push(rowInput(21, { medication: noPbsProductCode, prescripcion: '12' }));
-    const batchId = await createImport(authorizationCsv(rows), `${prefix}-partial.csv`);
+    const batchId = await createImport(authorizationXlsx(rows), `${prefix}-partial.xlsx`);
     const ready = await waitForBatch(batchId, 'READY_TO_CONFIRM');
     expect(ready.totalRows).toBe(12);
     expect(ready.validRows).toBe(10);
@@ -319,7 +324,7 @@ describe('ADR-027 errores por registro en cargas masivas', () => {
     const batchId = (
       await database.query<{ id: string }>(
         `select b.id from import_batches b where b.original_filename = $1 limit 1`,
-        [`${prefix}-partial.csv`],
+        [`${prefix}-partial.xlsx`],
       )
     ).rows[0]!.id;
     const exported = await downloadNoveltiesXlsx(`?batchId=${batchId}`);
@@ -334,7 +339,7 @@ describe('ADR-027 errores por registro en cargas masivas', () => {
     const firstBatch = (
       await database.query<{ id: string }>(
         `select b.id from import_batches b where b.original_filename = $1 limit 1`,
-        [`${prefix}-partial.csv`],
+        [`${prefix}-partial.xlsx`],
       )
     ).rows[0]!;
     const itemsBefore = await database.query<{ total: number }>(
@@ -342,7 +347,7 @@ describe('ADR-027 errores por registro en cargas masivas', () => {
       [`${prefix}%`],
     );
     const reload = await createImport(
-      authorizationCsv([
+      authorizationXlsx([
         rowInput(20),
         rowInput(21, { medication: noPbsProductCode, prescripcion: '12345678901234567890' }),
       ]),
@@ -374,8 +379,8 @@ describe('ADR-027 errores por registro en cargas masivas', () => {
   it('caso 6 y 7: producto inexistente detiene el registro y crearlo después lo libera sin recargar', async () => {
     const missingProduct = `${prefix}-LATE`;
     const batchId = await createImport(
-      authorizationCsv([rowInput(30, { medication: missingProduct })]),
-      `${prefix}-late-product.csv`,
+      authorizationXlsx([rowInput(30, { medication: missingProduct })]),
+      `${prefix}-late-product.xlsx`,
     );
     await waitForBatch(batchId, 'READY_TO_CONFIRM');
     const confirmed = await confirmBatch(batchId);
@@ -422,8 +427,8 @@ describe('ADR-027 errores por registro en cargas masivas', () => {
       [`${prefix}%`],
     );
     const batchId = await createImport(
-      authorizationCsv([rowInput(10), rowInput(11)]),
-      `${prefix}-repeat.csv`,
+      authorizationXlsx([rowInput(10), rowInput(11)]),
+      `${prefix}-repeat.xlsx`,
     );
     const ready = await waitForBatch(batchId, 'READY_TO_CONFIRM');
     expect(ready.validRows).toBe(0);
@@ -466,7 +471,7 @@ describe('ADR-027 errores por registro en cargas masivas', () => {
       const invalid = index % 20 === 0;
       rows.push(rowInput(index, invalid ? { prescripcion: '7' } : {}));
     }
-    const batchId = await createImport(authorizationCsv(rows), `${prefix}-large.csv`);
+    const batchId = await createImport(authorizationXlsx(rows), `${prefix}-large.xlsx`);
     const ready = await waitForBatch(batchId, 'READY_TO_CONFIRM');
     expect(ready.totalRows).toBe(200);
     expect(ready.validRows).toBe(190);
