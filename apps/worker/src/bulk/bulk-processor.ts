@@ -407,9 +407,9 @@ export class BulkUpdateProcessor {
         ? item.lugar_dispensacion
         : input.operationType === 'ASSIGN_PURCHASE_ORDER'
           ? item.orden_compra
-        : input.operationType === 'REPORT_DISPENSATION_DATE'
-          ? item.fecha_dispensacion
-          : item.fecha_aplicacion;
+          : input.operationType === 'REPORT_DISPENSATION_DATE'
+            ? item.fecha_dispensacion
+            : item.fecha_aplicacion;
     const previousScheduledDate = item.fecha_programada;
     if (
       !isOperationalUpdateAllowed({
@@ -489,7 +489,7 @@ export class BulkUpdateProcessor {
                  operation_status = $3, audit_status = $4, operational_version = $5,
                  version = version + 1, updated_at = now(), updated_by = $6
                where id = $1 and operational_version = $7 returning id`
-             : `update authorization_items set fecha_aplicacion = $2::date,
+            : `update authorization_items set fecha_aplicacion = $2::date,
                   cod_autorizacion_medicarte = $3, process_status = 'LISTO_PARA_AUDITORIA',
                   operation_status = $4, audit_status = $5, operational_version = $6,
                   version = version + 1, updated_at = now(), updated_by = $7
@@ -508,16 +508,26 @@ export class BulkUpdateProcessor {
           ]
         : input.operationType === 'ASSIGN_PURCHASE_ORDER'
           ? [item.id, newValue, input.actorId, item.operational_version]
-          : [
-              item.id,
-              newValue,
-              medicarteCode,
-              statuses.operationStatus,
-              statuses.auditStatus,
-              newOperationalVersion,
-              input.actorId,
-              item.operational_version,
-            ];
+          : input.operationType === 'REPORT_DISPENSATION_DATE'
+            ? [
+                item.id,
+                newValue,
+                statuses.operationStatus,
+                statuses.auditStatus,
+                newOperationalVersion,
+                input.actorId,
+                item.operational_version,
+              ]
+            : [
+                item.id,
+                newValue,
+                medicarteCode,
+                statuses.operationStatus,
+                statuses.auditStatus,
+                newOperationalVersion,
+                input.actorId,
+                item.operational_version,
+              ];
     const updated = await client.query<{ id: string }>(updateSql, updateValues);
     if (updated.rowCount === 0) {
       return await reject('VERSION_CONFLICT', item.id, {

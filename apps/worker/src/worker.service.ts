@@ -146,12 +146,9 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     this.bulkQueue = new Queue<BulkUpdateJob>(BULK_UPDATES_QUEUE, {
       connection: this.connection,
     });
-    this.tariffQueue = new Queue<TariffImportJob | TariffAnnexRevalidationJob>(
-      TARIFF_ANNEX_QUEUE,
-      {
-        connection: this.connection,
-      },
-    );
+    this.tariffQueue = new Queue<TariffImportJob | TariffAnnexRevalidationJob>(TARIFF_ANNEX_QUEUE, {
+      connection: this.connection,
+    });
     this.foundationDeadLetterQueue = new Queue<DeadLetterJob>(FOUNDATION_DEAD_LETTER_QUEUE, {
       connection: this.connection,
     });
@@ -311,10 +308,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         this.config.OUTBOX_POLL_INTERVAL_MS,
       );
       void this.dispatchOutbox();
-      this.expirationSweepTimer = setInterval(
-        () => void this.runExpirationSweep(),
-        60_000,
-      );
+      this.expirationSweepTimer = setInterval(() => void this.runExpirationSweep(), 60_000);
       void this.runExpirationSweep();
     }
   }
@@ -680,8 +674,9 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     const data = rawJob.data;
     const importJob = tariffImportJobSchema.safeParse(data);
     if (importJob.success) {
-      const result: TariffImportProcessingResult =
-        await this.tariffImportProcessor.process(importJob.data);
+      const result: TariffImportProcessingResult = await this.tariffImportProcessor.process(
+        importJob.data,
+      );
       await this.database.db
         .insert(jobResults)
         .values({
@@ -711,8 +706,9 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     }
     const revalidationJob = tariffAnnexRevalidationJobSchema.safeParse(data);
     if (revalidationJob.success) {
-      const result: TariffRevalidationResult =
-        await this.tariffRevalidationProcessor.process(revalidationJob.data);
+      const result: TariffRevalidationResult = await this.tariffRevalidationProcessor.process(
+        revalidationJob.data,
+      );
       await this.database.db
         .insert(jobResults)
         .values({
