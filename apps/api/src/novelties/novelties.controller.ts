@@ -56,12 +56,44 @@ export class NoveltiesController {
     response.setHeader('Content-Disposition', `attachment; filename="${exported.filename}"`);
     response.end(exported.content);
   }
+
+  @Get('corrective-xlsx')
+  @ApiOkResponse({ description: 'Correctable rows with reloadable columns for the selected batch' })
+  async exportCorrectiveXlsx(
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+    @Res() response: Response,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<void> {
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organizationId,
+      'authorizations.read',
+    );
+    const scope = scopeFromProfile(profile, organizationId!, request);
+    const exported = await this.novelties.exportCorrectiveXlsx(toQuery(query), scope);
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader('Content-Disposition', `attachment; filename="${exported.filename}"`);
+    response.end(exported.content);
+  }
 }
 
 function toQuery(query: Record<string, string | undefined>): Record<string, unknown> {
   const entries = Object.entries(query).filter(
     ([key, value]) =>
-      ['authorization', 'document', 'stage', 'errorType', 'status', 'batchId', 'code', 'limit'].includes(key) &&
+      [
+        'authorization',
+        'document',
+        'stage',
+        'errorType',
+        'status',
+        'batchId',
+        'code',
+        'limit',
+      ].includes(key) &&
       value !== undefined &&
       value !== '',
   );

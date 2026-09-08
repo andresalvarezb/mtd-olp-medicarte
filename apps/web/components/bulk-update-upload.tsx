@@ -12,6 +12,7 @@ import {
 } from '@/lib/bulk-updates-api';
 import { resultLabel, BULK_BATCH_STATUS_LABELS, formatNumber } from '@/lib/labels';
 import { IMPORT_MAX_FILE_BYTES } from '@/lib/config';
+import { downloadCorrectiveNovelties } from '@/lib/novelties-api';
 
 const BULK_BATCH_POLL_MS = 1500;
 const REJECTED_ROWS_SHOWN = 5;
@@ -49,6 +50,7 @@ export function BulkUpdateUpload({
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [batch, setBatch] = useState<BulkUpdateBatch | null>(null);
   const [rejectedRows, setRejectedRows] = useState<BulkUpdateRow[]>([]);
+  const [downloadingCorrective, setDownloadingCorrective] = useState(false);
   const { organizationId } = useRole();
   const idempotencyKeyRef = useRef<string | null>(null);
 
@@ -133,6 +135,21 @@ export function BulkUpdateUpload({
     }
   };
 
+  const handleDownloadCorrective = async () => {
+    if (!organizationId || !batch || downloadingCorrective) return;
+    setDownloadingCorrective(true);
+    setBulkError(null);
+    try {
+      await downloadCorrectiveNovelties(organizationId, batch.id);
+    } catch (err) {
+      setBulkError(
+        err instanceof Error ? err.message : 'No fue posible descargar el archivo corregible.',
+      );
+    } finally {
+      setDownloadingCorrective(false);
+    }
+  };
+
   const inputId = `bulk-file-input-${operationType}`;
 
   return (
@@ -174,7 +191,7 @@ export function BulkUpdateUpload({
             <input
               id={inputId}
               type="file"
-               accept=".xlsx"
+              accept=".xlsx"
               style={{ display: 'none' }}
               onChange={handleFileChange}
             />
@@ -224,14 +241,24 @@ export function BulkUpdateUpload({
             {batch.lastErrorCode ? ` · error: ${resultLabel(batch.lastErrorCode)}` : ''}
           </p>
           {rejectedRows.length ? (
-            <ul style={{ marginTop: 6, paddingLeft: 20 }}>
-              {rejectedRows.map((row) => (
-                <li key={row.id}>
-                  Fila {formatNumber(row.rowNumber)}: {resultLabel(row.resultCode)} —{' '}
-                  {row.resultMessage}
-                </li>
-              ))}
-            </ul>
+            <>
+              <button
+                type="button"
+                className="btn soft"
+                disabled={downloadingCorrective}
+                onClick={() => void handleDownloadCorrective()}
+              >
+                {downloadingCorrective ? 'Generando…' : 'Descargar corregibles (XLSX)'}
+              </button>
+              <ul style={{ marginTop: 6, paddingLeft: 20 }}>
+                {rejectedRows.map((row) => (
+                  <li key={row.id}>
+                    Fila {formatNumber(row.rowNumber)}: {resultLabel(row.resultCode)} —{' '}
+                    {row.resultMessage}
+                  </li>
+                ))}
+              </ul>
+            </>
           ) : null}
         </>
       ) : null}

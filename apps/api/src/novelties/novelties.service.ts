@@ -1,7 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import {
+  bulkUpdateOperationContracts,
   noveltyListQuerySchema,
+  requiredAuthorizationSourceColumns,
+  requiredTariffImportColumns,
+  type BulkUpdateOperationType,
   type NoveltyListItem,
   type NoveltyListQuery,
 } from '@authorization/contracts';
@@ -44,11 +48,7 @@ const EXPORT_DIAGNOSTIC_COLUMNS = [
   'DESCRIPCION_ERROR',
 ] as const;
 
-function buildWhere(input: {
-  query: NoveltyListQuery;
-  scope: Scope;
-  values: unknown[];
-}): string {
+function buildWhere(input: { query: NoveltyListQuery; scope: Scope; values: unknown[] }): string {
   const { query, scope, values } = input;
   const clauses: string[] = [];
   if (query.status === 'PENDIENTE' || query.status === undefined) {
@@ -138,7 +138,10 @@ export class NoveltiesService {
     return { items: result.rows.map((row) => this.toItem(row)) };
   }
 
-  async exportXlsx(rawQuery: unknown, scope: Scope): Promise<{ filename: string; content: Buffer }> {
+  async exportXlsx(
+    rawQuery: unknown,
+    scope: Scope,
+  ): Promise<{ filename: string; content: Buffer }> {
     const query = noveltyListQuerySchema.parse(rawQuery);
     const values: unknown[] = [];
     const where = buildWhere({ query, scope, values });
@@ -162,7 +165,8 @@ export class NoveltiesService {
     const headers = ['LLAVE', 'ID_NOVEDAD', 'ID_LOTE', ...sourceKeys, ...EXPORT_DIAGNOSTIC_COLUMNS];
     const rows: Record<string, unknown>[] = [];
     for (const row of result.rows) {
-      const batchId = row.import_batch_id ?? row.bulk_update_batch_id ?? row.tariff_annex_import_id ?? '';
+      const batchId =
+        row.import_batch_id ?? row.bulk_update_batch_id ?? row.tariff_annex_import_id ?? '';
       rows.push({
         LLAVE: row.authorization_key ?? '',
         ID_NOVEDAD: row.id,
@@ -192,6 +196,87 @@ export class NoveltiesService {
     return {
       filename: `novedades-${hash}.xlsx`,
       content: createXlsxExport(headers, rows),
+    };
+  }
+
+  async exportCorrectiveXlsx(
+    rawQuery: unknown,
+    scope: Scope,
+  ): Promise<{ filename: string; content: Buffer }> {
+    const query = noveltyListQuerySchema.parse(rawQuery);
+    if (!query.batchId) {
+      throw new BadRequestException({ code: 'BATCH_ID_REQUIRED', message: 'batchId is required' });
+    }
+
+    const batch = await this.database.pool.query<{ operation_type: string }>(
+      `select operation_type
+         from bulk_update_batches
+        where id = $1 and organization_id = $2`,
+      [query.batchId, scope.organizationId],
+    );
+    const operationType = batch.rows[0]?.operation_type as BulkUpdateOperationType | undefined;
+    const tariffBatch = !operationType
+      ? await this.database.pool.query(
+          `select 1 from tariff_annex_imports where id = $1 and organization_id = $2`,
+          [query.batchId, scope.organizationId],
+        )
+      : undefined;
+    const bulkColumns = operationType
+      ? bulkUpdateOperationContracts[operationType]?.requiredColumns
+      : undefined;
+    const tariffColumns = tariffBatch?.rowCount ? requiredTariffImportColumns : undefined;
+
+    const values: unknown[] = [];
+    const where = buildWhere({
+      query: { ...query, status: 'PENDIENTE', errorType: 'CORREGIBLE_POR_CARGUE' },
+      scope,
+      values,
+    });
+    values.push(50_000);
+    const result = await this.database.pool.query<NoveltyRow>(
+      `${SELECT_BODY} ${where} order by n.source_row_number nulls first, n.processed_at asc, n.id asc limit $${values.length}`,
+      values,
+    );
+    const sourceKeys: string[] = [];
+    const seen = new Set<string>();
+    for (const row of result.rows) {
+      for (const key of Object.keys(row.original_row ?? {})) {
+        if (!seen.has(key)) {
+          seen.add(key);
+          sourceKeys.push(key);
+        }
+      }
+    }
+    const columns = bulkColumns
+      ? [...bulkColumns]
+      : tariffColumns
+        ? [...tariffColumns]
+        : [
+            ...requiredAuthorizationSourceColumns,
+            ...sourceKeys.filter(
+              (key) => !requiredAuthorizationSourceColumns.includes(key as never),
+            ),
+          ];
+    const rows = result.rows.map((row) =>
+      Object.fromEntries(columns.map((column) => [column, row.original_row?.[column] ?? ''])),
+    );
+    await this.database.pool.query(
+      `insert into audit_events
+         (actor_type, actor_id, organization_id, action, resource_type, resource_id, before, after, correlation_id, request_id, result)
+       values ('USER', $1, $2, 'NOVELTIES_CORRECTIVE_EXPORT_CREATED', 'novelties', $3, $4::jsonb, $5::jsonb, $6, $7, 'SUCCESS')`,
+      [
+        scope.userId,
+        scope.organizationId,
+        query.batchId,
+        JSON.stringify({ batchId: query.batchId, operationType: operationType ?? 'IMPORT' }),
+        JSON.stringify({ rowCount: rows.length, columns }),
+        scope.correlationId,
+        scope.correlationId,
+      ],
+    );
+    return {
+      filename: `corregibles-${query.batchId.slice(0, 8)}.xlsx`,
+      content: createXlsxExport(columns, rows),
     };
   }
 

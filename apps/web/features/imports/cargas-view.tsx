@@ -27,6 +27,7 @@ import {
   type ImportRow,
 } from '@/lib/imports-api';
 import { listTariffProducts } from '@/lib/tariff-annex-api';
+import { downloadCorrectiveNovelties } from '@/lib/novelties-api';
 import * as XLSX from 'xlsx';
 
 const HISTORY_COLUMNS = [
@@ -120,6 +121,7 @@ export function CargasView() {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [downloadingCorrective, setDownloadingCorrective] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [tariffAvailable, setTariffAvailable] = useState<boolean | null>(null);
 
@@ -272,6 +274,20 @@ export function CargasView() {
 
   const selectedRows = activeBatch ? rowsByBatch[activeBatch.id] : undefined;
   const processing = activeBatch ? ACTIVE_STATUSES.includes(activeBatch.status) : false;
+  const downloadCorrective = async () => {
+    if (!activeBatch || downloadingCorrective) return;
+    setDownloadingCorrective(true);
+    setError(null);
+    try {
+      await downloadCorrectiveNovelties(organizationId, activeBatch.id);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'No fue posible descargar el archivo corregible.',
+      );
+    } finally {
+      setDownloadingCorrective(false);
+    }
+  };
 
   return (
     <>
@@ -440,6 +456,16 @@ export function CargasView() {
                   <Note>
                     Error del lote: <strong>{resultLabel(activeBatch.lastErrorCode)}</strong>
                   </Note>
+                ) : null}
+                {!processing && activeBatch.rejectedRows > 0 ? (
+                  <button
+                    type="button"
+                    className="btn soft"
+                    disabled={downloadingCorrective}
+                    onClick={() => void downloadCorrective()}
+                  >
+                    {downloadingCorrective ? 'Generando…' : 'Descargar corregibles (XLSX)'}
+                  </button>
                 ) : null}
                 {processing ? (
                   <p>Procesando lote… los totales se actualizan automáticamente.</p>

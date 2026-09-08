@@ -1,7 +1,10 @@
 import { apiRequest } from './api-client';
 import { downloadFile } from './authorization-items-api';
 
-export type NoveltyErrorType = 'CORREGIBLE_POR_CARGUE' | 'REQUIERE_VALIDACION' | 'REPROCESABLE_INTERNAMENTE';
+export type NoveltyErrorType =
+  | 'CORREGIBLE_POR_CARGUE'
+  | 'REQUIERE_VALIDACION'
+  | 'REPROCESABLE_INTERNAMENTE';
 export type NoveltyStatus = 'PENDIENTE' | 'RESUELTO';
 
 export type NoveltyFilters = {
@@ -55,12 +58,32 @@ function query(filters: NoveltyFilters): string {
   return text ? `?${text}` : '';
 }
 
-export function listNovelties(organizationId: string, filters: NoveltyFilters = {}): Promise<{ items: Novelty[] }> {
-  return apiRequest<{ items: Novelty[] }>(`/novelties${query({ limit: 200, ...filters })}`, { organizationId });
+export function listNovelties(
+  organizationId: string,
+  filters: NoveltyFilters = {},
+): Promise<{ items: Novelty[] }> {
+  return apiRequest<{ items: Novelty[] }>(`/novelties${query({ limit: 200, ...filters })}`, {
+    organizationId,
+  });
 }
 
-export function downloadNovelties(organizationId: string, filters: NoveltyFilters = {}): Promise<void> {
+export function downloadNovelties(
+  organizationId: string,
+  filters: NoveltyFilters = {},
+): Promise<void> {
   return downloadFile(`/novelties/xlsx${query(filters)}`, organizationId, 'novedades.xlsx');
+}
+
+export function downloadCorrectiveNovelties(
+  organizationId: string,
+  batchId: string,
+): Promise<void> {
+  return downloadFile(
+    '/novelties/corrective-xlsx',
+    organizationId,
+    `corregibles-${batchId.slice(0, 8)}.xlsx`,
+    { batchId },
+  );
 }
 
 export function reprocessAuthorizationItem(

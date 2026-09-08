@@ -8,6 +8,7 @@ import { DataTable } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Note } from '@/components/ui/timeline';
 import { useRole } from '@/components/layout/role-context';
+import { downloadCorrectiveNovelties } from '@/lib/novelties-api';
 import {
   TARIFF_IMPORT_STATUS_LABELS,
   TARIFF_ROW_RESULT_LABELS,
@@ -180,7 +181,7 @@ export function AnexoTarifarioView() {
     setBusy(true);
     setError(null);
     try {
-       const { blob, filename } = await downloadEpsNovedades(organizationId, 'xlsx');
+      const { blob, filename } = await downloadEpsNovedades(organizationId, 'xlsx');
       downloadBlob(blob, filename);
       flash('Exportación de novedades EPS generada.');
     } catch (err) {
@@ -218,7 +219,7 @@ export function AnexoTarifarioView() {
           canImport ? (
             <>
               <button type="button" className="btn ghost" onClick={downloadTemplate}>
-                 Plantilla XLSX
+                Plantilla XLSX
               </button>
               {canExport ? (
                 <>
@@ -227,10 +228,10 @@ export function AnexoTarifarioView() {
                     className="btn ghost"
                     disabled={busy}
                     onClick={() => {
-                       void handleDownloadNovedades();
+                      void handleDownloadNovedades();
                     }}
                   >
-                     Novedades EPS (XLSX)
+                    Novedades EPS (XLSX)
                   </button>
                 </>
               ) : null}
@@ -281,7 +282,7 @@ export function AnexoTarifarioView() {
               <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                 <input
                   className="control"
-                placeholder="Nuevo código de medicamento"
+                  placeholder="Nuevo código de medicamento"
                   value={newCode}
                   onChange={(event) => setNewCode(event.target.value)}
                 />
@@ -435,54 +436,54 @@ export function AnexoTarifarioView() {
 
       {selectedImportId ? (
         <div style={{ marginTop: 16 }}>
-        <Card>
-          <CardHead
-            title={`Resultado del cargue ${selectedImportId.slice(0, 8)}`}
-            subtitle="Resultado por fila con códigos estables."
-            aside={
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={() => setSelectedImportId(null)}
-              >
-                Cerrar
-              </button>
-            }
-          />
-          <CardBody>
-            <ImportDetail organizationId={organizationId} batchId={selectedImportId} />
-            {selectedRows.loading ? (
-              <Note>Cargando filas…</Note>
-            ) : selectedRows.error ? (
-              <div className="login-error" role="alert">
-                {selectedRows.error}
-              </div>
-            ) : (
-              <DataTable
-                aria-label="Filas del cargue del Anexo Tarifario"
-                columns={[
-                  { label: 'Fila' },
-                  { label: 'Código' },
-                  { label: 'Resultado' },
-                  { label: 'Detalle' },
-                ]}
-                rows={(selectedRows.data?.items ?? []).map((row) => [
-                  String(row.rowNumber),
-                  <span key="code" style={{ fontFamily: 'monospace' }}>
-                    {row.codigoProducto ?? '—'}
-                  </span>,
-                  <StatusBadge key="result" tone={tariffRowPill(row.resultCode)}>
-                    {TARIFF_ROW_RESULT_LABELS[row.resultCode] ?? row.resultCode}
-                  </StatusBadge>,
-                  row.resultMessage,
-                ])}
-                emptyIcon="≡"
-                emptyTitle="Sin filas"
-                emptyDescription="El cargue aún no registra filas procesadas."
-              />
-            )}
-          </CardBody>
-        </Card>
+          <Card>
+            <CardHead
+              title={`Resultado del cargue ${selectedImportId.slice(0, 8)}`}
+              subtitle="Resultado por fila con códigos estables."
+              aside={
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => setSelectedImportId(null)}
+                >
+                  Cerrar
+                </button>
+              }
+            />
+            <CardBody>
+              <ImportDetail organizationId={organizationId} batchId={selectedImportId} />
+              {selectedRows.loading ? (
+                <Note>Cargando filas…</Note>
+              ) : selectedRows.error ? (
+                <div className="login-error" role="alert">
+                  {selectedRows.error}
+                </div>
+              ) : (
+                <DataTable
+                  aria-label="Filas del cargue del Anexo Tarifario"
+                  columns={[
+                    { label: 'Fila' },
+                    { label: 'Código' },
+                    { label: 'Resultado' },
+                    { label: 'Detalle' },
+                  ]}
+                  rows={(selectedRows.data?.items ?? []).map((row) => [
+                    String(row.rowNumber),
+                    <span key="code" style={{ fontFamily: 'monospace' }}>
+                      {row.codigoProducto ?? '—'}
+                    </span>,
+                    <StatusBadge key="result" tone={tariffRowPill(row.resultCode)}>
+                      {TARIFF_ROW_RESULT_LABELS[row.resultCode] ?? row.resultCode}
+                    </StatusBadge>,
+                    row.resultMessage,
+                  ])}
+                  emptyIcon="≡"
+                  emptyTitle="Sin filas"
+                  emptyDescription="El cargue aún no registra filas procesadas."
+                />
+              )}
+            </CardBody>
+          </Card>
         </div>
       ) : null}
     </>
@@ -490,12 +491,21 @@ export function AnexoTarifarioView() {
 }
 
 function ImportDetail({ organizationId, batchId }: { organizationId: string; batchId: string }) {
-  const batch = useApiData(() => getTariffImport(organizationId, batchId), [
-    organizationId,
-    batchId,
-  ]);
+  const [downloading, setDownloading] = useState(false);
+  const batch = useApiData(
+    () => getTariffImport(organizationId, batchId),
+    [organizationId, batchId],
+  );
   const data: TariffImportBatch | null = batch.data;
   if (!data) return null;
+  const downloadCorrective = async () => {
+    setDownloading(true);
+    try {
+      await downloadCorrectiveNovelties(organizationId, batchId);
+    } finally {
+      setDownloading(false);
+    }
+  };
   return (
     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
       <Metric label="Estado" value={TARIFF_IMPORT_STATUS_LABELS[data.status] ?? data.status} />
@@ -505,6 +515,16 @@ function ImportDetail({ organizationId, batchId }: { organizationId: string; bat
       <Metric label="Existentes" value={String(data.existingRows)} />
       <Metric label="Rechazados" value={String(data.rejectedRows)} />
       <Metric label="Duplicados" value={String(data.duplicateRows)} />
+      {data.status === 'COMPLETED' && data.rejectedRows > 0 ? (
+        <button
+          type="button"
+          className="btn soft"
+          disabled={downloading}
+          onClick={() => void downloadCorrective()}
+        >
+          {downloading ? 'Generando…' : 'Descargar corregibles (XLSX)'}
+        </button>
+      ) : null}
     </div>
   );
 }
