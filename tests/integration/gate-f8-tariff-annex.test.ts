@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
+import * as XLSX from 'xlsx';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loginDev } from './helpers/auth';
 import { registerTariffProducts } from './helpers/tariff';
+import { XLSX_MIME_TYPE, xlsxBuffer } from './helpers/xlsx';
 
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 const databaseUrl =
@@ -17,6 +19,11 @@ let adminToken: string;
 let olpToken: string;
 let medicarteToken: string;
 
+async function xlsxText(response: Response): Promise<string> {
+  const workbook = XLSX.read(await response.arrayBuffer(), { type: 'array' });
+  return XLSX.utils.sheet_to_csv(workbook.Sheets.Datos!);
+}
+
 const sourceColumns = [
   'NUMERO_AUTORIZACION',
   'COD_COMERCIAL',
@@ -25,35 +32,28 @@ const sourceColumns = [
   'FECHA_FINAL_VIGENCIA',
 ];
 
-function csvValue(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 function authorizationCsv(input: {
   authorization: string;
   medication: string;
   prescription?: string;
   status?: string;
   vigencia?: string;
-}): string {
-  return [
-    sourceColumns.join(','),
+}): Buffer {
+  return xlsxBuffer([
+    sourceColumns,
     [
       input.authorization,
       input.medication,
       input.status ?? '5',
       input.prescription ?? '',
       input.vigencia ?? '2099-12-31',
-    ]
-      .map(csvValue)
-      .join(','),
-    '',
-  ].join('\n');
+    ],
+  ]);
 }
 
-async function createAuthorizationImport(content: string): Promise<{ id: string }> {
+async function createAuthorizationImport(content: Buffer): Promise<{ id: string }> {
   const form = new FormData();
-  form.append('file', new Blob([content], { type: 'text/csv' }), 'authorization.csv');
+  form.append('file', new Blob([content], { type: XLSX_MIME_TYPE }), 'authorization.xlsx');
   const response = await fetch(`${apiUrl}/api/v1/imports`, {
     method: 'POST',
     headers: {
@@ -194,7 +194,10 @@ describe('Gate F8 — Anexo Tarifario', () => {
     const code = `CRUD-${randomUUID()}`;
     let response = await createTariffProduct(code);
     expect(response.status).toBe(201);
-    const created = (await response.json()) as { product: { id: string; active: boolean }; resultCode: string };
+    const created = (await response.json()) as {
+      product: { id: string; active: boolean };
+      resultCode: string;
+    };
     expect(created.resultCode).toBe('PRODUCT_CREATED');
 
     response = await createTariffProduct(code.toLowerCase());
@@ -233,7 +236,7 @@ describe('Gate F8 — Anexo Tarifario', () => {
     expect(actions.has('TARIFF_PRODUCT_ACTIVATED')).toBe(true);
   });
 
-  it('processes CSV rows independently and deduplicates the same file', async () => {
+  it('processes XLSX rows independently and deduplicates the same file', async () => {
     const codeA = `IMPORT-A-${randomUUID()}`;
     const codeB = `IMPORT-B-${randomUUID()}`;
     const tariffHeaders = [
@@ -246,10 +249,16 @@ describe('Gate F8 — Anexo Tarifario', () => {
       'Laboratorio del Medicamento',
       'Tipo de Inclusion del Medicamento (PBS/NOPBS)',
     ];
-    const tariffRow = (code: string) => `${code},10,EXP,CON,GEN,COM,LAB,PBS`;
-    const csv = `${tariffHeaders.join(',')}\n${tariffRow(codeA)}\n,10,EXP,CON,GEN,COM,LAB,PBS\n${tariffRow(codeB)}\n${tariffRow(codeA)}\n`;
+    const tariffRows = [
+      tariffHeaders,
+      [codeA, '10', 'EXP', 'CON', 'GEN', 'COM', 'LAB', 'PBS'],
+      ['', '10', 'EXP', 'CON', 'GEN', 'COM', 'LAB', 'PBS'],
+      [codeB, '10', 'EXP', 'CON', 'GEN', 'COM', 'LAB', 'PBS'],
+      [codeA, '10', 'EXP', 'CON', 'GEN', 'COM', 'LAB', 'PBS'],
+    ];
+    const xlsx = xlsxBuffer(tariffRows);
     const form = new FormData();
-    form.append('file', new Blob([csv], { type: 'text/csv' }), 'tariff.csv');
+    form.append('file', new Blob([xlsx], { type: XLSX_MIME_TYPE }), 'tariff.xlsx');
     const idempotencyKey = randomUUID();
     const headers = {
       authorization: `Bearer ${adminToken}`,
@@ -265,7 +274,7 @@ describe('Gate F8 — Anexo Tarifario', () => {
     const batch = (await first.json()) as { id: string };
 
     const secondForm = new FormData();
-    secondForm.append('file', new Blob([csv], { type: 'text/csv' }), 'tariff.csv');
+    secondForm.append('file', new Blob([xlsx], { type: XLSX_MIME_TYPE }), 'tariff.xlsx');
     const second = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/imports`, {
       method: 'POST',
       headers: { ...headers, 'idempotency-key': randomUUID() },
@@ -295,7 +304,9 @@ describe('Gate F8 — Anexo Tarifario', () => {
   it('keeps unlisted authorization blocked, exports the causal, and revalidates asynchronously', async () => {
     const code = `REVALIDATE-${randomUUID()}`;
     const authorization = `AUTH-F8-${randomUUID()}`;
-    const batch = await createAuthorizationImport(authorizationCsv({ authorization, medication: code }));
+    const batch = await createAuthorizationImport(
+      authorizationCsv({ authorization, medication: code }),
+    );
     await waitForAuthorizationImport(batch.id);
     await confirmAuthorizationImport(batch.id);
     const key = `${authorization.toUpperCase()}:${code.toUpperCase()}`;
@@ -303,27 +314,37 @@ describe('Gate F8 — Anexo Tarifario', () => {
     expect(blocked.operationStatus).toBe('BLOCKED');
     expect(blocked.tariffMembershipStatus).toBe('NOT_LISTED');
 
-    let exportResponse = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/eps-novedades?format=csv`, {
-      headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
-    });
+    let exportResponse = await fetch(
+      `${apiUrl}/api/v1/admin/tariff-annex/eps-novedades?format=xlsx`,
+      {
+        headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
+      },
+    );
     expect(exportResponse.status).toBe(200);
-    expect(await exportResponse.text()).toContain('PRODUCT_NOT_IN_TARIFF_ANNEX');
+    expect(await xlsxText(exportResponse)).toContain('PRODUCT_NOT_IN_TARIFF_ANNEX');
 
     const productResponse = await createTariffProduct(code);
     expect(productResponse.status).toBe(201);
     await waitForReady(blocked.id);
 
-    const ready = await database.query<{ tariff_membership_status: string; operation_status: string }>(
-      'select tariff_membership_status, operation_status from authorization_items where id = $1',
-      [blocked.id],
-    );
-    expect(ready.rows[0]).toEqual({ tariff_membership_status: 'LISTED', operation_status: 'READY_TO_DISPENSE' });
+    const ready = await database.query<{
+      tariff_membership_status: string;
+      operation_status: string;
+    }>('select tariff_membership_status, operation_status from authorization_items where id = $1', [
+      blocked.id,
+    ]);
+    expect(ready.rows[0]).toEqual({
+      tariff_membership_status: 'LISTED',
+      operation_status: 'READY_TO_DISPENSE',
+    });
 
     const audits = await database.query<{ action: string }>(
       `select action from audit_events where resource_id = $1`,
       [blocked.id],
     );
-    expect(audits.rows.some((row) => row.action === 'TARIFF_ANNEX_REVALIDATION_STARTED')).toBe(true);
+    expect(audits.rows.some((row) => row.action === 'TARIFF_ANNEX_REVALIDATION_STARTED')).toBe(
+      true,
+    );
     expect(audits.rows.some((row) => row.action === 'AUTHORIZATION_READY_TO_DISPENSE')).toBe(true);
     // ADR-027: la revalidación automática tras crear el producto cierra la
     // novedad del Anexo sin recargar el archivo de autorizaciones.
@@ -348,10 +369,10 @@ describe('Gate F8 — Anexo Tarifario', () => {
     );
     expect(Number(resolutionAudit.rows[0]?.count ?? '0')).toBeGreaterThan(0);
 
-    exportResponse = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/eps-novedades?format=csv`, {
+    exportResponse = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/eps-novedades?format=xlsx`, {
       headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
     });
-    expect(await exportResponse.text()).not.toContain(key);
+    expect(await xlsxText(exportResponse)).not.toContain(key);
   });
 
   it('does not add a tariff causal to PBS and preserves NO PBS MIPRES validation', async () => {
@@ -384,13 +405,18 @@ describe('Gate F8 — Anexo Tarifario', () => {
     );
     await waitForAuthorizationImport(noPbsBatch.id);
     await confirmAuthorizationImport(noPbsBatch.id);
-    const noPbs = await waitForItem(`${noPbsAuthorization.toUpperCase()}:${noPbsCode.toUpperCase()}`);
+    const noPbs = await waitForItem(
+      `${noPbsAuthorization.toUpperCase()}:${noPbsCode.toUpperCase()}`,
+    );
     expect(noPbs.operationStatus).toBe('BLOCKED');
     expect(noPbs.directionStatus).toBe('PENDING');
-    const exportResponse = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/eps-novedades?format=csv`, {
-      headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
-    });
-    const novedades = await exportResponse.text();
+    const exportResponse = await fetch(
+      `${apiUrl}/api/v1/admin/tariff-annex/eps-novedades?format=xlsx`,
+      {
+        headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
+      },
+    );
+    const novedades = await xlsxText(exportResponse);
     expect(novedades).toContain('DIRECTION_PENDING');
   });
 
@@ -403,7 +429,7 @@ describe('Gate F8 — Anexo Tarifario', () => {
       `insert into import_batches
          (id, organization_id, created_by, original_filename, mime_type, size_bytes, sha256,
           processor_version, status, total_rows, valid_rows, confirmed_rows)
-       values ($1, $2, (select id from users where username = 'foundation-admin'), 'adv.csv', 'text/csv', 1,
+       values ($1, $2, (select id from users where username = 'foundation-admin'), 'adv.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 1,
                $3, 1, 'COMPLETED', 1, 1, 1)`,
       [batchId, mtdOrganizationId, randomUUID().replaceAll('-', '').padEnd(64, '0')],
     );
@@ -424,7 +450,12 @@ describe('Gate F8 — Anexo Tarifario', () => {
     const current = await database.query<{
       operation_status: string;
       tariff_membership_status: string;
-    }>('select operation_status, tariff_membership_status from authorization_items where id = $1', [itemId]);
-    expect(current.rows[0]).toEqual({ operation_status: 'DISPENSED', tariff_membership_status: 'NOT_LISTED' });
+    }>('select operation_status, tariff_membership_status from authorization_items where id = $1', [
+      itemId,
+    ]);
+    expect(current.rows[0]).toEqual({
+      operation_status: 'DISPENSED',
+      tariff_membership_status: 'NOT_LISTED',
+    });
   });
 });

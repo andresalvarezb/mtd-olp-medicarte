@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { loginDev } from './helpers/auth';
 import { Client } from 'pg';
+import * as XLSX from 'xlsx';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
@@ -35,7 +36,7 @@ async function seedItem(
     `insert into import_batches
        (id, organization_id, created_by, original_filename, mime_type, size_bytes, sha256,
         processor_version, status, total_rows, valid_rows, confirmed_rows)
-     values ($1, $2, $3, 'phase6.csv', 'text/csv', 1, $4, 1, 'COMPLETED', 1, 1, 1)`,
+      values ($1, $2, $3, 'phase6.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 1, $4, 1, 'COMPLETED', 1, 1, 1)`,
     [batchId, mtdOrganizationId, adminUserId, randomUUID().replaceAll('-', '').padEnd(64, '0')],
   );
   await database.query(
@@ -355,30 +356,36 @@ describe('Gate F6', () => {
     );
     expect(approval.status).toBe(200);
 
-    const csv = await fetch(`${apiUrl}/api/v1/exports/authorization-items.csv`, {
+    const csv = await fetch(`${apiUrl}/api/v1/exports/authorization-items.xlsx`, {
       headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
     });
     expect(csv.status).toBe(200);
-    const csvText = await csv.text();
+    const csvText = XLSX.utils.sheet_to_csv(
+      XLSX.read(await csv.arrayBuffer(), { type: 'array' }).Sheets.Datos!,
+    );
     expect(csvText).toContain(approved.authorization);
     expect(csvText).toContain('OBSERVACIONES_AUDITORIA');
     expect(csvText).toContain('Soportes verificados y completos.');
 
-    const allCsv = await fetch(`${apiUrl}/api/v1/exports/authorization-items.csv?includeAll=true`, {
-      headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
-    });
+    const allCsv = await fetch(
+      `${apiUrl}/api/v1/exports/authorization-items.xlsx?includeAll=true`,
+      {
+        headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
+      },
+    );
     expect(allCsv.status).toBe(200);
-    const allCsvText = await allCsv.text();
+    const allCsvText = XLSX.utils.sheet_to_csv(
+      XLSX.read(await allCsv.arrayBuffer(), { type: 'array' }).Sheets.Datos!,
+    );
     expect(allCsvText).toContain(approved.authorization);
     expect(allCsvText).toContain(rejected.authorization);
 
-    // El intercambio funcional del proceso es exclusivamente CSV.
     const xlsx = await fetch(`${apiUrl}/api/v1/exports/authorization-items.xlsx?coverageType=PBS`, {
       headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
     });
-    expect(xlsx.status).toBe(404);
+    expect(xlsx.status).toBe(200);
 
-    const denied = await fetch(`${apiUrl}/api/v1/exports/authorization-items.csv`, {
+    const denied = await fetch(`${apiUrl}/api/v1/exports/authorization-items.xlsx`, {
       headers: { authorization: `Bearer ${olpToken}`, 'x-organization-id': olpOrganizationId },
     });
     expect(denied.status).toBe(403);
@@ -412,7 +419,7 @@ describe('Gate F6', () => {
     const document = (await openApi.json()) as { paths: Record<string, unknown> };
     expect(Object.keys(document.paths)).toContain('/api/v1/authorization-items/{id}/audit-reviews');
     expect(Object.keys(document.paths)).toContain('/api/v1/audit-reviews/{id}/approve');
-    expect(Object.keys(document.paths)).toContain('/api/v1/exports/authorization-items.csv');
+    expect(Object.keys(document.paths)).toContain('/api/v1/exports/authorization-items.xlsx');
     expect(
       Object.keys(document.paths).some((path) => /attachment|support|drive-file/i.test(path)),
     ).toBe(false);

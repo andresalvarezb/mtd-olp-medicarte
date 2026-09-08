@@ -58,43 +58,44 @@ type ImportRowInput = Readonly<{
 function authorizationXlsx(rows: ImportRowInput[]): Buffer {
   const values = [
     sourceColumns,
-    ...rows.map((row) =>
-      [
-        'EPS-1',
-        row.authorization,
-        'CC',
-        '123',
-        'Paciente de prueba',
-        '3000000000',
-        'CUPS-1',
-        'MEDICAMENTOS POS',
-        row.medication,
-        'CUM-1',
-        '900000001',
-        'Prestador de prueba',
-        'CUPS-2',
-        'Medicamento autorizado',
-        '1',
-        '1',
-        '2026-08-01',
-        row.vigencia ?? '2099-12-31',
-        row.status ?? '5',
-        row.prescripcion ?? '',
-        'prueba ADR-027',
-        'Medico de prueba',
-        'comentario',
-        'source-1',
-        'FPRO-1',
-        '0',
-      ],
-    ),
+    ...rows.map((row) => [
+      'EPS-1',
+      row.authorization,
+      'CC',
+      '123',
+      'Paciente de prueba',
+      '3000000000',
+      'CUPS-1',
+      'MEDICAMENTOS POS',
+      row.medication,
+      'CUM-1',
+      '900000001',
+      'Prestador de prueba',
+      'CUPS-2',
+      'Medicamento autorizado',
+      '1',
+      '1',
+      '2026-08-01',
+      row.vigencia ?? '2099-12-31',
+      row.status ?? '5',
+      row.prescripcion ?? '',
+      'prueba ADR-027',
+      'Medico de prueba',
+      'comentario',
+      'source-1',
+      'FPRO-1',
+      '0',
+    ]),
   ];
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(values), 'Autorizaciones');
   return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
 
-async function createImport(content: string | Buffer, filename = 'authorizations.xlsx'): Promise<string> {
+async function createImport(
+  content: string | Buffer,
+  filename = 'authorizations.xlsx',
+): Promise<string> {
   const form = new FormData();
   form.append(
     'file',
@@ -351,7 +352,7 @@ describe('ADR-027 errores por registro en cargas masivas', () => {
         rowInput(20),
         rowInput(21, { medication: noPbsProductCode, prescripcion: '12345678901234567890' }),
       ]),
-      `${prefix}-corrected.csv`,
+      `${prefix}-corrected.xlsx`,
     );
     await waitForBatch(reload, 'READY_TO_CONFIRM');
     const confirmed = await confirmBatch(reload);

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { loginDev } from './helpers/auth';
+import { XLSX_MIME_TYPE, xlsxBuffer } from './helpers/xlsx';
 import { Client } from 'pg';
+import * as XLSX from 'xlsx';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
@@ -34,7 +36,7 @@ async function seedReadyItem(label: string): Promise<{
     `insert into import_batches
        (id, organization_id, created_by, original_filename, mime_type, size_bytes, sha256,
         processor_version, status, total_rows, valid_rows, confirmed_rows)
-     values ($1, $2, $3, 'phase5.csv', 'text/csv', 1, $4, 1, 'COMPLETED', 1, 1, 1)`,
+       values ($1, $2, $3, 'phase5.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 1, $4, 1, 'COMPLETED', 1, 1, 1)`,
     [batchId, mtdOrganizationId, adminUserId, randomUUID().replaceAll('-', '').padEnd(64, '0')],
   );
   await database.query(
@@ -62,33 +64,31 @@ function dateCsv(
   item: { authorization: string; medication: string },
   value: string,
   extraColumn = false,
-): string {
+): Buffer {
   const field =
     operationType === 'REPORT_DISPENSATION_DATE' ? 'FECHA_DISPENSACION' : 'FECHA_APLICACION';
   if (operationType === 'REPORT_DISPENSATION_DATE') {
-    return [
-      `CLAVE_AUTORIZACION,${field}${extraColumn ? ',CAMPO_EXTRA' : ''}`,
-      `${item.authorization}:${item.medication},${value}${extraColumn ? ',no-permitido' : ''}`,
-      '',
-    ].join('\n');
+    return xlsxBuffer([
+      ['CLAVE_AUTORIZACION', field, ...(extraColumn ? ['CAMPO_EXTRA'] : [])],
+      [`${item.authorization}:${item.medication}`, value, ...(extraColumn ? ['no-permitido'] : [])],
+    ]);
   }
-  return [
-    `CLAVE_AUTORIZACION,${field}${extraColumn ? ',CAMPO_EXTRA' : ''}`,
-    `${item.authorization}:${item.medication},${value}${extraColumn ? ',no-permitido' : ''}`,
-    '',
-  ].join('\n');
+  return xlsxBuffer([
+    ['CLAVE_AUTORIZACION', field, ...(extraColumn ? ['CAMPO_EXTRA'] : [])],
+    [`${item.authorization}:${item.medication}`, value, ...(extraColumn ? ['no-permitido'] : [])],
+  ]);
 }
 
 async function createBulk(input: {
   token: string;
   organizationId: string;
   operationType: 'REPORT_DISPENSATION_DATE' | 'REPORT_APPLICATION_DATE';
-  content: string;
+  content: Buffer;
   idempotencyKey?: string;
 }): Promise<Response> {
   const form = new FormData();
   form.append('operationType', input.operationType);
-  form.append('file', new Blob([input.content], { type: 'text/csv' }), 'phase5.csv');
+  form.append('file', new Blob([input.content], { type: XLSX_MIME_TYPE }), 'phase5.xlsx');
   return fetch(`${apiUrl}/api/v1/bulk-updates`, {
     method: 'POST',
     headers: {
@@ -362,13 +362,15 @@ describe('Gate F5', () => {
     await waitForBatch(olpToken, olpOrganizationId, ids[0]!);
 
     const exportResponse = await fetch(
-      `${apiUrl}/api/v1/operational-exports/authorization-items?operationType=REPORT_DISPENSATION_DATE&format=csv`,
+      `${apiUrl}/api/v1/operational-exports/authorization-items?operationType=REPORT_DISPENSATION_DATE&format=xlsx`,
       {
         headers: { authorization: `Bearer ${olpToken}`, 'x-organization-id': olpOrganizationId },
       },
     );
     expect(exportResponse.status).toBe(200);
-    const csv = await exportResponse.text();
+    const csv = XLSX.utils.sheet_to_csv(
+      XLSX.read(await exportResponse.arrayBuffer(), { type: 'array' }).Sheets.Datos!,
+    );
     expect(csv).toContain('LUGAR_DISPENSACION');
     expect(csv).toContain('FECHA_PROGRAMADA');
     expect(csv).toContain('FECHA_DISPENSACION');
@@ -381,7 +383,7 @@ describe('Gate F5', () => {
     expect(csv).toContain('NUMERO_PRESCRIPCION');
 
     const mtdExport = await fetch(
-      `${apiUrl}/api/v1/operational-exports/authorization-items?operationType=REPORT_DISPENSATION_DATE&format=csv`,
+      `${apiUrl}/api/v1/operational-exports/authorization-items?operationType=REPORT_DISPENSATION_DATE&format=xlsx`,
       {
         headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
       },
@@ -476,7 +478,7 @@ describe('Gate F5', () => {
       '=HYPERLINK("https://example.test")',
     ]);
     const exported = await fetch(
-      `${apiUrl}/api/v1/operational-exports/authorization-items?operationType=REPORT_DISPENSATION_DATE&format=csv`,
+      `${apiUrl}/api/v1/operational-exports/authorization-items?operationType=REPORT_DISPENSATION_DATE&format=xlsx`,
       {
         headers: { authorization: `Bearer ${olpToken}`, 'x-organization-id': olpOrganizationId },
       },

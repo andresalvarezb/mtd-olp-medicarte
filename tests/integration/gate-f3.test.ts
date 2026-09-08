@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { loginDev } from './helpers/auth';
 import { registerTariffProducts } from './helpers/tariff';
+import { XLSX_MIME_TYPE, xlsxBuffer } from './helpers/xlsx';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mipresRecheckRequestResponseSchema } from '../../packages/contracts/src/index.js';
@@ -45,61 +46,49 @@ const database = new Client({ connectionString: databaseUrl });
 let adminToken: string;
 let olpToken: string;
 
-function csvValue(value: string): string {
-  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
-}
-
-function csvRow(values: string[]): string {
-  return values.map(csvValue).join(',');
-}
-
 function authorizationCsv(
   rows: Array<{ authorization: string; medication: string; prescripcion: string; status: string }>,
-): string {
-  return [
-    csvRow(sourceColumns),
-    ...rows.map((row) =>
-      csvRow([
-        'EPS-1',
-        row.authorization,
-        'CC',
-        '123',
-        'Paciente de prueba F3',
-        '3000000000',
-        'CUPS-1',
-        'MEDICAMENTOS POS',
-        row.medication,
-        'CUM-1',
-        '900000001',
-        'Prestador de prueba',
-        'CUPS-2',
-        'Medicamento autorizado',
-        '1',
-        '1',
-        '2026-08-01',
-        '2026-12-31',
-        row.status,
-        row.prescripcion,
-        'prueba F3',
-        'Medico de prueba',
-        'comentario',
-        'source-1',
-        'FPRO-1',
-        '0',
-      ]),
-    ),
-    '',
-  ].join('\n');
+): Buffer {
+  return xlsxBuffer([
+    sourceColumns,
+    ...rows.map((row) => [
+      'EPS-1',
+      row.authorization,
+      'CC',
+      '123',
+      'Paciente de prueba F3',
+      '3000000000',
+      'CUPS-1',
+      'MEDICAMENTOS POS',
+      row.medication,
+      'CUM-1',
+      '900000001',
+      'Prestador de prueba',
+      'CUPS-2',
+      'Medicamento autorizado',
+      '1',
+      '1',
+      '2026-08-01',
+      '2026-12-31',
+      row.status,
+      row.prescripcion,
+      'prueba F3',
+      'Medico de prueba',
+      'comentario',
+      'source-1',
+      'FPRO-1',
+      '0',
+    ]),
+  ]);
 }
 
 async function login(username: string, password: string): Promise<string> {
   return loginDev(username, password); // ADR-026
 }
 
-async function createImport(token: string, content: string): Promise<{ id: string }> {
+async function createImport(token: string, content: Buffer): Promise<{ id: string }> {
   const form = new FormData();
-  form.append('file', new Blob([content], { type: 'text/csv' }), 'authorizations.csv');
+  form.append('file', new Blob([content], { type: XLSX_MIME_TYPE }), 'authorizations.xlsx');
   const response = await fetch(`${apiUrl}/api/v1/imports`, {
     method: 'POST',
     headers: {
@@ -157,9 +146,7 @@ async function importNoPbsItem(suffix: string): Promise<{ itemId: string; prescr
   await registerTariffProducts(adminToken, [medication]);
   const batch = await createImport(
     adminToken,
-    authorizationCsv([
-      { authorization, medication, prescripcion: prescription, status: '5' },
-    ]),
+    authorizationCsv([{ authorization, medication, prescripcion: prescription, status: '5' }]),
   );
   await waitForBatch(adminToken, batch.id);
   await confirmImport(adminToken, batch.id);

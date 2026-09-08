@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { loginDev } from './helpers/auth';
 import { registerTariffProducts } from './helpers/tariff';
+import { XLSX_MIME_TYPE, xlsxBuffer } from './helpers/xlsx';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -63,9 +64,7 @@ function csvValue(value: string): string {
   return /[,"]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
-function csvRow(values: string[]): string {
-  return values.map(csvValue).join(',');
-}
+void csvValue;
 
 function jsonEvidenceHash(value: unknown): string {
   return createHash('sha256')
@@ -75,52 +74,49 @@ function jsonEvidenceHash(value: unknown): string {
 
 function authorizationCsv(
   rows: Array<{ authorization: string; medication: string; prescripcion: string; status: string }>,
-): string {
-  return [
-    csvRow(sourceColumns),
-    ...rows.map((row) =>
-      csvRow([
-        'EPS-1',
-        row.authorization,
-        'CC',
-        '123',
-        'Paciente de prueba',
-        '3000000000',
-        'CUPS-1',
-        'MEDICAMENTOS POS',
-        row.medication,
-        'CUM-1',
-        '900000001',
-        'Prestador de prueba',
-        'CUPS-2',
-        'Medicamento autorizado',
-        '1',
-        '1',
-        '2026-08-01',
-        '2026-12-31',
-        row.status,
-        row.prescripcion,
-        'prueba F2',
-        'Medico de prueba',
-        'comentario',
-        'source-1',
-        'FPRO-1',
-        '0',
-      ]),
-    ),
-    '',
-  ].join('\n');
+): Buffer {
+  return xlsxBuffer([
+    sourceColumns,
+    ...rows.map((row) => [
+      'EPS-1',
+      row.authorization,
+      'CC',
+      '123',
+      'Paciente de prueba',
+      '3000000000',
+      'CUPS-1',
+      'MEDICAMENTOS POS',
+      row.medication,
+      'CUM-1',
+      '900000001',
+      'Prestador de prueba',
+      'CUPS-2',
+      'Medicamento autorizado',
+      '1',
+      '1',
+      '2026-08-01',
+      '2026-12-31',
+      row.status,
+      row.prescripcion,
+      'prueba F2',
+      'Medico de prueba',
+      'comentario',
+      'source-1',
+      'FPRO-1',
+      '0',
+    ]),
+  ]);
 }
 
 async function createImport(
   token: string,
-  content: string,
+  content: Buffer,
   key = randomUUID(),
-  filename = 'authorizations.csv',
+  filename = 'authorizations.xlsx',
   organizationId = mtdOrganizationId,
 ): Promise<{ id: string }> {
   const form = new FormData();
-  form.append('file', new Blob([content], { type: 'text/csv' }), filename);
+  form.append('file', new Blob([content], { type: XLSX_MIME_TYPE }), filename);
   const response = await fetch(`${apiUrl}/api/v1/imports`, {
     method: 'POST',
     headers: {
@@ -238,12 +234,22 @@ describe('Gate F2', () => {
 
   afterAll(async () => database.end());
 
-  it('processes CSV staging, classifies PBS/NO PBS, confirms transactionally, and preserves traceability', async () => {
+  it('processes XLSX staging, classifies PBS/NO PBS, confirms transactionally, and preserves traceability', async () => {
     const authorization = `AUTH-F2-${randomUUID()}`;
     const content = authorizationCsv([
       { authorization, medication: 'MED-PBS', prescripcion: '', status: '5' },
-      { authorization, medication: 'MED-NO-PBS', prescripcion: '20260915123456789012', status: '5' },
-      { authorization, medication: 'MED-NO-PBS', prescripcion: '20260915123456789012', status: '5' },
+      {
+        authorization,
+        medication: 'MED-NO-PBS',
+        prescripcion: '20260915123456789012',
+        status: '5',
+      },
+      {
+        authorization,
+        medication: 'MED-NO-PBS',
+        prescripcion: '20260915123456789012',
+        status: '5',
+      },
     ]);
     const batch = await createImport(adminToken, content);
     const ready = await waitForBatch(adminToken, batch.id);
@@ -512,7 +518,12 @@ describe('Gate F2', () => {
     const batch = await createImport(
       adminToken,
       authorizationCsv([
-        { authorization, medication: 'MED-UPDATE', prescripcion: '20260915123456789013', status: '5' },
+        {
+          authorization,
+          medication: 'MED-UPDATE',
+          prescripcion: '20260915123456789013',
+          status: '5',
+        },
       ]),
     );
     await waitForBatch(adminToken, batch.id);
@@ -960,7 +971,7 @@ describe('Gate F2', () => {
           olpToken,
           content,
           randomUUID(),
-          'authorizations.csv',
+          'authorizations.xlsx',
           olpOrganizationId,
         );
         await waitForBatch(olpToken, initialBatch.id, olpOrganizationId);
@@ -969,7 +980,7 @@ describe('Gate F2', () => {
           olpToken,
           content,
           randomUUID(),
-          'authorizations.csv',
+          'authorizations.xlsx',
           olpOrganizationId,
         );
         await waitForBatch(olpToken, reviewBatch.id, olpOrganizationId);
@@ -1014,11 +1025,11 @@ describe('Gate F2', () => {
         );
         const initial = await requestUpdate();
         expect(initial.status).toBe(200);
-        expect(Object.keys(sourceUpdateResponseSchema.parse(await initial.json()).item.sourceData!).sort()).toEqual([
-          'CUPS_AUTORIZADO',
-          'NOMBRE_PACIENTE',
-          'NUM_DOCUMENTO',
-        ]);
+        expect(
+          Object.keys(
+            sourceUpdateResponseSchema.parse(await initial.json()).item.sourceData!,
+          ).sort(),
+        ).toEqual(['CUPS_AUTORIZADO', 'NOMBRE_PACIENTE', 'NUM_DOCUMENTO']);
 
         await database.query(
           `insert into role_permissions (role_id, permission_id)
@@ -1216,7 +1227,7 @@ describe('Gate F2', () => {
 
   it('rejects multipart filenames longer than 255 characters with a stable error', async () => {
     const form = new FormData();
-    form.append('file', new Blob(['a'], { type: 'text/csv' }), `${'a'.repeat(252)}.csv`);
+    form.append('file', new Blob(['a'], { type: XLSX_MIME_TYPE }), `${'a'.repeat(252)}.xlsx`);
     const response = await fetch(`${apiUrl}/api/v1/imports`, {
       method: 'POST',
       headers: {
@@ -1258,7 +1269,12 @@ describe('Gate F2', () => {
     const blockedBatch = await createImport(
       adminToken,
       authorizationCsv([
-        { authorization, medication: 'MED-BLOCKED', prescripcion: '20260915123456789012', status: '4' },
+        {
+          authorization,
+          medication: 'MED-BLOCKED',
+          prescripcion: '20260915123456789012',
+          status: '4',
+        },
       ]),
     );
     await waitForBatch(adminToken, blockedBatch.id);

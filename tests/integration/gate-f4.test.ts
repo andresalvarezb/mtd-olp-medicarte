@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { loginDev } from './helpers/auth';
 import { registerTariffProducts } from './helpers/tariff';
+import { XLSX_MIME_TYPE, xlsxBuffer } from './helpers/xlsx';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -41,68 +42,54 @@ const sourceColumns = [
   'VALOR CUOTA MODERADORA',
 ];
 
-const locationHeader = 'authorization_key,lugar_dispensacion,fecha_programada,cod_autorizacion_medicarte';
-
 const database = new Client({ connectionString: databaseUrl });
 let adminToken: string;
 let olpToken: string;
 let medicarteToken: string;
 
-function csvValue(value: string): string {
-  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
-}
-
-function csvRow(values: string[]): string {
-  return values.map(csvValue).join(',');
-}
-
 function authorizationCsv(
   rows: Array<{ authorization: string; medication: string; prescripcion: string; status: string }>,
-): string {
-  return [
-    csvRow(sourceColumns),
-    ...rows.map((row) =>
-      csvRow([
-        'EPS-1',
-        row.authorization,
-        'CC',
-        '123',
-        'Paciente de prueba F4',
-        '3000000000',
-        'CUPS-1',
-        'MEDICAMENTOS POS',
-        row.medication,
-        'CUM-1',
-        '900000001',
-        'Prestador de prueba',
-        'CUPS-2',
-        'Medicamento autorizado',
-        '1',
-        '1',
-        '2026-08-01',
-        '2026-12-31',
-        row.status,
-        row.prescripcion,
-        'prueba F4',
-        'Medico de prueba',
-        'comentario',
-        'source-1',
-        'FPRO-1',
-        '0',
-      ]),
-    ),
-    '',
-  ].join('\n');
+): Buffer {
+  return xlsxBuffer([
+    sourceColumns,
+    ...rows.map((row) => [
+      'EPS-1',
+      row.authorization,
+      'CC',
+      '123',
+      'Paciente de prueba F4',
+      '3000000000',
+      'CUPS-1',
+      'MEDICAMENTOS POS',
+      row.medication,
+      'CUM-1',
+      '900000001',
+      'Prestador de prueba',
+      'CUPS-2',
+      'Medicamento autorizado',
+      '1',
+      '1',
+      '2026-08-01',
+      '2026-12-31',
+      row.status,
+      row.prescripcion,
+      'prueba F4',
+      'Medico de prueba',
+      'comentario',
+      'source-1',
+      'FPRO-1',
+      '0',
+    ]),
+  ]);
 }
 
 async function login(username: string, password: string): Promise<string> {
   return loginDev(username, password); // ADR-026
 }
 
-async function createImport(token: string, content: string): Promise<{ id: string }> {
+async function createImport(token: string, content: Buffer): Promise<{ id: string }> {
   const form = new FormData();
-  form.append('file', new Blob([content], { type: 'text/csv' }), 'authorizations.csv');
+  form.append('file', new Blob([content], { type: XLSX_MIME_TYPE }), 'authorizations.xlsx');
   const response = await fetch(`${apiUrl}/api/v1/imports`, {
     method: 'POST',
     headers: {
@@ -185,12 +172,16 @@ async function itemKey(itemId: string): Promise<string> {
 async function createBulkBatch(
   token: string,
   organizationId: string,
-  content: string,
+  content: Buffer | string,
   idempotencyKey = randomUUID(),
 ): Promise<Response> {
   const form = new FormData();
   form.append('operationType', 'ASSIGN_DISPENSATION_LOCATION');
-  form.append('file', new Blob([content], { type: 'text/csv' }), 'locations.csv');
+  form.append(
+    'file',
+    new Blob([content], { type: typeof content === 'string' ? 'text/plain' : XLSX_MIME_TYPE }),
+    typeof content === 'string' ? 'locations.txt' : 'locations.xlsx',
+  );
   return fetch(`${apiUrl}/api/v1/bulk-updates`, {
     method: 'POST',
     headers: {
@@ -246,19 +237,16 @@ function locationCsv(
     scheduledDate?: string;
     medicarteCode?: string;
   }>,
-): string {
-  return [
-    locationHeader,
-    ...rows.map((row) =>
-      csvRow([
-        row.authorizationKey,
-        row.location,
-        row.scheduledDate ?? '2026-10-01',
-        row.medicarteCode ?? `MEDCAR-${row.location.replace(/[^A-Za-z0-9]/g, '').slice(0, 8)}`,
-      ]),
-    ),
-    '',
-  ].join('\n');
+): Buffer {
+  return xlsxBuffer([
+    ['authorization_key', 'lugar_dispensacion', 'fecha_programada', 'cod_autorizacion_medicarte'],
+    ...rows.map((row) => [
+      row.authorizationKey,
+      row.location,
+      row.scheduledDate ?? '2026-10-01',
+      row.medicarteCode ?? `MEDCAR-${row.location.replace(/[^A-Za-z0-9]/g, '').slice(0, 8)}`,
+    ]),
+  ]);
 }
 
 describe('Gate F4', () => {
@@ -302,7 +290,16 @@ describe('Gate F4', () => {
       const extraColumns = await createBulkBatch(
         medicarteToken,
         medicarteOrganizationId,
-        `${locationHeader},extra\n${csvRow([authorizationKey, 'Calle 1', '2026-10-01', 'M1', 'X'])}\n`,
+        xlsxBuffer([
+          [
+            'authorization_key',
+            'lugar_dispensacion',
+            'fecha_programada',
+            'cod_autorizacion_medicarte',
+            'extra',
+          ],
+          [authorizationKey, 'Calle 1', '2026-10-01', 'M1', 'X'],
+        ]),
       );
       expect(extraColumns.status).toBe(202);
       const extraBatchId = ((await extraColumns.json()) as { id: string }).id;
@@ -356,10 +353,12 @@ describe('Gate F4', () => {
         ((await second.json()) as { id: string }).id,
       );
       expect(secondBatch).toMatchObject({ status: 'COMPLETED', updatedRows: 1 });
-      const afterSecond = await database.query<{ lugar_dispensacion: string; operational_version: number }>(
-        `select lugar_dispensacion, operational_version from authorization_items where id = $1`,
-        [itemId],
-      );
+      const afterSecond = await database.query<{
+        lugar_dispensacion: string;
+        operational_version: number;
+      }>(`select lugar_dispensacion, operational_version from authorization_items where id = $1`, [
+        itemId,
+      ]);
       expect(afterSecond.rows[0]).toMatchObject({
         lugar_dispensacion: 'Carrera 7 # 45-67',
         operational_version: 2,
@@ -424,14 +423,18 @@ describe('Gate F4', () => {
       const batch = await createBulkBatch(
         medicarteToken,
         medicarteOrganizationId,
-        [
-          locationHeader,
-          csvRow([readyKey, '   ', '2026-10-01', 'M-BLANK']),
-          csvRow([readyKey, 'Calle valida 1', '2026-10-01', 'M-OK']),
-          csvRow(['FUERA:LEJA', 'Calle fuera de alcance', '2026-10-01', 'M-X']),
-          csvRow(['', 'Sin llave', '2026-10-01', 'M-Y']),
-          '',
-        ].join('\n'),
+        xlsxBuffer([
+          [
+            'authorization_key',
+            'lugar_dispensacion',
+            'fecha_programada',
+            'cod_autorizacion_medicarte',
+          ],
+          [readyKey, '   ', '2026-10-01', 'M-BLANK'],
+          [readyKey, 'Calle valida 1', '2026-10-01', 'M-OK'],
+          ['FUERA:LEJA', 'Calle fuera de alcance', '2026-10-01', 'M-X'],
+          ['', 'Sin llave', '2026-10-01', 'M-Y'],
+        ]),
       );
       expect(batch.status).toBe(202);
       const batchId = ((await batch.json()) as { id: string }).id;
@@ -471,7 +474,9 @@ describe('Gate F4', () => {
         'LOCK_001@4',
         'CSV_004@5',
       ]);
-      expect(new Set(novelties.rows.map((row) => row.stage))).toEqual(new Set(['ASSIGN_DISPENSATION_LOCATION']));
+      expect(new Set(novelties.rows.map((row) => row.stage))).toEqual(
+        new Set(['ASSIGN_DISPENSATION_LOCATION']),
+      );
     },
   );
 
@@ -481,7 +486,15 @@ describe('Gate F4', () => {
     const failing = await createBulkBatch(
       medicarteToken,
       medicarteOrganizationId,
-      [locationHeader, csvRow([readyKey, '   ', '2026-10-01', 'M-EMPTY']), ''].join('\n'),
+      xlsxBuffer([
+        [
+          'authorization_key',
+          'lugar_dispensacion',
+          'fecha_programada',
+          'cod_autorizacion_medicarte',
+        ],
+        [readyKey, '   ', '2026-10-01', 'M-EMPTY'],
+      ]),
     );
     const failingId = ((await failing.json()) as { id: string }).id;
     await waitForBulkBatch(medicarteToken, medicarteOrganizationId, failingId);
