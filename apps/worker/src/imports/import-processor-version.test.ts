@@ -36,7 +36,7 @@ function validXlsx(): Buffer {
     ]),
     'Datos',
   );
-  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
 
 function source(

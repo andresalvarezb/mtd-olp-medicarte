@@ -6,7 +6,7 @@ const requiredColumns = ['NUMERO_AUTORIZACION', 'CODIGO_PRODUCTO', 'LUGAR_DISPEN
 const xlsx = (rows: unknown[][]): Buffer => {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'Datos');
-  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 };
 const file = (rows: unknown[][]) => xlsx(rows);
 const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';

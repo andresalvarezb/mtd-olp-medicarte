@@ -96,7 +96,7 @@ function downloadTemplate(): void {
   const workbook = XLSX.utils.book_new();
   const sheet = XLSX.utils.aoa_to_sheet([headers]);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Autorizaciones');
-  const content = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+  const content = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
   const blob = new Blob([content], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });

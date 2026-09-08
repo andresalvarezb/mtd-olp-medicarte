@@ -11,7 +11,7 @@ const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 function xlsx(rows: unknown[][]): Buffer {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'Anexo');
-  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
 
 describe('parseTariffImportFile', () => {

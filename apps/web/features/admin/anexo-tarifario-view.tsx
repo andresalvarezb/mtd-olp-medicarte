@@ -62,7 +62,7 @@ function downloadTemplate(): void {
   ];
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers]), 'Anexo Tarifario');
-  const content = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+  const content = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
   const blob = new Blob([content], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
