@@ -23,6 +23,7 @@ import {
 } from '@authorization/domain';
 import { insertNovelty, resolveNovelties, type createDatabase } from '@authorization/database';
 import { parseBulkFile, BulkFileError } from './bulk-parser';
+import { resolveBulkAuditAction } from './bulk-audit-action';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -620,12 +621,11 @@ export class BulkUpdateProcessor {
       );
     }
 
-    const auditAction =
-      input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
-        ? locationTransition!.eventType!
-        : input.operationType === 'REPORT_DISPENSATION_DATE'
-          ? 'DISPENSATION_DATE_REPORTED'
-          : 'APPLICATION_DATE_REPORTED';
+    const auditAction = resolveBulkAuditAction({
+      operationType: input.operationType,
+      locationEventType: locationTransition?.eventType ?? null,
+      scheduledDateChanged: previousScheduledDate !== scheduledDate,
+    });
     await client.query(
       `insert into audit_events
          (actor_type, actor_id, organization_id, action, resource_type, resource_id, before, after, correlation_id, request_id, result)
@@ -641,6 +641,9 @@ export class BulkUpdateProcessor {
           operationalVersion: item.operational_version,
           operationStatus: item.operation_status,
           auditStatus: item.audit_status,
+          ...(input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
+            ? { scheduledDate: previousScheduledDate }
+            : {}),
         }),
         JSON.stringify({
           field: input.mutableField,
@@ -648,6 +651,7 @@ export class BulkUpdateProcessor {
           operationalVersion: newOperationalVersion,
           operationStatus: statuses.operationStatus,
           auditStatus: statuses.auditStatus,
+          ...(input.operationType === 'ASSIGN_DISPENSATION_LOCATION' ? { scheduledDate } : {}),
           batchId: input.batchId,
           rowNumber: input.row.rowNumber,
         }),
