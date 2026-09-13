@@ -7,6 +7,7 @@ describe('clean navigation', () => {
       'foundation',
       'planningPeriods',
       'patientScheduling',
+      'projectedDemand',
       'admin',
     ]);
     expect(ALL_NAV_ITEMS[0]?.roles).toEqual(ROLES);
@@ -26,5 +27,15 @@ describe('clean navigation', () => {
     expect(scheduling?.roles).toContain('READ_ONLY');
     expect(scheduling?.roles).not.toContain('OLP');
     expect(scheduling?.roles).not.toContain('COMPENSAR');
+  });
+
+  it('exposes projected demand to MTD and read roles but never to Medicarte or OLP', () => {
+    const demand = ALL_NAV_ITEMS.find((item) => item.view === 'projectedDemand');
+    expect(demand?.permission).toBe('projected_demand.read');
+    expect(demand?.roles).toEqual(
+      expect.arrayContaining(['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY']),
+    );
+    expect(demand?.roles).not.toContain('MEDICARTE');
+    expect(demand?.roles).not.toContain('OLP');
   });
 });

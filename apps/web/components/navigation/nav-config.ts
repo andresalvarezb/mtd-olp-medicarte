@@ -27,7 +27,12 @@ export const ROLE_META: Record<Role, { label: string; note: string }> = {
   READ_ONLY: { label: 'Solo lectura', note: 'Acceso de consulta según organización.' },
 };
 
-export type ViewId = 'foundation' | 'planningPeriods' | 'patientScheduling' | 'admin';
+export type ViewId =
+  | 'foundation'
+  | 'planningPeriods'
+  | 'patientScheduling'
+  | 'projectedDemand'
+  | 'admin';
 
 export interface NavItem {
   view: ViewId;
@@ -71,10 +76,18 @@ export const NAV_SECTIONS: NavSection[] = [
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE', 'READ_ONLY'],
       },
       {
+        view: 'projectedDemand',
+        href: '/demanda',
+        title: 'Demanda proyectada',
+        icon: '04',
+        permission: 'projected_demand.read',
+        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
+      },
+      {
         view: 'admin',
         href: '/administracion',
         title: 'Usuarios y acceso',
-        icon: '04',
+        icon: '05',
         permission: 'users.manage',
         roles: ['MTD'],
       },

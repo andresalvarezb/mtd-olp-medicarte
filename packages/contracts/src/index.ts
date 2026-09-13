@@ -623,3 +623,77 @@ export const legacyAuthorizationHistoryResponseSchema = z.object({
 export type LegacyAuthorizationHistoryResponse = z.infer<
   typeof legacyAuthorizationHistoryResponseSchema
 >;
+
+export const projectedDemandListQuerySchema = z.object({
+  planningPeriodId: z.string().uuid(),
+  dispensingPointId: z.string().uuid().optional(),
+  commercialCode: commercialCodeSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+});
+export type ProjectedDemandListQuery = z.infer<typeof projectedDemandListQuerySchema>;
+
+export const projectedDemandLineResponseSchema = z.object({
+  id: z.string().uuid(),
+  planningPeriodId: z.string().uuid(),
+  planningPeriodStartDate: z.string().date(),
+  planningPeriodEndDate: z.string().date(),
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  dispensingPointName: z.string(),
+  commercialCode: commercialCodeSchema,
+  regularQuantity: z.number().int().nonnegative(),
+  lateQuantity: z.number().int().nonnegative(),
+  projectedQuantity: z.number().int().nonnegative(),
+  sourceCount: z.number().int().nonnegative(),
+  status: projectedDemandStatusSchema,
+  revision: z.number().int().positive(),
+  consolidatedAt: isoDateTimeSchema,
+  createdBy: z.string().uuid(),
+  updatedBy: z.string().uuid(),
+})
+  .refine((value) => value.projectedQuantity === value.regularQuantity + value.lateQuantity, {
+    message: 'projectedQuantity must equal regularQuantity + lateQuantity',
+  })
+  .refine((value) => value.projectedQuantity > 0 || value.sourceCount > 0, {
+    message: 'projectedQuantity cannot be zero for a consolidated line',
+  });
+export type ProjectedDemandLineResponse = z.infer<typeof projectedDemandLineResponseSchema>;
+
+export const paginatedProjectedDemandLinesResponseSchema = z.object({
+  items: z.array(projectedDemandLineResponseSchema),
+});
+export type PaginatedProjectedDemandLinesResponse = z.infer<
+  typeof paginatedProjectedDemandLinesResponseSchema
+>;
+
+export const projectedDemandSourceResponseSchema = z.object({
+  patientScheduleId: z.string().uuid(),
+  scheduleRevision: z.number().int().positive(),
+  authorizationItemId: z.string().uuid(),
+  authorizationNumber: z.string(),
+  patientDocument: z.string().nullable(),
+  patientName: z.string().nullable(),
+  scheduledDate: z.string().date(),
+  quantity: z.number().int().positive(),
+  scheduleTiming: scheduleTimingSchema,
+  lateHandling: lateHandlingSchema.nullable(),
+});
+export type ProjectedDemandSourceResponse = z.infer<typeof projectedDemandSourceResponseSchema>;
+
+export const projectedDemandSourcesResponseSchema = z.object({
+  items: z.array(projectedDemandSourceResponseSchema),
+});
+export type ProjectedDemandSourcesResponse = z.infer<typeof projectedDemandSourcesResponseSchema>;
+
+export const consolidateProjectedDemandResponseSchema = z.object({
+  planningPeriodId: z.string().uuid(),
+  lineCount: z.number().int().nonnegative(),
+  sourceCount: z.number().int().nonnegative(),
+  regularQuantity: z.number().int().nonnegative(),
+  lateQuantity: z.number().int().nonnegative(),
+  projectedQuantity: z.number().int().nonnegative(),
+  consolidatedAt: isoDateTimeSchema,
+});
+export type ConsolidateProjectedDemandResponse = z.infer<
+  typeof consolidateProjectedDemandResponseSchema
+>;

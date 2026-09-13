@@ -528,6 +528,13 @@ export const projectedDemandLines = pgTable(
       .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
     projectedQuantity: integer('projected_quantity').notNull(),
+    /**
+     * ESP-004: desglose del volumen por origen. regular/late provienen del
+     * timing de las fuentes; la invariante projected = regular + late vive
+     * en CHECKs y en la verificación transaccional de la consolidación.
+     */
+    regularQuantity: integer('regular_quantity').notNull().default(0),
+    lateQuantity: integer('late_quantity').notNull().default(0),
     status: varchar('status', { length: 20 }).notNull().default('OPEN'),
     revision: integer('revision').notNull().default(1),
     consolidatedAt: timestamp('consolidated_at', { withTimezone: true }),
@@ -541,7 +548,11 @@ export const projectedDemandLines = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('projected_demand_lines_period_point_code_idx').on(
+    /**
+     * ESP-004: identidad de consolidación como UNIQUE CONSTRAINT (migración
+     * 0035) para poder referenciarla con FK compuesto desde demand_sources.
+     */
+    unique('projected_demand_lines_identity_unique').on(
       table.planningPeriodId,
       table.dispensingPointId,
       table.commercialCode,
@@ -553,6 +564,14 @@ export const projectedDemandLines = pgTable(
     ),
     check('projected_demand_lines_quantity_check', sql`${table.projectedQuantity} > 0`),
     check('projected_demand_lines_revision_check', sql`${table.revision} > 0`),
+    check(
+      'projected_demand_lines_split_check',
+      sql`${table.projectedQuantity} = ${table.regularQuantity} + ${table.lateQuantity}`,
+    ),
+    check(
+      'projected_demand_lines_split_nonnegative_check',
+      sql`${table.regularQuantity} >= 0 AND ${table.lateQuantity} >= 0`,
+    ),
     check(
       'projected_demand_lines_status_check',
       sql`${table.status} IN ('OPEN', 'FROZEN', 'CLOSED')`,
@@ -570,6 +589,18 @@ export const demandSources = pgTable(
     patientScheduleId: uuid('patient_schedule_id').notNull(),
     scheduleRevision: integer('schedule_revision').notNull(),
     quantity: integer('quantity').notNull(),
+    /**
+     * ESP-004: pertenencia de la fuente a la identidad de su línea, impuesta
+     * por FK compuesto; el snapshot de la cantidad aporta línea por línea y
+     * el timing clasifica el desglose regular/late.
+     */
+    planningPeriodId: uuid('planning_period_id').notNull(),
+    dispensingPointId: uuid('dispensing_point_id').notNull(),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    scheduleTiming: varchar('schedule_timing', { length: 10 }).notNull(),
+    lateHandling: varchar('late_handling', { length: 40 }),
+    /** ESP-004: bucket por el que la fuente suma (regla del dominio). */
+    demandBucket: varchar('demand_bucket', { length: 30 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -585,6 +616,18 @@ export const demandSources = pgTable(
     index('demand_sources_demand_line_idx').on(table.projectedDemandLineId, table.createdAt),
     check('demand_sources_schedule_revision_check', sql`${table.scheduleRevision} > 0`),
     check('demand_sources_quantity_check', sql`${table.quantity} > 0`),
+    check(
+      'demand_sources_schedule_timing_check',
+      sql`${table.scheduleTiming} IN ('ON_TIME', 'LATE')`,
+    ),
+    check(
+      'demand_sources_late_handling_check',
+      sql`${table.lateHandling} IS NULL OR ${table.lateHandling} IN ('COMPLEMENTARY_PURCHASE_ORDER', 'NEXT_PERIOD')`,
+    ),
+    check(
+      'demand_sources_demand_bucket_check',
+      sql`${table.demandBucket} IN ('REGULAR', 'LATE')`,
+    ),
   ],
 );
 

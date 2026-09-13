@@ -10,6 +10,7 @@ import {
   loginRequestSchema,
   patientScheduleTransitions,
   planningPeriodTransitions,
+  projectedDemandLineResponseSchema,
   reschedulePatientScheduleRequestSchema,
   transitionPlanningPeriodRequestSchema,
   updatePatientScheduleRequestSchema,
@@ -149,6 +150,31 @@ describe('patient schedule contracts', () => {
     expect(patientScheduleTransitions.SCHEDULED).toEqual(['RESCHEDULED', 'CANCELLED']);
     expect(patientScheduleTransitions.RESCHEDULED).toEqual(['RESCHEDULED', 'CANCELLED']);
     expect(patientScheduleTransitions.CANCELLED).toEqual([]);
+  });
+
+  it('demand contracts require positive quantities and the split invariant', () => {
+    const line = {
+      id: '10000000-0000-4000-8000-00000000000a',
+      planningPeriodId: '10000000-0000-4000-8000-000000000001',
+      planningPeriodStartDate: '2031-03-03',
+      planningPeriodEndDate: '2031-03-09',
+      dispensingPointId: '10000000-0000-4000-8000-000000000002',
+      dispensingPointCode: 'P-01',
+      dispensingPointName: 'Punto 1',
+      commercialCode: 'COD001',
+      regularQuantity: 5,
+      lateQuantity: 6,
+      projectedQuantity: 11,
+      sourceCount: 4,
+      status: 'OPEN' as const,
+      revision: 2,
+      consolidatedAt: '2026-09-13T12:00:00.000Z',
+      createdBy: '10000000-0000-4000-8000-000000000003',
+      updatedBy: '10000000-0000-4000-8000-000000000003',
+    };
+    expect(projectedDemandLineResponseSchema.safeParse(line).success).toBe(true);
+    const broken = { ...line, projectedQuantity: 10, regularQuantity: 5, lateQuantity: 4 };
+    expect(projectedDemandLineResponseSchema.safeParse(broken).success).toBe(false);
   });
 
   it('codifies the canonical schedule identity (one active schedule per identity)', () => {

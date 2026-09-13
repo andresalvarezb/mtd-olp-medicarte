@@ -22,6 +22,15 @@ import { UsersController } from './identity/users.controller';
 import { UsersService } from './identity/users.service';
 import { OperationsController } from './operations/operations.controller';
 import { ClinicalModule } from './clinical/clinical.module';
+import {
+  ProjectedDemandController,
+} from './consolidation/projected-demand.controller';
+import {
+  ProjectedDemandRepository,
+} from './consolidation/projected-demand.repository';
+import {
+  ProjectedDemandService,
+} from './consolidation/projected-demand.service';
 import { PlanningPeriodController } from './planning/planning-period.controller';
 import { PlanningPeriodRepository } from './planning/planning-period.repository';
 import { PlanningPeriodService } from './planning/planning-period.service';
@@ -73,6 +82,7 @@ new Gauge({
     AdminJobsController,
     PlanningPeriodController,
     PatientScheduleController,
+    ProjectedDemandController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -87,6 +97,8 @@ new Gauge({
     PatientScheduleRepository,
     PatientScheduleService,
     PatientScheduleImportService,
+    ProjectedDemandRepository,
+    ProjectedDemandService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

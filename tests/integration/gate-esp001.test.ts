@@ -103,17 +103,21 @@ beforeAll(async () => {
   const demand = await database.query<{ id: string }>(
     `insert into projected_demand_lines
       (planning_period_id, dispensing_point_id, commercial_code, projected_quantity,
-       created_by, updated_by)
-     values ($1, $2, 'COD001', 2, $3, $3)
+       regular_quantity, late_quantity, created_by, updated_by)
+     values ($1, $2, 'COD001', 2, 2, 0, $3, $3)
      returning id`,
     [periodId, pointId, userId],
   );
   demandLineId = demand.rows[0]!.id;
+  // ESP-004: las fuentes pertenecen a la identidad de su línea (FK compuesto
+  // period + point + commercial code) y llevan snapshot de timing.
   await database.query(
     `insert into demand_sources
-      (projected_demand_line_id, patient_schedule_id, schedule_revision, quantity)
-     values ($1, $2, 1, 2)`,
-    [demandLineId, scheduleId],
+      (projected_demand_line_id, patient_schedule_id, schedule_revision, quantity,
+       planning_period_id, dispensing_point_id, commercial_code, schedule_timing,
+       late_handling, demand_bucket)
+     values ($1, $2, 1, 2, $3, $4, 'COD001', 'ON_TIME', NULL, 'REGULAR')`,
+    [demandLineId, scheduleId, periodId, pointId],
   );
 });
 

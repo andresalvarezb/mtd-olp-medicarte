@@ -43,6 +43,16 @@ export type {
   PlanningPeriodValidationIssue,
 } from './planning-period';
 export {
+  DemandConsolidationError,
+  resolveEffectiveSchedulePeriod,
+  sumDemandQuantities,
+} from './demand-consolidation';
+export type {
+  DemandSourceClassification,
+  EffectiveSchedulePeriod,
+  EffectiveSchedulePeriodInput,
+} from './demand-consolidation';
+export {
   PatientScheduleLateHandlingError,
   PatientScheduleTransitionError,
   assertLateHandling,
