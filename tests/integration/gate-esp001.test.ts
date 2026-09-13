@@ -179,12 +179,15 @@ describe('ESP-001 — separación del dominio clínico y logístico', () => {
     const user = await database.query<{ id: string }>(
       `select id from users where username = 'foundation-admin'`,
     );
+    // Con fecha distinta a la programación activa del fixture, la única
+    // violación posible es el FK del código (la migración 0034 impone la
+    // identidad canónica de programación por separado).
     await expect(
       database.query(
         `insert into patient_schedules
           (authorization_item_id, planning_period_id, dispensing_point_id, commercial_code,
            scheduled_date, quantity, created_by, updated_by)
-         values ($1, $2, $3, 'WRONG-CODE', '2026-09-16', 1, $4, $4)`,
+         values ($1, $2, $3, 'WRONG-CODE', '2026-09-17', 1, $4, $4)`,
         [authorizationItemId, periodId, pointId, user.rows[0]!.id],
       ),
     ).rejects.toThrow(/patient_schedules_authorization_code_fk/);

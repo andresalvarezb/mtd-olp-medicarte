@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PATIENT_SCHEDULE_IDENTITY_FIELDS,
+  SCHEDULE_EXPIRATION_THRESHOLDS,
   clinicalAuthorizationReferenceSchema,
+  createPatientScheduleRequestSchema,
   createPlanningPeriodRequestSchema,
   foundationJobSchema,
   legacyAuthorizationHistoryResponseSchema,
   loginRequestSchema,
+  patientScheduleTransitions,
   planningPeriodTransitions,
+  reschedulePatientScheduleRequestSchema,
   transitionPlanningPeriodRequestSchema,
+  updatePatientScheduleRequestSchema,
   usernameSchema,
 } from './index';
 
@@ -85,5 +91,74 @@ describe('planning period contracts', () => {
     expect(planningPeriodTransitions.IN_FULFILLMENT).toEqual(['OPERATIONAL']);
     expect(planningPeriodTransitions.OPERATIONAL).toEqual(['CLOSED']);
     expect(planningPeriodTransitions.CLOSED).toEqual([]);
+  });
+});
+
+describe('patient schedule contracts', () => {
+  it('requires a positive quantity and known statuses', () => {
+    const base = {
+      authorizationItemId: '10000000-0000-4000-8000-000000000001',
+      commercialCode: ' cod001 ',
+      dispensingPointId: '10000000-0000-4000-8000-000000000002',
+      scheduledDate: '2031-03-05',
+      quantity: 2,
+    };
+    expect(createPatientScheduleRequestSchema.safeParse(base).success).toBe(true);
+    expect(createPatientScheduleRequestSchema.safeParse({ ...base, quantity: 0 }).success).toBe(
+      false,
+    );
+    expect(createPatientScheduleRequestSchema.safeParse({ ...base, quantity: -1 }).success).toBe(
+      false,
+    );
+    expect(
+      createPatientScheduleRequestSchema.safeParse({ ...base, lateHandling: 'APPLIED' }).success,
+    ).toBe(false);
+  });
+
+  it('normalizes the commercial code and requires at least one change on update', () => {
+    const parsed = createPatientScheduleRequestSchema.parse({
+      authorizationItemId: '10000000-0000-4000-8000-000000000001',
+      commercialCode: ' cod001 ',
+      dispensingPointId: '10000000-0000-4000-8000-000000000002',
+      scheduledDate: '2031-03-05',
+      quantity: 2,
+    });
+    expect(parsed.commercialCode).toBe('COD001');
+    expect(updatePatientScheduleRequestSchema.safeParse({ expectedRevision: 1 }).success).toBe(
+      false,
+    );
+    expect(
+      updatePatientScheduleRequestSchema.safeParse({ expectedRevision: 1, quantity: 3 }).success,
+    ).toBe(true);
+  });
+
+  it('reschedule always requires a date and version', () => {
+    expect(
+      reschedulePatientScheduleRequestSchema.safeParse({
+        expectedRevision: 2,
+        scheduledDate: '2031-03-06',
+      }).success,
+    ).toBe(true);
+    expect(
+      reschedulePatientScheduleRequestSchema.safeParse({ expectedRevision: 2 }).success,
+    ).toBe(false);
+  });
+
+  it('shares the expiration thresholds and the schedule state machine', () => {
+    expect(SCHEDULE_EXPIRATION_THRESHOLDS).toEqual({ criticalDays: 15, highDays: 30 });
+    expect(patientScheduleTransitions.SCHEDULED).toEqual(['RESCHEDULED', 'CANCELLED']);
+    expect(patientScheduleTransitions.RESCHEDULED).toEqual(['RESCHEDULED', 'CANCELLED']);
+    expect(patientScheduleTransitions.CANCELLED).toEqual([]);
+  });
+
+  it('codifies the canonical schedule identity (one active schedule per identity)', () => {
+    expect(PATIENT_SCHEDULE_IDENTITY_FIELDS).toEqual([
+      'authorizationItemId',
+      'dispensingPointId',
+      'scheduledDate',
+    ]);
+    // quantity y revision NUNCA distinguen ocurrencias de programación.
+    expect(PATIENT_SCHEDULE_IDENTITY_FIELDS).not.toContain('quantity');
+    expect(PATIENT_SCHEDULE_IDENTITY_FIELDS).not.toContain('revision');
   });
 });

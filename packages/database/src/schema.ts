@@ -373,6 +373,12 @@ export const patientSchedules = pgTable(
     scheduledDate: date('scheduled_date').notNull(),
     quantity: integer('quantity').notNull(),
     status: varchar('status', { length: 20 }).notNull().default('SCHEDULED'),
+    scheduleTiming: varchar('schedule_timing', { length: 10 }).notNull().default('ON_TIME'),
+    lateHandling: varchar('late_handling', { length: 40 }),
+    deferredPlanningPeriodId: uuid('deferred_planning_period_id').references(
+      () => planningPeriods.id,
+      { onDelete: 'restrict' },
+    ),
     revision: integer('revision').notNull().default(1),
     createdBy: uuid('created_by')
       .notNull()
@@ -399,13 +405,47 @@ export const patientSchedules = pgTable(
       table.authorizationItemId,
       table.createdAt,
     ),
+    index('patient_schedules_commercial_status_idx').on(table.commercialCode, table.status),
+    index('patient_schedules_point_date_status_idx').on(
+      table.dispensingPointId,
+      table.scheduledDate,
+      table.status,
+    ),
+    /**
+     * Identidad canónica de programación (pre-ESP-004): una programación
+     * activa es unívoca por (authorization_item, punto, fecha). Cancelar
+     * libera la identidad. Definida en migración 0034 como índice único
+     * parcial; Drizzle no expresaba el WHERE al momento del esquema original.
+     */
+    uniqueIndex('patient_schedules_active_identity_idx')
+      .on(table.authorizationItemId, table.dispensingPointId, table.scheduledDate)
+      .where(sql`"status" IN ('SCHEDULED', 'RESCHEDULED')`),
     check(
       'patient_schedules_commercial_code_not_blank_check',
       sql`length(btrim(${table.commercialCode})) > 0`,
     ),
     check('patient_schedules_quantity_check', sql`${table.quantity} > 0`),
     check('patient_schedules_revision_check', sql`${table.revision} > 0`),
-    check('patient_schedules_status_check', sql`${table.status} IN ('SCHEDULED', 'CANCELLED')`),
+    check(
+      'patient_schedules_status_check',
+      sql`${table.status} IN ('SCHEDULED', 'RESCHEDULED', 'CANCELLED')`,
+    ),
+    check(
+      'patient_schedules_schedule_timing_check',
+      sql`${table.scheduleTiming} IN ('ON_TIME', 'LATE')`,
+    ),
+    check(
+      'patient_schedules_late_handling_check',
+      sql`${table.lateHandling} IS NULL OR ${table.lateHandling} IN ('COMPLEMENTARY_PURCHASE_ORDER', 'NEXT_PERIOD')`,
+    ),
+    check(
+      'patient_schedules_late_handling_coherence_check',
+      sql`(${table.scheduleTiming} = 'LATE' AND ${table.lateHandling} IS NOT NULL) OR (${table.scheduleTiming} = 'ON_TIME' AND ${table.lateHandling} IS NULL)`,
+    ),
+    check(
+      'patient_schedules_deferred_period_check',
+      sql`(${table.lateHandling} = 'NEXT_PERIOD' AND ${table.deferredPlanningPeriodId} IS NOT NULL) OR (${table.lateHandling} IS DISTINCT FROM 'NEXT_PERIOD' AND ${table.deferredPlanningPeriodId} IS NULL)`,
+    ),
   ],
 );
 
@@ -428,6 +468,12 @@ export const patientScheduleHistory = pgTable(
     scheduledDate: date('scheduled_date').notNull(),
     quantity: integer('quantity').notNull(),
     status: varchar('status', { length: 20 }).notNull(),
+    scheduleTiming: varchar('schedule_timing', { length: 10 }).notNull().default('ON_TIME'),
+    lateHandling: varchar('late_handling', { length: 40 }),
+    deferredPlanningPeriodId: uuid('deferred_planning_period_id').references(
+      () => planningPeriods.id,
+      { onDelete: 'restrict' },
+    ),
     changeType: varchar('change_type', { length: 30 }).notNull(),
     changedBy: uuid('changed_by')
       .notNull()
@@ -453,7 +499,19 @@ export const patientScheduleHistory = pgTable(
     check('patient_schedule_history_quantity_check', sql`${table.quantity} > 0`),
     check(
       'patient_schedule_history_status_check',
-      sql`${table.status} IN ('SCHEDULED', 'CANCELLED')`,
+      sql`${table.status} IN ('SCHEDULED', 'RESCHEDULED', 'CANCELLED')`,
+    ),
+    check(
+      'patient_schedule_history_schedule_timing_check',
+      sql`${table.scheduleTiming} IN ('ON_TIME', 'LATE')`,
+    ),
+    check(
+      'patient_schedule_history_late_handling_check',
+      sql`${table.lateHandling} IS NULL OR ${table.lateHandling} IN ('COMPLEMENTARY_PURCHASE_ORDER', 'NEXT_PERIOD')`,
+    ),
+    check(
+      'patient_schedule_history_late_handling_coherence_check',
+      sql`(${table.scheduleTiming} = 'LATE' AND ${table.lateHandling} IS NOT NULL) OR (${table.scheduleTiming} = 'ON_TIME' AND ${table.lateHandling} IS NULL)`,
     ),
   ],
 );
@@ -527,6 +585,152 @@ export const demandSources = pgTable(
     index('demand_sources_demand_line_idx').on(table.projectedDemandLineId, table.createdAt),
     check('demand_sources_schedule_revision_check', sql`${table.scheduleRevision} > 0`),
     check('demand_sources_quantity_check', sql`${table.quantity} > 0`),
+  ],
+);
+
+/**
+ * ESP-003: staging de carga XLSX de programación. El procesamiento es
+ * síncrono en la API (normalización + validación por fila) y la confirmación
+ * es transaccional por fila elegible. `stagingStatus` usa el vocabulario
+ * funcional VALID/INVALID/DUPLICATE/CONFLICT; `resultCode` conserva el
+ * detalle estable para la UI y las pruebas.
+ */
+export const patientScheduleImports = pgTable(
+  'patient_schedule_imports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    originalFilename: varchar('original_filename', { length: 255 }).notNull(),
+    mimeType: varchar('mime_type', { length: 160 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: varchar('sha256', { length: 64 }).notNull(),
+    status: varchar('status', { length: 30 }).notNull().default('UPLOADED'),
+    totalRows: integer('total_rows').notNull().default(0),
+    validRows: integer('valid_rows').notNull().default(0),
+    invalidRows: integer('invalid_rows').notNull().default(0),
+    duplicateRows: integer('duplicate_rows').notNull().default(0),
+    conflictRows: integer('conflict_rows').notNull().default(0),
+    confirmedRows: integer('confirmed_rows').notNull().default(0),
+    correlationId: uuid('correlation_id').notNull(),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('patient_schedule_imports_org_status_idx').on(
+      table.organizationId,
+      table.status,
+      table.createdAt,
+    ),
+    check(
+      'patient_schedule_imports_size_bytes_check',
+      sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 20971520`,
+    ),
+    check(
+      'patient_schedule_imports_status_check',
+      sql`${table.status} IN ('UPLOADED', 'VALIDATING', 'READY_TO_CONFIRM', 'CONFIRMING', 'COMPLETED', 'FAILED')`,
+    ),
+    check('patient_schedule_imports_total_rows_check', sql`${table.totalRows} >= 0`),
+    check('patient_schedule_imports_valid_rows_check', sql`${table.validRows} >= 0`),
+    check('patient_schedule_imports_invalid_rows_check', sql`${table.invalidRows} >= 0`),
+    check('patient_schedule_imports_duplicate_rows_check', sql`${table.duplicateRows} >= 0`),
+    check('patient_schedule_imports_conflict_rows_check', sql`${table.conflictRows} >= 0`),
+    check('patient_schedule_imports_confirmed_rows_check', sql`${table.confirmedRows} >= 0`),
+  ],
+);
+
+export const patientScheduleImportSourceFiles = pgTable('patient_schedule_import_source_files', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  importId: uuid('import_id')
+    .notNull()
+    .unique()
+    .references(() => patientScheduleImports.id, { onDelete: 'cascade' }),
+  originalFilename: varchar('original_filename', { length: 255 }).notNull(),
+  mimeType: varchar('mime_type', { length: 160 }).notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  sha256: varchar('sha256', { length: 64 }).notNull(),
+  content: bytea('content'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp('processed_at', { withTimezone: true }),
+});
+
+export const patientScheduleImportRows = pgTable(
+  'patient_schedule_import_rows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    importId: uuid('import_id')
+      .notNull()
+      .references(() => patientScheduleImports.id, { onDelete: 'cascade' }),
+    rowNumber: integer('row_number').notNull(),
+    rawData: jsonb('raw_data').notNull(),
+    normalizedData: jsonb('normalized_data'),
+    stagingStatus: varchar('staging_status', { length: 20 }).notNull(),
+    resultCode: varchar('result_code', { length: 80 }).notNull(),
+    resultMessage: text('result_message'),
+    patientDocument: varchar('patient_document', { length: 80 }),
+    authorizationNumber: varchar('authorization_number', { length: 255 }),
+    commercialCode: varchar('commercial_code', { length: 255 }),
+    quantity: integer('quantity'),
+    dispensingPointCode: varchar('dispensing_point_code', { length: 80 }),
+    scheduledDate: date('scheduled_date'),
+    authorizationItemId: uuid('authorization_item_id').references(() => authorizationItems.id, {
+      onDelete: 'restrict',
+    }),
+    planningPeriodId: uuid('planning_period_id').references(() => planningPeriods.id, {
+      onDelete: 'restrict',
+    }),
+    dispensingPointId: uuid('dispensing_point_id').references(() => dispensingPoints.id, {
+      onDelete: 'restrict',
+    }),
+    scheduleTiming: varchar('schedule_timing', { length: 10 }),
+    lateHandling: varchar('late_handling', { length: 40 }),
+    deferredPlanningPeriodId: uuid('deferred_planning_period_id').references(
+      () => planningPeriods.id,
+      { onDelete: 'restrict' },
+    ),
+    confirmable: boolean('confirmable').notNull().default(false),
+    patientScheduleId: uuid('patient_schedule_id').references(() => patientSchedules.id, {
+      onDelete: 'restrict',
+    }),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('patient_schedule_import_rows_import_row_unique').on(table.importId, table.rowNumber),
+    index('patient_schedule_import_rows_status_idx').on(
+      table.importId,
+      table.stagingStatus,
+      table.rowNumber,
+    ),
+    check('patient_schedule_import_rows_row_number_check', sql`${table.rowNumber} > 0`),
+    check(
+      'patient_schedule_import_rows_staging_status_check',
+      sql`${table.stagingStatus} IN ('VALID', 'INVALID', 'DUPLICATE', 'CONFLICT')`,
+    ),
+    check(
+      'patient_schedule_import_rows_result_code_check',
+      sql`${table.resultCode} IN (
+        'ROW_VALID', 'MISSING_REQUIRED_FIELD', 'INVALID_FIELD_FORMAT',
+        'DUPLICATE_IN_FILE', 'DUPLICATE_EXISTING_SCHEDULE',
+        'AUTHORIZATION_ITEM_NOT_FOUND', 'AUTHORIZATION_CODE_MISMATCH',
+        'PATIENT_DOCUMENT_MISMATCH',
+        'AUTHORIZATION_NOT_SCHEDULABLE', 'AUTHORIZATION_EXPIRED',
+        'INVALID_QUANTITY', 'DISPENSING_POINT_NOT_FOUND',
+        'PLANNING_PERIOD_NOT_FOUND', 'NEXT_PERIOD_NOT_FOUND',
+        'LATE_HANDLING_REQUIRED', 'INVALID_HEADERS', 'PROCESSING_ERROR',
+        'CONFIRMATION_CONFLICT'
+      )`,
+    ),
+    check(
+      'patient_schedule_import_rows_quantity_check',
+      sql`${table.quantity} IS NULL OR ${table.quantity} > 0`,
+    ),
   ],
 );
 

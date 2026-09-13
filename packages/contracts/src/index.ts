@@ -242,8 +242,352 @@ export type PaginatedPlanningPeriodsResponse = z.infer<
   typeof paginatedPlanningPeriodsResponseSchema
 >;
 
-export const patientScheduleStatusSchema = z.enum(['SCHEDULED', 'CANCELLED']);
+export const patientScheduleStatusSchema = z.enum(['SCHEDULED', 'RESCHEDULED', 'CANCELLED']);
 export type PatientScheduleStatus = z.infer<typeof patientScheduleStatusSchema>;
+
+/**
+ * ESP-003 (invariante de negocio vigente): solo existe UNA programación
+ * activa por (authorization_item_id, dispensing_point_id, scheduled_date).
+ * La cantidad (quantity) representa las unidades autorizadas planeadas para
+ * ese evento de aplicación y NO es parte de la identidad; de lo mismo, la
+ * revisión tampoco lo es.
+ *
+ * Si el negocio llegara a requerir varios eventos de aplicación independientes
+ * para la misma terna, el modelo debe introducir una dimensión de ocurrencia
+ * explícita (scheduled_at / session / occurrence_id). Quantity y revision
+ * NUNCA se usan para distinguir ocurrencias. Impuesta en la base de datos por
+ * el índice único parcial `patient_schedules_active_identity_idx`
+ * (migración 0034).
+ */
+export const PATIENT_SCHEDULE_IDENTITY_FIELDS = [
+  'authorizationItemId',
+  'dispensingPointId',
+  'scheduledDate',
+] as const;
+export type PatientScheduleIdentityField = (typeof PATIENT_SCHEDULE_IDENTITY_FIELDS)[number];
+
+/**
+ * ESP-003: una programación puede reprogramarse cuantas veces haga falta
+ * (SCHEDULED/RESCHEDULED → RESCHEDULED) y cancelarse una sola vez. CANCELLED
+ * es terminal y no se elimina físicamente: solo registra una revisión.
+ */
+export const patientScheduleTransitions: Record<
+  PatientScheduleStatus,
+  readonly PatientScheduleStatus[]
+> = {
+  SCHEDULED: ['RESCHEDULED', 'CANCELLED'],
+  RESCHEDULED: ['RESCHEDULED', 'CANCELLED'],
+  CANCELLED: [],
+};
+
+export const scheduleTimingSchema = z.enum(['ON_TIME', 'LATE']);
+export type ScheduleTiming = z.infer<typeof scheduleTimingSchema>;
+
+export const lateHandlingSchema = z.enum(['COMPLEMENTARY_PURCHASE_ORDER', 'NEXT_PERIOD']);
+export type LateHandling = z.infer<typeof lateHandlingSchema>;
+
+export const patientScheduleChangeTypeSchema = z.enum([
+  'CREATED',
+  'UPDATED',
+  'RESCHEDULED',
+  'CANCELLED',
+]);
+export type PatientScheduleChangeType = z.infer<typeof patientScheduleChangeTypeSchema>;
+
+export const expirationPriorityLevelSchema = z.enum(['CRITICAL', 'HIGH', 'NORMAL']);
+export type ExpirationPriorityLevel = z.infer<typeof expirationPriorityLevelSchema>;
+
+/**
+ * ESP-003: única fuente de la política de vencimiento compartida por dominio,
+ * API y Web. Valores OPERATIVOS INICIALES (no regla contractual de negocio):
+ * la política se pasa explícitamente a `calculateAuthorizationPriority`, de
+ * modo que ajustarla no requiere modificar el dominio. Cambiarla exige una
+ * decisión documentada (está congelada con Object.freeze precisamente para
+ * hacerlo visible).
+ */
+export const SCHEDULE_EXPIRATION_THRESHOLDS = Object.freeze({
+  criticalDays: 15,
+  highDays: 30,
+});
+export type ScheduleExpirationThresholds = typeof SCHEDULE_EXPIRATION_THRESHOLDS;
+
+export const patientScheduleResponseSchema = z.object({
+  id: z.string().uuid(),
+  authorizationItemId: z.string().uuid(),
+  authorizationNumber: z.string(),
+  planningPeriodId: z.string().uuid(),
+  planningPeriodStartDate: z.string().date(),
+  planningPeriodEndDate: z.string().date(),
+  schedulingCutoffAt: isoDateTimeSchema,
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  dispensingPointName: z.string(),
+  commercialCode: commercialCodeSchema,
+  patientDocument: z.string().nullable(),
+  patientName: z.string().nullable(),
+  scheduledDate: z.string().date(),
+  quantity: z.number().int().positive(),
+  status: patientScheduleStatusSchema,
+  scheduleTiming: scheduleTimingSchema,
+  lateHandling: lateHandlingSchema.nullable(),
+  deferredPlanningPeriodId: z.string().uuid().nullable(),
+  revision: z.number().int().positive(),
+  authorizationExpiresOn: z.string().date().nullable(),
+  daysUntilExpiration: z.number().int().nullable(),
+  priorityLevel: expirationPriorityLevelSchema.nullable(),
+  createdBy: z.string().uuid(),
+  updatedBy: z.string().uuid(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type PatientScheduleResponse = z.infer<typeof patientScheduleResponseSchema>;
+
+export const createPatientScheduleRequestSchema = z.object({
+  authorizationItemId: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  dispensingPointId: z.string().uuid(),
+  scheduledDate: z.string().date(),
+  quantity: z.number().int().positive(),
+  lateHandling: lateHandlingSchema.optional(),
+});
+export type CreatePatientScheduleRequest = z.infer<typeof createPatientScheduleRequestSchema>;
+
+export const updatePatientScheduleRequestSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+    quantity: z.number().int().positive().optional(),
+    dispensingPointId: z.string().uuid().optional(),
+    scheduledDate: z.string().date().optional(),
+    lateHandling: lateHandlingSchema.nullable().optional(),
+  })
+  .refine(
+    (value) =>
+      value.quantity !== undefined ||
+      value.dispensingPointId !== undefined ||
+      value.scheduledDate !== undefined ||
+      value.lateHandling !== undefined,
+    { message: 'At least one change is required' },
+  );
+export type UpdatePatientScheduleRequest = z.infer<typeof updatePatientScheduleRequestSchema>;
+
+export const reschedulePatientScheduleRequestSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+  scheduledDate: z.string().date(),
+  dispensingPointId: z.string().uuid().optional(),
+  lateHandling: lateHandlingSchema.optional(),
+  reason: z.string().trim().min(1).max(500).optional(),
+});
+export type ReschedulePatientScheduleRequest = z.infer<
+  typeof reschedulePatientScheduleRequestSchema
+>;
+
+export const cancelPatientScheduleRequestSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+  reason: z.string().trim().min(1).max(500).optional(),
+});
+export type CancelPatientScheduleRequest = z.infer<typeof cancelPatientScheduleRequestSchema>;
+
+export const patientScheduleListQuerySchema = z.object({
+  authorization: z.string().trim().min(1).max(255).optional(),
+  patientDocument: z.string().trim().min(1).max(80).optional(),
+  planningPeriodId: z.string().uuid().optional(),
+  dispensingPointId: z.string().uuid().optional(),
+  status: patientScheduleStatusSchema.optional(),
+  commercialCode: commercialCodeSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+export type PatientScheduleListQuery = z.infer<typeof patientScheduleListQuerySchema>;
+
+export const paginatedPatientSchedulesResponseSchema = z.object({
+  items: z.array(patientScheduleResponseSchema),
+});
+export type PaginatedPatientSchedulesResponse = z.infer<
+  typeof paginatedPatientSchedulesResponseSchema
+>;
+
+export const patientScheduleHistoryEntrySchema = z.object({
+  patientScheduleId: z.string().uuid(),
+  revision: z.number().int().positive(),
+  changeType: patientScheduleChangeTypeSchema,
+  authorizationItemId: z.string().uuid(),
+  planningPeriodId: z.string().uuid(),
+  dispensingPointId: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  scheduledDate: z.string().date(),
+  quantity: z.number().int().positive(),
+  status: patientScheduleStatusSchema,
+  scheduleTiming: scheduleTimingSchema,
+  lateHandling: lateHandlingSchema.nullable(),
+  deferredPlanningPeriodId: z.string().uuid().nullable(),
+  changedBy: z.string().uuid(),
+  correlationId: z.string().uuid(),
+  changedAt: isoDateTimeSchema,
+});
+export type PatientScheduleHistoryEntry = z.infer<typeof patientScheduleHistoryEntrySchema>;
+
+export const patientScheduleHistoryResponseSchema = z.object({
+  items: z.array(patientScheduleHistoryEntrySchema),
+});
+export type PatientScheduleHistoryResponse = z.infer<typeof patientScheduleHistoryResponseSchema>;
+
+/**
+ * Búsqueda clínica acotada a programación. No reemplaza la búsqueda clínica
+ * general: solo expone los datos mínimos para elegir un authorization_item.
+ */
+export const scheduleAuthorizationSearchQuerySchema = z
+  .object({
+    authorization: z.string().trim().min(1).max(255).optional(),
+    patientDocument: z.string().trim().min(1).max(80).optional(),
+    commercialCode: commercialCodeSchema.optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .refine(
+    (value) =>
+      value.authorization !== undefined ||
+      value.patientDocument !== undefined ||
+      value.commercialCode !== undefined,
+    { message: 'At least one search filter is required' },
+  );
+export type ScheduleAuthorizationSearchQuery = z.infer<
+  typeof scheduleAuthorizationSearchQuerySchema
+>;
+
+export const scheduleAuthorizationOptionSchema = z.object({
+  authorizationItemId: z.string().uuid(),
+  authorizationNumber: z.string(),
+  authorizationKey: z.string(),
+  commercialCode: commercialCodeSchema,
+  authorizedQuantity: z.number().int().positive().nullable(),
+  patientDocument: z.string().nullable(),
+  patientName: z.string().nullable(),
+  coverageType: z.string(),
+  directionStatus: z.string(),
+  enablementStatus: z.string(),
+  authorizationExpiresOn: z.string().date().nullable(),
+  daysUntilExpiration: z.number().int().nullable(),
+  priorityLevel: expirationPriorityLevelSchema.nullable(),
+  canSchedule: z.boolean(),
+  blockingCode: z.string().nullable(),
+});
+export type ScheduleAuthorizationOption = z.infer<typeof scheduleAuthorizationOptionSchema>;
+
+export const scheduleAuthorizationSearchResponseSchema = z.object({
+  items: z.array(scheduleAuthorizationOptionSchema),
+});
+export type ScheduleAuthorizationSearchResponse = z.infer<
+  typeof scheduleAuthorizationSearchResponseSchema
+>;
+
+export const dispensingPointResponseSchema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  active: z.boolean(),
+});
+export type DispensingPointResponse = z.infer<typeof dispensingPointResponseSchema>;
+
+export const dispensingPointListResponseSchema = z.object({
+  items: z.array(dispensingPointResponseSchema),
+});
+export type DispensingPointListResponse = z.infer<typeof dispensingPointListResponseSchema>;
+
+/** Vista previa de período/ON_TIME-LATE calculada por la API (regla ESP-002). */
+export const scheduleTimingPreviewResponseSchema = z.object({
+  planningPeriodId: z.string().uuid(),
+  planningPeriodStartDate: z.string().date(),
+  planningPeriodEndDate: z.string().date(),
+  schedulingCutoffAt: isoDateTimeSchema,
+  scheduleTiming: scheduleTimingSchema,
+  lateHandlingRequired: z.boolean(),
+  nextPlanningPeriodId: z.string().uuid().nullable(),
+});
+export type ScheduleTimingPreviewResponse = z.infer<typeof scheduleTimingPreviewResponseSchema>;
+
+export const PATIENT_SCHEDULE_IMPORT_REQUIRED_COLUMNS = [
+  'AUTORIZACION',
+  'DOCUMENTO',
+  'COD_COMERCIAL',
+  'CANTIDAD',
+  'PUNTO',
+  'FECHA_PROGRAMADA',
+] as const;
+
+export const PATIENT_SCHEDULE_IMPORT_OPTIONAL_COLUMNS = ['MANEJO_TARDIO'] as const;
+
+export const PATIENT_SCHEDULE_IMPORT_MAX_ROWS = 5000;
+
+export const patientScheduleImportBatchStatusSchema = z.enum([
+  'UPLOADED',
+  'VALIDATING',
+  'READY_TO_CONFIRM',
+  'CONFIRMING',
+  'COMPLETED',
+  'FAILED',
+]);
+export type PatientScheduleImportBatchStatus = z.infer<
+  typeof patientScheduleImportBatchStatusSchema
+>;
+
+export const patientScheduleImportRowStatusSchema = z.enum([
+  'VALID',
+  'INVALID',
+  'DUPLICATE',
+  'CONFLICT',
+]);
+export type PatientScheduleImportRowStatus = z.infer<
+  typeof patientScheduleImportRowStatusSchema
+>;
+
+export const patientScheduleImportBatchResponseSchema = z.object({
+  id: z.string().uuid(),
+  status: patientScheduleImportBatchStatusSchema,
+  originalFilename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().positive(),
+  sha256: z.string().length(64),
+  totalRows: z.number().int().nonnegative(),
+  validRows: z.number().int().nonnegative(),
+  invalidRows: z.number().int().nonnegative(),
+  duplicateRows: z.number().int().nonnegative(),
+  conflictRows: z.number().int().nonnegative(),
+  confirmedRows: z.number().int().nonnegative(),
+  lastErrorCode: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+  completedAt: isoDateTimeSchema.nullable(),
+  confirmedAt: isoDateTimeSchema.nullable(),
+});
+export type PatientScheduleImportBatchResponse = z.infer<
+  typeof patientScheduleImportBatchResponseSchema
+>;
+
+export const patientScheduleImportRowResponseSchema = z.object({
+  id: z.string().uuid(),
+  rowNumber: z.number().int().positive(),
+  stagingStatus: patientScheduleImportRowStatusSchema,
+  resultCode: z.string(),
+  resultMessage: z.string().nullable(),
+  patientDocument: z.string().nullable(),
+  authorizationNumber: z.string().nullable(),
+  commercialCode: z.string().nullable(),
+  quantity: z.number().int().nullable(),
+  dispensingPointCode: z.string().nullable(),
+  scheduledDate: z.string().date().nullable(),
+  scheduleTiming: scheduleTimingSchema.nullable(),
+  lateHandling: lateHandlingSchema.nullable(),
+  confirmable: z.boolean(),
+  patientScheduleId: z.string().uuid().nullable(),
+  confirmedAt: isoDateTimeSchema.nullable(),
+});
+export type PatientScheduleImportRowResponse = z.infer<
+  typeof patientScheduleImportRowResponseSchema
+>;
+
+export const paginatedPatientScheduleImportRowsResponseSchema = z.object({
+  items: z.array(patientScheduleImportRowResponseSchema),
+});
+export type PaginatedPatientScheduleImportRowsResponse = z.infer<
+  typeof paginatedPatientScheduleImportRowsResponseSchema
+>;
 
 export const projectedDemandStatusSchema = z.enum(['OPEN', 'FROZEN', 'CLOSED']);
 export type ProjectedDemandStatus = z.infer<typeof projectedDemandStatusSchema>;
@@ -279,16 +623,3 @@ export const legacyAuthorizationHistoryResponseSchema = z.object({
 export type LegacyAuthorizationHistoryResponse = z.infer<
   typeof legacyAuthorizationHistoryResponseSchema
 >;
-
-export const patientScheduleResponseSchema = z.object({
-  id: z.string().uuid(),
-  authorizationItemId: z.string().uuid(),
-  planningPeriodId: z.string().uuid(),
-  dispensingPointId: z.string().uuid(),
-  commercialCode: commercialCodeSchema,
-  scheduledDate: z.string().date(),
-  quantity: z.number().int().positive(),
-  status: patientScheduleStatusSchema,
-  revision: z.number().int().positive(),
-});
-export type PatientScheduleResponse = z.infer<typeof patientScheduleResponseSchema>;

@@ -42,3 +42,22 @@ export type {
   PlanningPeriodTiming,
   PlanningPeriodValidationIssue,
 } from './planning-period';
+export {
+  PatientScheduleLateHandlingError,
+  PatientScheduleTransitionError,
+  assertLateHandling,
+  assertPatientScheduleTransition,
+  calculateAuthorizationPriority,
+  canTransitionPatientSchedule,
+  evaluateScheduleAuthorizationEligibility,
+  parseAuthorizationExpiration,
+  requiresLateHandling,
+  scheduleToday,
+} from './patient-schedule';
+export type {
+  ScheduleAuthorizationEligibility,
+  ScheduleAuthorizationEligibilityInput,
+  ScheduleExpirationClassification,
+  ScheduleExpirationPolicy,
+  ScheduleLateHandling,
+} from './patient-schedule';

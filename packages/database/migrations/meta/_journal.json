@@ -232,6 +232,20 @@
       "when": 1790374022663,
       "tag": "0032_esp002_planning_periods",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790374023663,
+      "tag": "0033_esp003_patient_scheduling",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790374024663,
+      "tag": "0034_patient_schedule_duplicate_identity",
+      "breakpoints": true
     }
   ]
 }

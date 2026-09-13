@@ -25,6 +25,10 @@ import { ClinicalModule } from './clinical/clinical.module';
 import { PlanningPeriodController } from './planning/planning-period.controller';
 import { PlanningPeriodRepository } from './planning/planning-period.repository';
 import { PlanningPeriodService } from './planning/planning-period.service';
+import { PatientScheduleController } from './scheduling/patient-schedule.controller';
+import { PatientScheduleImportService } from './scheduling/patient-schedule-import.service';
+import { PatientScheduleRepository } from './scheduling/patient-schedule.repository';
+import { PatientScheduleService } from './scheduling/patient-schedule.service';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
 
 const config = parseApiConfig(process.env);
@@ -68,6 +72,7 @@ new Gauge({
     OperationsController,
     AdminJobsController,
     PlanningPeriodController,
+    PatientScheduleController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -79,6 +84,9 @@ new Gauge({
     FoundationService,
     PlanningPeriodRepository,
     PlanningPeriodService,
+    PatientScheduleRepository,
+    PatientScheduleService,
+    PatientScheduleImportService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },
