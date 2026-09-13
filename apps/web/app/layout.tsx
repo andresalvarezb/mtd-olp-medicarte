@@ -4,8 +4,8 @@ import { AppShell } from '@/components/layout/app-shell';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Plataforma de Autorizaciones y Dispensación',
-  description: 'Plataforma de autorizaciones y dispensación de alto costo — OLP / MEDICARTE',
+  title: 'Plataforma MTD - OLP - Medicarte',
+  description: 'Base para planificación, abastecimiento, inventario y aplicación de medicamentos.',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

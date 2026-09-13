@@ -31,7 +31,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     if (
       currentItem &&
-      (!currentItem.roles.some((r) => roles.includes(r)) || !hasPermission(currentItem.permission))
+      (!currentItem.roles.some((r) => roles.includes(r)) ||
+        (currentItem.permission ? !hasPermission(currentItem.permission) : false))
     ) {
       router.replace('/acceso-denegado');
     }

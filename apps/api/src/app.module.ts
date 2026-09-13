@@ -21,25 +21,6 @@ import { MeController } from './identity/me.controller';
 import { UsersController } from './identity/users.controller';
 import { UsersService } from './identity/users.service';
 import { OperationsController } from './operations/operations.controller';
-import { ImportsController } from './imports/imports.controller';
-import { ImportsService } from './imports/imports.service';
-import { AuthorizationItemsController } from './authorization-items/authorization-items.controller';
-import { AuthorizationItemsService } from './authorization-items/authorization-items.service';
-import { BulkUpdatesController } from './bulk-updates/bulk-updates.controller';
-import { BulkUpdatesService } from './bulk-updates/bulk-updates.service';
-import { OperationalExportsController } from './operational-exports/operational-exports.controller';
-import { OperationalExportsService } from './operational-exports/operational-exports.service';
-import { AuditsController } from './audits/audits.controller';
-import { AuditsService } from './audits/audits.service';
-import { ConsolidationController } from './consolidation/consolidation.controller';
-import { ConsolidationService } from './consolidation/consolidation.service';
-import { IndicatorsController } from './consolidation/indicators.controller';
-import { TariffAnnexController } from './tariff-annex/tariff-annex.controller';
-import { TariffAnnexService } from './tariff-annex/tariff-annex.service';
-import { NoveltiesController } from './novelties/novelties.controller';
-import { NoveltiesService } from './novelties/novelties.service';
-import { SettingsController } from './settings/settings.controller';
-import { SettingsService } from './settings/settings.service';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
 
 const config = parseApiConfig(process.env);
@@ -81,34 +62,15 @@ new Gauge({
     UsersController,
     OperationsController,
     AdminJobsController,
-    ImportsController,
-    AuthorizationItemsController,
-    BulkUpdatesController,
-    OperationalExportsController,
-    AuditsController,
-    ConsolidationController,
-    IndicatorsController,
-    TariffAnnexController,
-    NoveltiesController,
-    SettingsController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
-    NoveltiesService,
-    SettingsService,
     AuthGuard,
     AccessService,
     AuthService,
     BootstrapAdminService,
     UsersService,
     FoundationService,
-    ImportsService,
-    AuthorizationItemsService,
-    BulkUpdatesService,
-    OperationalExportsService,
-    AuditsService,
-    ConsolidationService,
-    TariffAnnexService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

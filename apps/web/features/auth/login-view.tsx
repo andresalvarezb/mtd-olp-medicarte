@@ -45,7 +45,7 @@ export function LoginView() {
           <div className="brand-mark">MTD</div>
           <div>
             <h1>OLP - MEDICARTE</h1>
-            <p>Plataforma de autorizaciones y dispensación de alto costo</p>
+            <p>Planificación, abastecimiento, inventario y aplicación de medicamentos</p>
           </div>
         </div>
 

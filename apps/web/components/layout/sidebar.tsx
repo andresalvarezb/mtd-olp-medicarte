@@ -23,7 +23,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         <nav className="nav">
           {NAV_SECTIONS.map((section) => {
             const items = section.items.filter(
-              (item) => hasPermission(item.permission) && item.roles.some((r) => roles.includes(r)),
+              (item) =>
+                (!item.permission || hasPermission(item.permission)) &&
+                item.roles.some((r) => roles.includes(r)),
             );
             if (items.length === 0) return null;
             return (
