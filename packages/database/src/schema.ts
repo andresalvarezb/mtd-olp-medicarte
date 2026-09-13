@@ -4,6 +4,7 @@ import {
   check,
   customType,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -213,6 +214,7 @@ export const authorizationItems = pgTable(
       table.numeroAutorizacion,
       table.codigoMedicamento,
     ),
+    unique('authorization_items_id_code_unique').on(table.id, table.codigoMedicamento),
     uniqueIndex('authorization_items_authorization_key_idx').on(table.authorizationKey),
     index('authorization_items_coverage_idx').on(table.coverageType, table.enablementStatus),
     index('authorization_items_audit_status_idx').on(table.auditStatus, table.createdAt, table.id),
@@ -276,6 +278,235 @@ export const authorizationItems = pgTable(
       sql`${table.auditStatus} <> 'APPROVED' OR ${table.operationStatus} = 'DISPENSED'`,
     ),
     check('authorization_items_version_check', sql`${table.version} > 0`),
+  ],
+);
+
+export const dispensingPoints = pgTable(
+  'dispensing_points',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    code: varchar('code', { length: 80 }).notNull(),
+    name: varchar('name', { length: 160 }).notNull(),
+    active: boolean('active').notNull().default(true),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('dispensing_points_organization_code_idx').on(table.organizationId, table.code),
+    index('dispensing_points_active_idx').on(table.organizationId, table.active, table.code),
+    check('dispensing_points_code_not_blank_check', sql`length(btrim(${table.code})) > 0`),
+    check('dispensing_points_name_not_blank_check', sql`length(btrim(${table.name})) > 0`),
+  ],
+);
+
+export const planningPeriods = pgTable(
+  'planning_periods',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    programmingDeadlineAt: timestamp('programming_deadline_at', {
+      withTimezone: true,
+    }).notNull(),
+    purchaseOrderDeadlineAt: timestamp('purchase_order_deadline_at', {
+      withTimezone: true,
+    }).notNull(),
+    expectedDeliveryDate: date('expected_delivery_date').notNull(),
+    status: varchar('status', { length: 30 }).notNull().default('OPEN'),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('planning_periods_status_start_idx').on(table.status, table.startDate),
+    check('planning_periods_date_range_check', sql`${table.startDate} <= ${table.endDate}`),
+    check(
+      'planning_periods_deadline_order_check',
+      sql`${table.programmingDeadlineAt} <= ${table.purchaseOrderDeadlineAt}`,
+    ),
+    check(
+      'planning_periods_status_check',
+      sql`${table.status} IN ('OPEN', 'PLANNING_CLOSED', 'PURCHASING', 'IN_FULFILLMENT', 'OPERATIONAL', 'CLOSED')`,
+    ),
+  ],
+);
+
+export const patientSchedules = pgTable(
+  'patient_schedules',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    authorizationItemId: uuid('authorization_item_id').notNull(),
+    planningPeriodId: uuid('planning_period_id')
+      .notNull()
+      .references(() => planningPeriods.id, { onDelete: 'restrict' }),
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    scheduledDate: date('scheduled_date').notNull(),
+    quantity: integer('quantity').notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('SCHEDULED'),
+    revision: integer('revision').notNull().default(1),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.authorizationItemId, table.commercialCode],
+      foreignColumns: [authorizationItems.id, authorizationItems.codigoMedicamento],
+      name: 'patient_schedules_authorization_code_fk',
+    }),
+    index('patient_schedules_period_point_date_idx').on(
+      table.planningPeriodId,
+      table.dispensingPointId,
+      table.scheduledDate,
+      table.status,
+    ),
+    index('patient_schedules_authorization_created_idx').on(
+      table.authorizationItemId,
+      table.createdAt,
+    ),
+    check(
+      'patient_schedules_commercial_code_not_blank_check',
+      sql`length(btrim(${table.commercialCode})) > 0`,
+    ),
+    check('patient_schedules_quantity_check', sql`${table.quantity} > 0`),
+    check('patient_schedules_revision_check', sql`${table.revision} > 0`),
+    check('patient_schedules_status_check', sql`${table.status} IN ('SCHEDULED', 'CANCELLED')`),
+  ],
+);
+
+export const patientScheduleHistory = pgTable(
+  'patient_schedule_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    patientScheduleId: uuid('patient_schedule_id')
+      .notNull()
+      .references(() => patientSchedules.id, { onDelete: 'restrict' }),
+    revision: integer('revision').notNull(),
+    authorizationItemId: uuid('authorization_item_id').notNull(),
+    planningPeriodId: uuid('planning_period_id')
+      .notNull()
+      .references(() => planningPeriods.id, { onDelete: 'restrict' }),
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    scheduledDate: date('scheduled_date').notNull(),
+    quantity: integer('quantity').notNull(),
+    status: varchar('status', { length: 20 }).notNull(),
+    changeType: varchar('change_type', { length: 30 }).notNull(),
+    changedBy: uuid('changed_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    correlationId: uuid('correlation_id').notNull(),
+    changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('patient_schedule_history_schedule_revision_unique').on(
+      table.patientScheduleId,
+      table.revision,
+    ),
+    foreignKey({
+      columns: [table.authorizationItemId, table.commercialCode],
+      foreignColumns: [authorizationItems.id, authorizationItems.codigoMedicamento],
+      name: 'patient_schedule_history_authorization_code_fk',
+    }),
+    index('patient_schedule_history_schedule_changed_idx').on(
+      table.patientScheduleId,
+      table.changedAt,
+    ),
+    check('patient_schedule_history_revision_check', sql`${table.revision} > 0`),
+    check('patient_schedule_history_quantity_check', sql`${table.quantity} > 0`),
+    check(
+      'patient_schedule_history_status_check',
+      sql`${table.status} IN ('SCHEDULED', 'CANCELLED')`,
+    ),
+  ],
+);
+
+export const projectedDemandLines = pgTable(
+  'projected_demand_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    planningPeriodId: uuid('planning_period_id')
+      .notNull()
+      .references(() => planningPeriods.id, { onDelete: 'restrict' }),
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    projectedQuantity: integer('projected_quantity').notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('OPEN'),
+    revision: integer('revision').notNull().default(1),
+    consolidatedAt: timestamp('consolidated_at', { withTimezone: true }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('projected_demand_lines_period_point_code_idx').on(
+      table.planningPeriodId,
+      table.dispensingPointId,
+      table.commercialCode,
+    ),
+    index('projected_demand_lines_period_status_idx').on(table.planningPeriodId, table.status),
+    check(
+      'projected_demand_lines_commercial_code_not_blank_check',
+      sql`length(btrim(${table.commercialCode})) > 0`,
+    ),
+    check('projected_demand_lines_quantity_check', sql`${table.projectedQuantity} > 0`),
+    check('projected_demand_lines_revision_check', sql`${table.revision} > 0`),
+    check(
+      'projected_demand_lines_status_check',
+      sql`${table.status} IN ('OPEN', 'FROZEN', 'CLOSED')`,
+    ),
+  ],
+);
+
+export const demandSources = pgTable(
+  'demand_sources',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectedDemandLineId: uuid('projected_demand_line_id')
+      .notNull()
+      .references(() => projectedDemandLines.id, { onDelete: 'restrict' }),
+    patientScheduleId: uuid('patient_schedule_id').notNull(),
+    scheduleRevision: integer('schedule_revision').notNull(),
+    quantity: integer('quantity').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.patientScheduleId, table.scheduleRevision],
+      foreignColumns: [patientScheduleHistory.patientScheduleId, patientScheduleHistory.revision],
+      name: 'demand_sources_schedule_revision_fk',
+    }),
+    uniqueIndex('demand_sources_schedule_revision_idx').on(
+      table.patientScheduleId,
+      table.scheduleRevision,
+    ),
+    index('demand_sources_demand_line_idx').on(table.projectedDemandLineId, table.createdAt),
+    check('demand_sources_schedule_revision_check', sql`${table.scheduleRevision} > 0`),
+    check('demand_sources_quantity_check', sql`${table.quantity} > 0`),
   ],
 );
 
@@ -904,9 +1135,11 @@ export const novelties = pgTable(
     }),
     sourceRowNumber: integer('source_row_number'),
     originalRow: jsonb('original_row').notNull(),
-    code: varchar('code', { length: 30 }).notNull().references(() => noveltyCodes.code, {
-      onDelete: 'restrict',
-    }),
+    code: varchar('code', { length: 30 })
+      .notNull()
+      .references(() => noveltyCodes.code, {
+        onDelete: 'restrict',
+      }),
     stage: varchar('stage', { length: 60 }).notNull(),
     field: varchar('field', { length: 160 }),
     receivedValue: text('received_value'),
@@ -917,7 +1150,11 @@ export const novelties = pgTable(
     processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('novelties_item_active_idx').on(table.authorizationItemId, table.active, table.processedAt),
+    index('novelties_item_active_idx').on(
+      table.authorizationItemId,
+      table.active,
+      table.processedAt,
+    ),
     index('novelties_code_idx').on(table.code, table.processedAt),
     index('novelties_batch_idx').on(table.importBatchId, table.bulkUpdateBatchId),
     index('novelties_attempt_idx').on(table.code, table.authorizationItemId, table.attemptNumber),

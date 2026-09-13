@@ -21,6 +21,7 @@ import { MeController } from './identity/me.controller';
 import { UsersController } from './identity/users.controller';
 import { UsersService } from './identity/users.service';
 import { OperationsController } from './operations/operations.controller';
+import { ClinicalModule } from './clinical/clinical.module';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
 
 const config = parseApiConfig(process.env);
@@ -48,6 +49,7 @@ new Gauge({
 
 @Module({
   imports: [
+    ClinicalModule.register(database),
     LoggerModule.forRoot({
       pinoHttp: {
         level: config.LOG_LEVEL,

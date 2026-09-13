@@ -149,3 +149,76 @@ export const createAssignmentRequestSchema = z.object({
   roleCode: z.string().min(1).max(80),
 });
 export type CreateAssignmentRequest = z.infer<typeof createAssignmentRequestSchema>;
+
+export const commercialCodeSchema = z.preprocess(
+  (value) => (typeof value === 'string' ? value.trim().toUpperCase() : value),
+  z.string().min(1).max(255),
+);
+export type CommercialCode = z.infer<typeof commercialCodeSchema>;
+
+export const clinicalAuthorizationReferenceSchema = z.object({
+  authorizationItemId: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+});
+export type ClinicalAuthorizationReference = z.infer<typeof clinicalAuthorizationReferenceSchema>;
+
+export const planningPeriodStatusSchema = z.enum([
+  'OPEN',
+  'PLANNING_CLOSED',
+  'PURCHASING',
+  'IN_FULFILLMENT',
+  'OPERATIONAL',
+  'CLOSED',
+]);
+export type PlanningPeriodStatus = z.infer<typeof planningPeriodStatusSchema>;
+
+export const patientScheduleStatusSchema = z.enum(['SCHEDULED', 'CANCELLED']);
+export type PatientScheduleStatus = z.infer<typeof patientScheduleStatusSchema>;
+
+export const projectedDemandStatusSchema = z.enum(['OPEN', 'FROZEN', 'CLOSED']);
+export type ProjectedDemandStatus = z.infer<typeof projectedDemandStatusSchema>;
+
+export const clinicalAuthorizationResponseSchema = z.object({
+  id: z.string().uuid(),
+  numeroAutorizacion: z.string(),
+  commercialCode: commercialCodeSchema,
+  authorizationKey: z.string(),
+  sourceStatusNormalized: z.string(),
+  coverageType: z.string(),
+  directionStatus: z.string(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type ClinicalAuthorizationResponse = z.infer<typeof clinicalAuthorizationResponseSchema>;
+
+export const legacyAuthorizationHistoryResponseSchema = z.object({
+  id: z.string().uuid(),
+  numeroAutorizacion: z.string(),
+  commercialCode: commercialCodeSchema,
+  lugarDispensacion: z.string().nullable(),
+  fechaProgramada: z.string().date().nullable(),
+  fechaDispensacion: z.string().date().nullable(),
+  fechaAplicacion: z.string().date().nullable(),
+  codAutorizacionMedicarte: z.string().nullable(),
+  ordenCompra: z.string().nullable(),
+  processStatus: z.string().nullable(),
+  operationStatus: z.string().nullable(),
+  operationalVersion: z.number().int().nonnegative(),
+  updatedAt: isoDateTimeSchema,
+});
+export type LegacyAuthorizationHistoryResponse = z.infer<
+  typeof legacyAuthorizationHistoryResponseSchema
+>;
+
+export const patientScheduleResponseSchema = z.object({
+  id: z.string().uuid(),
+  authorizationItemId: z.string().uuid(),
+  planningPeriodId: z.string().uuid(),
+  dispensingPointId: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  scheduledDate: z.string().date(),
+  quantity: z.number().int().positive(),
+  status: patientScheduleStatusSchema,
+  revision: z.number().int().positive(),
+});
+export type PatientScheduleResponse = z.infer<typeof patientScheduleResponseSchema>;

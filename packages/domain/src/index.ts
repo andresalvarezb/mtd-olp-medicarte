@@ -12,3 +12,15 @@ export type {
   MipresQueryResult,
   MipresVigenciaEvaluation,
 } from './mipres';
+export {
+  LEGACY_OPERATIONAL_FIELDS,
+  createClinicalAuthorizationReference,
+  isLegacyOperationalField,
+  normalizeCommercialCode,
+} from './clinical-logistics-boundary';
+export type {
+  ClinicalAuthorization,
+  ClinicalAuthorizationReference,
+  LegacyAuthorizationHistory,
+  LegacyOperationalField,
+} from './clinical-logistics-boundary';

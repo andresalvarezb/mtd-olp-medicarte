@@ -9,6 +9,12 @@ if (!process.env.DATABASE_URL && existsSync(envPath)) {
 }
 
 const OPERATIONAL_TABLES = [
+  'demand_sources',
+  'projected_demand_lines',
+  'patient_schedule_history',
+  'patient_schedules',
+  'planning_periods',
+  'dispensing_points',
   'audit_findings',
   'audit_reviews',
   'audit_events',
@@ -41,7 +47,6 @@ const PRESERVED_TABLES = [
   'permissions',
   'role_permissions',
   'user_organization_roles',
-  'pending_user_requests',
 ] as const;
 
 async function main(): Promise<void> {
@@ -66,7 +71,9 @@ async function main(): Promise<void> {
     await db.transaction(async (tx) => {
       await tx.execute(sql.raw(`TRUNCATE TABLE ${OPERATIONAL_TABLES.join(', ')} CASCADE`));
     });
-    console.log(`Database reset complete: truncated ${OPERATIONAL_TABLES.length} operational tables.`);
+    console.log(
+      `Database reset complete: truncated ${OPERATIONAL_TABLES.length} operational tables.`,
+    );
   } finally {
     await pool.end();
   }
