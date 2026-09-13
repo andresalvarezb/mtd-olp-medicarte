@@ -172,6 +172,76 @@ export const planningPeriodStatusSchema = z.enum([
 ]);
 export type PlanningPeriodStatus = z.infer<typeof planningPeriodStatusSchema>;
 
+/**
+ * ESP-002: máquina de estados explícita y unidireccional. Solo se permite
+ * avanzar una etapa; cada transición ocurre por una acción humana auditada.
+ */
+export const planningPeriodTransitions: Record<
+  PlanningPeriodStatus,
+  readonly PlanningPeriodStatus[]
+> = {
+  OPEN: ['PLANNING_CLOSED'],
+  PLANNING_CLOSED: ['PURCHASING'],
+  PURCHASING: ['IN_FULFILLMENT'],
+  IN_FULFILLMENT: ['OPERATIONAL'],
+  OPERATIONAL: ['CLOSED'],
+  CLOSED: [],
+};
+
+export const planningPeriodResponseSchema = z.object({
+  id: z.string().uuid(),
+  startDate: z.string().date(),
+  endDate: z.string().date(),
+  schedulingCutoffAt: isoDateTimeSchema,
+  purchaseOrderDeadlineAt: isoDateTimeSchema,
+  expectedDeliveryDate: z.string().date(),
+  status: planningPeriodStatusSchema,
+  version: z.number().int().positive(),
+  createdBy: z.string().uuid(),
+  updatedBy: z.string().uuid(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type PlanningPeriodResponse = z.infer<typeof planningPeriodResponseSchema>;
+
+export const createPlanningPeriodRequestSchema = z.object({
+  startDate: z.string().date(),
+  endDate: z.string().date(),
+  schedulingCutoffAt: isoDateTimeSchema,
+  purchaseOrderDeadlineAt: isoDateTimeSchema,
+  expectedDeliveryDate: z.string().date(),
+});
+export type CreatePlanningPeriodRequest = z.infer<typeof createPlanningPeriodRequestSchema>;
+
+export const updatePlanningPeriodRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  startDate: z.string().date().optional(),
+  endDate: z.string().date().optional(),
+  schedulingCutoffAt: isoDateTimeSchema.optional(),
+  purchaseOrderDeadlineAt: isoDateTimeSchema.optional(),
+  expectedDeliveryDate: z.string().date().optional(),
+});
+export type UpdatePlanningPeriodRequest = z.infer<typeof updatePlanningPeriodRequestSchema>;
+
+export const transitionPlanningPeriodRequestSchema = z.object({
+  to: planningPeriodStatusSchema,
+  expectedVersion: z.number().int().positive(),
+});
+export type TransitionPlanningPeriodRequest = z.infer<typeof transitionPlanningPeriodRequestSchema>;
+
+export const planningPeriodListQuerySchema = z.object({
+  status: planningPeriodStatusSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+export type PlanningPeriodListQuery = z.infer<typeof planningPeriodListQuerySchema>;
+
+export const paginatedPlanningPeriodsResponseSchema = z.object({
+  items: z.array(planningPeriodResponseSchema),
+});
+export type PaginatedPlanningPeriodsResponse = z.infer<
+  typeof paginatedPlanningPeriodsResponseSchema
+>;
+
 export const patientScheduleStatusSchema = z.enum(['SCHEDULED', 'CANCELLED']);
 export type PatientScheduleStatus = z.infer<typeof patientScheduleStatusSchema>;
 

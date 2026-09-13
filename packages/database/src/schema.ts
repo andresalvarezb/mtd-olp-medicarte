@@ -304,13 +304,24 @@ export const dispensingPoints = pgTable(
   ],
 );
 
+/**
+ * ESP-002: períodos de planificación. El rango es inclusivo [start_date, end_date].
+ *
+ * Invariantes que viven en PostgreSQL y no solo en la API:
+ * - `planning_periods_no_overlap`: EXCLUDE USING gist sobre
+ *   `daterange(start_date, end_date, '[]')`, definida en la migración 0032.
+ *   Los períodos contiguos (fin + 1 día) no se solapan.
+ * - `prevent_planning_period_structural_change`: trigger que congela
+ *   start_date/end_date al salir de OPEN/PLANNING_CLOSED.
+ * Drizzle no expresa EXCLUDE constraints en el esquema; se mantienen en SQL.
+ */
 export const planningPeriods = pgTable(
   'planning_periods',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     startDate: date('start_date').notNull(),
     endDate: date('end_date').notNull(),
-    programmingDeadlineAt: timestamp('programming_deadline_at', {
+    schedulingCutoffAt: timestamp('scheduling_cutoff_at', {
       withTimezone: true,
     }).notNull(),
     purchaseOrderDeadlineAt: timestamp('purchase_order_deadline_at', {
@@ -318,7 +329,11 @@ export const planningPeriods = pgTable(
     }).notNull(),
     expectedDeliveryDate: date('expected_delivery_date').notNull(),
     status: varchar('status', { length: 30 }).notNull().default('OPEN'),
+    version: integer('version').notNull().default(1),
     createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    updatedBy: uuid('updated_by')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -329,8 +344,13 @@ export const planningPeriods = pgTable(
     check('planning_periods_date_range_check', sql`${table.startDate} <= ${table.endDate}`),
     check(
       'planning_periods_deadline_order_check',
-      sql`${table.programmingDeadlineAt} <= ${table.purchaseOrderDeadlineAt}`,
+      sql`${table.schedulingCutoffAt} <= ${table.purchaseOrderDeadlineAt}`,
     ),
+    check(
+      'planning_periods_delivery_after_purchase_check',
+      sql`(timezone('America/Bogota', ${table.purchaseOrderDeadlineAt}))::date <= ${table.expectedDeliveryDate}`,
+    ),
+    check('planning_periods_version_check', sql`${table.version} > 0`),
     check(
       'planning_periods_status_check',
       sql`${table.status} IN ('OPEN', 'PLANNING_CLOSED', 'PURCHASING', 'IN_FULFILLMENT', 'OPERATIONAL', 'CLOSED')`,

@@ -225,6 +225,13 @@
       "when": 1790374021663,
       "tag": "0031_esp001_domain_separation",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790374022663,
+      "tag": "0032_esp002_planning_periods",
+      "breakpoints": true
     }
   ]
 }

@@ -22,6 +22,9 @@ import { UsersController } from './identity/users.controller';
 import { UsersService } from './identity/users.service';
 import { OperationsController } from './operations/operations.controller';
 import { ClinicalModule } from './clinical/clinical.module';
+import { PlanningPeriodController } from './planning/planning-period.controller';
+import { PlanningPeriodRepository } from './planning/planning-period.repository';
+import { PlanningPeriodService } from './planning/planning-period.service';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
 
 const config = parseApiConfig(process.env);
@@ -64,6 +67,7 @@ new Gauge({
     UsersController,
     OperationsController,
     AdminJobsController,
+    PlanningPeriodController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -73,6 +77,8 @@ new Gauge({
     BootstrapAdminService,
     UsersService,
     FoundationService,
+    PlanningPeriodRepository,
+    PlanningPeriodService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

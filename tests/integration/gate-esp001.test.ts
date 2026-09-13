@@ -64,12 +64,17 @@ beforeAll(async () => {
   );
   pointId = point.rows[0]!.id;
 
+  // ESP-002 introdujo EXCLUDE de solapamiento: limpiar residuos de una corrida
+  // fallida anterior antes de insertar el mismo rango.
+  await database.query(
+    `delete from planning_periods where start_date = '2026-09-14' and end_date = '2026-09-20'`,
+  );
   const period = await database.query<{ id: string }>(
     `insert into planning_periods
-      (start_date, end_date, programming_deadline_at, purchase_order_deadline_at,
-       expected_delivery_date, created_by)
+      (start_date, end_date, scheduling_cutoff_at, purchase_order_deadline_at,
+       expected_delivery_date, created_by, updated_by)
      values ('2026-09-14', '2026-09-20', '2026-09-15T23:59:00Z',
-             '2026-09-16T23:59:00Z', '2026-09-21', $1)
+             '2026-09-16T23:59:00Z', '2026-09-21', $1, $1)
      returning id`,
     [userId],
   );

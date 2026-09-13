@@ -24,3 +24,21 @@ export type {
   LegacyAuthorizationHistory,
   LegacyOperationalField,
 } from './clinical-logistics-boundary';
+export {
+  PLANNING_PERIOD_STRUCTURAL_FIELDS,
+  PlanningPeriodStructuralError,
+  PlanningPeriodTransitionError,
+  assertPlanningPeriodTransition,
+  assertStructuralEditAllowed,
+  bogotaDateOf,
+  canTransitionPlanningPeriod,
+  classifyScheduleTiming,
+  isPlanningPeriodStructurallyEditable,
+  validatePlanningPeriodDates,
+} from './planning-period';
+export type {
+  PlanningPeriodDates,
+  PlanningPeriodStructuralField,
+  PlanningPeriodTiming,
+  PlanningPeriodValidationIssue,
+} from './planning-period';
