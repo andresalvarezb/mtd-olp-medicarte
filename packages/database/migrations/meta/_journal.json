@@ -309,6 +309,13 @@
       "when": 1790460432663,
       "tag": "0043_esp012_application_audits",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790460433663,
+      "tag": "0044_esp013_analytics",
+      "breakpoints": true
     }
   ]
 }

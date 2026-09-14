@@ -60,6 +60,9 @@ import { PatientOutcomeService } from './outcomes/patient-outcome.service';
 import { PatientApplicationAuditController } from './audits/patient-application-audit.controller';
 import { PatientApplicationAuditRepository } from './audits/patient-application-audit.repository';
 import { PatientApplicationAuditService } from './audits/patient-application-audit.service';
+import { AnalyticsController } from './analytics/analytics.controller';
+import { AnalyticsRepository } from './analytics/analytics.repository';
+import { AnalyticsService } from './analytics/analytics.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -124,6 +127,7 @@ new Gauge({
     PatientApplicationController,
     PatientOutcomeController,
     PatientApplicationAuditController,
+    AnalyticsController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -156,6 +160,8 @@ new Gauge({
     PatientOutcomeService,
     PatientApplicationAuditRepository,
     PatientApplicationAuditService,
+    AnalyticsRepository,
+    AnalyticsService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

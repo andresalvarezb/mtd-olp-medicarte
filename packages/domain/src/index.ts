@@ -71,6 +71,40 @@ export {
   isTerminalPatientApplicationAudit,
 } from './patient-application-audit';
 export type { PatientApplicationAuditStatus } from './patient-application-audit';
+export {
+  ANALYTICS_DEFINITIONS_VERSION,
+  APPLIED_SUPPLIER_COST_UNAVAILABLE_REASON,
+  CURRENT_ON_HAND_LABEL,
+  HISTORICAL_TARIFF_UNAVAILABLE,
+  INCOMPLETE_SUPPLIER_COST,
+  INCOMPLETE_TARIFF_LOOKUP,
+  PERIOD_EFFECTIVE_TARIFF_BASIS,
+  PERIOD_FLOW_DISCLAIMER,
+  PERIOD_FLOW_LABEL,
+  PURCHASE_ORDER_SNAPSHOT_BASIS,
+  addMoney,
+  aggregateExactMoney,
+  appliedSupplierCostMetric,
+  exactMoney,
+  formatMoneyCents,
+  grossOperationalSpreadReference,
+  multiplyQuantityByUnitAmount,
+  parseMoneyCents,
+  projectedQuantity,
+  projectedTariffReferenceMetric,
+  purchaseOrderSnapshotMoney,
+  ratioMetric,
+  receivedMinusAppliedFlow,
+  shortageQuantity,
+  subtractMoney,
+  unavailableMoney,
+} from './operational-analytics';
+export type {
+  MoneyAvailability,
+  MoneyLineageBasis,
+  MoneyMetric,
+  RatioMetric,
+} from './operational-analytics';
 export type { ReceiptConformity, ReceiptQuantityInput } from './receipt';
 export type {
   ScheduleAuthorizationEligibility,

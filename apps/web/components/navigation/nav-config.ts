@@ -42,6 +42,7 @@ export type ViewId =
   | 'patientApplications'
   | 'operationalOutcomes'
   | 'applicationAudits'
+  | 'operationalIndicators'
   | 'admin';
 
 export interface NavItem {
@@ -171,6 +172,14 @@ export const NAV_SECTIONS: NavSection[] = [
         title: 'Auditoría de aplicaciones',
         icon: '14',
         permission: 'application_audits.read',
+        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
+      },
+      {
+        view: 'operationalIndicators',
+        href: '/indicadores',
+        title: 'Indicadores',
+        icon: '15',
+        permission: 'analytics.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
       {

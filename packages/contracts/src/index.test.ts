@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   PATIENT_SCHEDULE_IDENTITY_FIELDS,
   SCHEDULE_EXPIRATION_THRESHOLDS,
+  analyticsMoneyMetricSchema,
+  analyticsRatioMetricSchema,
   applicationAuditRejectionCodeSchema,
   applicationAuditStatusSchema,
   clinicalAuthorizationReferenceSchema,
@@ -10,6 +12,7 @@ import {
   foundationJobSchema,
   legacyAuthorizationHistoryResponseSchema,
   loginRequestSchema,
+  operationalAnalyticsResponseSchema,
   patientScheduleTransitions,
   planningPeriodTransitions,
   projectedDemandLineResponseSchema,
@@ -230,5 +233,60 @@ describe('application audit contracts', () => {
         observation: 'Falta el soporte de aplicación',
       }).success,
     ).toBe(true);
+  });
+});
+
+describe('ESP-013 analytics contracts', () => {
+  it('serializes money as decimal strings and keeps unavailable values null', () => {
+    expect(
+      analyticsMoneyMetricSchema.parse({
+        availability: 'EXACT',
+        value: '12.50',
+        reason: null,
+        basis: 'PURCHASE_ORDER_SNAPSHOT',
+      }).value,
+    ).toBe('12.50');
+    expect(
+      analyticsMoneyMetricSchema.safeParse({
+        availability: 'EXACT',
+        value: 12.5,
+        reason: null,
+        basis: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      analyticsMoneyMetricSchema.parse({
+        availability: 'UNAVAILABLE',
+        value: null,
+        reason: 'HISTORICAL_TARIFF_UNAVAILABLE',
+        basis: null,
+      }),
+    ).toEqual({
+      availability: 'UNAVAILABLE',
+      value: null,
+      reason: 'HISTORICAL_TARIFF_UNAVAILABLE',
+      basis: null,
+    });
+  });
+
+  it('keeps zero-denominator rates as null instead of 0%', () => {
+    expect(
+      analyticsRatioMetricSchema.parse({ numerator: 4, denominator: 0, rate: null }).rate,
+    ).toBeNull();
+    expect(Object.keys(operationalAnalyticsResponseSchema.shape.inventory.shape)).toContain(
+      'currentOnHandQuantity',
+    );
+    expect(Object.keys(operationalAnalyticsResponseSchema.shape.inventory.shape)).not.toContain(
+      'periodLeftover',
+    );
+    expect(Object.keys(operationalAnalyticsResponseSchema.shape.procurement.shape)).toEqual(
+      expect.arrayContaining(['effectivePurchaseCoverage', 'requestedQuantity']),
+    );
+    expect(operationalAnalyticsResponseSchema.shape.funnel.shape).toHaveProperty(
+      'requestedQuantity',
+    );
+    expect(operationalAnalyticsResponseSchema.shape.funnel.shape).not.toHaveProperty(
+      'effectivePurchaseCoverage',
+    );
   });
 });

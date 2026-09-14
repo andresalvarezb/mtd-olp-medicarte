@@ -15,7 +15,8 @@
 | ESP-009        | ACCEPTED                     |
 | ESP-010        | ACCEPTED                     |
 | ESP-011        | ACCEPTED                     |
-| ESP-012        | IMPLEMENTED / PENDING REVIEW |
+| ESP-012        | ACCEPTED                     |
+| ESP-013        | IMPLEMENTED / PENDING REVIEW |
 
 ### Evidencia de cierre ESP-010
 
@@ -53,6 +54,23 @@ TECH-DEBT: Pre-existing repository formatting debt: 52 files fail `format:check`
 - format:check se aplicó solo a archivos de ESP-012. No hay nueva deuda de formato.
 
 Medicarte, OLP y Compensar no tienen acceso a auditoría de aplicaciones. `READY_FOR_AUDIT` es derivado. `audit_status` en `authorization_items` es proyección de compatibilidad; la autoridad de `admission_status = READY` es `patient_application_audits`.
+
+### Evidencia de cierre ESP-013
+
+- migration: `0044_esp013_analytics.sql` (permisos `analytics.read` / `analytics.economics.read` e índices analíticos; sin tablas de negocio)
+- ADR: `ADR-036-esp-013-operational-economics.md`
+- Gate A clean install: PASS (45 migraciones, 0000–0044)
+- Gate B ESP-012 → ESP-013: PASS (44 → 45, únicamente `0044_esp013_analytics.sql`)
+- Gate ESP-013: 46/46 PASS
+- Unit suite: 144/144 PASS
+- Integration suite: 282/282 PASS
+- lint: PASS
+- typecheck: PASS
+- build: PASS
+- git diff --check: PASS
+- format:check se aplicó solo a archivos de ESP-013. No hay nueva deuda de formato.
+
+Analytics es read model. El stock actual no se llama sobrante del período. Tarifa COMPENSAR y costo OLP permanecen separados. La tarifa activa actual no se presenta como tarifa histórica. `appliedSupplierCost` es UNAVAILABLE. `effectivePurchaseCoverage` incluye DRAFT; `requestedQuantity` no. No hay utilidad contable ni reserva de stock. Los endpoints analytics son GET.
 
 ### Invariantes consolidadas hasta ESP-010
 
@@ -1255,119 +1273,52 @@ Tareas:
 
 ---
 
-# ESP-013 — Modelo económico y tablero operacional
+# ESP-013 — Indicadores operacionales y económicos
 
 ## Objetivo
 
-Mostrar cantidades y valores sin convertir la aplicación en un sistema contable.
+Construir el dashboard operacional y económico MTD como **read model / analytics**. No es un ERP, no hay facturación, no hay kardex fiscal y no hay utilidad contable.
 
-## Dos precios independientes
+## Principio
 
-### Tarifa Compensar → MTD
+Las métricas no son fuente de verdad. Se derivan de hechos ESP-001…ESP-012. No se persisten totales ni saldos mutables.
 
-Fuente:
+Definiciones canónicas: `.agent/adr/ADR-036-esp-013-operational-economics.md` y `@authorization/domain` `operational-analytics`.
 
-```text
-anexo tarifario
-```
+## Semántica implementada
 
-### Costo OLP → MTD
+- Demanda: `projected_demand_lines` (regular + late = projected). `lastConsolidatedAt` y `stale`. Sin auto-consolidación.
+- Compra: DRAFT y CANCELLED fuera de `requestedQuantity`. REJECTED emitida cuenta requested con accepted=0. `effectivePurchaseCoverage` incluye asignaciones DRAFT (ESP-005) y no es “comprado”.
+- Entrega: `DISPATCHED`/`RECEIVED`. Receipt: físico ≠ aceptado a inventario.
+- Aplicado: solo `patient_application_lines` de applications `CONFIRMED`.
+- NON_REUSABLE: solo `inventory_movements`. Inventario actual = ledger, **no** sobrante del período.
+- `receivedMinusAppliedFlow` es indicador de flujo, no inventario atribuible.
+- Economía: tarifa COMPENSAR y costo OLP separados. `projectedTariffReferenceValue` no usa el anexo activo actual como tarifa histórica; sin lineage de período queda UNAVAILABLE. `appliedSupplierCost` siempre UNAVAILABLE.
+- Dinero: string decimal de 2 cifras. Tasas con denominador 0 → `null`.
+- Export XLSX: no implementado; queda para ESP-014 (la infraestructura XLSX existente es de importación).
+- RBAC: `analytics.read` y `analytics.economics.read` para roles MTD y READ_ONLY. Medicarte/OLP/Compensar sin acceso.
 
-Fuente:
+## API
 
-```text
-supplier_unit_cost registrado por OLP
-```
+`GET /analytics/operational|novelties|inventory|economics|drilldown`
 
-## Regla de snapshot
+## UI
 
-El precio aplicable deberá congelarse en la transacción correspondiente.
-
-Cambiar mañana el anexo tarifario no debe modificar retrospectivamente una operación histórica.
-
-## Indicadores mínimos
-
-### Demanda
-
-```text
-cantidad proyectada
-valor tarifario proyectado
-```
-
-### Compra
-
-```text
-cantidad solicitada
-cantidad aceptada OLP
-valor solicitado
-valor aceptado
-```
-
-### Abastecimiento
-
-```text
-cantidad entregada
-cantidad recibida
-cantidad rechazada
-valor recibido
-```
-
-### Aplicación
-
-```text
-cantidad aplicada
-costo OLP aplicado
-valor tarifario asociado
-```
-
-### Inventario
-
-```text
-cantidad disponible
-valor proveedor del stock
-```
-
-### Desviaciones
-
-```text
-proyectado vs aplicado
-OC vs recibido
-% cumplimiento OLP
-% no-show
-% utilización
-sobrante
-faltante
-pérdidas
-```
+Módulo Indicadores (`/indicadores`), MTD-only.
 
 ## Plan de trabajo
 
 ### PT-013.1 — Datos económicos
 
-Tareas:
-
-- Separar tarifa y costo.
-- Definir snapshots.
-- Relacionar anexo tarifario.
-- Añadir supplier cost.
+Hecho: snapshots de OC autoritativos para esa compra. El anexo activo actual no se usa como tarifa proyectada histórica.
 
 ### PT-013.2 — Consultas
 
-Tareas:
-
-- Crear agregaciones SQL.
-- Crear indicadores por período.
-- Crear indicadores por producto.
-- Crear indicadores por punto.
+Hecho: módulo `apps/api/src/analytics/` con SQL agregada.
 
 ### PT-013.3 — Dashboard
 
-Tareas:
-
-- Tablero MTD completo.
-- Tablero Medicarte sin costos sensibles.
-- Tablero OLP limitado a su relación comercial.
-- Exportación XLSX.
+Hecho: tablero MTD. Medicarte/OLP no tienen tablero ESP-013. XLSX diferido a ESP-014.
 
 ---
 

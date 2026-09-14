@@ -1317,3 +1317,238 @@ export type StockTransferResponse = z.infer<typeof stockTransferResponseSchema>;
 export const stockTransferListQuerySchema = z.object({
   status: stockTransferStatusSchema.optional(),
 });
+
+const decimalMoneySchema = z.string().regex(/^-?\d+\.\d{2}$/);
+const ratioSchema = z.string().regex(/^-?\d+\.\d{4}$/);
+
+export const analyticsRatioMetricSchema = z.object({
+  numerator: z.number().int(),
+  denominator: z.number().int().nonnegative(),
+  rate: ratioSchema.nullable(),
+});
+export type AnalyticsRatioMetric = z.infer<typeof analyticsRatioMetricSchema>;
+
+export const analyticsMoneyMetricSchema = z.object({
+  availability: z.enum(['EXACT', 'UNAVAILABLE']),
+  value: decimalMoneySchema.nullable(),
+  reason: z.string().nullable(),
+  basis: z.enum(['PURCHASE_ORDER_SNAPSHOT', 'PERIOD_EFFECTIVE_TARIFF']).nullable(),
+});
+export type AnalyticsMoneyMetric = z.infer<typeof analyticsMoneyMetricSchema>;
+
+export const analyticsQuerySchema = z.object({
+  planningPeriodId: z.string().uuid().optional(),
+  dispensingPointId: z.string().uuid().optional(),
+  commercialCode: commercialCodeSchema.optional(),
+  orderType: z.enum(['STANDARD', 'COMPLEMENTARY']).optional(),
+  demandBucket: z.enum(['REGULAR', 'LATE']).optional(),
+  dateFrom: z.string().date().optional(),
+  dateTo: z.string().date().optional(),
+  operationalStatus: z.enum(['APPLIED', 'NOT_APPLIED']).optional(),
+  noveltyCode: patientOperationalNoveltySchema.optional(),
+  auditStatus: applicationAuditStatusSchema.optional(),
+});
+export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>;
+
+export const analyticsDrilldownKindSchema = z.enum([
+  'projected',
+  'ordered',
+  'accepted',
+  'dispatched',
+  'received',
+  'applied',
+  'not_applied',
+  'audit',
+]);
+export type AnalyticsDrilldownKind = z.infer<typeof analyticsDrilldownKindSchema>;
+
+export const analyticsDrilldownQuerySchema = analyticsQuerySchema.extend({
+  kind: analyticsDrilldownKindSchema,
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+});
+export type AnalyticsDrilldownQuery = z.infer<typeof analyticsDrilldownQuerySchema>;
+
+export const analyticsDemandSchema = z.object({
+  regularProjectedQuantity: z.number().int().nonnegative(),
+  lateProjectedQuantity: z.number().int().nonnegative(),
+  projectedQuantity: z.number().int().nonnegative(),
+  lastConsolidatedAt: isoDateTimeSchema.nullable(),
+  stale: z.boolean(),
+});
+export type AnalyticsDemand = z.infer<typeof analyticsDemandSchema>;
+
+export const analyticsProcurementSchema = z.object({
+  requestedQuantity: z.number().int().nonnegative(),
+  acceptedQuantity: z.number().int().nonnegative(),
+  supplierShortageQuantity: z.number().int().nonnegative(),
+  effectivePurchaseCoverage: z.number().int().nonnegative(),
+  procurementGapQuantity: z.number().int().nonnegative(),
+  purchaseCoverageRate: analyticsRatioMetricSchema,
+  supplierAcceptanceRate: analyticsRatioMetricSchema,
+});
+export type AnalyticsProcurement = z.infer<typeof analyticsProcurementSchema>;
+
+export const analyticsDeliverySchema = z.object({
+  dispatchedQuantity: z.number().int().nonnegative(),
+  deliveryPendingQuantity: z.number().int().nonnegative(),
+  dispatchFulfillmentRate: analyticsRatioMetricSchema,
+});
+export type AnalyticsDelivery = z.infer<typeof analyticsDeliverySchema>;
+
+export const analyticsReceiptSchema = z.object({
+  physicallyReceivedQuantity: z.number().int().nonnegative(),
+  acceptedIntoInventoryQuantity: z.number().int().nonnegative(),
+  rejectedQuantity: z.number().int().nonnegative(),
+  receiptPhysicalShortageQuantity: z.number().int().nonnegative(),
+  receiptAcceptanceRate: analyticsRatioMetricSchema,
+});
+export type AnalyticsReceipt = z.infer<typeof analyticsReceiptSchema>;
+
+export const analyticsApplicationSchema = z.object({
+  appliedQuantity: z.number().int().nonnegative(),
+  applicationRate: analyticsRatioMetricSchema,
+});
+export type AnalyticsApplication = z.infer<typeof analyticsApplicationSchema>;
+
+export const analyticsInventorySchema = z.object({
+  currentOnHandQuantity: z.number().int(),
+  usableBalance: z.number().int().nonnegative(),
+  inTransitQuantity: z.number().int().nonnegative(),
+  expiredPhysicalQuantity: z.number().int().nonnegative(),
+  upcomingExpirationQuantity: z.number().int().nonnegative(),
+  nonReusableQuantity: z.number().int().nonnegative(),
+  receivedMinusAppliedFlow: z.object({
+    value: z.number().int(),
+    label: z.literal('receivedMinusAppliedFlow'),
+    disclaimer: z.string(),
+  }),
+});
+export type AnalyticsInventory = z.infer<typeof analyticsInventorySchema>;
+
+export const analyticsNoveltyBucketSchema = z.object({
+  noveltyCode: patientOperationalNoveltySchema,
+  count: z.number().int().nonnegative(),
+  share: analyticsRatioMetricSchema,
+});
+export type AnalyticsNoveltyBucket = z.infer<typeof analyticsNoveltyBucketSchema>;
+
+export const analyticsOutcomesSchema = z.object({
+  notAppliedCount: z.number().int().nonnegative(),
+  terminalOperationalResultCount: z.number().int().nonnegative(),
+  noShowCount: z.number().int().nonnegative(),
+  noShowRate: analyticsRatioMetricSchema,
+  distribution: z.array(analyticsNoveltyBucketSchema),
+});
+export type AnalyticsOutcomes = z.infer<typeof analyticsOutcomesSchema>;
+
+export const analyticsAuditSchema = z.object({
+  readyForAudit: z.number().int().nonnegative(),
+  inReview: z.number().int().nonnegative(),
+  approved: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+  approvedApplicationsCount: z.number().int().nonnegative(),
+});
+export type AnalyticsAudit = z.infer<typeof analyticsAuditSchema>;
+
+export const analyticsEconomicsSchema = z.object({
+  compensar: z.object({
+    projectedTariffReferenceValue: analyticsMoneyMetricSchema,
+    requestedTariffSnapshotValue: analyticsMoneyMetricSchema,
+    acceptedTariffSnapshotValue: analyticsMoneyMetricSchema,
+  }),
+  olp: z.object({
+    requestedSupplierValue: analyticsMoneyMetricSchema,
+    acceptedSupplierValue: analyticsMoneyMetricSchema,
+    dispatchedSupplierValue: analyticsMoneyMetricSchema,
+    acceptedReceiptSupplierValue: analyticsMoneyMetricSchema,
+    appliedSupplierCost: analyticsMoneyMetricSchema,
+  }),
+  grossOperationalSpreadReference: analyticsMoneyMetricSchema,
+});
+export type AnalyticsEconomics = z.infer<typeof analyticsEconomicsSchema>;
+
+export const analyticsFreshnessSchema = z.object({
+  definitionsVersion: z.literal('ESP-013'),
+  generatedAt: isoDateTimeSchema,
+  planningPeriodId: z.string().uuid().nullable(),
+  demandLastConsolidatedAt: isoDateTimeSchema.nullable(),
+  projectedDemandStale: z.boolean(),
+});
+export type AnalyticsFreshness = z.infer<typeof analyticsFreshnessSchema>;
+
+export const analyticsFunnelSchema = z.object({
+  projectedQuantity: z.number().int().nonnegative(),
+  requestedQuantity: z.number().int().nonnegative(),
+  acceptedQuantity: z.number().int().nonnegative(),
+  dispatchedQuantity: z.number().int().nonnegative(),
+  physicallyReceivedQuantity: z.number().int().nonnegative(),
+  acceptedIntoInventoryQuantity: z.number().int().nonnegative(),
+  appliedQuantity: z.number().int().nonnegative(),
+});
+export type AnalyticsFunnel = z.infer<typeof analyticsFunnelSchema>;
+
+export const operationalAnalyticsResponseSchema = z.object({
+  freshness: analyticsFreshnessSchema,
+  demand: analyticsDemandSchema,
+  procurement: analyticsProcurementSchema,
+  delivery: analyticsDeliverySchema,
+  receipt: analyticsReceiptSchema,
+  application: analyticsApplicationSchema,
+  inventory: analyticsInventorySchema,
+  outcomes: analyticsOutcomesSchema,
+  audit: analyticsAuditSchema,
+  economics: analyticsEconomicsSchema.nullable(),
+  funnel: analyticsFunnelSchema,
+});
+export type OperationalAnalyticsResponse = z.infer<typeof operationalAnalyticsResponseSchema>;
+
+export const analyticsInventoryLotSchema = z.object({
+  inventoryLotId: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  dispensingPointName: z.string(),
+  lotNumber: z.string(),
+  expirationDate: z.string().date(),
+  physicalBalance: z.number().int(),
+  usableBalance: z.number().int().nonnegative(),
+  expired: z.boolean(),
+  upcomingExpiration: z.boolean(),
+});
+export type AnalyticsInventoryLot = z.infer<typeof analyticsInventoryLotSchema>;
+
+export const analyticsInventoryResponseSchema = z.object({
+  freshness: analyticsFreshnessSchema,
+  summary: analyticsInventorySchema,
+  lots: z.array(analyticsInventoryLotSchema),
+});
+export type AnalyticsInventoryResponse = z.infer<typeof analyticsInventoryResponseSchema>;
+
+export const analyticsNoveltiesResponseSchema = z.object({
+  freshness: analyticsFreshnessSchema,
+  outcomes: analyticsOutcomesSchema,
+});
+export type AnalyticsNoveltiesResponse = z.infer<typeof analyticsNoveltiesResponseSchema>;
+
+export const analyticsEconomicsResponseSchema = z.object({
+  freshness: analyticsFreshnessSchema,
+  economics: analyticsEconomicsSchema,
+});
+export type AnalyticsEconomicsResponse = z.infer<typeof analyticsEconomicsResponseSchema>;
+
+export const analyticsDrilldownItemSchema = z.object({
+  id: z.string().uuid(),
+  kind: analyticsDrilldownKindSchema,
+  commercialCode: z.string().nullable(),
+  dispensingPointId: z.string().uuid().nullable(),
+  quantity: z.number().int().nullable(),
+  status: z.string().nullable(),
+  reference: z.string().nullable(),
+});
+export type AnalyticsDrilldownItem = z.infer<typeof analyticsDrilldownItemSchema>;
+
+export const analyticsDrilldownResponseSchema = z.object({
+  kind: analyticsDrilldownKindSchema,
+  items: z.array(analyticsDrilldownItemSchema),
+});
+export type AnalyticsDrilldownResponse = z.infer<typeof analyticsDrilldownResponseSchema>;

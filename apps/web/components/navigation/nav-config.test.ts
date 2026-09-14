@@ -18,6 +18,7 @@ describe('clean navigation', () => {
       'patientApplications',
       'operationalOutcomes',
       'applicationAudits',
+      'operationalIndicators',
       'admin',
     ]);
     expect(ALL_NAV_ITEMS[0]?.roles).toEqual(ROLES);
@@ -76,5 +77,17 @@ describe('clean navigation', () => {
     expect(audits?.roles).not.toContain('MEDICARTE');
     expect(audits?.roles).not.toContain('OLP');
     expect(audits?.roles).not.toContain('COMPENSAR');
+  });
+
+  it('exposes operational indicators to MTD read roles and never to Medicarte, OLP or Compensar', () => {
+    const indicators = ALL_NAV_ITEMS.find((item) => item.view === 'operationalIndicators');
+    expect(indicators).toMatchObject({
+      href: '/indicadores',
+      permission: 'analytics.read',
+    });
+    expect(indicators?.roles).toEqual(['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY']);
+    expect(indicators?.roles).not.toContain('MEDICARTE');
+    expect(indicators?.roles).not.toContain('OLP');
+    expect(indicators?.roles).not.toContain('COMPENSAR');
   });
 });
