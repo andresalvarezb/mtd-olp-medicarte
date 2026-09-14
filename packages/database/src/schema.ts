@@ -1038,6 +1038,75 @@ export const patientApplicationLines = pgTable(
   ],
 );
 
+export const patientScheduleOutcomes = pgTable(
+  'patient_schedule_outcomes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    patientScheduleId: uuid('patient_schedule_id')
+      .notNull()
+      .references(() => patientSchedules.id, { onDelete: 'restrict' }),
+    scheduleRevision: integer('schedule_revision').notNull(),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    outcome: varchar('outcome', { length: 20 }).notNull(),
+    noveltyCode: varchar('novelty_code', { length: 40 }).notNull(),
+    occurredOn: date('occurred_on').notNull(),
+    observation: varchar('observation', { length: 1000 }),
+    preparedProductDisposition: varchar('prepared_product_disposition', { length: 20 }).notNull(),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('patient_schedule_outcomes_schedule_revision_unique').on(
+      table.patientScheduleId,
+      table.scheduleRevision,
+    ),
+    index('patient_schedule_outcomes_created_idx').on(table.createdAt, table.occurredOn),
+    check('patient_schedule_outcomes_revision_check', sql`${table.scheduleRevision} > 0`),
+    check('patient_schedule_outcomes_outcome_check', sql`${table.outcome} = 'NOT_APPLIED'`),
+    check(
+      'patient_schedule_outcomes_novelty_check',
+      sql`${table.noveltyCode} IN ('PATIENT_NO_SHOW','INCORRECT_PRESCRIPTION','PRODUCT_NOT_CONTRACTED','AUTHORIZATION_CANCELLED','INSUFFICIENT_STOCK','RESCHEDULED','OTHER')`,
+    ),
+    check(
+      'patient_schedule_outcomes_disposition_check',
+      sql`${table.preparedProductDisposition} IN ('NOT_PREPARED','REUSABLE','NON_REUSABLE')`,
+    ),
+    check(
+      'patient_schedule_outcomes_other_observation_check',
+      sql`${table.noveltyCode} <> 'OTHER' OR length(btrim(${table.observation})) > 0`,
+    ),
+  ],
+);
+
+export const patientScheduleOutcomeLines = pgTable(
+  'patient_schedule_outcome_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outcomeId: uuid('outcome_id')
+      .notNull()
+      .references(() => patientScheduleOutcomes.id, { onDelete: 'restrict' }),
+    inventoryLotId: uuid('inventory_lot_id')
+      .notNull()
+      .references(() => inventoryLots.id, { onDelete: 'restrict' }),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    lotNumber: varchar('lot_number', { length: 255 }).notNull(),
+    expirationDate: date('expiration_date').notNull(),
+    quantity: integer('quantity').notNull(),
+  },
+  (table) => [
+    index('patient_schedule_outcome_lines_outcome_idx').on(table.outcomeId),
+    unique('patient_schedule_outcome_lines_lot_unique').on(table.outcomeId, table.inventoryLotId),
+    check('patient_schedule_outcome_lines_quantity_check', sql`${table.quantity} > 0`),
+  ],
+);
+
 export const deliveryLines = pgTable(
   'delivery_lines',
   {

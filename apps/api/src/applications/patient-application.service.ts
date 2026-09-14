@@ -77,6 +77,7 @@ export class PatientApplicationService {
         'PATIENT_APPLICATION_CANCELLED',
         'PATIENT_APPLICATION_CANCEL_NOT_ALLOWED',
         'PATIENT_APPLICATION_DUPLICATE_LOT',
+        'PATIENT_SCHEDULE_ALREADY_NOT_APPLIED',
       ];
       if (conflicts.includes(code)) throw new ConflictException({ code, message: code });
       throw new BadRequestException({ code, message: code });

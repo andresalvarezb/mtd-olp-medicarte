@@ -253,6 +253,97 @@ export const patientApplicationSchema = z.object({
 });
 export type PatientApplicationResponse = z.infer<typeof patientApplicationSchema>;
 
+export const patientOperationalStatusSchema = z.enum([
+  'SCHEDULED',
+  'APPLIED',
+  'NOT_APPLIED',
+  'CANCELLED',
+]);
+export type PatientOperationalStatus = z.infer<typeof patientOperationalStatusSchema>;
+
+export const patientOperationalNoveltySchema = z.enum([
+  'PATIENT_NO_SHOW',
+  'INCORRECT_PRESCRIPTION',
+  'PRODUCT_NOT_CONTRACTED',
+  'AUTHORIZATION_CANCELLED',
+  'INSUFFICIENT_STOCK',
+  'RESCHEDULED',
+  'OTHER',
+]);
+export type PatientOperationalNovelty = z.infer<typeof patientOperationalNoveltySchema>;
+
+export const preparedProductDispositionSchema = z.enum([
+  'NOT_PREPARED',
+  'REUSABLE',
+  'NON_REUSABLE',
+]);
+export type PreparedProductDisposition = z.infer<typeof preparedProductDispositionSchema>;
+
+export const nonReusableOutcomeLineRequestSchema = z.object({
+  inventoryLotId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+});
+export type NonReusableOutcomeLineRequest = z.infer<typeof nonReusableOutcomeLineRequestSchema>;
+
+export const markPatientNotAppliedRequestSchema = z.object({
+  expectedScheduleRevision: z.number().int().positive(),
+  noveltyCode: patientOperationalNoveltySchema,
+  occurredOn: z.string().date(),
+  observation: z.string().trim().min(1).max(1000).optional(),
+  preparedProductDisposition: preparedProductDispositionSchema,
+  nonReusableLines: z.array(nonReusableOutcomeLineRequestSchema).default([]),
+});
+export type MarkPatientNotAppliedRequest = z.infer<typeof markPatientNotAppliedRequestSchema>;
+
+export const patientOperationalOutcomeSchema = z.object({
+  id: z.string().uuid(),
+  patientScheduleId: z.string().uuid(),
+  scheduleRevision: z.number().int().positive(),
+  authorizationItemId: z.string().uuid(),
+  outcome: z.literal('NOT_APPLIED'),
+  noveltyCode: patientOperationalNoveltySchema,
+  occurredOn: z.string().date(),
+  observation: z.string().nullable(),
+  preparedProductDisposition: preparedProductDispositionSchema,
+  createdBy: z.string().uuid(),
+  createdAt: isoDateTimeSchema,
+  lines: z.array(
+    nonReusableOutcomeLineRequestSchema.extend({
+      id: z.string().uuid(),
+      commercialCode: commercialCodeSchema,
+      dispensingPointId: z.string().uuid(),
+      lotNumber: z.string(),
+      expirationDate: z.string().date(),
+    }),
+  ),
+});
+export type PatientOperationalOutcomeResponse = z.infer<typeof patientOperationalOutcomeSchema>;
+
+export const operationalStatusResponseSchema = z.object({
+  patientScheduleId: z.string().uuid(),
+  scheduleRevision: z.number().int().positive(),
+  authorizationItemId: z.string().uuid(),
+  authorizationNumber: z.string(),
+  patientDocument: z.string().nullable(),
+  patientName: z.string().nullable(),
+  commercialCode: commercialCodeSchema,
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  scheduledDate: z.string().date(),
+  quantity: z.number().int().positive(),
+  planningStatus: z.enum(['SCHEDULED', 'RESCHEDULED', 'CANCELLED']),
+  operationalStatus: patientOperationalStatusSchema,
+  noveltyCode: patientOperationalNoveltySchema.nullable(),
+  disposition: preparedProductDispositionSchema.nullable(),
+  occurredOn: z.string().date().nullable(),
+  authorizationExpiresOn: z.string().date().nullable(),
+  daysUntilExpiration: z.number().int().nullable(),
+  priorityLevel: z.enum(['CRITICAL', 'HIGH', 'NORMAL']).nullable(),
+  outcomeId: z.string().uuid().nullable(),
+  applicationId: z.string().uuid().nullable(),
+});
+export type OperationalStatusResponse = z.infer<typeof operationalStatusResponseSchema>;
+
 export const clinicalAuthorizationReferenceSchema = z.object({
   authorizationItemId: z.string().uuid(),
   commercialCode: commercialCodeSchema,

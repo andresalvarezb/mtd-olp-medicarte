@@ -141,6 +141,14 @@ export class PatientApplicationRepository {
         return { outcome: 'version_conflict' as const, currentVersion: application.version };
 
       const schedule = await this.lockSchedule(tx, application.patient_schedule_id);
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext('patient-schedule-terminal:' || ${schedule.id}::text || ':' || ${schedule.revision}::text))`,
+      );
+      const outcome = (
+        await tx.execute<{ id: string }>(sql`select id from patient_schedule_outcomes
+          where patient_schedule_id=${schedule.id} and schedule_revision=${schedule.revision}`)
+      ).rows[0];
+      if (outcome) throw new Error('PATIENT_SCHEDULE_ALREADY_NOT_APPLIED');
       this.assertSchedule(schedule, application.schedule_revision, application.application_date);
       this.assertAuthorization(schedule, application.application_date);
       if (schedule.commercial_code !== application.commercial_code)

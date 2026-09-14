@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card, CardBody } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { useApiData } from '@/hooks/use-api-data';
@@ -15,6 +16,7 @@ import {
 
 export function PatientApplicationsView() {
   const { organizationId } = useRole();
+  const searchParams = useSearchParams();
   const applications = useApiData(() => listPatientApplications(organizationId), [organizationId]);
   const schedules = useApiData(
     () => listEligibleApplicationSchedules(organizationId),
@@ -36,6 +38,15 @@ export function PatientApplicationsView() {
       lot.usableBalance > 0,
   );
   const selectedTotal = Object.values(selected).reduce((sum, value) => sum + value, 0);
+  useEffect(() => {
+    const requestedScheduleId = searchParams.get('patientScheduleId');
+    if (
+      !requestedScheduleId ||
+      !schedules.data?.items.some((item) => item.id === requestedScheduleId)
+    )
+      return;
+    setScheduleId((current) => current || requestedScheduleId);
+  }, [searchParams, schedules.data]);
   const run = async (action: () => Promise<unknown>) => {
     try {
       setError(null);

@@ -9,6 +9,7 @@ import type {
   PatientScheduleResponse,
   ScheduleAuthorizationOption,
   ScheduleTimingPreviewResponse,
+  OperationalStatusResponse,
 } from '@authorization/contracts';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
@@ -32,6 +33,8 @@ import {
   reschedulePatientSchedule,
   searchScheduleAuthorizations,
 } from '@/lib/patient-schedules-api';
+import { listOperationalStatuses } from '@/lib/patient-outcomes-api';
+import { ScheduleOutcomeActions } from '@/features/outcomes/schedule-outcome-actions';
 
 const PRIORITY_META: Record<ExpirationPriorityLevel, { label: string; tone: PillTone }> = {
   CRITICAL: { label: 'Crítica', tone: 'red' },
@@ -49,10 +52,7 @@ const LATE_HANDLING_LABELS: Record<LateHandling, string> = {
   NEXT_PERIOD: 'Siguiente período',
 };
 
-const STATUS_META: Record<
-  PatientScheduleResponse['status'],
-  { label: string; tone: PillTone }
-> = {
+const STATUS_META: Record<PatientScheduleResponse['status'], { label: string; tone: PillTone }> = {
   SCHEDULED: { label: 'Programada', tone: 'green' },
   RESCHEDULED: { label: 'Reprogramada', tone: 'blue' },
   CANCELLED: { label: 'Cancelada', tone: 'gray' },
@@ -92,6 +92,7 @@ function describeError(error: unknown): string {
 export function PatientSchedulingView() {
   const { organizationId, hasPermission } = useRole();
   const canManage = hasPermission('patient_schedules.manage');
+  const canApply = hasPermission('patient_applications.manage');
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [searchAuthorization, setSearchAuthorization] = useState('');
@@ -145,6 +146,10 @@ export function PatientSchedulingView() {
           : {}),
       }),
     [organizationId, appliedFilters],
+  );
+  const operationalStatuses = useApiData(
+    () => listOperationalStatuses(organizationId),
+    [organizationId],
   );
   const history = useApiData(
     () =>
@@ -542,18 +547,22 @@ export function PatientSchedulingView() {
                               {TIMING_META[timing.scheduleTiming].label}
                             </StatusBadge>
                             <span className="pill blue">
-                              Período {timing.planningPeriodStartDate} → {timing.planningPeriodEndDate}
+                              Período {timing.planningPeriodStartDate} →{' '}
+                              {timing.planningPeriodEndDate}
                             </span>
                           </>
                         ) : (
-                          <span className="pill gray">Selecciona una fecha con período vigente</span>
+                          <span className="pill gray">
+                            Selecciona una fecha con período vigente
+                          </span>
                         )}
                       </div>
                       {timing?.lateHandlingRequired ? (
                         <Note>
-                          La fecha está después del corte ({formatDateTime(timing.schedulingCutoffAt)}).
-                          Indica si se gestionará con OC complementaria o en el siguiente período.
-                          ESP-003 solo registra la intención: no crea OC ni demanda consolidada.
+                          La fecha está después del corte (
+                          {formatDateTime(timing.schedulingCutoffAt)}). Indica si se gestionará con
+                          OC complementaria o en el siguiente período. ESP-003 solo registra la
+                          intención: no crea OC ni demanda consolidada.
                         </Note>
                       ) : null}
 
@@ -737,7 +746,8 @@ export function PatientSchedulingView() {
                                 <td>{schedule.dispensingPointCode}</td>
                                 <td>{schedule.scheduledDate}</td>
                                 <td>
-                                  {schedule.planningPeriodStartDate} → {schedule.planningPeriodEndDate}
+                                  {schedule.planningPeriodStartDate} →{' '}
+                                  {schedule.planningPeriodEndDate}
                                 </td>
                                 <td>
                                   <StatusBadge tone={TIMING_META[schedule.scheduleTiming].tone}>
@@ -797,6 +807,23 @@ export function PatientSchedulingView() {
                                         </button>
                                       </>
                                     ) : null}
+                                    <ScheduleOutcomeActions
+                                      schedule={schedule}
+                                      organizationId={organizationId}
+                                      operationalStatus={
+                                        operationalStatuses.data?.items.find(
+                                          (status: OperationalStatusResponse) =>
+                                            status.patientScheduleId === schedule.id &&
+                                            status.scheduleRevision === schedule.revision,
+                                        ) ?? null
+                                      }
+                                      canManage={canManage}
+                                      canApply={canApply}
+                                      onChanged={() => {
+                                        operationalStatuses.reload();
+                                        schedules.reload();
+                                      }}
+                                    />
                                   </div>
                                 </td>
                               </tr>

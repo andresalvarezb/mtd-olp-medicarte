@@ -1,5 +1,61 @@
 # Especificaciones funcionales y plan de implementación
 
+## Estado de aceptación
+
+| Especificación | Estado |
+| --- | --- |
+| ESP-001 | ACCEPTED |
+| ESP-002 | ACCEPTED |
+| ESP-003 | ACCEPTED |
+| ESP-004 | ACCEPTED |
+| ESP-005 | ACCEPTED |
+| ESP-006 | ACCEPTED |
+| ESP-007 | ACCEPTED |
+| ESP-008 | ACCEPTED |
+| ESP-009 | ACCEPTED |
+| ESP-010 | ACCEPTED |
+| ESP-011 | IMPLEMENTED / PENDING REVIEW |
+
+### Evidencia de cierre ESP-010
+
+- migration: `0041_esp010_patient_applications.sql`
+- Gate A clean install: PASS
+- Gate B ESP-009 → ESP-010: PASS
+- Gate ESP-010: 30/30 PASS
+- Unit suite: 100/100 PASS
+- Integration suite: 171/171 PASS
+- lint: PASS
+- typecheck: PASS
+- build: PASS
+- git diff --check: PASS
+- format:check global reportaba 62 archivos inicialmente.
+- 13 pertenecían al diff ESP-010.
+- 10 requerían corrección.
+- Se corrigieron únicamente esos 10.
+- ESP-010 no deja nueva deuda de formato.
+
+TECH-DEBT: Pre-existing repository formatting debt: 52 files fail `format:check` outside ESP-010 scope. Feature branches must not bulk-format unrelated files.
+
+### Invariantes consolidadas hasta ESP-010
+
+- `patient_schedule` representa planificación y solo usa `SCHEDULED`, `RESCHEDULED` y `CANCELLED`; no contiene `APPLIED` ni `NOT_APPLIED`.
+- La demanda proyectada es materializada y recalculable; no es fuente clínica ni de inventario.
+- Las órdenes de compra usan snapshots de demanda y no referencian directamente `authorization_item`.
+- OLP reporta cantidades despachadas, lotes y vencimientos; Medicarte confirma recibido, aceptado, rechazado, faltante, lote y vencimiento observado.
+- `inventory_movements` es la única fuente de verdad; no hay saldo mutable autoritativo ni `RESERVED`.
+- `TRANSFER_OUT` resta en origen y deja el stock en tránsito no utilizable; `TRANSFER_IN` suma en destino.
+- Una aplicación `CONFIRMED` representa administración física y cada línea crea un `APPLICATION` negativo.
+- La selección de lote es manual; FEFO recomienda y advierte, no selecciona automáticamente.
+- No existe reserva previa; confirmar no cambia el schedule a `APPLIED` ni marca consumida la autorización.
+
+### Invariantes ESP-010
+
+- `DRAFT` no reserva stock; `CONFIRMED` consume el ledger.
+- La cantidad aplicada coincide con el schedule vigente y `schedule_revision` protege contra drafts obsoletos.
+- La autorización se revalida al confirmar y no se permite stock negativo.
+- Se permiten múltiples lotes; el override FEFO requiere motivo.
+- Una aplicación `CONFIRMED` es inmutable y aplicación y programación son entidades diferentes.
+
 ## 1. Objetivo general
 
 Transformar el modelo operativo actual, donde la orden de compra, la entrega de OLP y la aplicación están asociadas directamente a cada `authorization_item`, hacia un modelo en el cual:

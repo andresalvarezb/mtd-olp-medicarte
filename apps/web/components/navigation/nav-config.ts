@@ -40,6 +40,7 @@ export type ViewId =
   | 'inventory'
   | 'stockTransfers'
   | 'patientApplications'
+  | 'operationalOutcomes'
   | 'admin';
 
 export interface NavItem {
@@ -153,6 +154,14 @@ export const NAV_SECTIONS: NavSection[] = [
         title: 'Aplicaciones al paciente',
         icon: '12',
         permission: 'patient_applications.read',
+        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE', 'READ_ONLY'],
+      },
+      {
+        view: 'operationalOutcomes',
+        href: '/resultados-operacionales',
+        title: 'Resultados operacionales',
+        icon: '13',
+        permission: 'patient_operational_outcomes.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE', 'READ_ONLY'],
       },
       {
