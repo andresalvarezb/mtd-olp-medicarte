@@ -48,7 +48,7 @@ const scheduleIds: string[] = [];
 function scheduledDateIn(period: 'on-time' | 'late' | 'next'): string {
   if (period === 'on-time') return '2034-01-06';
   if (period === 'late') return '2034-02-03';
-  return '2034-03-03';
+  return '2034-03-09';
 }
 
 function expirationInDays(days: number): string {
@@ -318,8 +318,8 @@ beforeAll(async () => {
     `insert into planning_periods
       (start_date, end_date, scheduling_cutoff_at, purchase_order_deadline_at,
        expected_delivery_date, created_by, updated_by)
-     values ('2034-03-01', '2034-03-07', '2026-01-01T00:00:00-05:00',
-             '2026-01-02T00:00:00-05:00', '2034-03-08', $1, $1)
+     values ('2034-03-01', '2034-03-31', '2026-01-01T00:00:00-05:00',
+             '2026-01-02T00:00:00-05:00', '2034-04-01', $1, $1)
      returning id`,
     [foundationUserId],
   );
@@ -1050,13 +1050,18 @@ describe('Gate ESP-003 — programación de pacientes', () => {
     expect(items.rows[0]?.count).toBe(authorizationItemsBefore);
   });
 
-  it('25. todavía no se crea inventario', async () => {
+  it('25. ESP-008 inventory exists without patient operations', async () => {
     const tables = await database.query<{ table_name: string }>(
       `select table_name from information_schema.tables
         where table_schema = 'public'
            and table_name in ('inventory', 'inventory_items', 'inventory_stock', 'inventory_lots', 'inventory_movements', 'stock_transfers')`,
     );
-    expect(tables.rows).toEqual([]);
+    expect(tables.rows.map((row) => row.table_name)).toEqual(['inventory_lots', 'inventory_movements']);
+    expect(
+      (await database.query<{ count: number }>(
+        `select count(*)::int count from inventory_movements where source_type <> 'RECEIPT_LINE'`,
+      )).rows[0]!.count,
+    ).toBe(0);
   });
 
   it('27. todavía no se consolidan líneas de demanda proyectada', async () => {

@@ -106,6 +106,18 @@ async function confirm(receiptId: string, version: number) {
 }
 async function cleanup() {
   await database.query(
+    `delete from inventory_movements where source_id in
+      (select rl.id from receipt_lines rl join receipts r on r.id=rl.receipt_id
+       join deliveries d on d.id=r.delivery_id join purchase_orders po on po.id=d.purchase_order_id
+       where po.purchase_order_code like $1)`,
+    [`${fixture}%`],
+  );
+  await database.query(
+    `delete from inventory_lots where id not in (select distinct inventory_lot_id from inventory_movements)
+       and (commercial_code like $1 or lot_number like $1)`,
+    [`${fixture}%`],
+  );
+  await database.query(
     `delete from receipt_lines where receipt_id in (select r.id from receipts r join deliveries d on d.id=r.delivery_id join purchase_orders po on po.id=d.purchase_order_id where po.purchase_order_code like $1)`,
     [`${fixture}%`],
   );
@@ -427,10 +439,11 @@ describe('Gate ESP-007 - API/integration hardening', () => {
     ).toBe(403);
   });
 
-  it('keeps inventory absent after confirmed receipts', async () => {
+  it('leaves inventory operations outside ESP-007 scope', async () => {
     const tables = await database.query<{ table_name: string }>(
       `select table_name from information_schema.tables where table_schema='public' and table_name in ('inventory_lots','inventory_movements','stock_transfers')`,
     );
-    expect(tables.rows).toEqual([]);
+    expect(tables.rows.map((row) => row.table_name)).toEqual(['inventory_lots', 'inventory_movements']);
+    expect(tables.rows.map((row) => row.table_name)).not.toContain('stock_transfers');
   });
 });

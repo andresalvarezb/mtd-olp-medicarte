@@ -836,6 +836,68 @@ export const receiptLines = pgTable(
   ],
 );
 
+/** ESP-008: inventory is a movement ledger; lots have no mutable balance. */
+export const inventoryLots = pgTable(
+  'inventory_lots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    lotNumber: varchar('lot_number', { length: 255 }).notNull(),
+    expirationDate: date('expiration_date').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('inventory_lots_identity_unique').on(
+      table.commercialCode,
+      table.dispensingPointId,
+      table.lotNumber,
+      table.expirationDate,
+    ),
+    index('inventory_lots_point_product_idx').on(table.dispensingPointId, table.commercialCode),
+    check('inventory_lots_commercial_code_check', sql`length(btrim(${table.commercialCode})) > 0`),
+    check('inventory_lots_number_check', sql`length(btrim(${table.lotNumber})) > 0`),
+  ],
+);
+
+export const inventoryMovements = pgTable(
+  'inventory_movements',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    inventoryLotId: uuid('inventory_lot_id')
+      .notNull()
+      .references(() => inventoryLots.id, { onDelete: 'restrict' }),
+    movementType: varchar('movement_type', { length: 30 }).notNull(),
+    quantityDelta: integer('quantity_delta').notNull(),
+    sourceType: varchar('source_type', { length: 40 }).notNull(),
+    sourceId: uuid('source_id').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'restrict' }),
+    metadata: jsonb('metadata'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('inventory_movements_source_semantics_unique').on(
+      table.movementType,
+      table.sourceType,
+      table.sourceId,
+    ),
+    index('inventory_movements_lot_occurred_idx').on(table.inventoryLotId, table.occurredAt),
+    check(
+      'inventory_movements_type_check',
+      sql`${table.movementType} IN ('RECEIPT','APPLICATION','TRANSFER_OUT','TRANSFER_IN','DAMAGE','EXPIRATION','RETURN_TO_SUPPLIER','ADJUSTMENT','NON_REUSABLE')`,
+    ),
+    check('inventory_movements_quantity_delta_check', sql`${table.quantityDelta} <> 0`),
+    check('inventory_movements_source_type_check', sql`length(btrim(${table.sourceType})) > 0`),
+    check(
+      'inventory_movements_receipt_delta_check',
+      sql`${table.movementType} <> 'RECEIPT' OR ${table.quantityDelta} > 0`,
+    ),
+  ],
+);
+
 export const deliveryLines = pgTable(
   'delivery_lines',
   {

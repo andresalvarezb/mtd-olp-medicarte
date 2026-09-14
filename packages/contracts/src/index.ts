@@ -914,3 +914,42 @@ export const receiptResponseSchema = z.object({
   lines: z.array(receiptLineResponseSchema),
 });
 export type ReceiptResponse = z.infer<typeof receiptResponseSchema>;
+
+export const inventoryMovementTypeSchema = z.enum([
+  'RECEIPT',
+  'APPLICATION',
+  'TRANSFER_OUT',
+  'TRANSFER_IN',
+  'DAMAGE',
+  'EXPIRATION',
+  'RETURN_TO_SUPPLIER',
+  'ADJUSTMENT',
+  'NON_REUSABLE',
+]);
+export type InventoryMovementType = z.infer<typeof inventoryMovementTypeSchema>;
+export const inventoryLotResponseSchema = z.object({
+  id: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  dispensingPointName: z.string(),
+  lotNumber: z.string(),
+  expirationDate: z.string().date(),
+  physicalBalance: z.number().int(),
+  usableBalance: z.number().int(),
+  expired: z.boolean(),
+});
+export type InventoryLotResponse = z.infer<typeof inventoryLotResponseSchema>;
+export const inventoryMovementResponseSchema = z.object({
+  id: z.string().uuid(),
+  inventoryLotId: z.string().uuid(),
+  movementType: inventoryMovementTypeSchema,
+  quantityDelta: z.number().int(),
+  sourceType: z.string(),
+  sourceId: z.string().uuid(),
+  occurredAt: isoDateTimeSchema,
+  createdBy: z.string().uuid().nullable(),
+  metadata: z.unknown().nullable(),
+  createdAt: isoDateTimeSchema,
+});
+export type InventoryMovementResponse = z.infer<typeof inventoryMovementResponseSchema>;

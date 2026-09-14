@@ -5,6 +5,7 @@ import { deriveReceiptConformity, validateReceiptQuantities } from '@authorizati
 import type { Scope } from '../common/request-scope';
 import { DATABASE } from '../tokens';
 import type { ReceiptLineRequest, UpdateReceiptRequest } from '@authorization/contracts';
+import { InventoryRepository } from '../inventory/inventory.repository';
 
 type Database = ReturnType<typeof createDatabase>;
 type Tx = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -39,7 +40,10 @@ type ReceiptViewRow = {
 
 @Injectable()
 export class ReceiptRepository {
-  constructor(@Inject(DATABASE) private readonly database: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly database: Database,
+    private readonly inventory: InventoryRepository,
+  ) {}
 
   async create(deliveryId: string, scope: Scope) {
     return this.database.db.transaction(async (tx) => {
@@ -136,8 +140,11 @@ export class ReceiptRepository {
         sql`select id,dispatched_quantity,received_quantity,accepted_quantity,rejected_quantity,expected_lot_number,expected_expiration_date::text expected_expiration_date,received_lot_number,received_expiration_date::text received_expiration_date,nonconformity_reason from receipt_lines where receipt_id=${id} for update`,
       );
       if (!lines.rows.length) throw new Error('RECEIPT_LINES_REQUIRED');
-      const deliveryLines = await tx.execute<{ count: number }>(sql`select count(*)::int count from delivery_lines where delivery_id=${row.delivery_id}`);
-      if (lines.rows.length !== (deliveryLines.rows[0]?.count ?? 0)) throw new Error('RECEIPT_LINES_REQUIRED');
+      const deliveryLines = await tx.execute<{ count: number }>(
+        sql`select count(*)::int count from delivery_lines where delivery_id=${row.delivery_id}`,
+      );
+      if (lines.rows.length !== (deliveryLines.rows[0]?.count ?? 0))
+        throw new Error('RECEIPT_LINES_REQUIRED');
       const conformities = lines.rows.map((line) => {
         const error = validateReceiptQuantities({
           dispatched: line.dispatched_quantity,
@@ -180,6 +187,7 @@ export class ReceiptRepository {
       await tx.execute(
         sql`update receipts set status='CONFIRMED',conformity=${overall},confirmed_at=now(),version=version+1,updated_at=now(),updated_by=${scope.userId} where id=${id}`,
       );
+      await this.inventory.recordConfirmedReceipt(tx, id, scope);
       await tx.execute(
         sql`update deliveries set status='RECEIVED',version=version+1,updated_at=now(),updated_by=${scope.userId} where id=${row.delivery_id}`,
       );

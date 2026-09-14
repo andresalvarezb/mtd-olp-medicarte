@@ -48,6 +48,9 @@ import { DeliveryService } from './deliveries/delivery.service';
 import { ReceiptController, OlpReceiptController } from './receipts/receipt.controller';
 import { ReceiptRepository } from './receipts/receipt.repository';
 import { ReceiptService } from './receipts/receipt.service';
+import { InventoryController } from './inventory/inventory.controller';
+import { InventoryRepository } from './inventory/inventory.repository';
+import { InventoryService } from './inventory/inventory.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -105,6 +108,7 @@ new Gauge({
     MedicarteDeliveryController,
     ReceiptController,
     OlpReceiptController,
+    InventoryController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -127,6 +131,8 @@ new Gauge({
     DeliveryService,
     ReceiptRepository,
     ReceiptService,
+    InventoryRepository,
+    InventoryService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

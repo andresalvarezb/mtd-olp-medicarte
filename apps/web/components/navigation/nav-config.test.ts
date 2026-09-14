@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ALL_NAV_ITEMS, ROLES } from './nav-config';
 
 describe('clean navigation', () => {
-  it('exposes the logistics surfaces through ESP-007', () => {
+  it('exposes the logistics surfaces through ESP-008', () => {
     expect(ALL_NAV_ITEMS.map((item) => item.view)).toEqual([
       'foundation',
       'planningPeriods',
@@ -13,6 +13,7 @@ describe('clean navigation', () => {
       'supplierDeliveries',
       'medicarteDeliveries',
       'medicarteReceipts',
+      'inventory',
       'admin',
     ]);
     expect(ALL_NAV_ITEMS[0]?.roles).toEqual(ROLES);

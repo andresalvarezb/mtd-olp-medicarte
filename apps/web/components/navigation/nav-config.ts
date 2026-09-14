@@ -37,6 +37,7 @@ export type ViewId =
   | 'supplierDeliveries'
   | 'medicarteDeliveries'
   | 'medicarteReceipts'
+  | 'inventory'
   | 'admin';
 
 export interface NavItem {
@@ -127,6 +128,14 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: '09',
         permission: 'medicarte_receipts.read',
         roles: ['MEDICARTE'],
+      },
+      {
+        view: 'inventory',
+        href: '/inventario',
+        title: 'Inventario operacional',
+        icon: '10',
+        permission: 'inventory.read',
+        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE'],
       },
       {
         view: 'admin',
