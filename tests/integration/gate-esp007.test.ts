@@ -15,6 +15,7 @@ let olpToken: string;
 let userId: string;
 let pointId: string;
 let periodId: string;
+let periodCreated = false;
 const fixture = `ESP7-${randomUUID().slice(0, 8).toUpperCase()}`;
 
 type Fixture = {
@@ -161,6 +162,7 @@ describe('Gate ESP-007 - API/integration hardening', () => {
           [userId],
         )
       ).rows[0]!.id;
+    periodCreated = existingPeriod.rows.length === 0;
     pointId = (
       await database.query<{ id: string }>(
         `insert into dispensing_points (organization_id,code,name,created_by) values ($1,$2,$2,$3) returning id`,
@@ -171,6 +173,9 @@ describe('Gate ESP-007 - API/integration hardening', () => {
   afterAll(async () => {
     await cleanup();
     await database.query('delete from dispensing_points where id=$1', [pointId]);
+    if (periodCreated) {
+      await database.query('delete from planning_periods where id=$1', [periodId]);
+    }
     await database.end();
   });
 
@@ -441,9 +446,8 @@ describe('Gate ESP-007 - API/integration hardening', () => {
 
   it('leaves inventory operations outside ESP-007 scope', async () => {
     const tables = await database.query<{ table_name: string }>(
-      `select table_name from information_schema.tables where table_schema='public' and table_name in ('inventory_lots','inventory_movements','stock_transfers')`,
+      `select table_name from information_schema.tables where table_schema='public' and table_name in ('inventory_lots','inventory_movements')`,
     );
     expect(tables.rows.map((row) => row.table_name)).toEqual(['inventory_lots', 'inventory_movements']);
-    expect(tables.rows.map((row) => row.table_name)).not.toContain('stock_transfers');
   });
 });

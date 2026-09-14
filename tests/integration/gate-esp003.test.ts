@@ -1054,12 +1054,12 @@ describe('Gate ESP-003 — programación de pacientes', () => {
     const tables = await database.query<{ table_name: string }>(
       `select table_name from information_schema.tables
         where table_schema = 'public'
-           and table_name in ('inventory', 'inventory_items', 'inventory_stock', 'inventory_lots', 'inventory_movements', 'stock_transfers')`,
+           and table_name in ('inventory', 'inventory_items', 'inventory_stock', 'inventory_lots', 'inventory_movements')`,
     );
     expect(tables.rows.map((row) => row.table_name)).toEqual(['inventory_lots', 'inventory_movements']);
     expect(
       (await database.query<{ count: number }>(
-        `select count(*)::int count from inventory_movements where source_type <> 'RECEIPT_LINE'`,
+        `select count(*)::int count from inventory_movements where source_type not in ('RECEIPT_LINE','TRANSFER_LINE')`,
       )).rows[0]!.count,
     ).toBe(0);
   });

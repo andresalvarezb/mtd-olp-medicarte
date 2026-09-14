@@ -22,15 +22,9 @@ import { UsersController } from './identity/users.controller';
 import { UsersService } from './identity/users.service';
 import { OperationsController } from './operations/operations.controller';
 import { ClinicalModule } from './clinical/clinical.module';
-import {
-  ProjectedDemandController,
-} from './consolidation/projected-demand.controller';
-import {
-  ProjectedDemandRepository,
-} from './consolidation/projected-demand.repository';
-import {
-  ProjectedDemandService,
-} from './consolidation/projected-demand.service';
+import { ProjectedDemandController } from './consolidation/projected-demand.controller';
+import { ProjectedDemandRepository } from './consolidation/projected-demand.repository';
+import { ProjectedDemandService } from './consolidation/projected-demand.service';
 import { PlanningPeriodController } from './planning/planning-period.controller';
 import { PlanningPeriodRepository } from './planning/planning-period.repository';
 import { PlanningPeriodService } from './planning/planning-period.service';
@@ -39,7 +33,10 @@ import { PatientScheduleImportService } from './scheduling/patient-schedule-impo
 import { PatientScheduleRepository } from './scheduling/patient-schedule.repository';
 import { PatientScheduleService } from './scheduling/patient-schedule.service';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
-import { PurchaseOrderController, SupplierPurchaseOrderController } from './purchase-orders/purchase-order.controller';
+import {
+  PurchaseOrderController,
+  SupplierPurchaseOrderController,
+} from './purchase-orders/purchase-order.controller';
 import { PurchaseOrderService } from './purchase-orders/purchase-order.service';
 import { PurchaseOrderRepository } from './purchase-orders/purchase-order.repository';
 import { DeliveryController, MedicarteDeliveryController } from './deliveries/delivery.controller';
@@ -51,6 +48,9 @@ import { ReceiptService } from './receipts/receipt.service';
 import { InventoryController } from './inventory/inventory.controller';
 import { InventoryRepository } from './inventory/inventory.repository';
 import { InventoryService } from './inventory/inventory.service';
+import { StockTransferController } from './inventory/stock-transfer.controller';
+import { StockTransferRepository } from './inventory/stock-transfer.repository';
+import { StockTransferService } from './inventory/stock-transfer.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -89,7 +89,9 @@ new Gauge({
     ThrottlerModule.forRoot([
       {
         ttl: 60_000,
-        limit: Number(process.env.THROTTLE_GLOBAL_LIMIT ?? (config.NODE_ENV === 'production' ? 100 : 1000)),
+        limit: Number(
+          process.env.THROTTLE_GLOBAL_LIMIT ?? (config.NODE_ENV === 'production' ? 100 : 1000),
+        ),
       },
     ]),
   ],
@@ -109,6 +111,7 @@ new Gauge({
     ReceiptController,
     OlpReceiptController,
     InventoryController,
+    StockTransferController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -133,6 +136,8 @@ new Gauge({
     ReceiptService,
     InventoryRepository,
     InventoryService,
+    StockTransferRepository,
+    StockTransferService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

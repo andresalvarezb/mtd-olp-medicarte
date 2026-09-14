@@ -953,3 +953,58 @@ export const inventoryMovementResponseSchema = z.object({
   createdAt: isoDateTimeSchema,
 });
 export type InventoryMovementResponse = z.infer<typeof inventoryMovementResponseSchema>;
+
+export const stockTransferStatusSchema = z.enum(['CREATED', 'DISPATCHED', 'RECEIVED', 'CANCELLED']);
+export type StockTransferStatus = z.infer<typeof stockTransferStatusSchema>;
+export const stockTransferLineRequestSchema = z.object({
+  sourceInventoryLotId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+});
+export type StockTransferLineRequest = z.infer<typeof stockTransferLineRequestSchema>;
+export const createStockTransferRequestSchema = z.object({
+  sourceDispensingPointId: z.string().uuid(),
+  destinationDispensingPointId: z.string().uuid(),
+  lines: z.array(stockTransferLineRequestSchema).min(1),
+});
+export type CreateStockTransferRequest = z.infer<typeof createStockTransferRequestSchema>;
+export const updateStockTransferRequestSchema = createStockTransferRequestSchema.extend({
+  expectedVersion: z.number().int().positive(),
+});
+export type UpdateStockTransferRequest = z.infer<typeof updateStockTransferRequestSchema>;
+export const stockTransferActionRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+});
+export const stockTransferLineResponseSchema = z.object({
+  id: z.string().uuid(),
+  sourceInventoryLotId: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  lotNumber: z.string(),
+  expirationDate: z.string().date(),
+  quantity: z.number().int().positive(),
+  sourceUsableBalance: z.number().int(),
+  destinationPhysicalBalance: z.number().int(),
+});
+export const stockTransferResponseSchema = z.object({
+  id: z.string().uuid(),
+  sourceDispensingPointId: z.string().uuid(),
+  sourceDispensingPointCode: z.string(),
+  sourceDispensingPointName: z.string(),
+  destinationDispensingPointId: z.string().uuid(),
+  destinationDispensingPointCode: z.string(),
+  destinationDispensingPointName: z.string(),
+  status: stockTransferStatusSchema,
+  dispatchedAt: isoDateTimeSchema.nullable(),
+  receivedAt: isoDateTimeSchema.nullable(),
+  version: z.number().int().positive(),
+  createdBy: z.string().uuid(),
+  updatedBy: z.string().uuid(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  inTransit: z.number().int().nonnegative(),
+  globalControlledQuantity: z.number().int(),
+  lines: z.array(stockTransferLineResponseSchema),
+});
+export type StockTransferResponse = z.infer<typeof stockTransferResponseSchema>;
+export const stockTransferListQuerySchema = z.object({
+  status: stockTransferStatusSchema.optional(),
+});

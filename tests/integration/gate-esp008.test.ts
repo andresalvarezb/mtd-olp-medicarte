@@ -539,7 +539,7 @@ describe('Gate ESP-008 - operational inventory ledger', () => {
     expect(names).not.toContain('current_quantity');
     expect(names).not.toContain('reserved');
     const tables = await database.query<{ table_name: string }>(
-      `select table_name from information_schema.tables where table_schema='public' and table_name in ('inventory_reservations','stock_transfers','inventory_applications')`,
+      `select table_name from information_schema.tables where table_schema='public' and table_name in ('inventory_reservations','inventory_applications')`,
     );
     expect(tables.rows).toHaveLength(0);
     const movementTypes = await database

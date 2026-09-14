@@ -96,11 +96,11 @@ describe('Gate ESP-006 - supplier deliveries', () => {
   });
 
   it('does not create inventory movements or transfer tables', async () => {
-    const tables = await database.query<{ count: string }>(`select count(*)::text count from information_schema.tables where table_schema = 'public' and table_name in ('inventory_lots','inventory_movements','stock_transfers')`);
+    const tables = await database.query<{ count: string }>(`select count(*)::text count from information_schema.tables where table_schema = 'public' and table_name in ('inventory_lots','inventory_movements')`);
     expect(tables.rows[0]!.count).toBe('2');
     expect(
       (await database.query<{ count: number }>(
-        `select count(*)::int count from inventory_movements where movement_type <> 'RECEIPT'`,
+        `select count(*)::int count from inventory_movements where movement_type <> 'RECEIPT' and source_type <> 'TRANSFER_LINE'`,
       )).rows[0]!.count,
     ).toBe(0);
   });

@@ -898,6 +898,64 @@ export const inventoryMovements = pgTable(
   ],
 );
 
+export const stockTransfers = pgTable(
+  'stock_transfers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceDispensingPointId: uuid('source_dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    destinationDispensingPointId: uuid('destination_dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    status: varchar('status', { length: 20 }).notNull().default('CREATED'),
+    dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+    receivedAt: timestamp('received_at', { withTimezone: true }),
+    version: integer('version').notNull().default(1),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('stock_transfers_status_created_idx').on(table.status, table.createdAt),
+    check(
+      'stock_transfers_points_different_check',
+      sql`${table.sourceDispensingPointId} <> ${table.destinationDispensingPointId}`,
+    ),
+    check(
+      'stock_transfers_status_check',
+      sql`${table.status} IN ('CREATED','DISPATCHED','RECEIVED','CANCELLED')`,
+    ),
+    check('stock_transfers_version_check', sql`${table.version} > 0`),
+  ],
+);
+
+export const stockTransferLines = pgTable(
+  'stock_transfer_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stockTransferId: uuid('stock_transfer_id')
+      .notNull()
+      .references(() => stockTransfers.id, { onDelete: 'restrict' }),
+    sourceInventoryLotId: uuid('source_inventory_lot_id')
+      .notNull()
+      .references(() => inventoryLots.id, { onDelete: 'restrict' }),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    lotNumber: varchar('lot_number', { length: 255 }).notNull(),
+    expirationDate: date('expiration_date').notNull(),
+    quantity: integer('quantity').notNull(),
+  },
+  (table) => [
+    index('stock_transfer_lines_transfer_idx').on(table.stockTransferId),
+    check('stock_transfer_lines_quantity_check', sql`${table.quantity} > 0`),
+  ],
+);
+
 export const deliveryLines = pgTable(
   'delivery_lines',
   {

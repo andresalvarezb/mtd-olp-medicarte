@@ -9,6 +9,10 @@ if (!process.env.DATABASE_URL && existsSync(envPath)) {
 }
 
 const OPERATIONAL_TABLES = [
+  'stock_transfer_lines',
+  'stock_transfers',
+  'inventory_movements',
+  'inventory_lots',
   'receipt_lines',
   'receipts',
   'demand_sources',

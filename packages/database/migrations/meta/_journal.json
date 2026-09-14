@@ -281,6 +281,13 @@
       "when": 1790460428663,
       "tag": "0039_esp008_inventory_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790460429663,
+      "tag": "0040_esp009_stock_transfers",
+      "breakpoints": true
     }
   ]
 }
