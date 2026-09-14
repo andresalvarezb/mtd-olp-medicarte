@@ -9,6 +9,7 @@ if (!process.env.DATABASE_URL && existsSync(envPath)) {
 }
 
 const OPERATIONAL_TABLES = [
+  'patient_application_audits',
   'patient_application_lines',
   'patient_applications',
   'patient_schedule_outcome_lines',

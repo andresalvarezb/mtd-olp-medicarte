@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   PATIENT_SCHEDULE_IDENTITY_FIELDS,
   SCHEDULE_EXPIRATION_THRESHOLDS,
+  applicationAuditRejectionCodeSchema,
+  applicationAuditStatusSchema,
   clinicalAuthorizationReferenceSchema,
   createPatientScheduleRequestSchema,
   createPlanningPeriodRequestSchema,
@@ -11,6 +13,7 @@ import {
   patientScheduleTransitions,
   planningPeriodTransitions,
   projectedDemandLineResponseSchema,
+  rejectApplicationAuditRequestSchema,
   reschedulePatientScheduleRequestSchema,
   transitionPlanningPeriodRequestSchema,
   updatePatientScheduleRequestSchema,
@@ -140,9 +143,9 @@ describe('patient schedule contracts', () => {
         scheduledDate: '2031-03-06',
       }).success,
     ).toBe(true);
-    expect(
-      reschedulePatientScheduleRequestSchema.safeParse({ expectedRevision: 2 }).success,
-    ).toBe(false);
+    expect(reschedulePatientScheduleRequestSchema.safeParse({ expectedRevision: 2 }).success).toBe(
+      false,
+    );
   });
 
   it('shares the expiration thresholds and the schedule state machine', () => {
@@ -186,5 +189,46 @@ describe('patient schedule contracts', () => {
     // quantity y revision NUNCA distinguen ocurrencias de programación.
     expect(PATIENT_SCHEDULE_IDENTITY_FIELDS).not.toContain('quantity');
     expect(PATIENT_SCHEDULE_IDENTITY_FIELDS).not.toContain('revision');
+  });
+});
+
+describe('application audit contracts', () => {
+  it('keeps READY_FOR_AUDIT as a read-model status and persists only review decisions', () => {
+    expect(applicationAuditStatusSchema.options).toEqual([
+      'READY_FOR_AUDIT',
+      'IN_REVIEW',
+      'APPROVED',
+      'REJECTED',
+    ]);
+    expect(applicationAuditRejectionCodeSchema.options).toEqual([
+      'APPLICATION_DATA_INCONSISTENT',
+      'AUTHORIZATION_INCONSISTENT',
+      'QUANTITY_INCONSISTENT',
+      'PRODUCT_INCONSISTENT',
+      'SUPPORT_MISSING',
+      'OTHER',
+    ]);
+  });
+
+  it('requires observation when the rejection code is OTHER', () => {
+    expect(
+      rejectApplicationAuditRequestSchema.safeParse({
+        expectedVersion: 1,
+        rejectionCode: 'SUPPORT_MISSING',
+      }).success,
+    ).toBe(true);
+    expect(
+      rejectApplicationAuditRequestSchema.safeParse({
+        expectedVersion: 1,
+        rejectionCode: 'OTHER',
+      }).success,
+    ).toBe(false);
+    expect(
+      rejectApplicationAuditRequestSchema.safeParse({
+        expectedVersion: 1,
+        rejectionCode: 'OTHER',
+        observation: 'Falta el soporte de aplicación',
+      }).success,
+    ).toBe(true);
   });
 });

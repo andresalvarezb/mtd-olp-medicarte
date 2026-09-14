@@ -273,10 +273,6 @@ export const authorizationItems = pgTable(
       'authorization_items_dispensed_requires_approval_check',
       sql`${table.operationStatus} <> 'DISPENSED' OR ${table.auditStatus} = 'APPROVED'`,
     ),
-    check(
-      'authorization_items_approval_requires_dispensed_check',
-      sql`${table.auditStatus} <> 'APPROVED' OR ${table.operationStatus} = 'DISPENSED'`,
-    ),
     check('authorization_items_version_check', sql`${table.version} > 0`),
   ],
 );
@@ -1034,6 +1030,63 @@ export const patientApplicationLines = pgTable(
     check(
       'patient_application_lines_override_check',
       sql`${table.fefoOverride} = false OR length(btrim(${table.fefoOverrideReason})) > 0`,
+    ),
+  ],
+);
+
+export const patientApplicationAudits = pgTable(
+  'patient_application_audits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    patientApplicationId: uuid('patient_application_id')
+      .notNull()
+      .references(() => patientApplications.id, { onDelete: 'restrict' }),
+    applicationRevision: integer('application_revision').notNull(),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    status: varchar('status', { length: 20 }).notNull().default('IN_REVIEW'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    startedBy: uuid('started_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'restrict' }),
+    rejectionCode: varchar('rejection_code', { length: 40 }),
+    observation: varchar('observation', { length: 1000 }),
+    evidenceReference: varchar('evidence_reference', { length: 1000 }),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('patient_application_audits_application_unique').on(table.patientApplicationId),
+    index('patient_application_audits_status_date_idx').on(table.status, table.startedAt, table.id),
+    index('patient_application_audits_authorization_idx').on(
+      table.authorizationItemId,
+      table.status,
+    ),
+    check('patient_application_audits_revision_check', sql`${table.applicationRevision} > 0`),
+    check(
+      'patient_application_audits_status_check',
+      sql`${table.status} IN ('IN_REVIEW','APPROVED','REJECTED')`,
+    ),
+    check('patient_application_audits_version_check', sql`${table.version} > 0`),
+    check(
+      'patient_application_audits_decision_fields_check',
+      sql`${table.status} = 'IN_REVIEW' OR (${table.decidedAt} IS NOT NULL AND ${table.decidedBy} IS NOT NULL)`,
+    ),
+    check(
+      'patient_application_audits_rejection_code_check',
+      sql`${table.status} <> 'REJECTED' OR ${table.rejectionCode} IS NOT NULL`,
+    ),
+    check(
+      'patient_application_audits_other_observation_check',
+      sql`${table.rejectionCode} <> 'OTHER' OR (${table.observation} IS NOT NULL AND length(btrim(${table.observation})) > 0)`,
+    ),
+    check(
+      'patient_application_audits_non_rejection_fields_check',
+      sql`${table.status} = 'REJECTED' OR (${table.rejectionCode} IS NULL AND ${table.observation} IS NULL)`,
     ),
   ],
 );

@@ -253,6 +253,127 @@ export const patientApplicationSchema = z.object({
 });
 export type PatientApplicationResponse = z.infer<typeof patientApplicationSchema>;
 
+export const applicationAuditStatusSchema = z.enum([
+  'READY_FOR_AUDIT',
+  'IN_REVIEW',
+  'APPROVED',
+  'REJECTED',
+]);
+export type ApplicationAuditStatus = z.infer<typeof applicationAuditStatusSchema>;
+
+export const applicationAuditRejectionCodeSchema = z.enum([
+  'APPLICATION_DATA_INCONSISTENT',
+  'AUTHORIZATION_INCONSISTENT',
+  'QUANTITY_INCONSISTENT',
+  'PRODUCT_INCONSISTENT',
+  'SUPPORT_MISSING',
+  'OTHER',
+]);
+export type ApplicationAuditRejectionCode = z.infer<typeof applicationAuditRejectionCodeSchema>;
+
+export const startApplicationAuditRequestSchema = z.object({});
+export type StartApplicationAuditRequest = z.infer<typeof startApplicationAuditRequestSchema>;
+
+export const approveApplicationAuditRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  evidenceReference: z.string().trim().min(1).max(1000).optional(),
+});
+export type ApproveApplicationAuditRequest = z.infer<typeof approveApplicationAuditRequestSchema>;
+
+export const rejectApplicationAuditRequestSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+    rejectionCode: applicationAuditRejectionCodeSchema,
+    observation: z.string().trim().min(1).max(1000).optional(),
+    evidenceReference: z.string().trim().min(1).max(1000).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.rejectionCode === 'OTHER' && !value.observation) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['observation'],
+        message: 'OTHER requires observation',
+      });
+    }
+  });
+export type RejectApplicationAuditRequest = z.infer<typeof rejectApplicationAuditRequestSchema>;
+
+export const applicationAuditListQuerySchema = z.object({
+  status: applicationAuditStatusSchema.optional(),
+  applicationDateFrom: z.string().date().optional(),
+  applicationDateTo: z.string().date().optional(),
+  patientDocument: z.string().trim().min(1).max(255).optional(),
+  authorization: z.string().trim().min(1).max(255).optional(),
+  commercialCode: commercialCodeSchema.optional(),
+  dispensingPointId: z.string().uuid().optional(),
+  auditorId: z.string().uuid().optional(),
+  priorityLevel: z.enum(['CRITICAL', 'HIGH', 'NORMAL']).optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+export type ApplicationAuditListQuery = z.infer<typeof applicationAuditListQuerySchema>;
+
+export const applicationAuditLineSchema = z.object({
+  id: z.string().uuid(),
+  inventoryLotId: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  dispensingPointId: z.string().uuid(),
+  lotNumber: z.string(),
+  expirationDate: z.string().date(),
+  quantity: z.number().int().positive(),
+});
+export type ApplicationAuditLine = z.infer<typeof applicationAuditLineSchema>;
+
+export const applicationAuditMovementSchema = z.object({
+  id: z.string().uuid(),
+  inventoryLotId: z.string().uuid(),
+  movementType: z.literal('APPLICATION'),
+  quantityDelta: z.number().int().negative(),
+  sourceType: z.literal('APPLICATION_LINE'),
+  sourceId: z.string().uuid(),
+  occurredAt: isoDateTimeSchema,
+});
+export type ApplicationAuditMovement = z.infer<typeof applicationAuditMovementSchema>;
+
+export const applicationAuditResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+  status: applicationAuditStatusSchema,
+  patientApplicationId: z.string().uuid(),
+  patientScheduleId: z.string().uuid(),
+  scheduleRevision: z.number().int().positive(),
+  applicationRevision: z.number().int().positive(),
+  applicationVersion: z.number().int().positive(),
+  authorizationItemId: z.string().uuid(),
+  authorizationNumber: z.string(),
+  patientDocument: z.string().nullable(),
+  patientName: z.string().nullable(),
+  commercialCode: commercialCodeSchema,
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  dispensingPointName: z.string(),
+  scheduledDate: z.string().date(),
+  applicationDate: z.string().date(),
+  scheduledQuantity: z.number().int().positive(),
+  appliedQuantity: z.number().int().positive(),
+  operationalStatus: z.literal('APPLIED'),
+  admissionStatus: z.enum(['NOT_READY', 'READY']),
+  authorizationExpiresOn: z.string().date().nullable(),
+  daysUntilExpiration: z.number().int().nullable(),
+  priorityLevel: z.enum(['CRITICAL', 'HIGH', 'NORMAL']).nullable(),
+  startedAt: isoDateTimeSchema.nullable(),
+  startedBy: z.string().uuid().nullable(),
+  startedByName: z.string().nullable(),
+  decidedAt: isoDateTimeSchema.nullable(),
+  decidedBy: z.string().uuid().nullable(),
+  decidedByName: z.string().nullable(),
+  rejectionCode: applicationAuditRejectionCodeSchema.nullable(),
+  observation: z.string().nullable(),
+  evidenceReference: z.string().nullable(),
+  version: z.number().int().positive().nullable(),
+  lines: z.array(applicationAuditLineSchema),
+  movements: z.array(applicationAuditMovementSchema),
+});
+export type ApplicationAuditResponse = z.infer<typeof applicationAuditResponseSchema>;
+
 export const patientOperationalStatusSchema = z.enum([
   'SCHEDULED',
   'APPLIED',

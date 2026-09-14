@@ -2,19 +2,20 @@
 
 ## Estado de aceptación
 
-| Especificación | Estado |
-| --- | --- |
-| ESP-001 | ACCEPTED |
-| ESP-002 | ACCEPTED |
-| ESP-003 | ACCEPTED |
-| ESP-004 | ACCEPTED |
-| ESP-005 | ACCEPTED |
-| ESP-006 | ACCEPTED |
-| ESP-007 | ACCEPTED |
-| ESP-008 | ACCEPTED |
-| ESP-009 | ACCEPTED |
-| ESP-010 | ACCEPTED |
-| ESP-011 | IMPLEMENTED / PENDING REVIEW |
+| Especificación | Estado                       |
+| -------------- | ---------------------------- |
+| ESP-001        | ACCEPTED                     |
+| ESP-002        | ACCEPTED                     |
+| ESP-003        | ACCEPTED                     |
+| ESP-004        | ACCEPTED                     |
+| ESP-005        | ACCEPTED                     |
+| ESP-006        | ACCEPTED                     |
+| ESP-007        | ACCEPTED                     |
+| ESP-008        | ACCEPTED                     |
+| ESP-009        | ACCEPTED                     |
+| ESP-010        | ACCEPTED                     |
+| ESP-011        | ACCEPTED                     |
+| ESP-012        | IMPLEMENTED / PENDING REVIEW |
 
 ### Evidencia de cierre ESP-010
 
@@ -35,6 +36,23 @@
 - ESP-010 no deja nueva deuda de formato.
 
 TECH-DEBT: Pre-existing repository formatting debt: 52 files fail `format:check` outside ESP-010 scope. Feature branches must not bulk-format unrelated files.
+
+### Evidencia de cierre ESP-012
+
+- migration: `0043_esp012_application_audits.sql`
+- ADR: `ADR-035-esp-012-application-audits.md`
+- Gate A clean install: PASS (44 migraciones, gate ESP-012 33/33)
+- Gate B ESP-011 → ESP-012: PASS (43 → 44, únicamente `0043_esp012_application_audits.sql`)
+- Gate ESP-012: 33/33 PASS
+- Unit suite: 124/124 PASS
+- Integration suite: 236/236 PASS
+- lint: PASS
+- typecheck: PASS
+- build: PASS
+- git diff --check: PASS
+- format:check se aplicó solo a archivos de ESP-012. No hay nueva deuda de formato.
+
+Medicarte, OLP y Compensar no tienen acceso a auditoría de aplicaciones. `READY_FOR_AUDIT` es derivado. `audit_status` en `authorization_items` es proyección de compatibilidad; la autoridad de `admission_status = READY` es `patient_application_audits`.
 
 ### Invariantes consolidadas hasta ESP-010
 
@@ -92,13 +110,13 @@ Eliminar la dependencia estructural entre una autorización individual y la orde
 
 No deberá contener la nueva lógica de:
 
-* orden de compra;
-* entrega OLP;
-* recepción Medicarte;
-* inventario;
-* lote;
-* saldo físico;
-* transferencias.
+- orden de compra;
+- entrega OLP;
+- recepción Medicarte;
+- inventario;
+- lote;
+- saldo físico;
+- transferencias.
 
 La autorización podrá originar una o varias programaciones, pero ninguna unidad física deberá considerarse propiedad de un paciente antes de su aplicación.
 
@@ -183,35 +201,35 @@ inventory_consumption
 
 Tareas:
 
-* Mapear campos actuales de OC, dispensación y aplicación existentes en `authorization_items`.
-* Localizar servicios NestJS que leen/escriben esos campos.
-* Localizar contratos Zod/TypeScript afectados.
-* Localizar componentes Next.js afectados.
-* Identificar XLSX que actualmente contienen OC o dispensación por autorización.
-* Mapear pruebas F1–F9 afectadas.
+- Mapear campos actuales de OC, dispensación y aplicación existentes en `authorization_items`.
+- Localizar servicios NestJS que leen/escriben esos campos.
+- Localizar contratos Zod/TypeScript afectados.
+- Localizar componentes Next.js afectados.
+- Identificar XLSX que actualmente contienen OC o dispensación por autorización.
+- Mapear pruebas F1–F9 afectadas.
 
 ### PT-001.2 — Crear modelo TO-BE
 
 Tareas:
 
-* Definir entidades nuevas.
-* Definir claves primarias y foráneas.
-* Definir invariantes.
-* Definir máquinas de estados.
-* Añadir modelos al `packages/domain`.
-* Añadir contratos a `packages/contracts`.
-* Definir ADR del cambio arquitectónico.
+- Definir entidades nuevas.
+- Definir claves primarias y foráneas.
+- Definir invariantes.
+- Definir máquinas de estados.
+- Añadir modelos al `packages/domain`.
+- Añadir contratos a `packages/contracts`.
+- Definir ADR del cambio arquitectónico.
 
 ### PT-001.3 — Persistencia
 
 Tareas:
 
-* Crear esquema Drizzle.
-* Crear índices.
-* Crear restricciones `NOT NULL`, `UNIQUE` y `CHECK`.
-* Generar migración aditiva.
-* Crear repositorios.
-* Crear pruebas de persistencia.
+- Crear esquema Drizzle.
+- Crear índices.
+- Crear restricciones `NOT NULL`, `UNIQUE` y `CHECK`.
+- Generar migración aditiva.
+- Crear repositorios.
+- Crear pruebas de persistencia.
 
 Las restricciones deben vivir también en PostgreSQL y no exclusivamente en frontend/API; Drizzle soporta constraints, índices y transacciones para mantener estas invariantes.
 
@@ -275,11 +293,11 @@ Cerrar un período congela sus cifras de planificación.
 
 ## Criterios de aceptación
 
-* Puede crearse un período semanal.
-* Puede crearse uno de duración diferente.
-* El período identifica claramente fecha de corte.
-* Se identifican programaciones extemporáneas.
-* Cerrar el período no cambia el inventario.
+- Puede crearse un período semanal.
+- Puede crearse uno de duración diferente.
+- El período identifica claramente fecha de corte.
+- Se identifican programaciones extemporáneas.
+- Cerrar el período no cambia el inventario.
 
 ## Plan de trabajo
 
@@ -287,29 +305,29 @@ Cerrar un período congela sus cifras de planificación.
 
 Tareas:
 
-* Crear `planning_periods`.
-* Crear configuración de calendario operacional.
-* Implementar validaciones de solapamiento.
-* Implementar estados y transiciones.
+- Crear `planning_periods`.
+- Crear configuración de calendario operacional.
+- Implementar validaciones de solapamiento.
+- Implementar estados y transiciones.
 
 ### PT-002.2 — API
 
 Tareas:
 
-* Crear endpoints de consulta.
-* Crear administración MTD de períodos.
-* Crear endpoint de cierre.
-* Implementar validación de corte.
+- Crear endpoints de consulta.
+- Crear administración MTD de períodos.
+- Crear endpoint de cierre.
+- Implementar validación de corte.
 
 ### PT-002.3 — Frontend
 
 Tareas:
 
-* Crear selector de período.
-* Mostrar período actual.
-* Mostrar próximas fechas operativas.
-* Mostrar visualmente períodos cerrados.
-* Alertar programación posterior al corte.
+- Crear selector de período.
+- Mostrar período actual.
+- Mostrar próximas fechas operativas.
+- Mostrar visualmente períodos cerrados.
+- Alertar programación posterior al corte.
 
 ---
 
@@ -376,12 +394,12 @@ Siguiente período
 
 ## Criterios de aceptación
 
-* Medicarte puede programar individualmente.
-* Puede programar masivamente.
-* El sistema rechaza códigos comerciales inválidos.
-* La programación genera demanda.
-* Modificar fecha/punto conserva histórico.
-* Programaciones tardías quedan identificadas.
+- Medicarte puede programar individualmente.
+- Puede programar masivamente.
+- El sistema rechaza códigos comerciales inválidos.
+- La programación genera demanda.
+- Modificar fecha/punto conserva histórico.
+- Programaciones tardías quedan identificadas.
 
 ## Plan de trabajo
 
@@ -389,31 +407,31 @@ Siguiente período
 
 Tareas:
 
-* Crear `patient_schedules`.
-* Relacionarlo con autorización, punto y período.
-* Crear historial append-only de modificaciones.
-* Crear campos de prioridad por vencimiento.
+- Crear `patient_schedules`.
+- Relacionarlo con autorización, punto y período.
+- Crear historial append-only de modificaciones.
+- Crear campos de prioridad por vencimiento.
 
 ### PT-003.2 — Backend
 
 Tareas:
 
-* Crear servicios de programación.
-* Implementar búsqueda por paciente.
-* Implementar búsqueda por autorización.
-* Crear carga XLSX con staging.
-* Reutilizar validaciones y patrón de importaciones existente.
+- Crear servicios de programación.
+- Implementar búsqueda por paciente.
+- Implementar búsqueda por autorización.
+- Crear carga XLSX con staging.
+- Reutilizar validaciones y patrón de importaciones existente.
 
 ### PT-003.3 — Frontend
 
 Tareas:
 
-* Crear pantalla Programación.
-* Crear búsqueda individual.
-* Crear edición.
-* Crear importador XLSX.
-* Mostrar prioridad de autorización.
-* Mostrar si está dentro/fuera del período.
+- Crear pantalla Programación.
+- Crear búsqueda individual.
+- Crear edición.
+- Crear importador XLSX.
+- Mostrar prioridad de autorización.
+- Mostrar si está dentro/fuera del período.
 
 ---
 
@@ -460,10 +478,10 @@ Al generar una OC, deberá crearse un snapshot que impida que cambios posteriore
 
 ## Criterios de aceptación
 
-* N pacientes pueden producir una sola línea consolidada.
-* Es posible navegar del consolidado a sus pacientes origen.
-* Cambiar programación antes del corte recalcula demanda.
-* Cambiar programación después de emitir OC no modifica aquella OC.
+- N pacientes pueden producir una sola línea consolidada.
+- Es posible navegar del consolidado a sus pacientes origen.
+- Cambiar programación antes del corte recalcula demanda.
+- Cambiar programación después de emitir OC no modifica aquella OC.
 
 ## Plan de trabajo
 
@@ -471,29 +489,29 @@ Al generar una OC, deberá crearse un snapshot que impida que cambios posteriore
 
 Tareas:
 
-* Crear `projected_demand_lines`.
-* Crear `demand_sources`.
-* Diseñar algoritmo determinista de consolidación.
-* Implementar snapshots.
+- Crear `projected_demand_lines`.
+- Crear `demand_sources`.
+- Diseñar algoritmo determinista de consolidación.
+- Implementar snapshots.
 
 ### PT-004.2 — Backend
 
 Tareas:
 
-* Crear servicio de consolidación.
-* Implementar reconstrucción idempotente.
-* Exponer resumen por período/sede/producto.
-* Registrar eventos de auditoría.
+- Crear servicio de consolidación.
+- Implementar reconstrucción idempotente.
+- Exponer resumen por período/sede/producto.
+- Registrar eventos de auditoría.
 
 ### PT-004.3 — Interfaz MTD
 
 Tareas:
 
-* Crear vista Demanda Consolidada.
-* Mostrar cantidad.
-* Mostrar pacientes origen.
-* Mostrar cambios desde última consolidación.
-* Mostrar demanda extemporánea.
+- Crear vista Demanda Consolidada.
+- Mostrar cantidad.
+- Mostrar pacientes origen.
+- Mostrar cambios desde última consolidación.
+- Mostrar demanda extemporánea.
 
 ---
 
@@ -588,12 +606,12 @@ Una necesidad tardía o faltante podrá generar otra OC vinculada al mismo perí
 
 ## Criterios de aceptación
 
-* La OC no necesita `authorization_item_id`.
-* Una OC contiene múltiples sedes.
-* Una línea tiene solicitado y aceptado independientemente.
-* OLP puede registrar un costo unitario.
-* Una reducción de cantidad no bloquea el proceso.
-* Se soportan OCs complementarias.
+- La OC no necesita `authorization_item_id`.
+- Una OC contiene múltiples sedes.
+- Una línea tiene solicitado y aceptado independientemente.
+- OLP puede registrar un costo unitario.
+- Una reducción de cantidad no bloquea el proceso.
+- Se soportan OCs complementarias.
 
 ## Plan de trabajo
 
@@ -601,32 +619,32 @@ Una necesidad tardía o faltante podrá generar otra OC vinculada al mismo perí
 
 Tareas:
 
-* Crear `purchase_orders`.
-* Crear `purchase_order_lines`.
-* Crear constraints de cantidades positivas.
-* Crear unique del código OC de MTD.
-* Registrar snapshot de demanda origen.
+- Crear `purchase_orders`.
+- Crear `purchase_order_lines`.
+- Crear constraints de cantidades positivas.
+- Crear unique del código OC de MTD.
+- Registrar snapshot de demanda origen.
 
 ### PT-005.2 — API MTD
 
 Tareas:
 
-* Crear borrador desde consolidado.
-* Permitir revisión.
-* Permitir código OC MTD.
-* Emitir OC.
-* Crear OC complementaria.
-* Bloquear cambios incompatibles después de emisión.
+- Crear borrador desde consolidado.
+- Permitir revisión.
+- Permitir código OC MTD.
+- Emitir OC.
+- Crear OC complementaria.
+- Bloquear cambios incompatibles después de emisión.
 
 ### PT-005.3 — Interfaz
 
 Tareas:
 
-* Crear módulo Órdenes de Compra.
-* Crear vista de cabecera.
-* Crear tabla de líneas.
-* Mostrar solicitado/aceptado/faltante.
-* Mostrar estado general y por línea.
+- Crear módulo Órdenes de Compra.
+- Crear vista de cabecera.
+- Crear tabla de líneas.
+- Mostrar solicitado/aceptado/faltante.
+- Mostrar estado general y por línea.
 
 ---
 
@@ -667,13 +685,13 @@ información clínica
 
 OLP podrá:
 
-* consultar OC;
-* aceptar cantidades;
-* aceptar parcialmente;
-* colocar costo unitario;
-* programar una o varias entregas;
-* registrar entrega parcial;
-* finalizar suministro.
+- consultar OC;
+- aceptar cantidades;
+- aceptar parcialmente;
+- colocar costo unitario;
+- programar una o varias entregas;
+- registrar entrega parcial;
+- finalizar suministro.
 
 ## Entregas
 
@@ -697,32 +715,32 @@ Entrega 3 = 25
 
 Tareas:
 
-* Crear `deliveries`.
-* Crear `delivery_lines`.
-* Relacionar con línea OC.
-* Permitir entregas parciales.
-* Calcular saldo pendiente.
+- Crear `deliveries`.
+- Crear `delivery_lines`.
+- Relacionar con línea OC.
+- Permitir entregas parciales.
+- Calcular saldo pendiente.
 
 ### PT-006.2 — API OLP
 
 Tareas:
 
-* Endpoint de aceptación.
-* Endpoint de precio proveedor.
-* Endpoint de creación de entrega.
-* Endpoint de despacho.
-* Validar que no se entregue más de lo permitido salvo regla explícita.
+- Endpoint de aceptación.
+- Endpoint de precio proveedor.
+- Endpoint de creación de entrega.
+- Endpoint de despacho.
+- Validar que no se entregue más de lo permitido salvo regla explícita.
 
 ### PT-006.3 — Portal OLP
 
 Tareas:
 
-* Lista de OCs.
-* Detalle OC.
-* Aceptación por líneas.
-* Registro del costo.
-* Creación de entregas.
-* Consulta de pendientes.
+- Lista de OCs.
+- Detalle OC.
+- Aceptación por líneas.
+- Registro del costo.
+- Creación de entregas.
+- Consulta de pendientes.
 
 ---
 
@@ -781,32 +799,32 @@ Cada entrega parcial debe confirmarse individualmente por Medicarte.
 
 Tareas:
 
-* Crear `receipts`.
-* Crear `receipt_lines`.
-* Permitir múltiples lotes por recepción.
-* Implementar cantidades aceptadas/rechazadas.
-* Crear catálogo de causas de no conformidad.
+- Crear `receipts`.
+- Crear `receipt_lines`.
+- Permitir múltiples lotes por recepción.
+- Implementar cantidades aceptadas/rechazadas.
+- Crear catálogo de causas de no conformidad.
 
 ### PT-007.2 — Transacción de recepción
 
 Tareas:
 
-* Validar entrega.
-* Crear recepción.
-* Crear lotes.
-* Crear movimientos de inventario.
-* Registrar auditoría.
-* Ejecutar todo en una transacción PostgreSQL.
+- Validar entrega.
+- Crear recepción.
+- Crear lotes.
+- Crear movimientos de inventario.
+- Registrar auditoría.
+- Ejecutar todo en una transacción PostgreSQL.
 
 ### PT-007.3 — Interfaz Medicarte
 
 Tareas:
 
-* Bandeja Entregas pendientes.
-* Confirmación total.
-* Confirmación parcial.
-* Captura de lote/vencimiento.
-* Captura de observaciones.
+- Bandeja Entregas pendientes.
+- Confirmación total.
+- Confirmación parcial.
+- Captura de lote/vencimiento.
+- Captura de observaciones.
 
 ---
 
@@ -892,40 +910,40 @@ Los cambios de inventario deberán ejecutarse transaccionalmente; Drizzle dispon
 
 Tareas:
 
-* Crear `inventory_lots`.
-* Crear `inventory_movements`.
-* Definir índices por producto/sede/lote.
-* Crear constraints de cantidades.
-* Crear referencia al evento origen.
+- Crear `inventory_lots`.
+- Crear `inventory_movements`.
+- Definir índices por producto/sede/lote.
+- Crear constraints de cantidades.
+- Crear referencia al evento origen.
 
 ### PT-008.2 — Motor de inventario
 
 Tareas:
 
-* Crear servicio único para movimientos.
-* Prohibir modificación directa de saldo.
-* Calcular disponibilidad.
-* Implementar locking/concurrencia.
-* Implementar idempotencia.
+- Crear servicio único para movimientos.
+- Prohibir modificación directa de saldo.
+- Calcular disponibilidad.
+- Implementar locking/concurrencia.
+- Implementar idempotencia.
 
 ### PT-008.3 — FEFO asistido
 
 Tareas:
 
-* Ordenar lotes por vencimiento.
-* Señalar lote recomendado.
-* Alertar selección diferente.
-* Guardar motivo de excepción.
+- Ordenar lotes por vencimiento.
+- Señalar lote recomendado.
+- Alertar selección diferente.
+- Guardar motivo de excepción.
 
 ### PT-008.4 — UI
 
 Tareas:
 
-* Vista de inventario por sede.
-* Vista por producto.
-* Vista por lote.
-* Vista de movimientos.
-* Alertas de vencimiento.
+- Vista de inventario por sede.
+- Vista por producto.
+- Vista por lote.
+- Vista de movimientos.
+- Alertas de vencimiento.
 
 ---
 
@@ -972,29 +990,29 @@ hasta que B confirma recepción.
 
 Tareas:
 
-* Crear transferencia.
-* Crear líneas por lote/producto.
-* Registrar origen/destino.
-* Registrar usuarios y timestamps.
+- Crear transferencia.
+- Crear líneas por lote/producto.
+- Registrar origen/destino.
+- Registrar usuarios y timestamps.
 
 ### PT-009.2 — Inventario
 
 Tareas:
 
-* Generar `TRANSFER_OUT`.
-* Manejar unidades en tránsito.
-* Generar `TRANSFER_IN`.
-* Resolver cancelaciones.
+- Generar `TRANSFER_OUT`.
+- Manejar unidades en tránsito.
+- Generar `TRANSFER_IN`.
+- Resolver cancelaciones.
 
 ### PT-009.3 — Frontend
 
 Tareas:
 
-* Crear transferencia.
-* Despachar.
-* Consultar en tránsito.
-* Confirmar recepción.
-* Mostrar historial.
+- Crear transferencia.
+- Despachar.
+- Consultar en tránsito.
+- Confirmar recepción.
+- Mostrar historial.
 
 ---
 
@@ -1008,8 +1026,8 @@ Crear el vínculo definitivo entre una unidad física y la autorización únicam
 
 Medicarte podrá registrar aplicación:
 
-* individualmente;
-* mediante XLSX.
+- individualmente;
+- mediante XLSX.
 
 La aplicación deberá indicar:
 
@@ -1070,31 +1088,31 @@ NON_REUSABLE
 
 Tareas:
 
-* Crear `patient_applications`.
-* Definir invariantes.
-* Relacionar autorización.
-* Relacionar lote/movimiento.
+- Crear `patient_applications`.
+- Definir invariantes.
+- Relacionar autorización.
+- Relacionar lote/movimiento.
 
 ### PT-010.2 — Aplicación individual
 
 Tareas:
 
-* Búsqueda paciente/autorización.
-* Mostrar programación.
-* Mostrar lotes.
-* Mostrar FEFO.
-* Confirmar aplicación.
+- Búsqueda paciente/autorización.
+- Mostrar programación.
+- Mostrar lotes.
+- Mostrar FEFO.
+- Confirmar aplicación.
 
 ### PT-010.3 — Carga masiva
 
 Tareas:
 
-* Diseñar XLSX.
-* Staging.
-* Validación fila a fila.
-* Preview.
-* Confirmación.
-* Procesamiento idempotente.
+- Diseñar XLSX.
+- Staging.
+- Validación fila a fila.
+- Preview.
+- Confirmación.
+- Procesamiento idempotente.
 
 ---
 
@@ -1157,28 +1175,28 @@ Medicarte podrá mover al paciente al siguiente período.
 
 Tareas:
 
-* Diseñar máquina de estados.
-* Mapear estados anteriores.
-* Implementar transiciones.
-* Añadir validaciones.
+- Diseñar máquina de estados.
+- Mapear estados anteriores.
+- Implementar transiciones.
+- Añadir validaciones.
 
 ### PT-011.2 — Novedades
 
 Tareas:
 
-* Completar catálogo.
-* Asociar novedad a programación/aplicación.
-* Implementar observaciones.
-* Mantener auditoría.
+- Completar catálogo.
+- Asociar novedad a programación/aplicación.
+- Implementar observaciones.
+- Mantener auditoría.
 
 ### PT-011.3 — Prioridad
 
 Tareas:
 
-* Calcular días restantes de autorización.
-* Crear niveles de alerta.
-* Mostrar alertas visuales.
-* No crear reservas automáticas.
+- Calcular días restantes de autorización.
+- Crear niveles de alerta.
+- Mostrar alertas visuales.
+- No crear reservas automáticas.
 
 ---
 
@@ -1210,30 +1228,30 @@ La auditoría no determina existencia física; verifica la aplicación y los sop
 
 Tareas:
 
-* Desacoplar auditoría de antiguos campos de OC.
-* Usar `patient_applications` como evidencia operacional.
-* Mantener `audit_reviews`.
-* Mantener `audit_findings`.
-* Mantener Drive externo.
+- Desacoplar auditoría de antiguos campos de OC.
+- Usar `patient_applications` como evidencia operacional.
+- Mantener `audit_reviews`.
+- Mantener `audit_findings`.
+- Mantener Drive externo.
 
 ### PT-012.2 — Estados derivados
 
 Tareas:
 
-* Ajustar `operation_status`.
-* Ajustar `audit_status`.
-* Ajustar `admission_status`.
-* Actualizar filtros/tableros.
+- Ajustar `operation_status`.
+- Ajustar `audit_status`.
+- Ajustar `admission_status`.
+- Actualizar filtros/tableros.
 
 ### PT-012.3 — Pruebas
 
 Tareas:
 
-* Aplicación correcta + aprobación.
-* Aplicación rechazada.
-* Sin aplicación.
-* Novedad.
-* Reauditoría cuando corresponda.
+- Aplicación correcta + aprobación.
+- Aplicación rechazada.
+- Sin aplicación.
+- Novedad.
+- Reauditoría cuando corresponda.
 
 ---
 
@@ -1328,28 +1346,28 @@ pérdidas
 
 Tareas:
 
-* Separar tarifa y costo.
-* Definir snapshots.
-* Relacionar anexo tarifario.
-* Añadir supplier cost.
+- Separar tarifa y costo.
+- Definir snapshots.
+- Relacionar anexo tarifario.
+- Añadir supplier cost.
 
 ### PT-013.2 — Consultas
 
 Tareas:
 
-* Crear agregaciones SQL.
-* Crear indicadores por período.
-* Crear indicadores por producto.
-* Crear indicadores por punto.
+- Crear agregaciones SQL.
+- Crear indicadores por período.
+- Crear indicadores por producto.
+- Crear indicadores por punto.
 
 ### PT-013.3 — Dashboard
 
 Tareas:
 
-* Tablero MTD completo.
-* Tablero Medicarte sin costos sensibles.
-* Tablero OLP limitado a su relación comercial.
-* Exportación XLSX.
+- Tablero MTD completo.
+- Tablero Medicarte sin costos sensibles.
+- Tablero OLP limitado a su relación comercial.
+- Exportación XLSX.
 
 ---
 
@@ -1389,31 +1407,31 @@ La arquitectura BullMQ existente es apropiada para estos procesos porque permite
 
 Tareas:
 
-* Plantilla programación.
-* Plantilla aplicación.
-* Plantilla recepción/entrega si resulta operacionalmente conveniente.
-* Versionar plantillas.
+- Plantilla programación.
+- Plantilla aplicación.
+- Plantilla recepción/entrega si resulta operacionalmente conveniente.
+- Versionar plantillas.
 
 ### PT-014.2 — Staging
 
 Tareas:
 
-* Reutilizar `bulk_update_batches`.
-* Separar tipo de operación.
-* Normalizar filas.
-* Validar.
-* Preview.
-* Confirmar.
+- Reutilizar `bulk_update_batches`.
+- Separar tipo de operación.
+- Normalizar filas.
+- Validar.
+- Preview.
+- Confirmar.
 
 ### PT-014.3 — Worker
 
 Tareas:
 
-* Crear jobs.
-* Implementar idempotencia.
-* Reintentos.
-* DLQ.
-* Reporte por fila.
+- Crear jobs.
+- Implementar idempotencia.
+- Reintentos.
+- DLQ.
+- Reporte por fila.
 
 ---
 
@@ -1427,29 +1445,29 @@ Garantizar que las tres empresas vean únicamente la información necesaria.
 
 Puede visualizar:
 
-* pacientes;
-* autorizaciones;
-* demanda;
-* OC;
-* precios Compensar;
-* precios OLP;
-* entregas;
-* inventario;
-* aplicaciones;
-* auditoría;
-* indicadores.
+- pacientes;
+- autorizaciones;
+- demanda;
+- OC;
+- precios Compensar;
+- precios OLP;
+- entregas;
+- inventario;
+- aplicaciones;
+- auditoría;
+- indicadores.
 
 ## OLP
 
 Puede visualizar:
 
-* OCs;
-* productos;
-* cantidades;
-* puntos;
-* fechas;
-* su precio;
-* entregas.
+- OCs;
+- productos;
+- cantidades;
+- puntos;
+- fechas;
+- su precio;
+- entregas.
 
 No puede visualizar pacientes ni información clínica.
 
@@ -1457,14 +1475,14 @@ No puede visualizar pacientes ni información clínica.
 
 Puede visualizar:
 
-* pacientes;
-* programación;
-* entregas destinadas a sus puntos;
-* recepción;
-* inventario operacional;
-* lotes;
-* aplicación;
-* novedades.
+- pacientes;
+- programación;
+- entregas destinadas a sus puntos;
+- recepción;
+- inventario operacional;
+- lotes;
+- aplicación;
+- novedades.
 
 No necesita visualizar valores económicos de las OCs.
 
@@ -1474,28 +1492,28 @@ No necesita visualizar valores económicos de las OCs.
 
 Tareas:
 
-* Inventariar permisos actuales.
-* Crear permisos nuevos por módulo.
-* Definir roles MTD/OLP/Medicarte.
-* Definir alcance por organización/punto.
+- Inventariar permisos actuales.
+- Crear permisos nuevos por módulo.
+- Definir roles MTD/OLP/Medicarte.
+- Definir alcance por organización/punto.
 
 ### PT-015.2 — Backend
 
 Tareas:
 
-* Guards.
-* filtros obligatorios por organización.
-* protección de DTOs.
-* impedir filtración por endpoints indirectos.
+- Guards.
+- filtros obligatorios por organización.
+- protección de DTOs.
+- impedir filtración por endpoints indirectos.
 
 ### PT-015.3 — Seguridad funcional
 
 Tareas:
 
-* Pruebas de acceso cruzado.
-* OLP intentando acceder a paciente.
-* Medicarte intentando consultar precios.
-* Organización A intentando consultar registros de otra.
+- Pruebas de acceso cruzado.
+- OLP intentando acceder a paciente.
+- Medicarte intentando consultar precios.
+- Organización A intentando consultar registros de otra.
 
 ---
 
@@ -1548,29 +1566,29 @@ pero el nuevo código no podrá depender de esos campos para crear operaciones f
 
 Tareas:
 
-* Inventariar registros.
-* Clasificarlos por estado.
-* Identificar inconsistencias.
-* Determinar mapeo legado → nuevo.
+- Inventariar registros.
+- Clasificarlos por estado.
+- Identificar inconsistencias.
+- Determinar mapeo legado → nuevo.
 
 ### PT-016.2 — Migración aditiva
 
 Tareas:
 
-* Crear nuevas tablas.
-* No borrar columnas.
-* Añadir referencias legacy.
-* Implementar script idempotente.
+- Crear nuevas tablas.
+- No borrar columnas.
+- Añadir referencias legacy.
+- Implementar script idempotente.
 
 ### PT-016.3 — Backfill
 
 Tareas:
 
-* Migrar períodos.
-* Migrar programaciones.
-* Reconstruir aplicaciones.
-* Crear lineage OC histórico.
-* Crear inventario solo cuando exista evidencia suficiente.
+- Migrar períodos.
+- Migrar programaciones.
+- Reconstruir aplicaciones.
+- Crear lineage OC histórico.
+- Crear inventario solo cuando exista evidencia suficiente.
 
 No se deberá fabricar stock histórico a partir de datos ambiguos.
 
@@ -1578,21 +1596,21 @@ No se deberá fabricar stock histórico a partir de datos ambiguos.
 
 Tareas:
 
-* Conteos antes/después.
-* Conciliación por autorización.
-* Conciliación de aplicaciones.
-* Reporte de excepciones.
-* Muestreo manual.
+- Conteos antes/después.
+- Conciliación por autorización.
+- Conciliación de aplicaciones.
+- Reporte de excepciones.
+- Muestreo manual.
 
 ### PT-016.5 — Cutover
 
 Tareas:
 
-* Cambiar servicios de escritura.
-* Cambiar consultas.
-* Bloquear nuevas escrituras legacy.
-* Mantener lectura histórica.
-* Retirar código muerto cuando el nuevo modelo esté estable.
+- Cambiar servicios de escritura.
+- Cambiar consultas.
+- Bloquear nuevas escrituras legacy.
+- Mantener lectura histórica.
+- Retirar código muerto cuando el nuevo modelo esté estable.
 
 ---
 
@@ -1617,18 +1635,18 @@ correlation_id
 
 ## Operaciones críticas
 
-* programación;
-* consolidación;
-* generación OC;
-* aceptación OLP;
-* cambio de precio;
-* entrega;
-* recepción;
-* movimiento inventario;
-* transferencia;
-* aplicación;
-* novedad;
-* auditoría.
+- programación;
+- consolidación;
+- generación OC;
+- aceptación OLP;
+- cambio de precio;
+- entrega;
+- recepción;
+- movimiento inventario;
+- transferencia;
+- aplicación;
+- novedad;
+- auditoría.
 
 ## Plan de trabajo
 
@@ -1636,30 +1654,30 @@ correlation_id
 
 Tareas:
 
-* Definir eventos del dominio.
-* Reutilizar `audit_events`.
-* Reutilizar outbox.
-* Añadir correlation IDs.
+- Definir eventos del dominio.
+- Reutilizar `audit_events`.
+- Reutilizar outbox.
+- Añadir correlation IDs.
 
 ### PT-017.2 — Idempotencia
 
 Tareas:
 
-* OC.
-* entregas.
-* recepciones.
-* movimientos.
-* aplicaciones.
-* cargas XLSX.
+- OC.
+- entregas.
+- recepciones.
+- movimientos.
+- aplicaciones.
+- cargas XLSX.
 
 ### PT-017.3 — Concurrencia
 
 Tareas:
 
-* bloqueo lógico de lotes durante consumo;
-* optimistic locking donde corresponda;
-* pruebas concurrentes;
-* impedir doble consumo.
+- bloqueo lógico de lotes durante consumo;
+- optimistic locking donde corresponda;
+- pruebas concurrentes;
+- impedir doble consumo.
 
 ---
 
@@ -1755,31 +1773,31 @@ OLP no puede acceder a información del paciente.
 
 Tareas:
 
-* máquinas de estado;
-* consolidación;
-* inventario;
-* cantidades;
-* vencimientos;
-* precios.
+- máquinas de estado;
+- consolidación;
+- inventario;
+- cantidades;
+- vencimientos;
+- precios.
 
 ### PT-018.2 — Integración
 
 Tareas:
 
-* PostgreSQL real;
-* Redis real;
-* BullMQ;
-* API;
-* Worker.
+- PostgreSQL real;
+- Redis real;
+- BullMQ;
+- API;
+- Worker.
 
 ### PT-018.3 — E2E
 
 Tareas:
 
-* escenarios anteriores;
-* cargas XLSX;
-* RBAC;
-* migración.
+- escenarios anteriores;
+- cargas XLSX;
+- RBAC;
+- migración.
 
 ### PT-018.4 — Gate de release
 
@@ -1938,22 +1956,22 @@ ESP-018
 
 Esta evolución **no debe incorporar**:
 
-* WMS corporativo;
-* inventario completo de Medicarte;
-* contabilidad;
-* kardex fiscal;
-* facturación;
-* cartera;
-* costeo financiero completo;
-* optimización automática de compras;
-* stock de seguridad;
-* asignación automática de pacientes cuando existe escasez;
-* integración API automática con OLP;
-* integración API automática con Medicarte;
-* gestión documental interna;
-* formalización del acta farmacéutica de recepción;
-* sustitución terapéutica entre códigos comerciales;
-* reservas físicas por paciente.
+- WMS corporativo;
+- inventario completo de Medicarte;
+- contabilidad;
+- kardex fiscal;
+- facturación;
+- cartera;
+- costeo financiero completo;
+- optimización automática de compras;
+- stock de seguridad;
+- asignación automática de pacientes cuando existe escasez;
+- integración API automática con OLP;
+- integración API automática con Medicarte;
+- gestión documental interna;
+- formalización del acta farmacéutica de recepción;
+- sustitución terapéutica entre códigos comerciales;
+- reservas físicas por paciente.
 
 ---
 

@@ -41,6 +41,7 @@ export type ViewId =
   | 'stockTransfers'
   | 'patientApplications'
   | 'operationalOutcomes'
+  | 'applicationAudits'
   | 'admin';
 
 export interface NavItem {
@@ -163,6 +164,14 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: '13',
         permission: 'patient_operational_outcomes.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE', 'READ_ONLY'],
+      },
+      {
+        view: 'applicationAudits',
+        href: '/auditorias',
+        title: 'Auditoría de aplicaciones',
+        icon: '14',
+        permission: 'application_audits.read',
+        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
       {
         view: 'admin',

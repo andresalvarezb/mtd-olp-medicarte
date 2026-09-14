@@ -66,6 +66,11 @@ export {
   scheduleToday,
 } from './patient-schedule';
 export { deriveReceiptConformity, validateReceiptQuantities } from './receipt';
+export {
+  canTransitionPatientApplicationAudit,
+  isTerminalPatientApplicationAudit,
+} from './patient-application-audit';
+export type { PatientApplicationAuditStatus } from './patient-application-audit';
 export type { ReceiptConformity, ReceiptQuantityInput } from './receipt';
 export type {
   ScheduleAuthorizationEligibility,

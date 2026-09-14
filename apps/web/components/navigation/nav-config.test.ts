@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ALL_NAV_ITEMS, ROLES } from './nav-config';
 
 describe('clean navigation', () => {
-  it('exposes the logistics surfaces through ESP-011', () => {
+  it('exposes the logistics surfaces through ESP-012', () => {
     expect(ALL_NAV_ITEMS.map((item) => item.view)).toEqual([
       'foundation',
       'planningPeriods',
@@ -17,6 +17,7 @@ describe('clean navigation', () => {
       'stockTransfers',
       'patientApplications',
       'operationalOutcomes',
+      'applicationAudits',
       'admin',
     ]);
     expect(ALL_NAV_ITEMS[0]?.roles).toEqual(ROLES);
@@ -63,5 +64,17 @@ describe('clean navigation', () => {
     );
     expect(demand?.roles).not.toContain('MEDICARTE');
     expect(demand?.roles).not.toContain('OLP');
+  });
+
+  it('exposes application audits to MTD read roles and never to Medicarte, OLP or Compensar', () => {
+    const audits = ALL_NAV_ITEMS.find((item) => item.view === 'applicationAudits');
+    expect(audits).toMatchObject({
+      href: '/auditorias',
+      permission: 'application_audits.read',
+    });
+    expect(audits?.roles).toEqual(['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY']);
+    expect(audits?.roles).not.toContain('MEDICARTE');
+    expect(audits?.roles).not.toContain('OLP');
+    expect(audits?.roles).not.toContain('COMPENSAR');
   });
 });
