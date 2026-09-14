@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ALL_NAV_ITEMS, ROLES } from './nav-config';
 
 describe('clean navigation', () => {
-  it('exposes the logistics surfaces through ESP-009', () => {
+  it('exposes the logistics surfaces through ESP-010', () => {
     expect(ALL_NAV_ITEMS.map((item) => item.view)).toEqual([
       'foundation',
       'planningPeriods',
@@ -15,6 +15,7 @@ describe('clean navigation', () => {
       'medicarteReceipts',
       'inventory',
       'stockTransfers',
+      'patientApplications',
       'admin',
     ]);
     expect(ALL_NAV_ITEMS[0]?.roles).toEqual(ROLES);
@@ -27,8 +28,14 @@ describe('clean navigation', () => {
   });
 
   it('keeps deliveries separated by OLP and Medicarte role', () => {
-    expect(ALL_NAV_ITEMS.find((item) => item.view === 'supplierDeliveries')).toMatchObject({ roles: ['OLP'], permission: 'supplier_deliveries.read' });
-    expect(ALL_NAV_ITEMS.find((item) => item.view === 'medicarteDeliveries')).toMatchObject({ roles: ['MEDICARTE'], permission: 'supplier_deliveries.read' });
+    expect(ALL_NAV_ITEMS.find((item) => item.view === 'supplierDeliveries')).toMatchObject({
+      roles: ['OLP'],
+      permission: 'supplier_deliveries.read',
+    });
+    expect(ALL_NAV_ITEMS.find((item) => item.view === 'medicarteDeliveries')).toMatchObject({
+      roles: ['MEDICARTE'],
+      permission: 'supplier_deliveries.read',
+    });
   });
 
   it('does not expose planning periods to OLP or Medicarte', () => {

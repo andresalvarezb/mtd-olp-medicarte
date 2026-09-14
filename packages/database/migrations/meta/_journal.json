@@ -288,6 +288,13 @@
       "when": 1790460429663,
       "tag": "0040_esp009_stock_transfers",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790460430663,
+      "tag": "0041_esp010_patient_applications",
+      "breakpoints": true
     }
   ]
 }

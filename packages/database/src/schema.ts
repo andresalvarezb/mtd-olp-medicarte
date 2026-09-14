@@ -895,6 +895,10 @@ export const inventoryMovements = pgTable(
       'inventory_movements_receipt_delta_check',
       sql`${table.movementType} <> 'RECEIPT' OR ${table.quantityDelta} > 0`,
     ),
+    check(
+      'inventory_movements_application_delta_check',
+      sql`${table.movementType} <> 'APPLICATION' OR ${table.quantityDelta} < 0`,
+    ),
   ],
 );
 
@@ -953,6 +957,84 @@ export const stockTransferLines = pgTable(
   (table) => [
     index('stock_transfer_lines_transfer_idx').on(table.stockTransferId),
     check('stock_transfer_lines_quantity_check', sql`${table.quantity} > 0`),
+  ],
+);
+
+export const patientApplications = pgTable(
+  'patient_applications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    patientScheduleId: uuid('patient_schedule_id')
+      .notNull()
+      .references(() => patientSchedules.id, { onDelete: 'restrict' }),
+    scheduleRevision: integer('schedule_revision').notNull(),
+    authorizationItemId: uuid('authorization_item_id').notNull(),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    scheduledDate: date('scheduled_date').notNull(),
+    applicationDate: date('application_date').notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('DRAFT'),
+    version: integer('version').notNull().default(1),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    confirmedBy: uuid('confirmed_by').references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.authorizationItemId, table.commercialCode],
+      foreignColumns: [authorizationItems.id, authorizationItems.codigoMedicamento],
+      name: 'patient_applications_authorization_code_fk',
+    }),
+    uniqueIndex('patient_applications_active_schedule_idx')
+      .on(table.patientScheduleId)
+      .where(sql`"status" IN ('DRAFT', 'CONFIRMED')`),
+    index('patient_applications_status_created_idx').on(table.status, table.createdAt),
+    check('patient_applications_schedule_revision_check', sql`${table.scheduleRevision} > 0`),
+    check('patient_applications_version_check', sql`${table.version} > 0`),
+    check(
+      'patient_applications_status_check',
+      sql`${table.status} IN ('DRAFT', 'CONFIRMED', 'CANCELLED')`,
+    ),
+  ],
+);
+
+export const patientApplicationLines = pgTable(
+  'patient_application_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    patientApplicationId: uuid('patient_application_id')
+      .notNull()
+      .references(() => patientApplications.id, { onDelete: 'restrict' }),
+    inventoryLotId: uuid('inventory_lot_id')
+      .notNull()
+      .references(() => inventoryLots.id, { onDelete: 'restrict' }),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    lotNumber: varchar('lot_number', { length: 255 }).notNull(),
+    expirationDate: date('expiration_date').notNull(),
+    quantity: integer('quantity').notNull(),
+    fefoOverride: boolean('fefo_override').notNull().default(false),
+    fefoOverrideReason: varchar('fefo_override_reason', { length: 500 }),
+  },
+  (table) => [
+    index('patient_application_lines_application_idx').on(table.patientApplicationId),
+    unique('patient_application_lines_lot_unique').on(
+      table.patientApplicationId,
+      table.inventoryLotId,
+    ),
+    check('patient_application_lines_quantity_check', sql`${table.quantity} > 0`),
+    check(
+      'patient_application_lines_override_check',
+      sql`${table.fefoOverride} = false OR length(btrim(${table.fefoOverrideReason})) > 0`,
+    ),
   ],
 );
 

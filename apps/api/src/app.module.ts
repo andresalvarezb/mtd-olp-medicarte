@@ -51,6 +51,9 @@ import { InventoryService } from './inventory/inventory.service';
 import { StockTransferController } from './inventory/stock-transfer.controller';
 import { StockTransferRepository } from './inventory/stock-transfer.repository';
 import { StockTransferService } from './inventory/stock-transfer.service';
+import { PatientApplicationController } from './applications/patient-application.controller';
+import { PatientApplicationRepository } from './applications/patient-application.repository';
+import { PatientApplicationService } from './applications/patient-application.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -112,6 +115,7 @@ new Gauge({
     OlpReceiptController,
     InventoryController,
     StockTransferController,
+    PatientApplicationController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -138,6 +142,8 @@ new Gauge({
     InventoryService,
     StockTransferRepository,
     StockTransferService,
+    PatientApplicationRepository,
+    PatientApplicationService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

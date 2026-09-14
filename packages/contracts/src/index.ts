@@ -156,6 +156,103 @@ export const commercialCodeSchema = z.preprocess(
 );
 export type CommercialCode = z.infer<typeof commercialCodeSchema>;
 
+export const patientApplicationStatusSchema = z.enum(['DRAFT', 'CONFIRMED', 'CANCELLED']);
+export type PatientApplicationStatus = z.infer<typeof patientApplicationStatusSchema>;
+
+export const patientApplicationLineRequestSchema = z.object({
+  inventoryLotId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+  fefoOverride: z.boolean().optional().default(false),
+  fefoOverrideReason: z.string().trim().min(1).max(500).optional(),
+});
+export type PatientApplicationLineRequest = z.infer<typeof patientApplicationLineRequestSchema>;
+
+export const createPatientApplicationRequestSchema = z.object({
+  patientScheduleId: z.string().uuid(),
+  scheduleRevision: z.number().int().positive(),
+  applicationDate: z.string().date(),
+  lines: z.array(patientApplicationLineRequestSchema).default([]),
+});
+export type CreatePatientApplicationRequest = z.infer<typeof createPatientApplicationRequestSchema>;
+
+export const updatePatientApplicationRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  applicationDate: z.string().date().optional(),
+  lines: z.array(patientApplicationLineRequestSchema).optional(),
+});
+export type UpdatePatientApplicationRequest = z.infer<typeof updatePatientApplicationRequestSchema>;
+
+export const confirmPatientApplicationRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+});
+export type ConfirmPatientApplicationRequest = z.infer<
+  typeof confirmPatientApplicationRequestSchema
+>;
+
+export const cancelPatientApplicationRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+});
+export type CancelPatientApplicationRequest = z.infer<typeof cancelPatientApplicationRequestSchema>;
+
+export const patientApplicationListQuerySchema = z.object({
+  status: patientApplicationStatusSchema.optional(),
+  patientScheduleId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+export type PatientApplicationListQuery = z.infer<typeof patientApplicationListQuerySchema>;
+
+export const patientApplicationLineSchema = patientApplicationLineRequestSchema.extend({
+  id: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  lotNumber: z.string(),
+  expirationDate: z.string().date(),
+});
+export type PatientApplicationLine = z.infer<typeof patientApplicationLineSchema>;
+
+export const patientApplicationLotOptionSchema = z.object({
+  id: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  lotNumber: z.string(),
+  expirationDate: z.string().date(),
+  physicalBalance: z.number().int(),
+  usableBalance: z.number().int(),
+  recommendedQuantity: z.number().int().nonnegative(),
+});
+export type PatientApplicationLotOption = z.infer<typeof patientApplicationLotOptionSchema>;
+
+export const patientApplicationSchema = z.object({
+  id: z.string().uuid(),
+  patientScheduleId: z.string().uuid(),
+  scheduleRevision: z.number().int().positive(),
+  authorizationItemId: z.string().uuid(),
+  authorizationNumber: z.string(),
+  patientDocument: z.string().nullable(),
+  patientName: z.string().nullable(),
+  commercialCode: commercialCodeSchema,
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  dispensingPointName: z.string(),
+  scheduledDate: z.string().date(),
+  applicationDate: z.string().date(),
+  authorizationExpiresOn: z.string().date().nullable(),
+  scheduledQuantity: z.number().int().positive(),
+  selectedQuantity: z.number().int().nonnegative(),
+  status: patientApplicationStatusSchema,
+  version: z.number().int().positive(),
+  createdBy: z.string().uuid(),
+  confirmedBy: z.string().uuid().nullable(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  confirmedAt: isoDateTimeSchema.nullable(),
+  lines: z.array(patientApplicationLineSchema),
+  availableLots: z.array(patientApplicationLotOptionSchema),
+});
+export type PatientApplicationResponse = z.infer<typeof patientApplicationSchema>;
+
 export const clinicalAuthorizationReferenceSchema = z.object({
   authorizationItemId: z.string().uuid(),
   commercialCode: commercialCodeSchema,

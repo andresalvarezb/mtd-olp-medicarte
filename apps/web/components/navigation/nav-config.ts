@@ -39,6 +39,7 @@ export type ViewId =
   | 'medicarteReceipts'
   | 'inventory'
   | 'stockTransfers'
+  | 'patientApplications'
   | 'admin';
 
 export interface NavItem {
@@ -145,6 +146,14 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: '11',
         permission: 'stock_transfers.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE'],
+      },
+      {
+        view: 'patientApplications',
+        href: '/aplicaciones',
+        title: 'Aplicaciones al paciente',
+        icon: '12',
+        permission: 'patient_applications.read',
+        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE', 'READ_ONLY'],
       },
       {
         view: 'admin',
