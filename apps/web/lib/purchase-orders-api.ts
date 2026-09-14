@@ -1,4 +1,4 @@
-import type { CreatePurchaseOrderRequest, PurchaseOrderListQuery, PurchaseOrderResponse, UpdatePurchaseOrderRequest } from '@authorization/contracts';
+import type { CreateDeliveryRequest, DeliveryResponse, CreatePurchaseOrderRequest, PurchaseOrderListQuery, PurchaseOrderResponse, UpdatePurchaseOrderRequest } from '@authorization/contracts';
 import { apiRequest } from './api-client';
 
 export function listPurchaseOrders(organizationId: string, query: Partial<PurchaseOrderListQuery> = {}) {
@@ -16,3 +16,9 @@ export function listAvailableDemand(organizationId: string, planningPeriodId: st
 export function listSupplierPurchaseOrders(organizationId: string) { return apiRequest<{ items: PurchaseOrderResponse[] }>('/supplier/purchase-orders', { organizationId }); }
 export function reviewSupplierLine(organizationId: string, id: string, lineId: string, body: { expectedVersion: number; acceptedQuantity: number; supplierUnitCost?: number }) { return apiRequest<PurchaseOrderResponse>(`/supplier/purchase-orders/${id}/lines/${lineId}/review`, { method: 'POST', organizationId, body: JSON.stringify(body) }); }
 export function completeSupplierReview(organizationId: string, id: string, expectedVersion: number) { return apiRequest<PurchaseOrderResponse>(`/supplier/purchase-orders/${id}/complete-review`, { method: 'POST', organizationId, body: JSON.stringify({ expectedVersion }) }); }
+export function listSupplierDeliveries(organizationId: string) { return apiRequest<{ items: DeliveryResponse[] }>('/supplier/deliveries', { organizationId }); }
+export function listMedicarteDeliveries(organizationId: string) { return apiRequest<{ items: DeliveryResponse[] }>('/medicarte/deliveries', { organizationId }); }
+export function createSupplierDelivery(organizationId: string, body: CreateDeliveryRequest) { return apiRequest<DeliveryResponse>('/supplier/deliveries', { method: 'POST', organizationId, idempotencyKey: crypto.randomUUID(), body: JSON.stringify(body) }); }
+export function updateSupplierDelivery(organizationId: string, id: string, body: CreateDeliveryRequest & { expectedVersion: number }) { return apiRequest<DeliveryResponse>(`/supplier/deliveries/${id}`, { method: 'PATCH', organizationId, body: JSON.stringify(body) }); }
+export function dispatchSupplierDelivery(organizationId: string, id: string, expectedVersion: number) { return apiRequest<DeliveryResponse>(`/supplier/deliveries/${id}/dispatch`, { method: 'POST', organizationId, idempotencyKey: crypto.randomUUID(), body: JSON.stringify({ expectedVersion }) }); }
+export function cancelSupplierDelivery(organizationId: string, id: string, expectedVersion: number) { return apiRequest<DeliveryResponse>(`/supplier/deliveries/${id}/cancel`, { method: 'POST', organizationId, body: JSON.stringify({ expectedVersion }) }); }

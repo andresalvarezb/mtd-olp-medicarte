@@ -42,6 +42,9 @@ import { API_CONFIG, DATABASE, REDIS } from './tokens';
 import { PurchaseOrderController, SupplierPurchaseOrderController } from './purchase-orders/purchase-order.controller';
 import { PurchaseOrderService } from './purchase-orders/purchase-order.service';
 import { PurchaseOrderRepository } from './purchase-orders/purchase-order.repository';
+import { DeliveryController, MedicarteDeliveryController } from './deliveries/delivery.controller';
+import { DeliveryRepository } from './deliveries/delivery.repository';
+import { DeliveryService } from './deliveries/delivery.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -95,6 +98,8 @@ new Gauge({
     ProjectedDemandController,
     PurchaseOrderController,
     SupplierPurchaseOrderController,
+    DeliveryController,
+    MedicarteDeliveryController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -113,6 +118,8 @@ new Gauge({
     ProjectedDemandService,
     PurchaseOrderRepository,
     PurchaseOrderService,
+    DeliveryRepository,
+    DeliveryService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

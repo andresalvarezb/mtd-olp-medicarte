@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ALL_NAV_ITEMS, ROLES } from './nav-config';
 
 describe('clean navigation', () => {
-  it('exposes the ESP-005 purchase order surfaces', () => {
+  it('exposes the ESP-005 and ESP-006 logistics surfaces', () => {
     expect(ALL_NAV_ITEMS.map((item) => item.view)).toEqual([
       'foundation',
       'planningPeriods',
@@ -10,6 +10,8 @@ describe('clean navigation', () => {
       'projectedDemand',
       'purchaseOrders',
       'supplierPurchaseOrders',
+      'supplierDeliveries',
+      'medicarteDeliveries',
       'admin',
     ]);
     expect(ALL_NAV_ITEMS[0]?.roles).toEqual(ROLES);
@@ -19,6 +21,11 @@ describe('clean navigation', () => {
     const supplier = ALL_NAV_ITEMS.find((item) => item.view === 'supplierPurchaseOrders');
     expect(supplier?.roles).toEqual(['OLP']);
     expect(supplier?.permission).toBe('purchase_orders.read');
+  });
+
+  it('keeps deliveries separated by OLP and Medicarte role', () => {
+    expect(ALL_NAV_ITEMS.find((item) => item.view === 'supplierDeliveries')).toMatchObject({ roles: ['OLP'], permission: 'supplier_deliveries.read' });
+    expect(ALL_NAV_ITEMS.find((item) => item.view === 'medicarteDeliveries')).toMatchObject({ roles: ['MEDICARTE'], permission: 'supplier_deliveries.read' });
   });
 
   it('does not expose planning periods to OLP or Medicarte', () => {

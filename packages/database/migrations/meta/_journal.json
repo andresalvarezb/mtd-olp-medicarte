@@ -260,6 +260,13 @@
       "when": 1790460425663,
       "tag": "0036_esp005_purchase_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790460426663,
+      "tag": "0037_esp006_supplier_deliveries",
+      "breakpoints": true
     }
   ]
 }

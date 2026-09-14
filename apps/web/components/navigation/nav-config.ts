@@ -34,6 +34,8 @@ export type ViewId =
   | 'projectedDemand'
   | 'purchaseOrders'
   | 'supplierPurchaseOrders'
+  | 'supplierDeliveries'
+  | 'medicarteDeliveries'
   | 'admin';
 
 export interface NavItem {
@@ -94,10 +96,18 @@ export const NAV_SECTIONS: NavSection[] = [
         permission: 'purchase_orders.read', roles: ['OLP'],
       },
       {
+        view: 'supplierDeliveries', href: '/entregas-olp', title: 'Entregas OLP', icon: '07',
+        permission: 'supplier_deliveries.read', roles: ['OLP'],
+      },
+      {
+        view: 'medicarteDeliveries', href: '/entregas', title: 'Entregas en camino', icon: '08',
+        permission: 'supplier_deliveries.read', roles: ['MEDICARTE'],
+      },
+      {
         view: 'admin',
         href: '/administracion',
         title: 'Usuarios y acceso',
-        icon: '07',
+        icon: '09',
         permission: 'users.manage',
         roles: ['MTD'],
       },

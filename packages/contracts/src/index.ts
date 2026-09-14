@@ -708,12 +708,19 @@ export const purchaseOrderStatusSchema = z.enum([
   'PARTIALLY_ACCEPTED',
   'REJECTED',
   'CANCELLED',
+  'IN_FULFILLMENT',
+  'PARTIALLY_DISPATCHED',
+  'FULLY_DISPATCHED',
 ]);
 export type PurchaseOrderStatus = z.infer<typeof purchaseOrderStatusSchema>;
 export const purchaseOrderTransitions: Record<PurchaseOrderStatus, readonly PurchaseOrderStatus[]> = {
   DRAFT: ['ISSUED', 'CANCELLED'], ISSUED: ['UNDER_OLP_REVIEW', 'CANCELLED'],
   UNDER_OLP_REVIEW: ['ACCEPTED', 'PARTIALLY_ACCEPTED', 'REJECTED'],
-  ACCEPTED: [], PARTIALLY_ACCEPTED: [], REJECTED: [], CANCELLED: [],
+  ACCEPTED: ['IN_FULFILLMENT', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED'],
+  PARTIALLY_ACCEPTED: ['IN_FULFILLMENT', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED'],
+  IN_FULFILLMENT: ['PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED'],
+  PARTIALLY_DISPATCHED: ['FULLY_DISPATCHED'], FULLY_DISPATCHED: [],
+  REJECTED: [], CANCELLED: [],
 };
 export const purchaseOrderDemandBucketSchema = z.enum(['REGULAR', 'LATE']);
 export type PurchaseOrderDemandBucket = z.infer<typeof purchaseOrderDemandBucketSchema>;
@@ -786,3 +793,56 @@ export const purchaseOrderResponseSchema = z.object({
   lines: z.array(purchaseOrderLineResponseSchema),
 });
 export type PurchaseOrderResponse = z.infer<typeof purchaseOrderResponseSchema>;
+
+export const deliveryStatusSchema = z.enum(['DRAFT', 'DISPATCHED', 'CANCELLED']);
+export type DeliveryStatus = z.infer<typeof deliveryStatusSchema>;
+export const deliveryLineRequestSchema = z.object({
+  purchaseOrderLineId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+  lotNumber: z.string().trim().min(1).max(255),
+  expirationDate: z.string().date(),
+});
+export type DeliveryLineRequest = z.infer<typeof deliveryLineRequestSchema>;
+export const createDeliveryRequestSchema = z.object({
+  purchaseOrderId: z.string().uuid(),
+  supplierReference: z.string().trim().min(1).max(255).optional(),
+  lines: z.array(deliveryLineRequestSchema).min(1),
+});
+export type CreateDeliveryRequest = z.infer<typeof createDeliveryRequestSchema>;
+export const updateDeliveryRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  supplierReference: z.string().trim().min(1).max(255).optional(),
+  lines: z.array(deliveryLineRequestSchema).min(1),
+});
+export type UpdateDeliveryRequest = z.infer<typeof updateDeliveryRequestSchema>;
+export const deliveryActionRequestSchema = z.object({ expectedVersion: z.number().int().positive() });
+export const deliveryLineResponseSchema = z.object({
+  id: z.string().uuid(),
+  purchaseOrderLineId: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  productDescription: z.string().nullable(),
+  presentation: z.string().nullable(),
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  dispensingPointName: z.string(),
+  quantity: z.number().int().positive(),
+  lotNumber: z.string(),
+  expirationDate: z.string().date(),
+  acceptedQuantity: z.number().int().nonnegative(),
+  dispatchedQuantity: z.number().int().nonnegative(),
+  remainingQuantity: z.number().int().nonnegative(),
+});
+export type DeliveryLineResponse = z.infer<typeof deliveryLineResponseSchema>;
+export const deliveryResponseSchema = z.object({
+  id: z.string().uuid(),
+  purchaseOrderId: z.string().uuid(),
+  purchaseOrderCode: z.string().nullable(),
+  supplierReference: z.string().nullable(),
+  status: deliveryStatusSchema,
+  dispatchedAt: isoDateTimeSchema.nullable(),
+  version: z.number().int().positive(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  lines: z.array(deliveryLineResponseSchema),
+});
+export type DeliveryResponse = z.infer<typeof deliveryResponseSchema>;

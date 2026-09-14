@@ -14,6 +14,8 @@ const OPERATIONAL_TABLES = [
   'purchase_order_demand_allocations',
   'purchase_order_lines',
   'purchase_orders',
+  'delivery_lines',
+  'deliveries',
   'patient_schedule_history',
   'patient_schedules',
   'planning_periods',

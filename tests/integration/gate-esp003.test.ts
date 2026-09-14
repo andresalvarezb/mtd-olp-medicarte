@@ -1050,11 +1050,11 @@ describe('Gate ESP-003 — programación de pacientes', () => {
     expect(items.rows[0]?.count).toBe(authorizationItemsBefore);
   });
 
-  it('25. todavía no se crea inventario ni entregas', async () => {
+  it('25. todavía no se crea inventario ni recepción', async () => {
     const tables = await database.query<{ table_name: string }>(
       `select table_name from information_schema.tables
         where table_schema = 'public'
-           and table_name in ('inventory', 'inventory_items', 'inventory_stock', 'deliveries', 'receipts')`,
+           and table_name in ('inventory', 'inventory_items', 'inventory_stock', 'receipts', 'receipt_lines')`,
     );
     expect(tables.rows).toEqual([]);
   });
