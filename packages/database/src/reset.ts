@@ -11,6 +11,9 @@ if (!process.env.DATABASE_URL && existsSync(envPath)) {
 const OPERATIONAL_TABLES = [
   'demand_sources',
   'projected_demand_lines',
+  'purchase_order_demand_allocations',
+  'purchase_order_lines',
+  'purchase_orders',
   'patient_schedule_history',
   'patient_schedules',
   'planning_periods',

@@ -2,15 +2,23 @@ import { describe, expect, it } from 'vitest';
 import { ALL_NAV_ITEMS, ROLES } from './nav-config';
 
 describe('clean navigation', () => {
-  it('exposes foundation, planning periods, patient scheduling and user administration', () => {
+  it('exposes the ESP-005 purchase order surfaces', () => {
     expect(ALL_NAV_ITEMS.map((item) => item.view)).toEqual([
       'foundation',
       'planningPeriods',
       'patientScheduling',
       'projectedDemand',
+      'purchaseOrders',
+      'supplierPurchaseOrders',
       'admin',
     ]);
     expect(ALL_NAV_ITEMS[0]?.roles).toEqual(ROLES);
+  });
+
+  it('keeps supplier review separate from MTD management', () => {
+    const supplier = ALL_NAV_ITEMS.find((item) => item.view === 'supplierPurchaseOrders');
+    expect(supplier?.roles).toEqual(['OLP']);
+    expect(supplier?.permission).toBe('purchase_orders.read');
   });
 
   it('does not expose planning periods to OLP or Medicarte', () => {

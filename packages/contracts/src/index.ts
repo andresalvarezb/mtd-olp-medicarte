@@ -697,3 +697,92 @@ export const consolidateProjectedDemandResponseSchema = z.object({
 export type ConsolidateProjectedDemandResponse = z.infer<
   typeof consolidateProjectedDemandResponseSchema
 >;
+
+export const purchaseOrderTypeSchema = z.enum(['STANDARD', 'COMPLEMENTARY']);
+export type PurchaseOrderType = z.infer<typeof purchaseOrderTypeSchema>;
+export const purchaseOrderStatusSchema = z.enum([
+  'DRAFT',
+  'ISSUED',
+  'UNDER_OLP_REVIEW',
+  'ACCEPTED',
+  'PARTIALLY_ACCEPTED',
+  'REJECTED',
+  'CANCELLED',
+]);
+export type PurchaseOrderStatus = z.infer<typeof purchaseOrderStatusSchema>;
+export const purchaseOrderTransitions: Record<PurchaseOrderStatus, readonly PurchaseOrderStatus[]> = {
+  DRAFT: ['ISSUED', 'CANCELLED'], ISSUED: ['UNDER_OLP_REVIEW', 'CANCELLED'],
+  UNDER_OLP_REVIEW: ['ACCEPTED', 'PARTIALLY_ACCEPTED', 'REJECTED'],
+  ACCEPTED: [], PARTIALLY_ACCEPTED: [], REJECTED: [], CANCELLED: [],
+};
+export const purchaseOrderDemandBucketSchema = z.enum(['REGULAR', 'LATE']);
+export type PurchaseOrderDemandBucket = z.infer<typeof purchaseOrderDemandBucketSchema>;
+
+export const purchaseOrderLineRequestSchema = z.object({
+  projectedDemandLineId: z.string().uuid(),
+  expectedDemandRevision: z.number().int().positive(),
+  requestedQuantity: z.number().int().positive(),
+  requestedDeliveryDate: z.string().date(),
+  demandBucket: purchaseOrderDemandBucketSchema,
+});
+export type PurchaseOrderLineRequest = z.infer<typeof purchaseOrderLineRequestSchema>;
+export const createPurchaseOrderRequestSchema = z.object({
+  planningPeriodId: z.string().uuid(),
+  orderType: purchaseOrderTypeSchema,
+  purchaseOrderCode: z.string().trim().min(1).max(255).optional(),
+  lines: z.array(purchaseOrderLineRequestSchema).min(1),
+});
+export type CreatePurchaseOrderRequest = z.infer<typeof createPurchaseOrderRequestSchema>;
+export const updatePurchaseOrderRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  purchaseOrderCode: z.string().trim().min(1).max(255).optional(),
+  lines: z.array(purchaseOrderLineRequestSchema).min(1).optional(),
+});
+export type UpdatePurchaseOrderRequest = z.infer<typeof updatePurchaseOrderRequestSchema>;
+export const reviewPurchaseOrderLineRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  acceptedQuantity: z.number().int().nonnegative(),
+  supplierUnitCost: z.number().positive().optional(),
+});
+export type ReviewPurchaseOrderLineRequest = z.infer<typeof reviewPurchaseOrderLineRequestSchema>;
+export const purchaseOrderListQuerySchema = z.object({
+  planningPeriodId: z.string().uuid().optional(),
+  status: purchaseOrderStatusSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+export type PurchaseOrderListQuery = z.infer<typeof purchaseOrderListQuerySchema>;
+export const purchaseOrderLineResponseSchema = z.object({
+  id: z.string().uuid(),
+  commercialCode: commercialCodeSchema,
+  productDescription: z.string().nullable(),
+  presentation: z.string().nullable(),
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  dispensingPointName: z.string(),
+  requestedQuantity: z.number().int().positive(),
+  acceptedQuantity: z.number().int().nonnegative().nullable(),
+  shortage: z.number().int().nonnegative(),
+  requestedDeliveryDate: z.string().date(),
+  compensarUnitRateSnapshot: z.string(),
+  supplierUnitCost: z.string().nullable(),
+  projectedDemandLineId: z.string().uuid(),
+  projectedDemandRevision: z.number().int().positive(),
+  demandBucket: purchaseOrderDemandBucketSchema,
+  allocatedQuantity: z.number().int().positive(),
+  sourceDemandChanged: z.boolean(),
+});
+export type PurchaseOrderLineResponse = z.infer<typeof purchaseOrderLineResponseSchema>;
+export const purchaseOrderResponseSchema = z.object({
+  id: z.string().uuid(),
+  purchaseOrderCode: z.string().nullable(),
+  planningPeriodId: z.string().uuid(),
+  orderType: purchaseOrderTypeSchema,
+  status: purchaseOrderStatusSchema,
+  version: z.number().int().positive(),
+  issuedAt: isoDateTimeSchema.nullable(),
+  issuedBy: z.string().uuid().nullable(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  lines: z.array(purchaseOrderLineResponseSchema),
+});
+export type PurchaseOrderResponse = z.infer<typeof purchaseOrderResponseSchema>;

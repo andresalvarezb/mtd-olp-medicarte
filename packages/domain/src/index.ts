@@ -47,6 +47,7 @@ export {
   resolveEffectiveSchedulePeriod,
   sumDemandQuantities,
 } from './demand-consolidation';
+export { canTransitionPurchaseOrder, purchaseOrderBucket } from './purchase-order';
 export type {
   DemandSourceClassification,
   EffectiveSchedulePeriod,

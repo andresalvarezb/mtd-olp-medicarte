@@ -631,6 +631,67 @@ export const demandSources = pgTable(
   ],
 );
 
+export const purchaseOrders = pgTable('purchase_orders', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  purchaseOrderCode: varchar('purchase_order_code', { length: 255 }),
+  planningPeriodId: uuid('planning_period_id').notNull().references(() => planningPeriods.id, { onDelete: 'restrict' }),
+  orderType: varchar('order_type', { length: 20 }).notNull(),
+  status: varchar('status', { length: 30 }).notNull().default('DRAFT'),
+  version: integer('version').notNull().default(1),
+  issuedAt: timestamp('issued_at', { withTimezone: true }),
+  issuedBy: uuid('issued_by').references(() => users.id, { onDelete: 'restrict' }),
+  createdBy: uuid('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  updatedBy: uuid('updated_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('purchase_orders_period_status_idx').on(table.planningPeriodId, table.status, table.createdAt),
+  uniqueIndex('purchase_orders_code_idx').on(table.purchaseOrderCode),
+  check('purchase_orders_type_check', sql`${table.orderType} IN ('STANDARD', 'COMPLEMENTARY')`),
+  check('purchase_orders_status_check', sql`${table.status} IN ('DRAFT', 'ISSUED', 'UNDER_OLP_REVIEW', 'ACCEPTED', 'PARTIALLY_ACCEPTED', 'REJECTED', 'CANCELLED')`),
+  check('purchase_orders_version_check', sql`${table.version} > 0`),
+]);
+
+export const purchaseOrderLines = pgTable('purchase_order_lines', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  purchaseOrderId: uuid('purchase_order_id').notNull().references(() => purchaseOrders.id, { onDelete: 'restrict' }),
+  commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+  productDescription: text('product_description'),
+  presentation: text('presentation'),
+  dispensingPointId: uuid('dispensing_point_id').notNull().references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+  requestedQuantity: integer('requested_quantity').notNull(),
+  acceptedQuantity: integer('accepted_quantity'),
+  requestedDeliveryDate: date('requested_delivery_date').notNull(),
+  compensarUnitRateSnapshot: varchar('compensar_unit_rate_snapshot', { length: 255 }).notNull(),
+  supplierUnitCost: varchar('supplier_unit_cost', { length: 255 }),
+  // Historical identifier only: ESP-004 may delete a superseded live projection.
+  projectedDemandLineId: uuid('projected_demand_line_id').notNull(),
+  projectedDemandRevision: integer('projected_demand_revision').notNull(),
+  demandBucket: varchar('demand_bucket', { length: 20 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('purchase_order_lines_order_idx').on(table.purchaseOrderId),
+  index('purchase_order_lines_demand_idx').on(table.projectedDemandLineId, table.projectedDemandRevision),
+  check('purchase_order_lines_requested_quantity_check', sql`${table.requestedQuantity} > 0`),
+  check('purchase_order_lines_accepted_quantity_check', sql`${table.acceptedQuantity} IS NULL OR (${table.acceptedQuantity} >= 0 AND ${table.acceptedQuantity} <= ${table.requestedQuantity})`),
+  check('purchase_order_lines_revision_check', sql`${table.projectedDemandRevision} > 0`),
+  check('purchase_order_lines_bucket_check', sql`${table.demandBucket} IN ('REGULAR', 'LATE')`),
+  check('purchase_order_lines_supplier_cost_check', sql`${table.acceptedQuantity} IS NULL OR ${table.acceptedQuantity} = 0 OR (${table.supplierUnitCost} IS NOT NULL AND ${table.supplierUnitCost}::numeric > 0)`),
+]);
+
+export const purchaseOrderDemandAllocations = pgTable('purchase_order_demand_allocations', {
+  purchaseOrderLineId: uuid('purchase_order_line_id').notNull().references(() => purchaseOrderLines.id, { onDelete: 'restrict' }),
+  projectedDemandLineId: uuid('projected_demand_line_id').notNull(),
+  projectedDemandRevision: integer('projected_demand_revision').notNull(),
+  demandBucket: varchar('demand_bucket', { length: 20 }).notNull(),
+  allocatedQuantity: integer('allocated_quantity').notNull(),
+}, (table) => [
+  primaryKey({ name: 'purchase_order_demand_allocations_pk', columns: [table.purchaseOrderLineId, table.projectedDemandLineId, table.projectedDemandRevision, table.demandBucket] }),
+  check('purchase_order_demand_allocations_quantity_check', sql`${table.allocatedQuantity} > 0`),
+  check('purchase_order_demand_allocations_bucket_check', sql`${table.demandBucket} IN ('REGULAR', 'LATE')`),
+]);
+
 /**
  * ESP-003: staging de carga XLSX de programación. El procesamiento es
  * síncrono en la API (normalización + validación por fila) y la confirmación

@@ -890,7 +890,7 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
     const logisticsTables = await database.query<{ table_name: string }>(
       `select table_name from information_schema.tables
         where table_schema='public'
-          and table_name in ('purchase_orders','purchase_order_lines','inventory','inventory_items')`,
+           and table_name in ('inventory','inventory_items')`,
     );
     expect(logisticsTables.rows).toEqual([]);
 

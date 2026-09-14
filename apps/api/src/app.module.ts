@@ -39,6 +39,9 @@ import { PatientScheduleImportService } from './scheduling/patient-schedule-impo
 import { PatientScheduleRepository } from './scheduling/patient-schedule.repository';
 import { PatientScheduleService } from './scheduling/patient-schedule.service';
 import { API_CONFIG, DATABASE, REDIS } from './tokens';
+import { PurchaseOrderController, SupplierPurchaseOrderController } from './purchase-orders/purchase-order.controller';
+import { PurchaseOrderService } from './purchase-orders/purchase-order.service';
+import { PurchaseOrderRepository } from './purchase-orders/purchase-order.repository';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -72,7 +75,14 @@ new Gauge({
         redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
       },
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    // Integration/dev uses an explicit higher ceiling so the serialized gate
+    // suite is deterministic; production keeps the security default.
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: Number(process.env.THROTTLE_GLOBAL_LIMIT ?? (config.NODE_ENV === 'production' ? 100 : 1000)),
+      },
+    ]),
   ],
   controllers: [
     AuthController,
@@ -83,6 +93,8 @@ new Gauge({
     PlanningPeriodController,
     PatientScheduleController,
     ProjectedDemandController,
+    PurchaseOrderController,
+    SupplierPurchaseOrderController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -99,6 +111,8 @@ new Gauge({
     PatientScheduleImportService,
     ProjectedDemandRepository,
     ProjectedDemandService,
+    PurchaseOrderRepository,
+    PurchaseOrderService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },
