@@ -36,6 +36,7 @@ export type ViewId =
   | 'supplierPurchaseOrders'
   | 'supplierDeliveries'
   | 'medicarteDeliveries'
+  | 'medicarteReceipts'
   | 'admin';
 
 export interface NavItem {
@@ -88,20 +89,44 @@ export const NAV_SECTIONS: NavSection[] = [
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
       {
-        view: 'purchaseOrders', href: '/ordenes-compra', title: 'Órdenes de compra', icon: '05',
-        permission: 'purchase_orders.read', roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
+        view: 'purchaseOrders',
+        href: '/ordenes-compra',
+        title: 'Órdenes de compra',
+        icon: '05',
+        permission: 'purchase_orders.read',
+        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
       {
-        view: 'supplierPurchaseOrders', href: '/logistica-olp', title: 'Revisión OLP', icon: '06',
-        permission: 'purchase_orders.read', roles: ['OLP'],
+        view: 'supplierPurchaseOrders',
+        href: '/logistica-olp',
+        title: 'Revisión OLP',
+        icon: '06',
+        permission: 'purchase_orders.read',
+        roles: ['OLP'],
       },
       {
-        view: 'supplierDeliveries', href: '/entregas-olp', title: 'Entregas OLP', icon: '07',
-        permission: 'supplier_deliveries.read', roles: ['OLP'],
+        view: 'supplierDeliveries',
+        href: '/entregas-olp',
+        title: 'Entregas OLP',
+        icon: '07',
+        permission: 'supplier_deliveries.read',
+        roles: ['OLP'],
       },
       {
-        view: 'medicarteDeliveries', href: '/entregas', title: 'Entregas en camino', icon: '08',
-        permission: 'supplier_deliveries.read', roles: ['MEDICARTE'],
+        view: 'medicarteDeliveries',
+        href: '/entregas',
+        title: 'Entregas en camino',
+        icon: '08',
+        permission: 'supplier_deliveries.read',
+        roles: ['MEDICARTE'],
+      },
+      {
+        view: 'medicarteReceipts',
+        href: '/recepciones',
+        title: 'Recepciones',
+        icon: '09',
+        permission: 'medicarte_receipts.read',
+        roles: ['MEDICARTE'],
       },
       {
         view: 'admin',

@@ -534,9 +534,7 @@ export const patientScheduleImportRowStatusSchema = z.enum([
   'DUPLICATE',
   'CONFLICT',
 ]);
-export type PatientScheduleImportRowStatus = z.infer<
-  typeof patientScheduleImportRowStatusSchema
->;
+export type PatientScheduleImportRowStatus = z.infer<typeof patientScheduleImportRowStatusSchema>;
 
 export const patientScheduleImportBatchResponseSchema = z.object({
   id: z.string().uuid(),
@@ -632,25 +630,26 @@ export const projectedDemandListQuerySchema = z.object({
 });
 export type ProjectedDemandListQuery = z.infer<typeof projectedDemandListQuerySchema>;
 
-export const projectedDemandLineResponseSchema = z.object({
-  id: z.string().uuid(),
-  planningPeriodId: z.string().uuid(),
-  planningPeriodStartDate: z.string().date(),
-  planningPeriodEndDate: z.string().date(),
-  dispensingPointId: z.string().uuid(),
-  dispensingPointCode: z.string(),
-  dispensingPointName: z.string(),
-  commercialCode: commercialCodeSchema,
-  regularQuantity: z.number().int().nonnegative(),
-  lateQuantity: z.number().int().nonnegative(),
-  projectedQuantity: z.number().int().nonnegative(),
-  sourceCount: z.number().int().nonnegative(),
-  status: projectedDemandStatusSchema,
-  revision: z.number().int().positive(),
-  consolidatedAt: isoDateTimeSchema,
-  createdBy: z.string().uuid(),
-  updatedBy: z.string().uuid(),
-})
+export const projectedDemandLineResponseSchema = z
+  .object({
+    id: z.string().uuid(),
+    planningPeriodId: z.string().uuid(),
+    planningPeriodStartDate: z.string().date(),
+    planningPeriodEndDate: z.string().date(),
+    dispensingPointId: z.string().uuid(),
+    dispensingPointCode: z.string(),
+    dispensingPointName: z.string(),
+    commercialCode: commercialCodeSchema,
+    regularQuantity: z.number().int().nonnegative(),
+    lateQuantity: z.number().int().nonnegative(),
+    projectedQuantity: z.number().int().nonnegative(),
+    sourceCount: z.number().int().nonnegative(),
+    status: projectedDemandStatusSchema,
+    revision: z.number().int().positive(),
+    consolidatedAt: isoDateTimeSchema,
+    createdBy: z.string().uuid(),
+    updatedBy: z.string().uuid(),
+  })
   .refine((value) => value.projectedQuantity === value.regularQuantity + value.lateQuantity, {
     message: 'projectedQuantity must equal regularQuantity + lateQuantity',
   })
@@ -711,17 +710,25 @@ export const purchaseOrderStatusSchema = z.enum([
   'IN_FULFILLMENT',
   'PARTIALLY_DISPATCHED',
   'FULLY_DISPATCHED',
+  'PARTIALLY_RECEIVED',
+  'RECEIVED',
 ]);
 export type PurchaseOrderStatus = z.infer<typeof purchaseOrderStatusSchema>;
-export const purchaseOrderTransitions: Record<PurchaseOrderStatus, readonly PurchaseOrderStatus[]> = {
-  DRAFT: ['ISSUED', 'CANCELLED'], ISSUED: ['UNDER_OLP_REVIEW', 'CANCELLED'],
-  UNDER_OLP_REVIEW: ['ACCEPTED', 'PARTIALLY_ACCEPTED', 'REJECTED'],
-  ACCEPTED: ['IN_FULFILLMENT', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED'],
-  PARTIALLY_ACCEPTED: ['IN_FULFILLMENT', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED'],
-  IN_FULFILLMENT: ['PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED'],
-  PARTIALLY_DISPATCHED: ['FULLY_DISPATCHED'], FULLY_DISPATCHED: [],
-  REJECTED: [], CANCELLED: [],
-};
+export const purchaseOrderTransitions: Record<PurchaseOrderStatus, readonly PurchaseOrderStatus[]> =
+  {
+    DRAFT: ['ISSUED', 'CANCELLED'],
+    ISSUED: ['UNDER_OLP_REVIEW', 'CANCELLED'],
+    UNDER_OLP_REVIEW: ['ACCEPTED', 'PARTIALLY_ACCEPTED', 'REJECTED'],
+    ACCEPTED: ['IN_FULFILLMENT', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED'],
+    PARTIALLY_ACCEPTED: ['IN_FULFILLMENT', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED'],
+    IN_FULFILLMENT: ['PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED'],
+    PARTIALLY_DISPATCHED: ['FULLY_DISPATCHED'],
+    FULLY_DISPATCHED: ['PARTIALLY_RECEIVED', 'RECEIVED'],
+    PARTIALLY_RECEIVED: ['RECEIVED'],
+    RECEIVED: [],
+    REJECTED: [],
+    CANCELLED: [],
+  };
 export const purchaseOrderDemandBucketSchema = z.enum(['REGULAR', 'LATE']);
 export type PurchaseOrderDemandBucket = z.infer<typeof purchaseOrderDemandBucketSchema>;
 
@@ -794,7 +801,7 @@ export const purchaseOrderResponseSchema = z.object({
 });
 export type PurchaseOrderResponse = z.infer<typeof purchaseOrderResponseSchema>;
 
-export const deliveryStatusSchema = z.enum(['DRAFT', 'DISPATCHED', 'CANCELLED']);
+export const deliveryStatusSchema = z.enum(['DRAFT', 'DISPATCHED', 'RECEIVED', 'CANCELLED']);
 export type DeliveryStatus = z.infer<typeof deliveryStatusSchema>;
 export const deliveryLineRequestSchema = z.object({
   purchaseOrderLineId: z.string().uuid(),
@@ -815,7 +822,9 @@ export const updateDeliveryRequestSchema = z.object({
   lines: z.array(deliveryLineRequestSchema).min(1),
 });
 export type UpdateDeliveryRequest = z.infer<typeof updateDeliveryRequestSchema>;
-export const deliveryActionRequestSchema = z.object({ expectedVersion: z.number().int().positive() });
+export const deliveryActionRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+});
 export const deliveryLineResponseSchema = z.object({
   id: z.string().uuid(),
   purchaseOrderLineId: z.string().uuid(),
@@ -846,3 +855,62 @@ export const deliveryResponseSchema = z.object({
   lines: z.array(deliveryLineResponseSchema),
 });
 export type DeliveryResponse = z.infer<typeof deliveryResponseSchema>;
+
+export const receiptStatusSchema = z.enum(['DRAFT', 'CONFIRMED']);
+export const receiptConformitySchema = z.enum([
+  'CONFORMING',
+  'PARTIALLY_CONFORMING',
+  'NON_CONFORMING',
+]);
+export const receiptReasonSchema = z.enum([
+  'QUANTITY_SHORTAGE',
+  'DAMAGED_PRODUCT',
+  'LOT_MISMATCH',
+  'EXPIRATION_MISMATCH',
+  'EXPIRED_PRODUCT',
+  'PACKAGING_ISSUE',
+  'OTHER',
+]);
+export const receiptLineRequestSchema = z.object({
+  deliveryLineId: z.string().uuid(),
+  receivedQuantity: z.number().int().nonnegative(),
+  acceptedQuantity: z.number().int().nonnegative(),
+  rejectedQuantity: z.number().int().nonnegative(),
+  receivedLotNumber: z.string().trim().max(255).optional().nullable(),
+  receivedExpirationDate: z.string().date().optional().nullable(),
+  conformity: receiptConformitySchema.optional(),
+  nonconformityReason: receiptReasonSchema.optional().nullable(),
+  observation: z.string().trim().max(2000).optional().nullable(),
+});
+export type ReceiptLineRequest = z.infer<typeof receiptLineRequestSchema>;
+export const createReceiptRequestSchema = z.object({ deliveryId: z.string().uuid() });
+export type CreateReceiptRequest = z.infer<typeof createReceiptRequestSchema>;
+export const updateReceiptRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  receivedAt: isoDateTimeSchema.optional(),
+  lines: z.array(receiptLineRequestSchema).min(1),
+});
+export type UpdateReceiptRequest = z.infer<typeof updateReceiptRequestSchema>;
+export const confirmReceiptRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+});
+export const receiptLineResponseSchema = receiptLineRequestSchema.extend({
+  id: z.string().uuid(),
+  dispatchedQuantity: z.number().int().nonnegative(),
+  shortageQuantity: z.number().int().nonnegative(),
+  expectedLotNumber: z.string(),
+  expectedExpirationDate: z.string().date(),
+});
+export const receiptResponseSchema = z.object({
+  id: z.string().uuid(),
+  deliveryId: z.string().uuid(),
+  status: receiptStatusSchema,
+  conformity: receiptConformitySchema.nullable(),
+  receivedAt: isoDateTimeSchema,
+  confirmedAt: isoDateTimeSchema.nullable(),
+  version: z.number().int().positive(),
+  createdBy: z.string().uuid(),
+  updatedBy: z.string().uuid(),
+  lines: z.array(receiptLineResponseSchema),
+});
+export type ReceiptResponse = z.infer<typeof receiptResponseSchema>;

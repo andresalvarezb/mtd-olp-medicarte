@@ -65,6 +65,8 @@ export {
   requiresLateHandling,
   scheduleToday,
 } from './patient-schedule';
+export { deriveReceiptConformity, validateReceiptQuantities } from './receipt';
+export type { ReceiptConformity, ReceiptQuantityInput } from './receipt';
 export type {
   ScheduleAuthorizationEligibility,
   ScheduleAuthorizationEligibilityInput,

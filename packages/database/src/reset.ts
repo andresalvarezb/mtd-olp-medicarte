@@ -9,6 +9,8 @@ if (!process.env.DATABASE_URL && existsSync(envPath)) {
 }
 
 const OPERATIONAL_TABLES = [
+  'receipt_lines',
+  'receipts',
   'demand_sources',
   'projected_demand_lines',
   'purchase_order_demand_allocations',

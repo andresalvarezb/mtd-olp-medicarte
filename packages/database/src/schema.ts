@@ -624,106 +624,243 @@ export const demandSources = pgTable(
       'demand_sources_late_handling_check',
       sql`${table.lateHandling} IS NULL OR ${table.lateHandling} IN ('COMPLEMENTARY_PURCHASE_ORDER', 'NEXT_PERIOD')`,
     ),
+    check('demand_sources_demand_bucket_check', sql`${table.demandBucket} IN ('REGULAR', 'LATE')`),
+  ],
+);
+
+export const purchaseOrders = pgTable(
+  'purchase_orders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    purchaseOrderCode: varchar('purchase_order_code', { length: 255 }),
+    planningPeriodId: uuid('planning_period_id')
+      .notNull()
+      .references(() => planningPeriods.id, { onDelete: 'restrict' }),
+    orderType: varchar('order_type', { length: 20 }).notNull(),
+    status: varchar('status', { length: 30 }).notNull().default('DRAFT'),
+    version: integer('version').notNull().default(1),
+    issuedAt: timestamp('issued_at', { withTimezone: true }),
+    issuedBy: uuid('issued_by').references(() => users.id, { onDelete: 'restrict' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('purchase_orders_period_status_idx').on(
+      table.planningPeriodId,
+      table.status,
+      table.createdAt,
+    ),
+    uniqueIndex('purchase_orders_code_idx').on(table.purchaseOrderCode),
+    check('purchase_orders_type_check', sql`${table.orderType} IN ('STANDARD', 'COMPLEMENTARY')`),
     check(
-      'demand_sources_demand_bucket_check',
+      'purchase_orders_status_check',
+      sql`${table.status} IN ('DRAFT', 'ISSUED', 'UNDER_OLP_REVIEW', 'ACCEPTED', 'PARTIALLY_ACCEPTED', 'REJECTED', 'CANCELLED', 'IN_FULFILLMENT', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED', 'PARTIALLY_RECEIVED', 'RECEIVED')`,
+    ),
+    check('purchase_orders_version_check', sql`${table.version} > 0`),
+  ],
+);
+
+export const purchaseOrderLines = pgTable(
+  'purchase_order_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    purchaseOrderId: uuid('purchase_order_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'restrict' }),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    productDescription: text('product_description'),
+    presentation: text('presentation'),
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    requestedQuantity: integer('requested_quantity').notNull(),
+    acceptedQuantity: integer('accepted_quantity'),
+    requestedDeliveryDate: date('requested_delivery_date').notNull(),
+    compensarUnitRateSnapshot: varchar('compensar_unit_rate_snapshot', { length: 255 }).notNull(),
+    supplierUnitCost: varchar('supplier_unit_cost', { length: 255 }),
+    // Historical identifier only: ESP-004 may delete a superseded live projection.
+    projectedDemandLineId: uuid('projected_demand_line_id').notNull(),
+    projectedDemandRevision: integer('projected_demand_revision').notNull(),
+    demandBucket: varchar('demand_bucket', { length: 20 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('purchase_order_lines_order_idx').on(table.purchaseOrderId),
+    index('purchase_order_lines_demand_idx').on(
+      table.projectedDemandLineId,
+      table.projectedDemandRevision,
+    ),
+    check('purchase_order_lines_requested_quantity_check', sql`${table.requestedQuantity} > 0`),
+    check(
+      'purchase_order_lines_accepted_quantity_check',
+      sql`${table.acceptedQuantity} IS NULL OR (${table.acceptedQuantity} >= 0 AND ${table.acceptedQuantity} <= ${table.requestedQuantity})`,
+    ),
+    check('purchase_order_lines_revision_check', sql`${table.projectedDemandRevision} > 0`),
+    check('purchase_order_lines_bucket_check', sql`${table.demandBucket} IN ('REGULAR', 'LATE')`),
+    check(
+      'purchase_order_lines_supplier_cost_check',
+      sql`${table.acceptedQuantity} IS NULL OR ${table.acceptedQuantity} = 0 OR (${table.supplierUnitCost} IS NOT NULL AND ${table.supplierUnitCost}::numeric > 0)`,
+    ),
+  ],
+);
+
+export const purchaseOrderDemandAllocations = pgTable(
+  'purchase_order_demand_allocations',
+  {
+    purchaseOrderLineId: uuid('purchase_order_line_id')
+      .notNull()
+      .references(() => purchaseOrderLines.id, { onDelete: 'restrict' }),
+    projectedDemandLineId: uuid('projected_demand_line_id').notNull(),
+    projectedDemandRevision: integer('projected_demand_revision').notNull(),
+    demandBucket: varchar('demand_bucket', { length: 20 }).notNull(),
+    allocatedQuantity: integer('allocated_quantity').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'purchase_order_demand_allocations_pk',
+      columns: [
+        table.purchaseOrderLineId,
+        table.projectedDemandLineId,
+        table.projectedDemandRevision,
+        table.demandBucket,
+      ],
+    }),
+    check('purchase_order_demand_allocations_quantity_check', sql`${table.allocatedQuantity} > 0`),
+    check(
+      'purchase_order_demand_allocations_bucket_check',
       sql`${table.demandBucket} IN ('REGULAR', 'LATE')`,
     ),
   ],
 );
 
-export const purchaseOrders = pgTable('purchase_orders', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  purchaseOrderCode: varchar('purchase_order_code', { length: 255 }),
-  planningPeriodId: uuid('planning_period_id').notNull().references(() => planningPeriods.id, { onDelete: 'restrict' }),
-  orderType: varchar('order_type', { length: 20 }).notNull(),
-  status: varchar('status', { length: 30 }).notNull().default('DRAFT'),
-  version: integer('version').notNull().default(1),
-  issuedAt: timestamp('issued_at', { withTimezone: true }),
-  issuedBy: uuid('issued_by').references(() => users.id, { onDelete: 'restrict' }),
-  createdBy: uuid('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
-  updatedBy: uuid('updated_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index('purchase_orders_period_status_idx').on(table.planningPeriodId, table.status, table.createdAt),
-  uniqueIndex('purchase_orders_code_idx').on(table.purchaseOrderCode),
-  check('purchase_orders_type_check', sql`${table.orderType} IN ('STANDARD', 'COMPLEMENTARY')`),
-   check('purchase_orders_status_check', sql`${table.status} IN ('DRAFT', 'ISSUED', 'UNDER_OLP_REVIEW', 'ACCEPTED', 'PARTIALLY_ACCEPTED', 'REJECTED', 'CANCELLED', 'IN_FULFILLMENT', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED')`),
-  check('purchase_orders_version_check', sql`${table.version} > 0`),
-]);
+export const deliveries = pgTable(
+  'deliveries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    purchaseOrderId: uuid('purchase_order_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'restrict' }),
+    supplierReference: varchar('supplier_reference', { length: 255 }),
+    status: varchar('status', { length: 20 }).notNull().default('DRAFT'),
+    dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+    version: integer('version').notNull().default(1),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('deliveries_order_status_idx').on(table.purchaseOrderId, table.status, table.createdAt),
+    check(
+      'deliveries_status_check',
+      sql`${table.status} IN ('DRAFT', 'DISPATCHED', 'RECEIVED', 'CANCELLED')`,
+    ),
+    check('deliveries_version_check', sql`${table.version} > 0`),
+  ],
+);
 
-export const purchaseOrderLines = pgTable('purchase_order_lines', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  purchaseOrderId: uuid('purchase_order_id').notNull().references(() => purchaseOrders.id, { onDelete: 'restrict' }),
-  commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
-  productDescription: text('product_description'),
-  presentation: text('presentation'),
-  dispensingPointId: uuid('dispensing_point_id').notNull().references(() => dispensingPoints.id, { onDelete: 'restrict' }),
-  requestedQuantity: integer('requested_quantity').notNull(),
-  acceptedQuantity: integer('accepted_quantity'),
-  requestedDeliveryDate: date('requested_delivery_date').notNull(),
-  compensarUnitRateSnapshot: varchar('compensar_unit_rate_snapshot', { length: 255 }).notNull(),
-  supplierUnitCost: varchar('supplier_unit_cost', { length: 255 }),
-  // Historical identifier only: ESP-004 may delete a superseded live projection.
-  projectedDemandLineId: uuid('projected_demand_line_id').notNull(),
-  projectedDemandRevision: integer('projected_demand_revision').notNull(),
-  demandBucket: varchar('demand_bucket', { length: 20 }).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index('purchase_order_lines_order_idx').on(table.purchaseOrderId),
-  index('purchase_order_lines_demand_idx').on(table.projectedDemandLineId, table.projectedDemandRevision),
-  check('purchase_order_lines_requested_quantity_check', sql`${table.requestedQuantity} > 0`),
-  check('purchase_order_lines_accepted_quantity_check', sql`${table.acceptedQuantity} IS NULL OR (${table.acceptedQuantity} >= 0 AND ${table.acceptedQuantity} <= ${table.requestedQuantity})`),
-  check('purchase_order_lines_revision_check', sql`${table.projectedDemandRevision} > 0`),
-  check('purchase_order_lines_bucket_check', sql`${table.demandBucket} IN ('REGULAR', 'LATE')`),
-  check('purchase_order_lines_supplier_cost_check', sql`${table.acceptedQuantity} IS NULL OR ${table.acceptedQuantity} = 0 OR (${table.supplierUnitCost} IS NOT NULL AND ${table.supplierUnitCost}::numeric > 0)`),
-]);
+export const receipts = pgTable(
+  'receipts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    deliveryId: uuid('delivery_id')
+      .notNull()
+      .references(() => deliveries.id, { onDelete: 'restrict' }),
+    status: varchar('status', { length: 20 }).notNull().default('DRAFT'),
+    conformity: varchar('conformity', { length: 30 }),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('receipts_delivery_idx').on(table.deliveryId),
+    check('receipts_status_check', sql`${table.status} IN ('DRAFT', 'CONFIRMED')`),
+    check(
+      'receipts_conformity_check',
+      sql`${table.conformity} IS NULL OR ${table.conformity} IN ('CONFORMING', 'PARTIALLY_CONFORMING', 'NON_CONFORMING')`,
+    ),
+  ],
+);
 
-export const purchaseOrderDemandAllocations = pgTable('purchase_order_demand_allocations', {
-  purchaseOrderLineId: uuid('purchase_order_line_id').notNull().references(() => purchaseOrderLines.id, { onDelete: 'restrict' }),
-  projectedDemandLineId: uuid('projected_demand_line_id').notNull(),
-  projectedDemandRevision: integer('projected_demand_revision').notNull(),
-  demandBucket: varchar('demand_bucket', { length: 20 }).notNull(),
-  allocatedQuantity: integer('allocated_quantity').notNull(),
-}, (table) => [
-  primaryKey({ name: 'purchase_order_demand_allocations_pk', columns: [table.purchaseOrderLineId, table.projectedDemandLineId, table.projectedDemandRevision, table.demandBucket] }),
-  check('purchase_order_demand_allocations_quantity_check', sql`${table.allocatedQuantity} > 0`),
-  check('purchase_order_demand_allocations_bucket_check', sql`${table.demandBucket} IN ('REGULAR', 'LATE')`),
-]);
+export const receiptLines = pgTable(
+  'receipt_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    receiptId: uuid('receipt_id')
+      .notNull()
+      .references(() => receipts.id, { onDelete: 'restrict' }),
+    deliveryLineId: uuid('delivery_line_id')
+      .notNull()
+      .references(() => deliveryLines.id, { onDelete: 'restrict' }),
+    dispatchedQuantity: integer('dispatched_quantity').notNull(),
+    receivedQuantity: integer('received_quantity').notNull(),
+    acceptedQuantity: integer('accepted_quantity').notNull(),
+    rejectedQuantity: integer('rejected_quantity').notNull(),
+    shortageQuantity: integer('shortage_quantity').notNull(),
+    expectedLotNumber: varchar('expected_lot_number', { length: 255 }).notNull(),
+    expectedExpirationDate: date('expected_expiration_date').notNull(),
+    receivedLotNumber: varchar('received_lot_number', { length: 255 }),
+    receivedExpirationDate: date('received_expiration_date'),
+    conformity: varchar('conformity', { length: 30 }),
+    nonconformityReason: varchar('nonconformity_reason', { length: 40 }),
+    observation: text('observation'),
+  },
+  (table) => [
+    uniqueIndex('receipt_lines_receipt_delivery_line_idx').on(
+      table.receiptId,
+      table.deliveryLineId,
+    ),
+    check(
+      'receipt_lines_quantities_check',
+      sql`${table.dispatchedQuantity} >= 0 AND ${table.receivedQuantity} >= 0 AND ${table.acceptedQuantity} >= 0 AND ${table.rejectedQuantity} >= 0 AND ${table.shortageQuantity} >= 0 AND ${table.receivedQuantity} <= ${table.dispatchedQuantity} AND ${table.acceptedQuantity} + ${table.rejectedQuantity} = ${table.receivedQuantity} AND ${table.shortageQuantity} = ${table.dispatchedQuantity} - ${table.receivedQuantity}`,
+    ),
+  ],
+);
 
-export const deliveries = pgTable('deliveries', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  purchaseOrderId: uuid('purchase_order_id').notNull().references(() => purchaseOrders.id, { onDelete: 'restrict' }),
-  supplierReference: varchar('supplier_reference', { length: 255 }),
-  status: varchar('status', { length: 20 }).notNull().default('DRAFT'),
-  dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
-  version: integer('version').notNull().default(1),
-  createdBy: uuid('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
-  updatedBy: uuid('updated_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index('deliveries_order_status_idx').on(table.purchaseOrderId, table.status, table.createdAt),
-  check('deliveries_status_check', sql`${table.status} IN ('DRAFT', 'DISPATCHED', 'CANCELLED')`),
-  check('deliveries_version_check', sql`${table.version} > 0`),
-]);
-
-export const deliveryLines = pgTable('delivery_lines', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  deliveryId: uuid('delivery_id').notNull().references(() => deliveries.id, { onDelete: 'restrict' }),
-  purchaseOrderLineId: uuid('purchase_order_line_id').notNull().references(() => purchaseOrderLines.id, { onDelete: 'restrict' }),
-  commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
-  dispensingPointId: uuid('dispensing_point_id').notNull().references(() => dispensingPoints.id, { onDelete: 'restrict' }),
-  quantity: integer('quantity').notNull(),
-  lotNumber: varchar('lot_number', { length: 255 }).notNull(),
-  expirationDate: date('expiration_date').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index('delivery_lines_delivery_idx').on(table.deliveryId),
-  index('delivery_lines_order_line_idx').on(table.purchaseOrderLineId),
-  check('delivery_lines_quantity_check', sql`${table.quantity} > 0`),
-]);
+export const deliveryLines = pgTable(
+  'delivery_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    deliveryId: uuid('delivery_id')
+      .notNull()
+      .references(() => deliveries.id, { onDelete: 'restrict' }),
+    purchaseOrderLineId: uuid('purchase_order_line_id')
+      .notNull()
+      .references(() => purchaseOrderLines.id, { onDelete: 'restrict' }),
+    commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    quantity: integer('quantity').notNull(),
+    lotNumber: varchar('lot_number', { length: 255 }).notNull(),
+    expirationDate: date('expiration_date').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('delivery_lines_delivery_idx').on(table.deliveryId),
+    index('delivery_lines_order_line_idx').on(table.purchaseOrderLineId),
+    check('delivery_lines_quantity_check', sql`${table.quantity} > 0`),
+  ],
+);
 
 /**
  * ESP-003: staging de carga XLSX de programación. El procesamiento es

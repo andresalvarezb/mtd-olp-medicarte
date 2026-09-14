@@ -34,7 +34,7 @@ export class AuthController {
   // (el límite global de 100 req/min/IP sigue además como techo por IP).
   @Throttle({
     default: {
-      limit: 20,
+      limit: Number(process.env.AUTH_LOGIN_THROTTLE_LIMIT ?? 20),
       ttl: 60_000,
       getTracker: (request: { ip?: string; body?: { username?: unknown } }) => {
         const username =

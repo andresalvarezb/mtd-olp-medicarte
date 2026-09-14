@@ -95,8 +95,8 @@ describe('Gate ESP-006 - supplier deliveries', () => {
     expect((await api('GET', '/supplier/deliveries', undefined, adminToken, ORGANIZATION_IDS.COMPENSAR)).status).toBe(403);
   });
 
-  it('does not create receipt or inventory tables', async () => {
-    const tables = await database.query<{ count: string }>(`select count(*)::text count from information_schema.tables where table_schema = 'public' and table_name in ('receipts','receipt_lines','inventory_lots','inventory_movements','stock_transfers')`);
+  it('does not create inventory tables', async () => {
+    const tables = await database.query<{ count: string }>(`select count(*)::text count from information_schema.tables where table_schema = 'public' and table_name in ('inventory_lots','inventory_movements','stock_transfers')`);
     expect(tables.rows[0]!.count).toBe('0');
   });
 });

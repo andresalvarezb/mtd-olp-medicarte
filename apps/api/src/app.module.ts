@@ -45,6 +45,9 @@ import { PurchaseOrderRepository } from './purchase-orders/purchase-order.reposi
 import { DeliveryController, MedicarteDeliveryController } from './deliveries/delivery.controller';
 import { DeliveryRepository } from './deliveries/delivery.repository';
 import { DeliveryService } from './deliveries/delivery.service';
+import { ReceiptController, OlpReceiptController } from './receipts/receipt.controller';
+import { ReceiptRepository } from './receipts/receipt.repository';
+import { ReceiptService } from './receipts/receipt.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -100,6 +103,8 @@ new Gauge({
     SupplierPurchaseOrderController,
     DeliveryController,
     MedicarteDeliveryController,
+    ReceiptController,
+    OlpReceiptController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -120,6 +125,8 @@ new Gauge({
     PurchaseOrderService,
     DeliveryRepository,
     DeliveryService,
+    ReceiptRepository,
+    ReceiptService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },
