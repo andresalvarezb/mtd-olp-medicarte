@@ -47,6 +47,7 @@ type ItemRow = {
   coverage_type: string;
   direction_status: string;
   operation_status: string | null;
+  process_status: string | null;
   coverage_rule_version: string;
   lugar_dispensacion: string | null;
   fecha_programada: string | null;
@@ -136,7 +137,7 @@ function toReviewResponse(review: ReviewRow, findings: FindingRow[]): AuditRevie
 }
 
 const ITEM_SELECT = `select i.id, i.numero_autorizacion, i.codigo_medicamento, i.authorization_key,
-        i.enablement_status, i.coverage_type, i.direction_status, i.operation_status,
+        i.enablement_status, i.coverage_type, i.direction_status, i.operation_status, i.process_status,
         i.coverage_rule_version, i.lugar_dispensacion, i.fecha_programada::text, i.fecha_dispensacion::text, i.fecha_aplicacion::text, i.orden_compra,
         i.audit_status, i.admission_status, i.operational_version, i.version, i.source_data, i.created_at, i.updated_at
  from authorization_items i`;
@@ -232,8 +233,15 @@ export class AuditsService {
                      started_at, decided_by, decided_at`,
           [item.id, nextNumber.rows[0]!.next, input.scope.userId, input.scope.correlationId],
         );
+        const needsProcessStatusReset = item.process_status === 'AUDITORIA_RECHAZADA';
+        if (needsProcessStatusReset) {
+          await client.query(
+            `set local app.process_action = 'START_AUDIT'`,
+          );
+        }
         const updatedItem = await this.updateItem(client, item, input.body.expectedVersion, {
           audit_status: 'IN_REVIEW',
+          ...(needsProcessStatusReset ? { process_status: 'LISTO_PARA_AUDITORIA' } : {}),
         });
         await this.insertAudit(client, input.scope, {
           action: 'AUDIT_REVIEW_STARTED',
@@ -380,6 +388,11 @@ export class AuditsService {
           [review.id, decision, observations, input.scope.userId],
         );
         const nextAuditStatus: AuthorizationItemResponse['auditStatus'] = decision;
+        const processAction =
+          decision === 'APPROVED' ? 'APPROVE_AUDIT' : 'REJECT_AUDIT';
+        await client.query(
+          `set local app.process_action = '${processAction}'`,
+        );
         const itemPatch =
           decision === 'APPROVED'
             ? {
@@ -596,8 +609,8 @@ export class AuditsService {
          process_status = coalesce($6, process_status),
          version = version + 1, updated_at = now()
        where id = $1 and version = $5` +
-        ` returning id, numero_autorizacion, codigo_medicamento, authorization_key,
-           enablement_status, coverage_type, direction_status, operation_status,
+         ` returning id, numero_autorizacion, codigo_medicamento, authorization_key,
+           enablement_status, coverage_type, direction_status, operation_status, process_status,
            coverage_rule_version, lugar_dispensacion, fecha_programada::text, fecha_dispensacion::text, fecha_aplicacion::text, orden_compra,
            audit_status, admission_status, operational_version, version, source_data, created_at, updated_at`,
       [

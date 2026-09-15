@@ -529,6 +529,9 @@ export class BulkUpdateProcessor {
                 input.actorId,
                 item.operational_version,
               ];
+    await client.query(
+      `set local app.process_action = '${input.operationType}'`,
+    );
     const updated = await client.query<{ id: string }>(updateSql, updateValues);
     if (updated.rowCount === 0) {
       return await reject('VERSION_CONFLICT', item.id, {

@@ -39,22 +39,24 @@ async function seedItem(
       values ($1, $2, $3, 'phase6.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 1, $4, 1, 'COMPLETED', 1, 1, 1)`,
     [batchId, mtdOrganizationId, adminUserId, randomUUID().replaceAll('-', '').padEnd(64, '0')],
   );
+  const processStatus = withDates ? 'LISTO_PARA_AUDITORIA' : 'PENDIENTE_DISPENSACION';
   await database.query(
     `insert into authorization_items
        (id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
         source_status_normalized, source_prescripcion_normalized, no_prescripcion,
-        enablement_status, coverage_type, direction_status, operation_status,
+        enablement_status, coverage_type, direction_status, operation_status, process_status,
         coverage_rule_version, lugar_dispensacion, fecha_dispensacion, fecha_aplicacion,
         audit_status, operational_version, tariff_membership_status, tariff_membership_evaluated_at,
         created_from_batch_id)
      values ($1, $2, $3, $4, '{}'::jsonb, '5', '', '', 'ENABLED', 'PBS', 'NOT_APPLICABLE',
-             $5, 'F2-COVERAGE-2', $6, $7, $8, $9, $10, 'LISTED', now(), $11)`,
+             $5, $6, 'F2-COVERAGE-2', $7, $8, $9, $10, $11, 'LISTED', now(), $12)`,
     [
       itemId,
       authorization,
       medication,
       `${authorization}:${medication}`,
       withDates ? 'DISPENSATION_REPORTED' : 'READY_TO_DISPENSE',
+      processStatus,
       withDates ? 'Sede F6' : null,
       withDates ? '2026-08-29' : null,
       withDates ? '2026-08-30' : null,
@@ -397,6 +399,56 @@ describe('Gate F6', () => {
       [adminUserId],
     );
     expect(exportAudit.rows.length).toBeGreaterThan(0);
+  });
+
+  it('el export de consolidacion incluye IDENTIFICACION_PACIENTE y no NUM_DOCUMENTO', async () => {
+    const testDoc = '1234567890';
+    const item = await seedItem('COL-HEADER-CHECK', { withDates: true });
+    await database.query(
+      `update authorization_items
+         set source_data = jsonb_set(source_data, '{IDENTIFICACION_PACIENTE}', to_jsonb($1::text))
+       where id = $2`,
+      [testDoc, item.id],
+    );
+    await auditPost(
+      adminToken,
+      mtdOrganizationId,
+      `/api/v1/authorization-items/${item.id}/audit-reviews`,
+      { expectedVersion: item.version },
+    );
+    const review = await database.query<{ id: string }>(
+      `select id from audit_reviews where authorization_item_id = $1`,
+      [item.id],
+    );
+    const itemRow = await database.query<{ version: number }>(
+      `select version from authorization_items where id = $1`,
+      [item.id],
+    );
+    await auditPost(
+      adminToken,
+      mtdOrganizationId,
+      `/api/v1/audit-reviews/${review.rows[0]!.id}/approve`,
+      {
+        expectedVersion: itemRow.rows[0]!.version,
+        observations: 'Soportes verificados y completos.',
+      },
+    );
+
+    const xlsxResp = await fetch(`${apiUrl}/api/v1/exports/authorization-items.xlsx`, {
+      headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
+    });
+    expect(xlsxResp.status).toBe(200);
+    const workbook = XLSX.read(await xlsxResp.arrayBuffer(), { type: 'array' });
+    const sheet = workbook.Sheets.Datos!;
+    const headers = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, raw: false })[0];
+
+    expect(headers).toContain('IDENTIFICACION_PACIENTE');
+    expect(headers).not.toContain('NUM_DOCUMENTO');
+
+    const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { raw: false });
+    const targetRow = rows.find((r) => r['NUMERO_AUTORIZACION'] === item.authorization);
+    expect(targetRow).toBeDefined();
+    expect(targetRow!['IDENTIFICACION_PACIENTE']).toBe(testDoc);
   });
 
   it('expone indicadores operativos derivados por alcance', async () => {

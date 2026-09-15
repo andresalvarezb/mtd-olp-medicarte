@@ -196,7 +196,7 @@ export class ConsolidationService {
     const columns = ['IDENTIFICADOR_REGISTRO', ...sourceBaseColumns, ...processColumns] as string[];
     const rows: Array<Record<string, string | number | null>> = result.rows.map((row) => ({
       NUMERO_AUTORIZACION: row.numero_autorizacion,
-      NUM_DOCUMENTO: row.numero_documento,
+      IDENTIFICACION_PACIENTE: row.numero_documento,
       NOMBRE_PACIENTE: row.nombre_paciente,
       CDGN001: row.cdgn001,
       CODIGO_COMERCIAL: row.codigo_medicamento,

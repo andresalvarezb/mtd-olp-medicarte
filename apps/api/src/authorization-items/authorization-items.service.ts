@@ -559,6 +559,9 @@ export class AuthorizationItemsService {
         directionStatus: classification.data.directionStatus,
       });
       await client.query(
+        `set local app.process_action = 'UPDATE_SOURCE_EVIDENCE'`,
+      );
+      await client.query(
         `update authorization_items set process_status = $2, updated_by = $3 where id = $1`,
         [itemId, processStatus, input.scope.userId],
       );
