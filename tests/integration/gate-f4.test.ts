@@ -235,16 +235,14 @@ function locationCsv(
     authorizationKey: string;
     location: string;
     scheduledDate?: string;
-    medicarteCode?: string;
   }>,
 ): Buffer {
   return xlsxBuffer([
-    ['authorization_key', 'lugar_dispensacion', 'fecha_programada', 'cod_autorizacion_medicarte'],
+    ['authorization_key', 'lugar_dispensacion', 'fecha_programada'],
     ...rows.map((row) => [
       row.authorizationKey,
       row.location,
       row.scheduledDate ?? '2026-10-01',
-      row.medicarteCode ?? `MEDCAR-${row.location.replace(/[^A-Za-z0-9]/g, '').slice(0, 8)}`,
     ]),
   ]);
 }
@@ -327,17 +325,15 @@ describe('Gate F4', () => {
       const afterFirst = await database.query<{
         lugar_dispensacion: string;
         fecha_programada: string;
-        cod_autorizacion_medicarte: string | null;
         operational_version: number;
       }>(
-        `select lugar_dispensacion, fecha_programada::text, cod_autorizacion_medicarte,
+        `select lugar_dispensacion, fecha_programada::text,
                 operational_version from authorization_items where id = $1`,
         [itemId],
       );
       expect(afterFirst.rows[0]).toMatchObject({
         lugar_dispensacion: 'Calle 40 # 12-34',
         fecha_programada: '2026-10-01',
-        cod_autorizacion_medicarte: expect.any(String) as string,
         operational_version: 1,
       });
 
@@ -428,12 +424,11 @@ describe('Gate F4', () => {
             'authorization_key',
             'lugar_dispensacion',
             'fecha_programada',
-            'cod_autorizacion_medicarte',
           ],
-          [readyKey, '   ', '2026-10-01', 'M-BLANK'],
-          [readyKey, 'Calle valida 1', '2026-10-01', 'M-OK'],
-          ['FUERA:LEJA', 'Calle fuera de alcance', '2026-10-01', 'M-X'],
-          ['', 'Sin llave', '2026-10-01', 'M-Y'],
+          [readyKey, '   ', '2026-10-01'],
+          [readyKey, 'Calle valida 1', '2026-10-01'],
+          ['FUERA:LEJA', 'Calle fuera de alcance', '2026-10-01'],
+          ['', 'Sin llave', '2026-10-01'],
         ]),
       );
       expect(batch.status).toBe(202);
@@ -491,9 +486,8 @@ describe('Gate F4', () => {
           'authorization_key',
           'lugar_dispensacion',
           'fecha_programada',
-          'cod_autorizacion_medicarte',
         ],
-        [readyKey, '   ', '2026-10-01', 'M-EMPTY'],
+        [readyKey, '   ', '2026-10-01'],
       ]),
     );
     const failingId = ((await failing.json()) as { id: string }).id;
