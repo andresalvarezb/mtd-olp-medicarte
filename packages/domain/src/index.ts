@@ -105,6 +105,45 @@ export type {
   MoneyMetric,
   RatioMetric,
 } from './operational-analytics';
+export {
+  ANALYTICS_EXPORT_UNAVAILABLE_LABEL,
+  exportMoneyCell,
+  moneyExportRow,
+} from './analytics-export';
+export type { AnalyticsExportSheet } from './analytics-export';
+export {
+  BULK_IMPORT_JOB_STATUSES,
+  BULK_IMPORT_MAX_COLUMNS,
+  BULK_IMPORT_MAX_FILE_BYTES,
+  BULK_IMPORT_MAX_ROWS,
+  BULK_IMPORT_MAX_SHEETS,
+  BULK_IMPORT_ROW_CLAIM_LEASE_SECONDS,
+  BULK_IMPORT_ROW_EXECUTION_STATUSES,
+  BULK_IMPORT_ROW_VALIDATION_STATUSES,
+  BULK_IMPORT_TYPE_SCHEDULING,
+  ESP014_SCHEDULING_TEMPLATE_VERSION,
+  SCHEDULING_TEMPLATE_OPTIONAL_COLUMNS,
+  SCHEDULING_TEMPLATE_REQUIRED_COLUMNS,
+  assertBulkImportJobTransition,
+  canCancelBulkImportJob,
+  canCompleteBulkImportRowClaim,
+  canConfirmBulkImportJob,
+  canResumeBulkImportJob,
+  canRetryFailedBulkImportJob,
+  decideBulkImportCompletion,
+  findInternalSchedulingDuplicates,
+  initialExecutionStatus,
+  isExpiredBulkImportClaim,
+  isSupportedSchedulingTemplate,
+  phiSafeBulkImportLog,
+  rowIdempotencyKey,
+  schedulingIdentityKey,
+} from './bulk-import';
+export type {
+  BulkImportJobStatus,
+  BulkImportRowExecutionStatus,
+  BulkImportRowValidationStatus,
+} from './bulk-import';
 export type { ReceiptConformity, ReceiptQuantityInput } from './receipt';
 export type {
   ScheduleAuthorizationEligibility,

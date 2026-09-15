@@ -21,7 +21,10 @@ import { SCHEDULING_EXPIRATION_COLUMN } from '../clinical/clinical-authorization
 import { DATABASE } from '../tokens';
 
 type Database = ReturnType<typeof createDatabase>;
-type Transaction = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
+export type PatientScheduleTransaction = Parameters<
+  Parameters<Database['db']['transaction']>[0]
+>[0];
+type Transaction = PatientScheduleTransaction;
 
 export type PatientScheduleActor = Readonly<{
   userId: string;
@@ -494,58 +497,68 @@ export class PatientScheduleRepository {
     request: PatientScheduleCreateInput;
     actor: PatientScheduleActor;
   }): Promise<PatientSchedulePersistenceOutcome> {
-    try {
-      return await this.database.db.transaction(async (tx) => {
-      const item = await lockAuthorizableItem(tx, input.request.authorizationItemId);
-      if (!item) return { outcome: 'authorization_not_found' as const };
-      if (item.codigo_medicamento !== input.request.commercialCode) {
-        return { outcome: 'commercial_code_mismatch' as const };
-      }
-      const eligibility = eligibilityOf(item);
-      if (!eligibility.eligible) {
-        return {
-          outcome: 'authorization_conflict' as const,
-          code: eligibility.code ?? 'PATIENT_SCHEDULE_AUTHORIZATION_NOT_SCHEDULABLE',
-          message: eligibility.message ?? 'The authorization is not schedulable',
-        };
-      }
+    return this.withDuplicateGuard(() =>
+      this.database.db.transaction(async (tx) => this.createInTx(tx, input)),
+    );
+  }
 
-      const period = await lockPeriodForDate(tx, input.request.scheduledDate);
-      if (!period) return { outcome: 'period_not_found' as const };
-      const timing = classifyScheduleTiming(period, new Date());
-
-      const handling = resolveHandling(timing, input.request.requestedLateHandling);
-      if (!handling.ok) {
-        return {
-          outcome: handling.reason === 'not_allowed' ? 'invalid_late_handling' : 'late_handling_required',
-          timing: handling.timing,
-        };
-      }
-
-      const deferredPlanningPeriodId = await resolveDeferredPeriod(tx, period, handling.value);
-      if (handling.value === 'NEXT_PERIOD' && deferredPlanningPeriodId === null) {
-        return { outcome: 'next_period_not_found' as const };
-      }
-
-      const values: PatientScheduleWriteValues = {
-        authorizationItemId: item.id,
-        commercialCode: item.codigo_medicamento,
-        planningPeriodId: period.id,
-        dispensingPointId: input.request.dispensingPointId,
-        scheduledDate: input.request.scheduledDate,
-        quantity: input.request.quantity,
-        status: 'SCHEDULED',
-        scheduleTiming: timing,
-        lateHandling: handling.value,
-        deferredPlanningPeriodId,
-      };
-      const schedule = await persistNewSchedule(tx, values, input.actor);
-      return { outcome: 'created' as const, schedule };
-      });
-    } catch (error) {
-      if (isScheduleDuplicateError(error)) return { outcome: 'duplicate_schedule' as const };
-      throw error;
+  /**
+   * Same ESP-003 create path, using a caller-supplied transaction.
+   * Nested callers must let unique-identity errors propagate so the outer
+   * transaction rolls back; they must not catch-and-commit.
+   */
+  async createInTx(
+    tx: Transaction,
+    input: {
+      request: PatientScheduleCreateInput;
+      actor: PatientScheduleActor;
+    },
+  ): Promise<PatientSchedulePersistenceOutcome> {
+    const item = await lockAuthorizableItem(tx, input.request.authorizationItemId);
+    if (!item) return { outcome: 'authorization_not_found' as const };
+    if (item.codigo_medicamento !== input.request.commercialCode) {
+      return { outcome: 'commercial_code_mismatch' as const };
     }
+    const eligibility = eligibilityOf(item);
+    if (!eligibility.eligible) {
+      return {
+        outcome: 'authorization_conflict' as const,
+        code: eligibility.code ?? 'PATIENT_SCHEDULE_AUTHORIZATION_NOT_SCHEDULABLE',
+        message: eligibility.message ?? 'The authorization is not schedulable',
+      };
+    }
+
+    const period = await lockPeriodForDate(tx, input.request.scheduledDate);
+    if (!period) return { outcome: 'period_not_found' as const };
+    const timing = classifyScheduleTiming(period, new Date());
+
+    const handling = resolveHandling(timing, input.request.requestedLateHandling);
+    if (!handling.ok) {
+      return {
+        outcome:
+          handling.reason === 'not_allowed' ? 'invalid_late_handling' : 'late_handling_required',
+        timing: handling.timing,
+      };
+    }
+
+    const deferredPlanningPeriodId = await resolveDeferredPeriod(tx, period, handling.value);
+    if (handling.value === 'NEXT_PERIOD' && deferredPlanningPeriodId === null) {
+      return { outcome: 'next_period_not_found' as const };
+    }
+
+    const values: PatientScheduleWriteValues = {
+      authorizationItemId: item.id,
+      commercialCode: item.codigo_medicamento,
+      planningPeriodId: period.id,
+      dispensingPointId: input.request.dispensingPointId,
+      scheduledDate: input.request.scheduledDate,
+      quantity: input.request.quantity,
+      status: 'SCHEDULED',
+      scheduleTiming: timing,
+      lateHandling: handling.value,
+      deferredPlanningPeriodId,
+    };
+    return persistNewScheduleIsolated(tx, values, input.actor);
   }
 
   /**
@@ -565,86 +578,91 @@ export class PatientScheduleRepository {
       input.changeType === 'CANCELLED' ? {} : (input.requested ?? {});
     return this.withDuplicateGuard(() =>
       this.database.db.transaction(async (tx) => {
-      const current = await lockCurrent(tx, input.id);
-      if (!current) return { outcome: 'not_found' as const };
-      if (current.revision !== input.expectedRevision) {
-        const schedule = await selectJoined(tx, input.id);
-        if (!schedule) return { outcome: 'not_found' as const };
-        return { outcome: 'version_conflict' as const, current: schedule };
-      }
+        const current = await lockCurrent(tx, input.id);
+        if (!current) return { outcome: 'not_found' as const };
+        if (current.revision !== input.expectedRevision) {
+          const schedule = await selectJoined(tx, input.id);
+          if (!schedule) return { outcome: 'not_found' as const };
+          return { outcome: 'version_conflict' as const, current: schedule };
+        }
 
-      if (input.changeType === 'CANCELLED') {
+        if (input.changeType === 'CANCELLED') {
+          const values: PatientScheduleWriteValues = {
+            authorizationItemId: current.authorization_item_id,
+            commercialCode: current.commercial_code,
+            planningPeriodId: current.planning_period_id,
+            dispensingPointId: current.dispensing_point_id,
+            scheduledDate: current.scheduled_date,
+            quantity: current.quantity,
+            status: 'CANCELLED',
+            scheduleTiming: current.schedule_timing,
+            lateHandling: current.late_handling,
+            deferredPlanningPeriodId: current.deferred_planning_period_id,
+          };
+          const schedule = await persistMutation(tx, input.id, current, values, input);
+          return { outcome: 'updated' as const, schedule };
+        }
+
+        const item = await lockAuthorizableItem(tx, current.authorization_item_id);
+        if (!item) return { outcome: 'authorization_not_found' as const };
+        if (item.codigo_medicamento !== current.commercial_code) {
+          return { outcome: 'commercial_code_mismatch' as const };
+        }
+        const eligibility = eligibilityOf(item);
+        if (!eligibility.eligible) {
+          return {
+            outcome: 'authorization_conflict' as const,
+            code: eligibility.code ?? 'PATIENT_SCHEDULE_AUTHORIZATION_NOT_SCHEDULABLE',
+            message: eligibility.message ?? 'The authorization is not schedulable',
+          };
+        }
+
+        const scheduledDate = requested.scheduledDate ?? current.scheduled_date;
+        const period = await lockPeriodForDate(tx, scheduledDate);
+        if (!period) return { outcome: 'period_not_found' as const };
+        const timing = classifyScheduleTiming(period, new Date());
+        const requestedHandling =
+          requested.requestedHandling === undefined
+            ? current.late_handling
+            : requested.requestedHandling;
+        const handling = resolveHandling(timing, requestedHandling);
+        if (!handling.ok) {
+          return {
+            outcome:
+              handling.reason === 'not_allowed'
+                ? 'invalid_late_handling'
+                : 'late_handling_required',
+            timing: handling.timing,
+          };
+        }
+        const deferredPlanningPeriodId = await resolveDeferredPeriod(tx, period, handling.value);
+        if (handling.value === 'NEXT_PERIOD' && deferredPlanningPeriodId === null) {
+          return { outcome: 'next_period_not_found' as const };
+        }
+
         const values: PatientScheduleWriteValues = {
           authorizationItemId: current.authorization_item_id,
           commercialCode: current.commercial_code,
-          planningPeriodId: current.planning_period_id,
-          dispensingPointId: current.dispensing_point_id,
-          scheduledDate: current.scheduled_date,
-          quantity: current.quantity,
-          status: 'CANCELLED',
-          scheduleTiming: current.schedule_timing,
-          lateHandling: current.late_handling,
-          deferredPlanningPeriodId: current.deferred_planning_period_id,
+          planningPeriodId: period.id,
+          dispensingPointId: requested.dispensingPointId ?? current.dispensing_point_id,
+          scheduledDate,
+          quantity: requested.quantity ?? current.quantity,
+          status:
+            scheduledDate !== current.scheduled_date
+              ? 'RESCHEDULED'
+              : (current.status as 'SCHEDULED' | 'RESCHEDULED'),
+          scheduleTiming: timing,
+          lateHandling: handling.value,
+          deferredPlanningPeriodId,
         };
+        if (isSameState(current, values)) {
+          const schedule = await selectJoined(tx, input.id);
+          if (!schedule) return { outcome: 'not_found' as const };
+          return { outcome: 'unchanged' as const, schedule };
+        }
+
         const schedule = await persistMutation(tx, input.id, current, values, input);
         return { outcome: 'updated' as const, schedule };
-      }
-
-      const item = await lockAuthorizableItem(tx, current.authorization_item_id);
-      if (!item) return { outcome: 'authorization_not_found' as const };
-      if (item.codigo_medicamento !== current.commercial_code) {
-        return { outcome: 'commercial_code_mismatch' as const };
-      }
-      const eligibility = eligibilityOf(item);
-      if (!eligibility.eligible) {
-        return {
-          outcome: 'authorization_conflict' as const,
-          code: eligibility.code ?? 'PATIENT_SCHEDULE_AUTHORIZATION_NOT_SCHEDULABLE',
-          message: eligibility.message ?? 'The authorization is not schedulable',
-        };
-      }
-
-      const scheduledDate = requested.scheduledDate ?? current.scheduled_date;
-      const period = await lockPeriodForDate(tx, scheduledDate);
-      if (!period) return { outcome: 'period_not_found' as const };
-      const timing = classifyScheduleTiming(period, new Date());
-      const requestedHandling =
-        requested.requestedHandling === undefined ? current.late_handling : requested.requestedHandling;
-      const handling = resolveHandling(timing, requestedHandling);
-      if (!handling.ok) {
-        return {
-          outcome: handling.reason === 'not_allowed' ? 'invalid_late_handling' : 'late_handling_required',
-          timing: handling.timing,
-        };
-      }
-      const deferredPlanningPeriodId = await resolveDeferredPeriod(tx, period, handling.value);
-      if (handling.value === 'NEXT_PERIOD' && deferredPlanningPeriodId === null) {
-        return { outcome: 'next_period_not_found' as const };
-      }
-
-      const values: PatientScheduleWriteValues = {
-        authorizationItemId: current.authorization_item_id,
-        commercialCode: current.commercial_code,
-        planningPeriodId: period.id,
-        dispensingPointId: requested.dispensingPointId ?? current.dispensing_point_id,
-        scheduledDate,
-        quantity: requested.quantity ?? current.quantity,
-        status:
-          scheduledDate !== current.scheduled_date
-            ? 'RESCHEDULED'
-            : (current.status as 'SCHEDULED' | 'RESCHEDULED'),
-        scheduleTiming: timing,
-        lateHandling: handling.value,
-        deferredPlanningPeriodId,
-      };
-      if (isSameState(current, values)) {
-        const schedule = await selectJoined(tx, input.id);
-        if (!schedule) return { outcome: 'not_found' as const };
-        return { outcome: 'unchanged' as const, schedule };
-      }
-
-      const schedule = await persistMutation(tx, input.id, current, values, input);
-      return { outcome: 'updated' as const, schedule };
       }),
     );
   }
@@ -670,7 +688,9 @@ export class PatientScheduleRepository {
 
   async loadActiveSchedulesForItems(
     itemIds: readonly string[],
-  ): Promise<Array<{ authorizationItemId: string; dispensingPointId: string; scheduledDate: string }>> {
+  ): Promise<
+    Array<{ authorizationItemId: string; dispensingPointId: string; scheduledDate: string }>
+  > {
     if (itemIds.length === 0) return [];
     const placeholders = itemIds.map((id) => sql`${id}::uuid`);
     const result = await this.database.db.execute<{
@@ -1202,6 +1222,32 @@ async function findNextPeriodWithinTransaction(
   };
 }
 
+/**
+ * Unique-identity violations abort the PostgreSQL transaction. A savepoint
+ * keeps a caller-supplied outer transaction (bulk row execution) usable so
+ * the duplicate can surface as a domain outcome instead of 25P02.
+ */
+async function persistNewScheduleIsolated(
+  tx: Transaction,
+  values: PatientScheduleWriteValues,
+  actor: PatientScheduleActor,
+): Promise<PatientSchedulePersistenceOutcome> {
+  await tx.execute(sql`savepoint esp003_persist_schedule`);
+  try {
+    const schedule = await persistNewSchedule(tx, values, actor);
+    await tx.execute(sql`release savepoint esp003_persist_schedule`);
+    return { outcome: 'created' as const, schedule };
+  } catch (error) {
+    try {
+      await tx.execute(sql`rollback to savepoint esp003_persist_schedule`);
+    } catch {
+      // 25P02: the driver already aborted past the savepoint; propagate original.
+    }
+    if (isScheduleDuplicateError(error)) return { outcome: 'duplicate_schedule' as const };
+    throw error;
+  }
+}
+
 async function persistNewSchedule(
   tx: Transaction,
   values: PatientScheduleWriteValues,
@@ -1298,16 +1344,29 @@ async function persistMutation(
  */
 export function isScheduleDuplicateError(error: unknown): boolean {
   let current: unknown = error;
-  for (let depth = 0; depth < 6; depth += 1) {
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (typeof current === 'string') {
+      return current.includes('patient_schedules_active_identity_idx');
+    }
     if (typeof current !== 'object' || current === null) return false;
-    const candidate = current as { code?: unknown; constraint?: unknown; cause?: unknown };
+    const candidate = current as {
+      code?: unknown;
+      constraint?: unknown;
+      cause?: unknown;
+      message?: unknown;
+    };
+    const constraint = candidate.constraint;
+    const message = typeof candidate.message === 'string' ? candidate.message : '';
     if (
       candidate.code === '23505' &&
-      candidate.constraint === 'patient_schedules_active_identity_idx'
+      (constraint === 'patient_schedules_active_identity_idx' ||
+        (typeof constraint === 'string' &&
+          constraint.includes('patient_schedules_active_identity')) ||
+        message.includes('patient_schedules_active_identity_idx'))
     ) {
       return true;
     }
-    current = candidate.cause;
+    current = candidate.cause ?? (message || undefined);
   }
   return false;
 }

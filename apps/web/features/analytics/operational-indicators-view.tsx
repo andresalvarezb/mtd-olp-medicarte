@@ -21,6 +21,7 @@ import {
   getAnalyticsInventory,
   getOperationalAnalytics,
 } from '@/lib/analytics-api';
+import { downloadAnalyticsExport } from '@/lib/bulk-import-api';
 import { listPlanningPeriods } from '@/lib/planning-periods-api';
 import { listDispensingPoints } from '@/lib/patient-schedules-api';
 import {
@@ -99,6 +100,24 @@ export function OperationalIndicatorsView() {
       <PageHeader
         title="Indicadores"
         description="Read model operacional y económico derivado de hechos persistidos. No es contabilidad ni fuente de verdad."
+        actions={
+          <button
+            className="button"
+            type="button"
+            onClick={() => {
+              void downloadAnalyticsExport(organizationId, query).then((blob) => {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'indicadores-operacionales.xlsx';
+                link.click();
+                URL.revokeObjectURL(url);
+              });
+            }}
+          >
+            Exportar XLSX
+          </button>
+        }
       />
       <Card>
         <CardHead title="Filtros" subtitle="Período, punto, producto y fechas de flujo." />

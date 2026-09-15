@@ -1983,3 +1983,138 @@ export const novelties = pgTable(
     check('novelties_attempt_number_check', sql`${table.attemptNumber} > 0`),
   ],
 );
+
+export const bulkImportJobs = pgTable(
+  'bulk_import_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    importType: varchar('import_type', { length: 40 }).notNull(),
+    templateVersion: varchar('template_version', { length: 80 }).notNull(),
+    status: varchar('status', { length: 30 }).notNull().default('UPLOADED'),
+    originalFilename: varchar('original_filename', { length: 255 }).notNull(),
+    mimeType: varchar('mime_type', { length: 160 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    fileHash: varchar('file_hash', { length: 64 }).notNull(),
+    duplicateFile: boolean('duplicate_file').notNull().default(false),
+    totalRows: integer('total_rows').notNull().default(0),
+    validRows: integer('valid_rows').notNull().default(0),
+    invalidRows: integer('invalid_rows').notNull().default(0),
+    duplicateRows: integer('duplicate_rows').notNull().default(0),
+    warningRows: integer('warning_rows').notNull().default(0),
+    succeededRows: integer('succeeded_rows').notNull().default(0),
+    failedRows: integer('failed_rows').notNull().default(0),
+    skippedRows: integer('skipped_rows').notNull().default(0),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    correlationId: uuid('correlation_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    validatedAt: timestamp('validated_at', { withTimezone: true }),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    failedAt: timestamp('failed_at', { withTimezone: true }),
+    processingGeneration: integer('processing_generation').notNull().default(0),
+    processingToken: uuid('processing_token'),
+    processingHeartbeatAt: timestamp('processing_heartbeat_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('bulk_import_jobs_org_status_idx').on(
+      table.organizationId,
+      table.status,
+      table.createdAt,
+    ),
+    index('bulk_import_jobs_hash_idx').on(table.createdBy, table.fileHash),
+    check('bulk_import_jobs_type_check', sql`${table.importType} = 'SCHEDULING'`),
+    check(
+      'bulk_import_jobs_status_check',
+      sql`${table.status} IN ('UPLOADED', 'VALIDATING', 'READY', 'INVALID', 'PROCESSING', 'COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED')`,
+    ),
+    check(
+      'bulk_import_jobs_size_bytes_check',
+      sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 20971520`,
+    ),
+    check('bulk_import_jobs_processing_generation_check', sql`${table.processingGeneration} >= 0`),
+  ],
+);
+
+export const bulkImportRows = pgTable(
+  'bulk_import_rows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    jobId: uuid('job_id')
+      .notNull()
+      .references(() => bulkImportJobs.id, { onDelete: 'cascade' }),
+    rowNumber: integer('row_number').notNull(),
+    rawPayload: jsonb('raw_payload').notNull(),
+    normalizedPayload: jsonb('normalized_payload'),
+    validationStatus: varchar('validation_status', { length: 20 }).notNull(),
+    errorCode: varchar('error_code', { length: 80 }),
+    errorMessage: text('error_message'),
+    errorColumn: varchar('error_column', { length: 80 }),
+    entityReference: uuid('entity_reference'),
+    executionStatus: varchar('execution_status', { length: 20 }).notNull().default('PENDING'),
+    executionErrorCode: varchar('execution_error_code', { length: 80 }),
+    executionError: text('execution_error'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    executedAt: timestamp('executed_at', { withTimezone: true }),
+    claimToken: uuid('claim_token'),
+    claimGeneration: integer('claim_generation').notNull().default(0),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    claimExpiresAt: timestamp('claim_expires_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('bulk_import_rows_job_row_unique').on(table.jobId, table.rowNumber),
+    unique('bulk_import_rows_idempotency_unique').on(table.idempotencyKey),
+    index('bulk_import_rows_job_status_idx').on(
+      table.jobId,
+      table.validationStatus,
+      table.executionStatus,
+      table.rowNumber,
+    ),
+    index('bulk_import_rows_claim_idx').on(
+      table.jobId,
+      table.executionStatus,
+      table.claimExpiresAt,
+    ),
+    check('bulk_import_rows_row_number_check', sql`${table.rowNumber} > 0`),
+    check(
+      'bulk_import_rows_validation_status_check',
+      sql`${table.validationStatus} IN ('VALID', 'INVALID', 'DUPLICATE', 'CONFLICT')`,
+    ),
+    check(
+      'bulk_import_rows_execution_status_check',
+      sql`${table.executionStatus} IN ('PENDING', 'PROCESSING', 'SUCCEEDED', 'FAILED', 'SKIPPED')`,
+    ),
+    check('bulk_import_rows_claim_generation_check', sql`${table.claimGeneration} >= 0`),
+  ],
+);
+
+export const bulkImportRowAttempts = pgTable(
+  'bulk_import_row_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    rowId: uuid('row_id')
+      .notNull()
+      .references(() => bulkImportRows.id, { onDelete: 'cascade' }),
+    attemptNumber: integer('attempt_number').notNull(),
+    status: varchar('status', { length: 20 }).notNull(),
+    errorCode: varchar('error_code', { length: 80 }),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('bulk_import_row_attempts_unique').on(table.rowId, table.attemptNumber),
+    check('bulk_import_row_attempts_number_check', sql`${table.attemptNumber} > 0`),
+    check(
+      'bulk_import_row_attempts_status_check',
+      sql`${table.status} IN ('SUCCEEDED', 'FAILED', 'SKIPPED')`,
+    ),
+  ],
+);

@@ -1,5 +1,6 @@
-import { Controller, Get, Headers, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Headers, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { z } from 'zod';
 import { analyticsDrilldownQuerySchema, analyticsQuerySchema } from '@authorization/contracts';
 import { AuthGuard } from '../common/auth.guard';
@@ -7,6 +8,7 @@ import { scopeFromProfile } from '../common/request-scope';
 import { AccessService } from '../identity/access.service';
 import type { AuthenticatedRequest } from '../types';
 import { AnalyticsService } from './analytics.service';
+import { buildAnalyticsExportWorkbook } from './analytics-export';
 
 @ApiTags('analytics')
 @ApiBearerAuth()
@@ -82,6 +84,37 @@ export class AnalyticsController {
   ) {
     await this.scope(organizationId, request, 'analytics.read');
     return this.analytics.drilldown(analyticsDrilldownQuerySchema.parse(raw ?? {}));
+  }
+
+  @Get('export.xlsx')
+  async exportXlsx(
+    @Query() raw: unknown,
+    @Res() response: Response,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const query = analyticsQuerySchema.parse(raw ?? {});
+    const profile = await this.require(organizationId, request, 'analytics.read');
+    const includeEconomics = Boolean(
+      profile.organizations
+        .find((organization) => organization.id === z.string().uuid().parse(organizationId))
+        ?.permissions.includes('analytics.economics.read'),
+    );
+    const payload = await this.analytics.operational(
+      query,
+      scopeFromProfile(profile, z.string().uuid().parse(organizationId), request),
+      includeEconomics,
+    );
+    const buffer = buildAnalyticsExportWorkbook(payload, includeEconomics);
+    response.setHeader(
+      'content-type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader(
+      'content-disposition',
+      'attachment; filename="indicadores-operacionales.xlsx"',
+    );
+    response.send(buffer);
   }
 
   private async require(

@@ -1552,3 +1552,111 @@ export const analyticsDrilldownResponseSchema = z.object({
   items: z.array(analyticsDrilldownItemSchema),
 });
 export type AnalyticsDrilldownResponse = z.infer<typeof analyticsDrilldownResponseSchema>;
+
+export const BULK_IMPORT_TYPE_SCHEDULING = 'SCHEDULING' as const;
+export const ESP014_SCHEDULING_TEMPLATE_VERSION = 'ESP014_SCHEDULING_V1' as const;
+export const BULK_IMPORT_MAX_FILE_BYTES = 20 * 1024 * 1024;
+export const BULK_IMPORT_MAX_ROWS = 5000;
+export const BULK_IMPORT_MAX_COLUMNS = 20;
+export const BULK_IMPORT_MAX_SHEETS = 5;
+
+export const SCHEDULING_TEMPLATE_REQUIRED_COLUMNS = [
+  'AUTORIZACION',
+  'DOCUMENTO',
+  'COD_COMERCIAL',
+  'CANTIDAD',
+  'PUNTO',
+  'FECHA_PROGRAMADA',
+] as const;
+export const SCHEDULING_TEMPLATE_OPTIONAL_COLUMNS = ['MANEJO_TARDIO'] as const;
+
+export const bulkImportJobStatusSchema = z.enum([
+  'UPLOADED',
+  'VALIDATING',
+  'READY',
+  'INVALID',
+  'PROCESSING',
+  'COMPLETED',
+  'PARTIALLY_COMPLETED',
+  'FAILED',
+  'CANCELLED',
+]);
+export type BulkImportJobStatus = z.infer<typeof bulkImportJobStatusSchema>;
+
+export const bulkImportRowValidationStatusSchema = z.enum([
+  'VALID',
+  'INVALID',
+  'DUPLICATE',
+  'CONFLICT',
+]);
+export type BulkImportRowValidationStatus = z.infer<typeof bulkImportRowValidationStatusSchema>;
+
+export const bulkImportRowExecutionStatusSchema = z.enum([
+  'PENDING',
+  'PROCESSING',
+  'SUCCEEDED',
+  'FAILED',
+  'SKIPPED',
+]);
+export type BulkImportRowExecutionStatus = z.infer<typeof bulkImportRowExecutionStatusSchema>;
+
+export const bulkImportValidationErrorSchema = z.object({
+  code: z.string(),
+  rowNumber: z.number().int().positive().nullable(),
+  column: z.string().nullable(),
+  message: z.string(),
+  value: z.string().nullable(),
+});
+export type BulkImportValidationError = z.infer<typeof bulkImportValidationErrorSchema>;
+
+export const bulkImportJobResponseSchema = z.object({
+  id: z.string().uuid(),
+  importType: z.literal('SCHEDULING'),
+  templateVersion: z.string(),
+  status: bulkImportJobStatusSchema,
+  originalFilename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  fileHash: z.string().length(64),
+  duplicateFile: z.boolean(),
+  totalRows: z.number().int().nonnegative(),
+  validRows: z.number().int().nonnegative(),
+  invalidRows: z.number().int().nonnegative(),
+  duplicateRows: z.number().int().nonnegative(),
+  warningRows: z.number().int().nonnegative(),
+  createRows: z.number().int().nonnegative(),
+  conflictRows: z.number().int().nonnegative(),
+  succeededRows: z.number().int().nonnegative(),
+  failedRows: z.number().int().nonnegative(),
+  skippedRows: z.number().int().nonnegative(),
+  lastErrorCode: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+  validatedAt: isoDateTimeSchema.nullable(),
+  confirmedAt: isoDateTimeSchema.nullable(),
+  completedAt: isoDateTimeSchema.nullable(),
+  cancelledAt: isoDateTimeSchema.nullable(),
+});
+export type BulkImportJobResponse = z.infer<typeof bulkImportJobResponseSchema>;
+
+export const bulkImportRowResponseSchema = z.object({
+  id: z.string().uuid(),
+  rowNumber: z.number().int().positive(),
+  validationStatus: bulkImportRowValidationStatusSchema,
+  executionStatus: bulkImportRowExecutionStatusSchema,
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  column: z.string().nullable(),
+  entityReference: z.string().uuid().nullable(),
+  attemptCount: z.number().int().nonnegative(),
+  authorizationNumber: z.string().nullable(),
+  commercialCode: z.string().nullable(),
+  dispensingPointCode: z.string().nullable(),
+  scheduledDate: z.string().date().nullable(),
+  quantity: z.number().int().nullable(),
+});
+export type BulkImportRowResponse = z.infer<typeof bulkImportRowResponseSchema>;
+
+export const bulkImportRowListQuerySchema = z.object({
+  filter: z.enum(['ALL', 'VALID', 'INVALID', 'EXECUTED', 'FAILED']).optional().default('ALL'),
+});
+export type BulkImportRowListQuery = z.infer<typeof bulkImportRowListQuerySchema>;

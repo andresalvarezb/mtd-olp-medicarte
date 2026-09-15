@@ -9,6 +9,9 @@ if (!process.env.DATABASE_URL && existsSync(envPath)) {
 }
 
 const OPERATIONAL_TABLES = [
+  'bulk_import_row_attempts',
+  'bulk_import_rows',
+  'bulk_import_jobs',
   'patient_application_audits',
   'patient_application_lines',
   'patient_applications',

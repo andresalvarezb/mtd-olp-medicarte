@@ -36,7 +36,9 @@ import {
 import type { Scope } from '../common/request-scope';
 import {
   PatientScheduleRepository,
+  isScheduleDuplicateError,
   type PatientScheduleScope,
+  type PatientScheduleTransaction,
   type PlanningPeriodContext,
 } from './patient-schedule.repository';
 
@@ -64,17 +66,34 @@ export class PatientScheduleService {
     // La escritura es autoritativa: el repository revalida en transacción con
     // locks y devuelve errores estructurados ante estado obsoleto.
     const outcome = await this.repository.create({
-      request: {
-        authorizationItemId: input.body.authorizationItemId,
-        commercialCode: item.commercialCode,
-        dispensingPointId: input.body.dispensingPointId,
-        scheduledDate: input.body.scheduledDate,
-        quantity: input.body.quantity,
-        requestedLateHandling: input.body.lateHandling ?? null,
-      },
+      request: toCreateInput(input.body, item.commercialCode),
       actor: input.actor,
     });
     return unwrapPersistenceOutcome(outcome);
+  }
+
+  async createInTx(
+    tx: PatientScheduleTransaction,
+    input: {
+      body: CreatePatientScheduleRequest;
+      actor: Scope;
+    },
+  ): Promise<PatientScheduleResponse> {
+    try {
+      const outcome = await this.repository.createInTx(tx, {
+        request: toCreateInput(input.body, normalizeCommercialCode(input.body.commercialCode)),
+        actor: input.actor,
+      });
+      return unwrapPersistenceOutcome(outcome);
+    } catch (error) {
+      if (isScheduleDuplicateError(error)) {
+        throw new ConflictException({
+          code: 'PATIENT_SCHEDULE_DUPLICATE',
+          message: 'An active schedule already exists for the same authorization, point and date',
+        });
+      }
+      throw error;
+    }
   }
 
   async list(query: PatientScheduleListQuery, actor: Scope): Promise<PatientScheduleResponse[]> {
@@ -91,10 +110,7 @@ export class PatientScheduleService {
     authorizationItemId: string,
     actor: Scope,
   ): Promise<PatientScheduleResponse[]> {
-    return this.repository.findByAuthorization(
-      authorizationItemId,
-      toPatientScheduleScope(actor),
-    );
+    return this.repository.findByAuthorization(authorizationItemId, toPatientScheduleScope(actor));
   }
 
   async findByPatient(patientDocument: string, actor: Scope): Promise<PatientScheduleResponse[]> {
@@ -315,6 +331,27 @@ export class PatientScheduleService {
     }
     return period;
   }
+}
+
+function toCreateInput(
+  body: CreatePatientScheduleRequest,
+  commercialCode: string,
+): {
+  authorizationItemId: string;
+  commercialCode: string;
+  dispensingPointId: string;
+  scheduledDate: string;
+  quantity: number;
+  requestedLateHandling: LateHandling | null;
+} {
+  return {
+    authorizationItemId: body.authorizationItemId,
+    commercialCode,
+    dispensingPointId: body.dispensingPointId,
+    scheduledDate: body.scheduledDate,
+    quantity: body.quantity,
+    requestedLateHandling: body.lateHandling ?? null,
+  };
 }
 
 export function toPatientScheduleScope(actor: Scope): PatientScheduleScope {

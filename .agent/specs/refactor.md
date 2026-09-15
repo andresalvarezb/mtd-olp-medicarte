@@ -16,7 +16,8 @@
 | ESP-010        | ACCEPTED                     |
 | ESP-011        | ACCEPTED                     |
 | ESP-012        | ACCEPTED                     |
-| ESP-013        | IMPLEMENTED / PENDING REVIEW |
+| ESP-013        | ACCEPTED                     |
+| ESP-014        | IMPLEMENTED / PENDING REVIEW |
 
 ### Evidencia de cierre ESP-010
 
@@ -71,6 +72,23 @@ Medicarte, OLP y Compensar no tienen acceso a auditoría de aplicaciones. `READY
 - format:check se aplicó solo a archivos de ESP-013. No hay nueva deuda de formato.
 
 Analytics es read model. El stock actual no se llama sobrante del período. Tarifa COMPENSAR y costo OLP permanecen separados. La tarifa activa actual no se presenta como tarifa histórica. `appliedSupplierCost` es UNAVAILABLE. `effectivePurchaseCoverage` incluye DRAFT; `requestedQuantity` no. No hay utilidad contable ni reserva de stock. Los endpoints analytics son GET.
+
+### Evidencia de cierre ESP-014
+
+- migration: `0045_esp014_bulk_imports.sql` + `0046_esp014_claim_fencing.sql` (claim token/generation/lease; no se reescribe 0045)
+- ADR: `ADR-037-esp-014-bulk-operations-export.md`
+- Gate A clean install: PASS (47 migraciones, 0000–0046)
+- Gate B ESP-013 → ESP-014: PASS (45 → 47, únicamente `0045_esp014_bulk_imports.sql` y `0046_esp014_claim_fencing.sql`)
+- Gate ESP-014: 15/15 PASS (matriz de 45 requisitos mapeada)
+- Unit suite: 168/168 PASS
+- Integration suite: 297/297 PASS
+- lint: PASS
+- typecheck: PASS
+- build: PASS
+- git diff --check: PASS
+- format:check se aplicó solo a archivos de ESP-014. No hay nueva deuda de formato.
+
+XLSX es transporte. Staging no muta hechos. Preview no reserva. Confirm ejecuta cada fila válida en una transacción: claim fenced + `PatientScheduleService.createInTx(tx)` + mark `SUCCEEDED`. La API individual sigue usando `create()`. PostgreSQL coordina confirmación entre nodos (claim atómico + fencing + lease). El mutex in-memory se eliminó. Partial success es explícito. Retry no reejecuta `SUCCEEDED`. `PATIENT_SCHEDULE_DUPLICATE` genérico permanece error. Export reutiliza ESP-013. `UNAVAILABLE` no se convierte en 0. No hay `RESERVED`. No hay bulk de application/inventory/audit. PostgreSQL sigue siendo source of truth. Sin commit hasta revisión.
 
 ### Invariantes consolidadas hasta ESP-010
 
@@ -1295,7 +1313,7 @@ Definiciones canónicas: `.agent/adr/ADR-036-esp-013-operational-economics.md` y
 - `receivedMinusAppliedFlow` es indicador de flujo, no inventario atribuible.
 - Economía: tarifa COMPENSAR y costo OLP separados. `projectedTariffReferenceValue` no usa el anexo activo actual como tarifa histórica; sin lineage de período queda UNAVAILABLE. `appliedSupplierCost` siempre UNAVAILABLE.
 - Dinero: string decimal de 2 cifras. Tasas con denominador 0 → `null`.
-- Export XLSX: no implementado; queda para ESP-014 (la infraestructura XLSX existente es de importación).
+- Export XLSX: ESP-014 `GET /analytics/export.xlsx` reutiliza este read model. No recalcula KPIs.
 - RBAC: `analytics.read` y `analytics.economics.read` para roles MTD y READ_ONLY. Medicarte/OLP/Compensar sin acceso.
 
 ## API
@@ -1318,71 +1336,59 @@ Hecho: módulo `apps/api/src/analytics/` con SQL agregada.
 
 ### PT-013.3 — Dashboard
 
-Hecho: tablero MTD. Medicarte/OLP no tienen tablero ESP-013. XLSX diferido a ESP-014.
+Hecho: tablero MTD. Medicarte/OLP no tienen tablero ESP-013. Export XLSX en ESP-014.
 
 ---
 
-# ESP-014 — Operación manual y masiva
+# ESP-014 — Operaciones masivas, importación y exportación XLSX
 
 ## Objetivo
 
-Mantener los dos modos operacionales requeridos.
+XLSX es transporte, no dominio. Importación muta solo mediante commands ya aceptados. Exportación es solo lectura del read model ESP-013.
 
-## Procesos con ambos modos
+## Alcance real de importación
 
-### Medicarte
+`SCHEDULING` únicamente (programaciones Medicarte). No hay bulk de applications, inventory, receipts, transfers, audits, OC, deliveries ni outcomes.
+
+## Semántica implementada
+
+Definiciones canónicas: `.agent/adr/ADR-037-esp-014-bulk-operations-export.md`.
+
+- Plantilla `ESP014_SCHEDULING_V1` (hojas `Programacion`, `METADATA`, `Instrucciones`).
+- Staging `bulk_import_jobs` / `bulk_import_rows` / `bulk_import_row_attempts`. Sin binario XLSX en PostgreSQL.
+- Preview informativo: no reserva identidad, inventario, período ni autorización.
+- Confirmación explícita sobre `READY`. `createInTx()` de ESP-003 revalida y persiste en la misma transacción que el mark `SUCCEEDED`.
+- Una transacción/comando por fila. Partial success = `PARTIALLY_COMPLETED`.
+- Idempotencia `jobId:rowNumber` + claim atómico de fila en PostgreSQL (`FOR UPDATE SKIP LOCKED` + token/generation). `SUCCEEDED` no se reejecuta.
+- Sin cola BullMQ nueva. Tope 5000 filas; la API procesa en el request. PostgreSQL coordina confirmación entre nodos. No hay mutex in-memory de corrección.
+- Cancel permitido en `UPLOADED` / `VALIDATING` / `READY` / `INVALID`. No durante `PROCESSING`.
+- `retry-failed` solo filas `FAILED` (o `PROCESSING` con lease expirado) desde `PARTIALLY_COMPLETED` o `FAILED`.
+- Crash recovery: lease 120 s; reclaim fenced y auditado (`BULK_IMPORT_ROW_RECLAIMED`). El estado final del job se deriva de las filas persistidas.
+- Export `GET /analytics/export.xlsx` llama a `AnalyticsService.operational`. Economía solo con `analytics.economics.read`. `UNAVAILABLE` → "No disponible".
+- RBAC: `bulk_imports.manage` = MEDICARTE_OPERATOR. `bulk_imports.read` = Medicarte + roles MTD/READ_ONLY. OLP y Compensar 403.
+- Límites MVP: 20 MiB, 5000 filas, 20 columnas, 5 hojas.
+
+## API
 
 ```text
-programación
-aplicación
+GET  /bulk-imports/scheduling/template.xlsx
+POST /bulk-imports/scheduling/upload
+GET  /bulk-imports
+GET  /bulk-imports/:id
+GET  /bulk-imports/:id/rows
+POST /bulk-imports/:id/validate
+POST /bulk-imports/:id/confirm
+POST /bulk-imports/:id/cancel
+POST /bulk-imports/:id/retry-failed
+GET  /bulk-imports/:id/result.xlsx
+GET  /analytics/export.xlsx
 ```
 
-### OLP
+La validación ocurre en el upload; `POST /validate` relee el job.
 
-```text
-aceptación de OC
-entregas
-```
+## UI
 
-La plataforma continuará trabajando mediante cargas manuales; no se implementará todavía integración API externa con Medicarte u OLP.
-
-## Arquitectura
-
-Los XLSX voluminosos deberán continuar utilizando staging + worker + resultados por fila.
-
-La arquitectura BullMQ existente es apropiada para estos procesos porque permite sacar trabajos pesados del ciclo síncrono HTTP y procesarlos mediante workers persistidos en Redis.
-
-## Plan de trabajo
-
-### PT-014.1 — Plantillas
-
-Tareas:
-
-- Plantilla programación.
-- Plantilla aplicación.
-- Plantilla recepción/entrega si resulta operacionalmente conveniente.
-- Versionar plantillas.
-
-### PT-014.2 — Staging
-
-Tareas:
-
-- Reutilizar `bulk_update_batches`.
-- Separar tipo de operación.
-- Normalizar filas.
-- Validar.
-- Preview.
-- Confirmar.
-
-### PT-014.3 — Worker
-
-Tareas:
-
-- Crear jobs.
-- Implementar idempotencia.
-- Reintentos.
-- DLQ.
-- Reporte por fila.
+Módulo Importaciones (`/importaciones`) y botón Exportar XLSX en Indicadores con los filtros activos.
 
 ---
 

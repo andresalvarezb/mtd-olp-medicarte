@@ -19,6 +19,7 @@ describe('clean navigation', () => {
       'operationalOutcomes',
       'applicationAudits',
       'operationalIndicators',
+      'bulkImports',
       'admin',
     ]);
     expect(ALL_NAV_ITEMS[0]?.roles).toEqual(ROLES);
@@ -89,5 +90,16 @@ describe('clean navigation', () => {
     expect(indicators?.roles).not.toContain('MEDICARTE');
     expect(indicators?.roles).not.toContain('OLP');
     expect(indicators?.roles).not.toContain('COMPENSAR');
+  });
+
+  it('exposes bulk imports to Medicarte and MTD, never to OLP or Compensar', () => {
+    const imports = ALL_NAV_ITEMS.find((item) => item.view === 'bulkImports');
+    expect(imports).toMatchObject({
+      href: '/importaciones',
+      permission: 'bulk_imports.read',
+    });
+    expect(imports?.roles).toContain('MEDICARTE');
+    expect(imports?.roles).not.toContain('OLP');
+    expect(imports?.roles).not.toContain('COMPENSAR');
   });
 });

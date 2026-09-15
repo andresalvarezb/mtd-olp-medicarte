@@ -6,9 +6,11 @@ import {
   analyticsRatioMetricSchema,
   applicationAuditRejectionCodeSchema,
   applicationAuditStatusSchema,
+  bulkImportJobResponseSchema,
   clinicalAuthorizationReferenceSchema,
   createPatientScheduleRequestSchema,
   createPlanningPeriodRequestSchema,
+  ESP014_SCHEDULING_TEMPLATE_VERSION,
   foundationJobSchema,
   legacyAuthorizationHistoryResponseSchema,
   loginRequestSchema,
@@ -18,6 +20,7 @@ import {
   projectedDemandLineResponseSchema,
   rejectApplicationAuditRequestSchema,
   reschedulePatientScheduleRequestSchema,
+  SCHEDULING_TEMPLATE_REQUIRED_COLUMNS,
   transitionPlanningPeriodRequestSchema,
   updatePatientScheduleRequestSchema,
   usernameSchema,
@@ -288,5 +291,48 @@ describe('ESP-013 analytics contracts', () => {
     expect(operationalAnalyticsResponseSchema.shape.funnel.shape).not.toHaveProperty(
       'effectivePurchaseCoverage',
     );
+  });
+});
+
+describe('ESP-014 bulk import contracts', () => {
+  it('keeps scheduling template version and columns in one contract', () => {
+    expect(ESP014_SCHEDULING_TEMPLATE_VERSION).toBe('ESP014_SCHEDULING_V1');
+    expect(SCHEDULING_TEMPLATE_REQUIRED_COLUMNS).toEqual([
+      'AUTORIZACION',
+      'DOCUMENTO',
+      'COD_COMERCIAL',
+      'CANTIDAD',
+      'PUNTO',
+      'FECHA_PROGRAMADA',
+    ]);
+    expect(
+      bulkImportJobResponseSchema.parse({
+        id: '00000000-0000-4000-8000-000000000001',
+        importType: 'SCHEDULING',
+        templateVersion: ESP014_SCHEDULING_TEMPLATE_VERSION,
+        status: 'READY',
+        originalFilename: 'programacion.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        sizeBytes: 12,
+        fileHash: 'a'.repeat(64),
+        duplicateFile: false,
+        totalRows: 2,
+        validRows: 1,
+        invalidRows: 1,
+        duplicateRows: 0,
+        warningRows: 0,
+        createRows: 1,
+        conflictRows: 0,
+        succeededRows: 0,
+        failedRows: 0,
+        skippedRows: 0,
+        lastErrorCode: null,
+        createdAt: '2026-09-14T12:00:00.000Z',
+        validatedAt: '2026-09-14T12:00:01.000Z',
+        confirmedAt: null,
+        completedAt: null,
+        cancelledAt: null,
+      }).status,
+    ).toBe('READY');
   });
 });

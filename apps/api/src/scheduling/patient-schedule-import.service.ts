@@ -139,7 +139,7 @@ export class PatientScheduleImportService {
       });
     }
 
-    const rows = await this.stageRows(parsed, input.actor);
+    const rows = await this.classifyParsedRows(parsed, input.actor);
     const sha256 = createHash('sha256').update(file.buffer).digest('hex');
     const batch = await this.repository.createImportBatch({
       actor: input.actor,
@@ -154,30 +154,18 @@ export class PatientScheduleImportService {
   }
 
   async getImport(importId: string, actor: Scope): Promise<PatientScheduleImportBatchResponse> {
-    const batch = await this.repository.findImportById(
-      importId,
-      toPatientScheduleScope(actor),
-    );
+    const batch = await this.repository.findImportById(importId, toPatientScheduleScope(actor));
     if (!batch) throw importNotFound();
     return toImportBatchResponse(batch);
   }
 
   async listImports(actor: Scope, limit: number): Promise<PatientScheduleImportBatchResponse[]> {
-    const batches = await this.repository.listImportBatches(
-      toPatientScheduleScope(actor),
-      limit,
-    );
+    const batches = await this.repository.listImportBatches(toPatientScheduleScope(actor), limit);
     return batches.map(toImportBatchResponse);
   }
 
-  async getImportRows(
-    importId: string,
-    actor: Scope,
-  ): Promise<PatientScheduleImportRowResponse[]> {
-    const batch = await this.repository.findImportById(
-      importId,
-      toPatientScheduleScope(actor),
-    );
+  async getImportRows(importId: string, actor: Scope): Promise<PatientScheduleImportRowResponse[]> {
+    const batch = await this.repository.findImportById(importId, toPatientScheduleScope(actor));
     if (!batch) throw importNotFound();
     const rows = await this.repository.listImportRows(importId);
     return rows.map(toImportRowResponse);
@@ -225,7 +213,7 @@ export class PatientScheduleImportService {
     return toImportBatchResponse(finalized ?? batch);
   }
 
-  private async stageRows(
+  async classifyParsedRows(
     parsed: readonly ParsedPatientScheduleRow[],
     actor: Scope,
   ): Promise<StagedImportRowInsert[]> {

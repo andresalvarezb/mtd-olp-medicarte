@@ -316,6 +316,20 @@
       "when": 1790460433663,
       "tag": "0044_esp013_analytics",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790460434663,
+      "tag": "0045_esp014_bulk_imports",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1790460435663,
+      "tag": "0046_esp014_claim_fencing",
+      "breakpoints": true
     }
   ]
 }
