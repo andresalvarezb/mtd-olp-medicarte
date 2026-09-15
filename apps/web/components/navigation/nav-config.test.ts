@@ -20,6 +20,7 @@ describe('clean navigation', () => {
       'applicationAudits',
       'operationalIndicators',
       'bulkImports',
+      'operationalIntegrity',
       'admin',
       'operationalScopes',
     ]);
@@ -113,5 +114,17 @@ describe('clean navigation', () => {
     expect(scopes?.roles).toContain('MTD');
     expect(scopes?.roles).toContain('MTD_AUDITORIA');
     expect(scopes?.roles).not.toContain('MEDICARTE');
+  });
+
+  it('exposes operational integrity to MTD read roles and never to Medicarte, OLP or Compensar', () => {
+    const integrity = ALL_NAV_ITEMS.find((item) => item.view === 'operationalIntegrity');
+    expect(integrity).toMatchObject({
+      href: '/integridad',
+      permission: 'reconciliation.read',
+    });
+    expect(integrity?.roles).toEqual(['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY']);
+    expect(integrity?.roles).not.toContain('MEDICARTE');
+    expect(integrity?.roles).not.toContain('OLP');
+    expect(integrity?.roles).not.toContain('COMPENSAR');
   });
 });

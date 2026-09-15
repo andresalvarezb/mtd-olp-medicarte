@@ -113,6 +113,20 @@ export const LEGACY_SCAN_ALLOWLIST = [
     reason:
       'explicit legacy boundary: LegacyAuthorizationHistoryRepository + LegacyCompatibilityProjectionService (NEW → legacy only)',
   },
+  {
+    path: 'packages/domain/src/reconciliation-registry.ts',
+    rule: 'forbidden_legacy' as const,
+    fields: 'audit_status (catalog text)',
+    reason:
+      'ESP-017 rule catalog documents leftover compatibility verification; it does not write leftover columns',
+  },
+  {
+    path: 'apps/api/src/reconciliation/reconciliation.rules-rest.ts',
+    rule: 'forbidden_legacy' as const,
+    fields: 'ai.audit_status',
+    reason:
+      'ESP-017 REC-LEG-002 reads leftover audit_status only to detect divergence from modern audits; read-only, no projection write',
+  },
 ] as const satisfies readonly LegacyScanAllowlistEntry[];
 
 export const LEGACY_SCAN_ALLOWLIST_PATHS = LEGACY_SCAN_ALLOWLIST.map((entry) => entry.path);
@@ -158,6 +172,19 @@ export const LEGACY_SCAN_ADMISSION_ALLOWLIST = [
     rule: 'admission_boundary' as const,
     fields: 'admissionStatus',
     reason: 'displays ESP-012 admissionStatus from the application-audit read model',
+  },
+  {
+    path: 'packages/domain/src/reconciliation-registry.ts',
+    rule: 'admission_boundary' as const,
+    fields: 'admission_status',
+    reason: 'ESP-017 catalog describes REC-AUD invariants over authoritative admission_status',
+  },
+  {
+    path: 'apps/api/src/reconciliation/reconciliation.rules-rest.ts',
+    rule: 'admission_boundary' as const,
+    fields: 'admission_status',
+    reason:
+      'ESP-017 REC-AUD-* reads admission_status to verify ESP-012 READY↔APPROVED; verification-only, no mutation',
   },
 ] as const satisfies readonly LegacyScanAllowlistEntry[];
 

@@ -8,7 +8,8 @@
     "dev": "nest start --watch",
     "start": "node --env-file-if-exists=../../.env dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "reconciliation:run": "tsx src/reconciliation/cli.ts"
   },
   "dependencies": {
     "@authorization/config": "workspace:*",

@@ -19,7 +19,8 @@
 | ESP-013        | ACCEPTED                     |
 | ESP-014        | ACCEPTED                     |
 | ESP-015        | ACCEPTED                     |
-| ESP-016        | IMPLEMENTED / PENDING REVIEW |
+| ESP-016        | ACCEPTED                     |
+| ESP-017        | IMPLEMENTED / PENDING REVIEW |
 
 ### Evidencia de cierre ESP-010
 
@@ -121,7 +122,35 @@ RBAC y point scope son controles independientes. El frontend no es frontera de s
 - git diff --check: ver reporte
 - format:check se aplicó solo a archivos de ESP-016. No hay nueva deuda de formato.
 
-Los campos legacy ya no controlan decisiones operacionales modernas. Mutarlos no crea lineage. El workflow moderno funciona con esas columnas en NULL. Sin sincronización bidireccional. Sin RESERVED. PostgreSQL sigue siendo source of truth. Sin commit hasta revisión.
+Los campos legacy ya no controlan decisiones operacionales modernas. Mutarlos no crea lineage. El workflow moderno funciona con esas columnas en NULL. Sin sincronización bidireccional. Sin RESERVED. PostgreSQL sigue siendo source of truth.
+
+### Evidencia de cierre ESP-017
+
+- migration: `0049_esp017_operational_reconciliation.sql`
+- ADR: `ADR-040-esp-017-operational-reconciliation.md`
+- Catalog: `.agent/specs/esp-017-rule-catalog.md` (generado desde `packages/domain/src/reconciliation-registry.ts`)
+- Engine: `apps/api/src/reconciliation/`
+- API MTD-only: `POST/GET /reconciliation/runs`, findings, rules
+- UI: Integridad operacional (`/integridad`)
+- CLI: `pnpm reconciliation:run`
+- Gate: `tests/integration/gate-esp017.test.ts`
+- Isolation: `REPEATABLE READ READ ONLY`
+- Writable tables: `reconciliation_runs`, `reconciliation_findings` only
+- No auto-repair, no scheduler, no resolution workflow
+- Gate A: PASS (50 migraciones, 0000–0049)
+- Gate B: PASS (ESP-016 + únicamente `0049_esp017_operational_reconciliation.sql`)
+- Gate ESP-017: 27/27 PASS
+- Baseline health: 0 CRITICAL / 0 ERROR sobre slice válido
+- Corruption injection: REC-APP-003 y demás detectores específicos PASS
+- Regression ESP-003…ESP-016: PASS (350/350 integration)
+- Unit suite: 206/206 PASS
+- Integration suite: 350/350 PASS
+- lint: PASS
+- typecheck: PASS
+- build: PASS
+- git diff --check: PASS
+- `pnpm reconciliation:run`: COMPLETED, exit 0, 0 CRITICAL/ERROR
+- format:check se aplicó solo a archivos de ESP-017. No hay nueva deuda de formato.
 
 ### Evidencia de cierre ESP-014
 
@@ -1621,70 +1650,25 @@ Tareas:
 
 ---
 
-# ESP-017 — Auditoría técnica, idempotencia y trazabilidad
+# ESP-017 — Reconciliación operacional e integridad end-to-end
 
 ## Objetivo
 
-Mantener las propiedades fuertes que ya existen en el MVP.
+Construir un motor ejecutable de verificación que responde: ¿la base actual es internamente coherente con las invariantes de ESP-001…ESP-016?
 
-Toda operación crítica deberá registrar:
+ESP-017 no es fuente de verdad. No repara datos. No muta hechos operacionales. PostgreSQL sigue siendo source of truth.
 
-```text
-actor
-organización
-timestamp
-entidad
-operación
-estado anterior
-estado posterior
-correlation_id
-```
+## Fuera de alcance
 
-## Operaciones críticas
+- auto-repair;
+- workflow ACKNOWLEDGED/RESOLVED/IGNORED;
+- scheduler automático;
+- alerting externo;
+- reconciliación contable o de cost-layer;
+- DROP de columnas legacy.
 
-- programación;
-- consolidación;
-- generación OC;
-- aceptación OLP;
-- cambio de precio;
-- entrega;
-- recepción;
-- movimiento inventario;
-- transferencia;
-- aplicación;
-- novedad;
-- auditoría.
-
-## Plan de trabajo
-
-### PT-017.1 — Eventos
-
-Tareas:
-
-- Definir eventos del dominio.
-- Reutilizar `audit_events`.
-- Reutilizar outbox.
-- Añadir correlation IDs.
-
-### PT-017.2 — Idempotencia
-
-Tareas:
-
-- OC.
-- entregas.
-- recepciones.
-- movimientos.
-- aplicaciones.
-- cargas XLSX.
-
-### PT-017.3 — Concurrencia
-
-Tareas:
-
-- bloqueo lógico de lotes durante consumo;
-- optimistic locking donde corresponda;
-- pruebas concurrentes;
-- impedir doble consumo.
+Detalle normativo: `.agent/adr/ADR-040-esp-017-operational-reconciliation.md`.
+Catálogo de reglas: `.agent/specs/esp-017-rule-catalog.md`.
 
 ---
 
@@ -1835,7 +1819,8 @@ Primero:
 ESP-001 Dominio
 ESP-002 Períodos
 ESP-015 RBAC
-ESP-017 Auditoría técnica
+ESP-016 Cutover legacy
+ESP-017 Reconciliación operacional
 ```
 
 No desarrollar inventario antes de estos fundamentos.

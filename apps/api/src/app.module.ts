@@ -70,6 +70,10 @@ import { AccessScopeController } from './access-scopes/access-scope.controller';
 import { OperationalAccessScopeService } from './access-scopes/operational-access-scope.service';
 import { LegacyAuthorizationHistoryRepository } from './legacy/legacy-authorization-history.repository';
 import { LegacyCompatibilityProjectionService } from './legacy/legacy-compatibility-projection.service';
+import { ReconciliationController } from './reconciliation/reconciliation.controller';
+import { ReconciliationMetricsProvider } from './reconciliation/reconciliation.metrics';
+import { ReconciliationRepository } from './reconciliation/reconciliation.repository';
+import { ReconciliationService } from './reconciliation/reconciliation.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -137,6 +141,7 @@ new Gauge({
     AnalyticsController,
     BulkImportController,
     AccessScopeController,
+    ReconciliationController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -176,6 +181,9 @@ new Gauge({
     BulkImportRepository,
     BulkImportService,
     OperationalAccessScopeService,
+    ReconciliationRepository,
+    ReconciliationService,
+    ReconciliationMetricsProvider,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

@@ -613,7 +613,7 @@ describe('Gate ESP-016 — cutover de campos legacy', () => {
     const journal = JSON.parse(
       readFileSync(resolve(root, 'packages/database/migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries).toHaveLength(49);
+    expect(journal.entries.length).toBeGreaterThanOrEqual(49);
     expect(journal.entries[0]?.tag).toBe('0000_foundation');
     expect(journal.entries[48]?.tag).toBe('0048_esp016_legacy_cutover');
     const comment = await database.query<{ description: string }>(

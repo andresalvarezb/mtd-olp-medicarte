@@ -13,6 +13,7 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test && node scripts/check-legacy-operational-usage.mjs",
     "test:legacy-scan": "node scripts/check-legacy-operational-usage.mjs",
+    "reconciliation:run": "pnpm --filter @authorization/api reconciliation:run",
     "test:integration": "vitest run --config tests/vitest.integration.config.ts",
     "format:check": "prettier --check .",
     "db:generate": "pnpm --filter @authorization/database db:generate",

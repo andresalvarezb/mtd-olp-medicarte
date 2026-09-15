@@ -2140,3 +2140,102 @@ export const bulkImportRowAttempts = pgTable(
     ),
   ],
 );
+
+/**
+ * ESP-017: operational reconciliation is a verification subsystem.
+ * PostgreSQL remains the source of truth. These tables store runs and
+ * findings only. Rules never UPDATE operational facts.
+ */
+export const reconciliationRuns = pgTable(
+  'reconciliation_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    status: varchar('status', { length: 20 }).notNull().default('PENDING'),
+    scope: jsonb('scope').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    startedBy: uuid('started_by').references(() => users.id, { onDelete: 'restrict' }),
+    rulesVersion: varchar('rules_version', { length: 40 }).notNull(),
+    totalRules: integer('total_rules').notNull().default(0),
+    passedRules: integer('passed_rules').notNull().default(0),
+    failedRules: integer('failed_rules').notNull().default(0),
+    notApplicableRules: integer('not_applicable_rules').notNull().default(0),
+    criticalFindings: integer('critical_findings').notNull().default(0),
+    errorFindings: integer('error_findings').notNull().default(0),
+    warningFindings: integer('warning_findings').notNull().default(0),
+    infoFindings: integer('info_findings').notNull().default(0),
+    generatedAt: timestamp('generated_at', { withTimezone: true }),
+    durationMs: integer('duration_ms'),
+    metadata: jsonb('metadata')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+  },
+  (table) => [
+    index('reconciliation_runs_tenant_started_idx').on(table.tenantId, table.startedAt),
+    index('reconciliation_runs_status_idx').on(table.tenantId, table.status, table.startedAt),
+    check(
+      'reconciliation_runs_status_check',
+      sql`${table.status} IN ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED')`,
+    ),
+    check('reconciliation_runs_total_rules_check', sql`${table.totalRules} >= 0`),
+    check('reconciliation_runs_passed_rules_check', sql`${table.passedRules} >= 0`),
+    check('reconciliation_runs_failed_rules_check', sql`${table.failedRules} >= 0`),
+    check('reconciliation_runs_not_applicable_rules_check', sql`${table.notApplicableRules} >= 0`),
+    check('reconciliation_runs_critical_findings_check', sql`${table.criticalFindings} >= 0`),
+    check('reconciliation_runs_error_findings_check', sql`${table.errorFindings} >= 0`),
+    check('reconciliation_runs_warning_findings_check', sql`${table.warningFindings} >= 0`),
+    check('reconciliation_runs_info_findings_check', sql`${table.infoFindings} >= 0`),
+  ],
+);
+
+export const reconciliationFindings = pgTable(
+  'reconciliation_findings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reconciliationRunId: uuid('reconciliation_run_id')
+      .notNull()
+      .references(() => reconciliationRuns.id, { onDelete: 'restrict' }),
+    ruleCode: varchar('rule_code', { length: 40 }).notNull(),
+    ruleVersion: varchar('rule_version', { length: 40 }).notNull(),
+    category: varchar('category', { length: 20 }).notNull(),
+    severity: varchar('severity', { length: 20 }).notNull(),
+    domain: varchar('domain', { length: 20 }).notNull(),
+    entityType: varchar('entity_type', { length: 80 }).notNull(),
+    entityId: uuid('entity_id'),
+    relatedEntityType: varchar('related_entity_type', { length: 80 }),
+    relatedEntityId: uuid('related_entity_id'),
+    dispensingPointId: uuid('dispensing_point_id'),
+    planningPeriodId: uuid('planning_period_id'),
+    commercialCode: varchar('commercial_code', { length: 255 }),
+    message: text('message').notNull(),
+    evidenceJson: jsonb('evidence_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    fingerprint: varchar('fingerprint', { length: 200 }).notNull(),
+    truncated: boolean('truncated').notNull().default(false),
+    detectedAt: timestamp('detected_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('reconciliation_findings_run_rule_fingerprint_unique').on(
+      table.reconciliationRunId,
+      table.ruleCode,
+      table.fingerprint,
+    ),
+    index('reconciliation_findings_run_severity_idx').on(table.reconciliationRunId, table.severity),
+    index('reconciliation_findings_run_rule_idx').on(table.reconciliationRunId, table.ruleCode),
+    index('reconciliation_findings_run_domain_idx').on(table.reconciliationRunId, table.domain),
+    check(
+      'reconciliation_findings_category_check',
+      sql`${table.category} IN ('INTEGRITY', 'CONSISTENCY', 'RECONCILIATION', 'OBSERVATION')`,
+    ),
+    check(
+      'reconciliation_findings_severity_check',
+      sql`${table.severity} IN ('CRITICAL', 'ERROR', 'WARNING', 'INFO')`,
+    ),
+    check('reconciliation_findings_rule_code_check', sql`length(btrim(${table.ruleCode})) > 0`),
+    check('reconciliation_findings_message_check', sql`length(btrim(${table.message})) > 0`),
+  ],
+);

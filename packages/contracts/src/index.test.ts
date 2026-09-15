@@ -10,6 +10,7 @@ import {
   clinicalAuthorizationReferenceSchema,
   createPatientScheduleRequestSchema,
   createPlanningPeriodRequestSchema,
+  createReconciliationRunRequestSchema,
   ESP014_SCHEDULING_TEMPLATE_VERSION,
   POINT_ACCESS_DENIED,
   foundationJobSchema,
@@ -374,5 +375,19 @@ describe('ESP-015 operational point scope contracts', () => {
       replaceOperationalPointScopeRequestSchema.safeParse({ pointIds: ['not-a-uuid'] }).success,
     ).toBe(false);
     expect(POINT_ACCESS_DENIED).toBe('POINT_ACCESS_DENIED');
+  });
+});
+
+describe('reconciliation contracts', () => {
+  it('accepts an optional scoped run request', () => {
+    expect(createReconciliationRunRequestSchema.parse({}).planningPeriodId).toBeUndefined();
+    expect(
+      createReconciliationRunRequestSchema.parse({
+        planningPeriodId: '10000000-0000-4000-8000-000000000011',
+        dispensingPointId: '10000000-0000-4000-8000-000000000012',
+      }),
+    ).toMatchObject({
+      planningPeriodId: '10000000-0000-4000-8000-000000000011',
+    });
   });
 });

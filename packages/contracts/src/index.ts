@@ -1711,3 +1711,145 @@ export const bulkImportRowListQuerySchema = z.object({
   filter: z.enum(['ALL', 'VALID', 'INVALID', 'EXECUTED', 'FAILED']).optional().default('ALL'),
 });
 export type BulkImportRowListQuery = z.infer<typeof bulkImportRowListQuerySchema>;
+
+export const reconciliationRunStatusSchema = z.enum(['PENDING', 'RUNNING', 'COMPLETED', 'FAILED']);
+export type ReconciliationRunStatus = z.infer<typeof reconciliationRunStatusSchema>;
+export const reconciliationRuleStatusSchema = z.enum([
+  'PASS',
+  'FAIL',
+  'NOT_APPLICABLE',
+  'ERROR_EXECUTING_RULE',
+]);
+export type ReconciliationRuleStatus = z.infer<typeof reconciliationRuleStatusSchema>;
+export const reconciliationCategorySchema = z.enum([
+  'INTEGRITY',
+  'CONSISTENCY',
+  'RECONCILIATION',
+  'OBSERVATION',
+]);
+export type ReconciliationCategory = z.infer<typeof reconciliationCategorySchema>;
+export const reconciliationSeveritySchema = z.enum(['CRITICAL', 'ERROR', 'WARNING', 'INFO']);
+export type ReconciliationSeverity = z.infer<typeof reconciliationSeveritySchema>;
+export const reconciliationDomainSchema = z.enum([
+  'SCHEDULING',
+  'DEMAND',
+  'PURCHASE',
+  'DELIVERY',
+  'RECEIPT',
+  'INVENTORY',
+  'TRANSFER',
+  'APPLICATION',
+  'OUTCOME',
+  'AUDIT',
+  'ANALYTICS',
+  'BULK',
+  'SCOPE',
+  'LEGACY',
+]);
+export type ReconciliationDomain = z.infer<typeof reconciliationDomainSchema>;
+
+export const createReconciliationRunRequestSchema = z.object({
+  planningPeriodId: z.string().uuid().optional(),
+  dispensingPointId: z.string().uuid().optional(),
+  commercialCode: z.string().min(1).max(255).optional(),
+  domains: z.array(reconciliationDomainSchema).min(1).optional(),
+  severities: z.array(reconciliationSeveritySchema).min(1).optional(),
+});
+export type CreateReconciliationRunRequest = z.infer<typeof createReconciliationRunRequestSchema>;
+
+export const reconciliationRunScopeSchema = z.object({
+  kind: z.enum(['GLOBAL', 'PLANNING_PERIOD', 'DISPENSING_POINT', 'COMMERCIAL_CODE', 'COMBINED']),
+  planningPeriodId: z.string().uuid().nullable(),
+  dispensingPointId: z.string().uuid().nullable(),
+  commercialCode: z.string().nullable(),
+});
+export type ReconciliationRunScope = z.infer<typeof reconciliationRunScopeSchema>;
+
+export const reconciliationRuleResultSchema = z.object({
+  ruleCode: z.string(),
+  status: reconciliationRuleStatusSchema,
+  evaluatedCount: z.number().int().nonnegative(),
+  findingCount: z.number().int().nonnegative(),
+  totalDetected: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  durationMs: z.number().nonnegative(),
+  severity: reconciliationSeveritySchema,
+  error: z.string().nullable(),
+});
+export type ReconciliationRuleResult = z.infer<typeof reconciliationRuleResultSchema>;
+
+export const reconciliationRunResponseSchema = z.object({
+  id: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  status: reconciliationRunStatusSchema,
+  scope: reconciliationRunScopeSchema,
+  startedAt: isoDateTimeSchema,
+  completedAt: isoDateTimeSchema.nullable(),
+  startedBy: z.string().uuid().nullable(),
+  rulesVersion: z.string(),
+  totalRules: z.number().int().nonnegative(),
+  passedRules: z.number().int().nonnegative(),
+  failedRules: z.number().int().nonnegative(),
+  notApplicableRules: z.number().int().nonnegative(),
+  criticalFindings: z.number().int().nonnegative(),
+  errorFindings: z.number().int().nonnegative(),
+  warningFindings: z.number().int().nonnegative(),
+  infoFindings: z.number().int().nonnegative(),
+  generatedAt: isoDateTimeSchema.nullable(),
+  durationMs: z.number().int().nonnegative().nullable(),
+  ruleResults: z.array(reconciliationRuleResultSchema),
+});
+export type ReconciliationRunResponse = z.infer<typeof reconciliationRunResponseSchema>;
+
+export const reconciliationFindingResponseSchema = z.object({
+  id: z.string().uuid(),
+  reconciliationRunId: z.string().uuid(),
+  ruleCode: z.string(),
+  ruleVersion: z.string(),
+  category: reconciliationCategorySchema,
+  severity: reconciliationSeveritySchema,
+  domain: reconciliationDomainSchema,
+  entityType: z.string(),
+  entityId: z.string().uuid().nullable(),
+  relatedEntityType: z.string().nullable(),
+  relatedEntityId: z.string().uuid().nullable(),
+  dispensingPointId: z.string().uuid().nullable(),
+  planningPeriodId: z.string().uuid().nullable(),
+  commercialCode: z.string().nullable(),
+  message: z.string(),
+  evidence: z.record(z.unknown()),
+  fingerprint: z.string(),
+  truncated: z.boolean(),
+  recommendedAction: z.string(),
+  detectedAt: isoDateTimeSchema,
+});
+export type ReconciliationFindingResponse = z.infer<typeof reconciliationFindingResponseSchema>;
+
+export const reconciliationFindingListQuerySchema = z.object({
+  severity: reconciliationSeveritySchema.optional(),
+  domain: reconciliationDomainSchema.optional(),
+  ruleCode: z.string().min(1).optional(),
+  dispensingPointId: z.string().uuid().optional(),
+  commercialCode: z.string().min(1).optional(),
+  planningPeriodId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().positive().max(1000).optional().default(200),
+});
+export type ReconciliationFindingListQuery = z.infer<typeof reconciliationFindingListQuerySchema>;
+
+export const reconciliationRuleCatalogItemSchema = z.object({
+  ruleCode: z.string(),
+  version: z.string(),
+  domain: reconciliationDomainSchema,
+  category: reconciliationCategorySchema,
+  defaultSeverity: reconciliationSeveritySchema,
+  description: z.string(),
+  applicability: z.string(),
+  sourceTables: z.array(z.string()),
+  expectedInvariant: z.string(),
+  findingEvidence: z.string(),
+  recommendedAction: z.string(),
+  detectionMode: z.string(),
+  ownedBy: z.string().optional(),
+  executable: z.boolean(),
+});
+export type ReconciliationRuleCatalogItem = z.infer<typeof reconciliationRuleCatalogItemSchema>;

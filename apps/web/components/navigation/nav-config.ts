@@ -44,6 +44,7 @@ export type ViewId =
   | 'applicationAudits'
   | 'operationalIndicators'
   | 'bulkImports'
+  | 'operationalIntegrity'
   | 'admin'
   | 'operationalScopes';
 
@@ -191,6 +192,14 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: '16',
         permission: 'bulk_imports.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE', 'READ_ONLY'],
+      },
+      {
+        view: 'operationalIntegrity',
+        href: '/integridad',
+        title: 'Integridad operacional',
+        icon: '18',
+        permission: 'reconciliation.read',
+        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
       {
         view: 'admin',

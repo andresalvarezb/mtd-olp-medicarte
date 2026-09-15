@@ -196,6 +196,34 @@ export {
   requiresPointGrant,
 } from './operational-point-scope';
 export type { PointAccessKind, PointAccessScope } from './operational-point-scope';
+export {
+  EXECUTABLE_RECONCILIATION_RULES,
+  RECONCILIATION_CATEGORIES,
+  RECONCILIATION_DETECTION_MODES,
+  RECONCILIATION_DOMAINS,
+  RECONCILIATION_MAX_FINDINGS_PER_RULE,
+  RECONCILIATION_OPERATIONAL_TABLES,
+  RECONCILIATION_RULES,
+  RECONCILIATION_RULES_VERSION,
+  RECONCILIATION_RULE_BY_CODE,
+  RECONCILIATION_RULE_STATUSES,
+  RECONCILIATION_RUN_STATUSES,
+  RECONCILIATION_SEVERITIES,
+  RECONCILIATION_STATEMENT_TIMEOUT_MS,
+  RECONCILIATION_WRITABLE_TABLES,
+  formatReconciliationRuleCatalog,
+  isBlockingReconciliationSeverity,
+  reconciliationFindingFingerprint,
+} from './reconciliation-registry';
+export type {
+  ReconciliationCategory,
+  ReconciliationDetectionMode,
+  ReconciliationDomain,
+  ReconciliationRuleDefinition,
+  ReconciliationRuleStatus,
+  ReconciliationRunStatus,
+  ReconciliationSeverity,
+} from './reconciliation-registry';
 export type { ReceiptConformity, ReceiptQuantityInput } from './receipt';
 export type {
   ScheduleAuthorizationEligibility,

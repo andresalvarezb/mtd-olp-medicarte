@@ -344,6 +344,13 @@
       "when": 1790460437663,
       "tag": "0048_esp016_legacy_cutover",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790460438663,
+      "tag": "0049_esp017_operational_reconciliation",
+      "breakpoints": true
     }
   ]
 }
