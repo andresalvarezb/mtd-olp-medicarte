@@ -399,6 +399,51 @@ describe('Gate F6', () => {
     expect(exportAudit.rows.length).toBeGreaterThan(0);
   });
 
+  it('exporta la identificacion del paciente con encabezado canonico sin duplicidad legacy', async () => {
+    const item = await seedItem('PATIENT-DOCUMENT', { withDates: false });
+    const patientDocument = `DOC-F6-${randomUUID()}`;
+
+    await database.query(
+      `update authorization_items
+       set source_data = jsonb_build_object(
+         'IDENTIFICACION_PACIENTE', $2::text,
+         'NOMBRE_PACIENTE', 'Paciente documento F6'
+       )
+       where id = $1`,
+      [item.id, patientDocument],
+    );
+
+    const response = await fetch(
+      `${apiUrl}/api/v1/exports/authorization-items.xlsx?includeAll=true`,
+      {
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'x-organization-id': mtdOrganizationId,
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+
+    const workbook = XLSX.read(await response.arrayBuffer(), { type: 'array' });
+    const sheet = workbook.Sheets.Datos!;
+    const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, {
+      header: 1,
+      raw: false,
+    });
+
+    const headers = (rows[0] ?? []).map(String);
+    const documentIndex = headers.indexOf('IDENTIFICACION_PACIENTE');
+
+    expect(documentIndex).toBeGreaterThanOrEqual(0);
+    expect(headers).not.toContain('NUM_DOCUMENTO');
+
+    const exportedRow = rows.find((row) => row.some((value) => value === item.authorization));
+
+    expect(exportedRow).toBeDefined();
+    expect(exportedRow?.[documentIndex]).toBe(patientDocument);
+  });
+
   it('expone indicadores operativos derivados por alcance', async () => {
     const response = await fetch(`${apiUrl}/api/v1/indicators`, {
       headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
