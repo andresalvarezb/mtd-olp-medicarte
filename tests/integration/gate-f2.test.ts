@@ -215,12 +215,9 @@ describe('Gate F2', () => {
     ]);
     await registerTariffProducts(adminToken, [
       'MED-PBS',
-      'MED-NO-PBS',
       'MED-PRES-PBS',
-      'MED-PRES-NO-PBS',
       'MED-PRES-INVALID',
       'MED-CONCURRENT',
-      'MED-UPDATE',
       'MED-UPDATE-STATUS',
       'MED-UPDATE-ROLLBACK',
       'MED-REPLAY-SCOPE',
@@ -228,8 +225,12 @@ describe('Gate F2', () => {
       'MED-A',
       'MED-B',
       'MED-MISSING',
-      'MED-BLOCKED',
     ]);
+    await registerTariffProducts(
+      adminToken,
+      ['MED-NO-PBS', 'MED-PRES-NO-PBS', 'MED-UPDATE', 'MED-BLOCKED'],
+      'NO PBS',
+    );
   });
 
   afterAll(async () => database.end());
@@ -346,12 +347,13 @@ describe('Gate F2', () => {
       item: { sourceData: Record<string, unknown> | null };
     };
     expect(olpDetailResult.item.sourceData).not.toBeNull();
-    expect(Object.keys(olpDetailResult.item.sourceData!).sort()).toEqual([
-      'CUPS_AUTORIZADO',
-      'NOMBRE_PACIENTE',
-      'NUM_DOCUMENTO',
-    ]);
-    expect(olpDetailResult.item.sourceData?.NUMERO_AUTORIZACION).toBeUndefined();
+    expect(olpDetailResult.item.sourceData).toMatchObject({
+      NUMERO_AUTORIZACION: authorization,
+      IDENTIFICACION_PACIENTE: '123',
+      NOMBRE_PACIENTE: 'Paciente de prueba',
+      CUPS_AUTORIZADO: 'Medicamento autorizado',
+    });
+    expect(olpDetailResult.item.sourceData?.NUM_DOCUMENTO).toBeUndefined();
 
     for (const path of [
       `/api/v1/imports/${batch.id}`,
@@ -1029,7 +1031,11 @@ describe('Gate F2', () => {
           Object.keys(
             sourceUpdateResponseSchema.parse(await initial.json()).item.sourceData!,
           ).sort(),
-        ).toEqual(['CUPS_AUTORIZADO', 'NOMBRE_PACIENTE', 'NUM_DOCUMENTO']);
+        ).toEqual([
+          'CUPS_AUTORIZADO',
+          'IDENTIFICACION_PACIENTE',
+          'NOMBRE_PACIENTE',
+        ]);
 
         await database.query(
           `insert into role_permissions (role_id, permission_id)
@@ -1060,7 +1066,11 @@ describe('Gate F2', () => {
           Object.keys(
             sourceUpdateResponseSchema.parse(await redactedReplay.json()).item.sourceData!,
           ).sort(),
-        ).toEqual(['CUPS_AUTORIZADO', 'NOMBRE_PACIENTE', 'NUM_DOCUMENTO']);
+        ).toEqual([
+          'CUPS_AUTORIZADO',
+          'IDENTIFICACION_PACIENTE',
+          'NOMBRE_PACIENTE',
+        ]);
 
         const itemLock = new Client({ connectionString: databaseUrl });
         const permissionRevocation = new Client({ connectionString: databaseUrl });
@@ -1108,7 +1118,7 @@ describe('Gate F2', () => {
           expect(
             sourceUpdateResponseSchema.parse(await serializedReplay.json()).item.sourceData,
           ).toEqual({
-            NUM_DOCUMENTO: '123',
+            IDENTIFICACION_PACIENTE: '123',
             NOMBRE_PACIENTE: 'Paciente de prueba',
             CUPS_AUTORIZADO: 'Medicamento autorizado',
           });
@@ -1245,26 +1255,34 @@ describe('Gate F2', () => {
     const authorization = `AUTH-BLOCKED-${randomUUID()}`;
     const missingHeaderBatch = await createImport(
       adminToken,
-      'NUMERO_AUTORIZACION,COD_COMERCIAL\nAUTH-MISSING,MED-MISSING\n',
+      xlsxBuffer([
+        ['NUMERO_AUTORIZACION', 'COD_COMERCIAL'],
+        ['AUTH-MISSING', 'MED-MISSING'],
+      ]),
     );
     const missingReady = await waitForBatch(adminToken, missingHeaderBatch.id);
     expect(missingReady).toMatchObject({
-      status: 'READY_TO_CONFIRM',
-      totalRows: 1,
+      status: 'FAILED',
+      totalRows: 0,
       validRows: 0,
-      rejectedRows: 1,
+      rejectedRows: 0,
+      lastErrorCode: 'INVALID_HEADERS',
     });
-    const missingRows = (await (
-      await fetch(`${apiUrl}/api/v1/imports/${missingHeaderBatch.id}/rows?limit=10`, {
-        headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
-      })
-    ).json()) as {
-      items: Array<{ resultCode: string; validationErrors: Array<{ field: string }> }>;
-    };
-    expect(missingRows.items[0]).toMatchObject({ resultCode: 'MISSING_REQUIRED_FIELD' });
-    expect(missingRows.items[0]?.validationErrors.map((entry) => entry.field)).toEqual(
-      expect.arrayContaining(['NUMERO_PRESCRIPCION', 'ESTADO_AUTORIZACION']),
+
+    const missingRowsResponse = await fetch(
+      `${apiUrl}/api/v1/imports/${missingHeaderBatch.id}/rows?limit=10`,
+      {
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'x-organization-id': mtdOrganizationId,
+        },
+      },
     );
+    expect(missingRowsResponse.status).toBe(200);
+    const missingRows = paginatedImportRowsResponseSchema.parse(
+      await missingRowsResponse.json(),
+    );
+    expect(missingRows.items).toHaveLength(0);
 
     const blockedBatch = await createImport(
       adminToken,

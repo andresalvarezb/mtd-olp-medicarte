@@ -143,7 +143,7 @@ async function importNoPbsItem(suffix: string): Promise<{ itemId: string; prescr
   const authorization = `AUTH-F3-${randomUUID()}`;
   const prescription = `2026091512345678${suffix}000`;
   const medication = `MED-F3-${suffix}`.toUpperCase();
-  await registerTariffProducts(adminToken, [medication]);
+  await registerTariffProducts(adminToken, [medication], 'NO PBS');
   const batch = await createImport(
     adminToken,
     authorizationCsv([{ authorization, medication, prescripcion: prescription, status: '5' }]),
