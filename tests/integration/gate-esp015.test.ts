@@ -1108,7 +1108,7 @@ describe('Gate ESP-015 — alcance operacional por punto', () => {
         'utf8',
       ),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries).toHaveLength(48);
+    expect(journal.entries.length).toBeGreaterThanOrEqual(48);
     expect(journal.entries[0]?.tag).toBe('0000_foundation');
     expect(journal.entries[47]?.tag).toBe('0047_esp015_point_scopes');
     const table = await database.query<{ n: number }>(

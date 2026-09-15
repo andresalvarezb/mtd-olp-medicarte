@@ -168,7 +168,7 @@ export const authorizationItems = pgTable(
     numeroAutorizacion: varchar('numero_autorizacion', { length: 255 }).notNull(),
     codigoMedicamento: varchar('codigo_medicamento', { length: 255 }).notNull(),
     authorizationKey: varchar('authorization_key', { length: 511 }).notNull(),
-    processStatus: varchar('process_status', { length: 40 }),
+    processStatus: varchar('process_status', { length: 40 }), // HISTORICAL_ONLY — ESP-016
     sourceData: jsonb('source_data').notNull(),
     sourceStatusNormalized: varchar('source_status_normalized', { length: 80 }).notNull(),
     sourcePrescripcionNormalized: varchar('source_prescripcion_normalized', {
@@ -180,17 +180,17 @@ export const authorizationItems = pgTable(
     enablementStatus: varchar('enablement_status', { length: 40 }).notNull(),
     coverageType: varchar('coverage_type', { length: 30 }).notNull(),
     directionStatus: varchar('direction_status', { length: 30 }).notNull(),
-    operationStatus: varchar('operation_status', { length: 40 }),
+    operationStatus: varchar('operation_status', { length: 40 }), // HISTORICAL_ONLY — ESP-016
     coverageRuleVersion: varchar('coverage_rule_version', { length: 40 }).notNull(),
-    lugarDispensacion: text('lugar_dispensacion'),
-    fechaProgramada: date('fecha_programada'),
-    fechaDispensacion: date('fecha_dispensacion'),
-    fechaAplicacion: date('fecha_aplicacion'),
-    codAutorizacionMedicarte: varchar('cod_autorizacion_medicarte', { length: 255 }),
-    ordenCompra: varchar('orden_compra', { length: 255 }),
-    auditStatus: varchar('audit_status', { length: 30 }).notNull().default('NOT_STARTED'),
-    admissionStatus: varchar('admission_status', { length: 20 }).notNull().default('NOT_READY'),
-    operationalVersion: integer('operational_version').notNull().default(0),
+    lugarDispensacion: text('lugar_dispensacion'), // HISTORICAL_ONLY — ESP-016
+    fechaProgramada: date('fecha_programada'), // HISTORICAL_ONLY — ESP-016
+    fechaDispensacion: date('fecha_dispensacion'), // HISTORICAL_ONLY — ESP-016
+    fechaAplicacion: date('fecha_aplicacion'), // HISTORICAL_ONLY — ESP-016
+    codAutorizacionMedicarte: varchar('cod_autorizacion_medicarte', { length: 255 }), // HISTORICAL_ONLY — ESP-016
+    ordenCompra: varchar('orden_compra', { length: 255 }), // HISTORICAL_ONLY — ESP-016
+    auditStatus: varchar('audit_status', { length: 30 }).notNull().default('NOT_STARTED'), // DERIVED_COMPATIBILITY — ESP-016
+    admissionStatus: varchar('admission_status', { length: 20 }).notNull().default('NOT_READY'), // AUTHORITATIVE READY downstream — ESP-012/016
+    operationalVersion: integer('operational_version').notNull().default(0), // HISTORICAL_ONLY — ESP-016
     tariffMembershipStatus: varchar('tariff_membership_status', { length: 30 })
       .notNull()
       .default('NOT_EVALUATED'),

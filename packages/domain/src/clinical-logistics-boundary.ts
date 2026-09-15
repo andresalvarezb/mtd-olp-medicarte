@@ -1,3 +1,4 @@
+/** ESP-001 field list. ESP-016 classifications live in `legacy-operational-cutover.ts`. */
 export const LEGACY_OPERATIONAL_FIELDS = [
   'lugar_dispensacion',
   'fecha_programada',

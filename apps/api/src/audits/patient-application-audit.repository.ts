@@ -13,6 +13,7 @@ import {
 } from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
 import type { Scope } from '../common/request-scope';
+import { LegacyCompatibilityProjectionService } from '../legacy/legacy-compatibility-projection.service';
 import { DATABASE } from '../tokens';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -55,7 +56,7 @@ type ApplicationContext = {
   authorization_expires_on: string | null;
   audit_id: string | null;
   audit_application_revision: number | null;
-  audit_status: AuditRow['status'] | null;
+  application_audit_status: AuditRow['status'] | null;
   started_at: string | null;
   started_by: string | null;
   started_by_name: string | null;
@@ -70,7 +71,10 @@ type ApplicationContext = {
 
 @Injectable()
 export class PatientApplicationAuditRepository {
-  constructor(@Inject(DATABASE) private readonly database: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly database: Database,
+    private readonly compatibility: LegacyCompatibilityProjectionService,
+  ) {}
 
   async list(query: ApplicationAuditListQuery, scope: Scope) {
     const conditions = [
@@ -184,12 +188,11 @@ export class PatientApplicationAuditRepository {
         ).rows[0];
         return { outcome: 'already_exists' as const, auditId: raced?.id };
       }
-      await tx.execute(sql`
-        update authorization_items
-        set audit_status = 'IN_REVIEW', version = version + 1,
-            updated_by = ${scope.userId}, updated_at = now()
-        where id = ${application.authorization_item_id}
-      `);
+      await this.compatibility.projectAuditDecision(tx, {
+        authorizationItemId: application.authorization_item_id,
+        modernStatus: 'IN_REVIEW',
+        actorUserId: scope.userId,
+      });
       await this.audit(tx, scope, 'APPLICATION_AUDIT_STARTED', created.id, {
         auditId: created.id,
         applicationId,
@@ -279,21 +282,11 @@ export class PatientApplicationAuditRepository {
       ).rows[0];
       if (!updated) throw new Error('PATIENT_APPLICATION_AUDIT_CONCURRENT_DECISION');
 
-      if (to === 'APPROVED') {
-        await tx.execute(sql`
-          update authorization_items
-          set audit_status = 'APPROVED', admission_status = 'READY', version = version + 1,
-              updated_by = ${scope.userId}, updated_at = now()
-          where id = ${audit.authorization_item_id}
-        `);
-      } else {
-        await tx.execute(sql`
-          update authorization_items
-          set audit_status = 'REJECTED', version = version + 1,
-              updated_by = ${scope.userId}, updated_at = now()
-          where id = ${audit.authorization_item_id} and admission_status <> 'READY'
-        `);
-      }
+      await this.compatibility.projectAuditDecision(tx, {
+        authorizationItemId: audit.authorization_item_id,
+        modernStatus: to,
+        actorUserId: scope.userId,
+      });
       await this.audit(tx, scope, `APPLICATION_AUDIT_${to}`, id, {
         auditId: id,
         applicationId: audit.patient_application_id,
@@ -335,7 +328,7 @@ export class PatientApplicationAuditRepository {
           ps.scheduled_date::text scheduled_date, pa.application_date::text application_date,
           ps.quantity scheduled_quantity, ai.admission_status,
           ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,
-          paa.id audit_id, paa.application_revision audit_application_revision, paa.status audit_status,
+          paa.id audit_id, paa.application_revision audit_application_revision, paa.status application_audit_status,
           to_char(paa.started_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as started_at,
           paa.started_by, starter.display_name started_by_name,
           to_char(paa.decided_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as decided_at,
@@ -404,7 +397,7 @@ export class PatientApplicationAuditRepository {
     const priority = calculateAuthorizationPriority(expiration, scheduleToday());
     return {
       id: context.audit_id,
-      status: context.audit_status ?? 'READY_FOR_AUDIT',
+      status: context.application_audit_status ?? 'READY_FOR_AUDIT',
       patientApplicationId: context.patient_application_id,
       patientScheduleId: context.patient_schedule_id,
       scheduleRevision: context.schedule_revision,

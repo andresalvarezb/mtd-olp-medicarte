@@ -962,6 +962,7 @@ export const clinicalAuthorizationResponseSchema = z.object({
 });
 export type ClinicalAuthorizationResponse = z.infer<typeof clinicalAuthorizationResponseSchema>;
 
+/** Historical compatibility contract. Not a modern operational API. ESP-016. */
 export const legacyAuthorizationHistoryResponseSchema = z.object({
   id: z.string().uuid(),
   numeroAutorizacion: z.string(),

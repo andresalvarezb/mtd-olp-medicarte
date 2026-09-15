@@ -25,6 +25,46 @@ export type {
   LegacyOperationalField,
 } from './clinical-logistics-boundary';
 export {
+  COMPATIBILITY_PROJECTION_DIRECTION,
+  LEGACY_CUTOVER_FIELDS,
+  LEGACY_DROP_CANDIDATES,
+  LEGACY_FIELD_CLASSIFICATIONS,
+  LEGACY_SCAN_FORBIDDEN_FIELDS,
+  MODERN_SOURCE_OF_TRUTH,
+  assertNoSilentLegacyFallback,
+  auditCompatibilityProjection,
+  classifyLegacyField,
+  classifyOperationalGeneration,
+  isForbiddenModernLegacyUsage,
+} from './legacy-operational-cutover';
+export {
+  HISTORICAL_COMPATIBILITY_CONTRACT_MARKER,
+  LEGACY_SCAN_ALLOWLIST,
+  LEGACY_SCAN_ALLOWLIST_PATHS,
+  LEGACY_SCAN_ALLOWED_TEST_SUFFIX,
+  LEGACY_SCAN_COVERAGE_BY_ROOT,
+  LEGACY_SCAN_NEGATIVE_FIXTURES,
+  LEGACY_SCAN_POLICY_REPORT,
+  LEGACY_SCAN_POSITIVE_FIXTURES,
+  LEGACY_SCAN_REQUIRED_COVERAGE,
+  LEGACY_SCAN_RUNTIME_ROOTS,
+  LEGACY_SCAN_SKIP_DIRECTORY_NAMES,
+  SCHEMA_DECLARATION_PATH,
+  collectLegacyOperationalUsageHits,
+  findLegacyAuthorizationAuditStatusUsages,
+  forbiddenLegacyScanTokens,
+  isLegacyScanSourceFile,
+  isPathAllowlistedForLegacyScan,
+} from './legacy-operational-usage-scan';
+export type { LegacyScanHit } from './legacy-operational-usage-scan';
+export type {
+  AuditCompatibilityProjection,
+  LegacyCutoverField,
+  LegacyCutoverFieldName,
+  LegacyFieldClassification,
+  OperationalGeneration,
+} from './legacy-operational-cutover';
+export {
   PLANNING_PERIOD_STRUCTURAL_FIELDS,
   PlanningPeriodStructuralError,
   PlanningPeriodTransitionError,

@@ -68,6 +68,8 @@ import { BulkImportRepository } from './bulk-imports/bulk-import.repository';
 import { BulkImportService } from './bulk-imports/bulk-import.service';
 import { AccessScopeController } from './access-scopes/access-scope.controller';
 import { OperationalAccessScopeService } from './access-scopes/operational-access-scope.service';
+import { LegacyAuthorizationHistoryRepository } from './legacy/legacy-authorization-history.repository';
+import { LegacyCompatibilityProjectionService } from './legacy/legacy-compatibility-projection.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -167,6 +169,8 @@ new Gauge({
     PatientOutcomeService,
     PatientApplicationAuditRepository,
     PatientApplicationAuditService,
+    LegacyAuthorizationHistoryRepository,
+    LegacyCompatibilityProjectionService,
     AnalyticsRepository,
     AnalyticsService,
     BulkImportRepository,

@@ -18,7 +18,8 @@
 | ESP-012        | ACCEPTED                     |
 | ESP-013        | ACCEPTED                     |
 | ESP-014        | ACCEPTED                     |
-| ESP-015        | IMPLEMENTED / PENDING REVIEW |
+| ESP-015        | ACCEPTED                     |
+| ESP-016        | IMPLEMENTED / PENDING REVIEW |
 
 ### Evidencia de cierre ESP-010
 
@@ -98,6 +99,29 @@ Analytics es read model. El stock actual no se llama sobrante del período. Tari
 - format:check se aplicó solo a archivos de ESP-015. No hay nueva deuda de formato.
 
 RBAC y point scope son controles independientes. El frontend no es frontera de seguridad. PostgreSQL sigue siendo source of truth. Sin RESERVED. Sin commit hasta revisión.
+
+### Evidencia de cierre ESP-016
+
+- migration: `0048_esp016_legacy_cutover.sql` (COMMENT ON COLUMN; sin DROP)
+- ADR: `ADR-039-esp-016-legacy-cutover.md`
+- Registry: `packages/domain/src/legacy-operational-cutover.ts`
+- Historical adapter: `LegacyAuthorizationHistoryRepository`
+- Compatibility writer: `LegacyCompatibilityProjectionService` (NEW → legacy, misma tx)
+- Scan: `scripts/check-legacy-operational-usage.mjs` (`pnpm test` lo ejecuta; FULL_RUNTIME_LEGACY_SCAN + SCANNER_NEGATIVE_TESTS + COMPUTED_MEMBER_LEGACY_SCAN + SCHEMA_ADMISSION_BOUNDARY_SCAN)
+- SAFE_TO_DROP_LATER: ninguno
+- Gate A: PASS (49 migraciones, 0000–0048)
+- Gate B: PASS (ESP-015 + únicamente `0048_esp016_legacy_cutover.sql`)
+- Gate ESP-016: 8/8 PASS (`FULL_RUNTIME_LEGACY_SCAN=PASS`, `SCANNER_NEGATIVE_TESTS=PASS`)
+- Regression ESP-001/003/004/005/006/007/008/009/010/011/012/013/014/015: PASS
+- Unit suite: 193/193 PASS
+- Integration suite: 323/323 PASS
+- lint: PASS
+- typecheck: PASS
+- build: PASS
+- git diff --check: ver reporte
+- format:check se aplicó solo a archivos de ESP-016. No hay nueva deuda de formato.
+
+Los campos legacy ya no controlan decisiones operacionales modernas. Mutarlos no crea lineage. El workflow moderno funciona con esas columnas en NULL. Sin sincronización bidireccional. Sin RESERVED. PostgreSQL sigue siendo source of truth. Sin commit hasta revisión.
 
 ### Evidencia de cierre ESP-014
 
