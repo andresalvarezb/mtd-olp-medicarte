@@ -224,6 +224,29 @@ export type {
   ReconciliationRunStatus,
   ReconciliationSeverity,
 } from './reconciliation-registry';
+export {
+  MTD_GOVERNANCE_ROLE_CODES,
+  RECONCILIATION_ISSUE_COMMENT_MAX_LENGTH,
+  RECONCILIATION_ISSUE_EVENT_TYPES,
+  RECONCILIATION_ISSUE_STATUSES,
+  RECONCILIATION_RESOLUTION_CODES,
+  canManuallyTransition,
+  decideIssueRecurrence,
+  isMtdGovernanceAssignee,
+  isRiskReviewOverdue,
+  manualIssueTransition,
+  maxReconciliationSeverity,
+  reconciliationSeverityRank,
+  validateAcceptedRiskReason,
+  validateResolutionNote,
+} from './reconciliation-issue-lifecycle';
+export type {
+  ManualIssueAction,
+  RecurrenceDecision,
+  ReconciliationIssueEventType,
+  ReconciliationIssueStatus,
+  ReconciliationResolutionCode,
+} from './reconciliation-issue-lifecycle';
 export type { ReceiptConformity, ReceiptQuantityInput } from './receipt';
 export type {
   ScheduleAuthorizationEligibility,

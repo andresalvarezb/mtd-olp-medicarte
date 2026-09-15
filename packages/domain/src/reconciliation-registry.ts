@@ -1311,6 +1311,9 @@ export const EXECUTABLE_RECONCILIATION_RULES = RECONCILIATION_RULES.filter(
 export const RECONCILIATION_WRITABLE_TABLES = [
   'reconciliation_runs',
   'reconciliation_findings',
+  'reconciliation_issues',
+  'reconciliation_issue_events',
+  'reconciliation_issue_comments',
 ] as const;
 
 export const RECONCILIATION_OPERATIONAL_TABLES = [

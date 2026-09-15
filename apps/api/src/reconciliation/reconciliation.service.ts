@@ -14,6 +14,7 @@ import {
 import type { createDatabase } from '@authorization/database';
 import { DATABASE } from '../tokens';
 import { ReconciliationEngine } from './reconciliation.engine';
+import { ReconciliationIssuesRepository } from './reconciliation-issues.repository';
 import { ReconciliationMetricsProvider } from './reconciliation.metrics';
 import { mapRunRow, ReconciliationRepository } from './reconciliation.repository';
 
@@ -22,13 +23,16 @@ type Database = ReturnType<typeof createDatabase>;
 @Injectable()
 export class ReconciliationService {
   private readonly engine: ReconciliationEngine;
+  private readonly metrics: ReconciliationMetricsProvider;
 
   constructor(
     private readonly repository: ReconciliationRepository,
+    private readonly issues: ReconciliationIssuesRepository,
     metrics: ReconciliationMetricsProvider,
     @Inject(DATABASE) database: Database,
   ) {
     this.engine = new ReconciliationEngine(database.pool, repository, metrics.metrics);
+    this.metrics = metrics;
   }
 
   listRules(): ReconciliationRuleDefinition[] {
@@ -49,11 +53,14 @@ export class ReconciliationService {
       ...(body.domains ? { domains: body.domains } : {}),
       ...(body.severities ? { severities: body.severities } : {}),
     });
+    this.metrics.metrics.setOpenIssueCounts(await this.issues.countByStatusSeverity());
     return this.get(tenantId, id);
   }
 
   async executeDirect(input: Parameters<ReconciliationEngine['execute']>[0]) {
-    return this.engine.execute(input);
+    const result = await this.engine.execute(input);
+    this.metrics.metrics.setOpenIssueCounts(await this.issues.countByStatusSeverity());
+    return result;
   }
 
   async list(tenantId: string): Promise<{ items: ReconciliationRunResponse[] }> {
@@ -107,8 +114,47 @@ export class ReconciliationService {
             row.detected_at instanceof Date
               ? row.detected_at.toISOString()
               : new Date(row.detected_at).toISOString(),
+          issueId: row.issue_id,
         };
       }),
     };
+  }
+
+  async findingsByIssue(
+    tenantId: string,
+    issueId: string,
+    query: ReconciliationFindingListQuery,
+  ): Promise<ReconciliationFindingResponse[]> {
+    const rows = await this.repository.listFindingsByIssue(tenantId, issueId, query);
+    const byCode = new Map(RECONCILIATION_RULES.map((rule) => [rule.ruleCode, rule]));
+    return rows.map((row) => {
+      const rule = byCode.get(row.rule_code);
+      return {
+        id: row.id,
+        reconciliationRunId: row.reconciliation_run_id,
+        ruleCode: row.rule_code,
+        ruleVersion: row.rule_version,
+        category: reconciliationCategorySchema.parse(row.category),
+        severity: reconciliationSeveritySchema.parse(row.severity),
+        domain: reconciliationDomainSchema.parse(row.domain),
+        entityType: row.entity_type,
+        entityId: row.entity_id,
+        relatedEntityType: row.related_entity_type,
+        relatedEntityId: row.related_entity_id,
+        dispensingPointId: row.dispensing_point_id,
+        planningPeriodId: row.planning_period_id,
+        commercialCode: row.commercial_code,
+        message: row.message,
+        evidence: row.evidence_json ?? {},
+        fingerprint: row.fingerprint,
+        truncated: row.truncated,
+        recommendedAction: rule?.recommendedAction ?? '',
+        detectedAt:
+          row.detected_at instanceof Date
+            ? row.detected_at.toISOString()
+            : new Date(row.detected_at).toISOString(),
+        issueId: row.issue_id,
+      };
+    });
   }
 }

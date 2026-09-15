@@ -20,7 +20,8 @@
 | ESP-014        | ACCEPTED                     |
 | ESP-015        | ACCEPTED                     |
 | ESP-016        | ACCEPTED                     |
-| ESP-017        | IMPLEMENTED / PENDING REVIEW |
+| ESP-017        | ACCEPTED                     |
+| ESP-018        | IMPLEMENTED / PENDING REVIEW |
 
 ### Evidencia de cierre ESP-010
 
@@ -151,6 +152,22 @@ Los campos legacy ya no controlan decisiones operacionales modernas. Mutarlos no
 - git diff --check: PASS
 - `pnpm reconciliation:run`: COMPLETED, exit 0, 0 CRITICAL/ERROR
 - format:check se aplicó solo a archivos de ESP-017. No hay nueva deuda de formato.
+
+ESP-017 permanece el motor de detección. ESP-018 no reescribe reglas ni run health.
+
+### Evidencia de cierre ESP-018
+
+- migration: `0050_esp018_reconciliation_governance.sql`
+- ADR: `ADR-041-esp-018-reconciliation-governance.md`
+- Identity: `tenant_id + rule_code + fingerprint`
+- Lifecycle: OPEN / ACKNOWLEDGED / RESOLVED / ACCEPTED_RISK
+- API: `/reconciliation/issues*`
+- UI: `/integridad` pestañas Runs / Issues
+- Gate: `tests/integration/gate-esp018.test.ts`
+- ACCEPTED_RISK no suprime findings ni cambia CLI/release health
+- Governance no muta tablas operacionales
+- No scheduler, no alerting externo, no auto-repair
+- PostgreSQL sigue siendo source of truth
 
 ### Evidencia de cierre ESP-014
 
@@ -1672,7 +1689,29 @@ Catálogo de reglas: `.agent/specs/esp-017-rule-catalog.md`.
 
 ---
 
-# ESP-018 — Suite de pruebas y salida preproductiva
+# ESP-018 — Governance de findings de reconciliación
+
+## Objetivo
+
+Agregar una capa persistente de governance sobre los findings producidos por ESP-017.
+
+ESP-017 produce RUN → FINDINGS. ESP-018 agrega FINDINGS repetidos → ISSUE persistente con ownership, lifecycle, comments, history, firstSeen/lastSeen y occurrenceCount.
+
+ESP-017 permanece el motor de detección. PostgreSQL sigue siendo source of truth. ESP-018 no modifica reglas para hacer desaparecer findings, no auto-repara, no convierte ACCEPTED_RISK en PASS técnico, no implementa scheduler ni alertas externas, y no muta tablas operacionales como mecanismo de resolución.
+
+Detalle normativo: `.agent/adr/ADR-041-esp-018-reconciliation-governance.md`.
+
+## Fuera de alcance
+
+- auto-repair;
+- mute / ignore / disable rule;
+- scheduler automático;
+- alerting externo;
+- auto-close por ausencia en un run posterior.
+
+---
+
+# Validación integral (plan original, posterior a ESP-018)
 
 ## Objetivo
 

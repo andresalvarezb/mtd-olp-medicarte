@@ -71,6 +71,8 @@ import { OperationalAccessScopeService } from './access-scopes/operational-acces
 import { LegacyAuthorizationHistoryRepository } from './legacy/legacy-authorization-history.repository';
 import { LegacyCompatibilityProjectionService } from './legacy/legacy-compatibility-projection.service';
 import { ReconciliationController } from './reconciliation/reconciliation.controller';
+import { ReconciliationIssuesRepository } from './reconciliation/reconciliation-issues.repository';
+import { ReconciliationIssuesService } from './reconciliation/reconciliation-issues.service';
 import { ReconciliationMetricsProvider } from './reconciliation/reconciliation.metrics';
 import { ReconciliationRepository } from './reconciliation/reconciliation.repository';
 import { ReconciliationService } from './reconciliation/reconciliation.service';
@@ -183,6 +185,8 @@ new Gauge({
     OperationalAccessScopeService,
     ReconciliationRepository,
     ReconciliationService,
+    ReconciliationIssuesRepository,
+    ReconciliationIssuesService,
     ReconciliationMetricsProvider,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },

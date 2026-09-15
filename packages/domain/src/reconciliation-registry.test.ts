@@ -66,6 +66,9 @@ describe('ESP-017 reconciliation registry', () => {
     expect(RECONCILIATION_WRITABLE_TABLES).toEqual([
       'reconciliation_runs',
       'reconciliation_findings',
+      'reconciliation_issues',
+      'reconciliation_issue_events',
+      'reconciliation_issue_comments',
     ]);
     expect(RECONCILIATION_OPERATIONAL_TABLES).not.toContain('reconciliation_runs');
     expect(EXECUTABLE_RECONCILIATION_RULES.every((rule) => rule.executable)).toBe(true);

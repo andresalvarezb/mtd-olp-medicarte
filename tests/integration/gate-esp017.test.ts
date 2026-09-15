@@ -329,7 +329,34 @@ afterAll(async () => {
   );
   try {
     await database.query(
+      `update reconciliation_issues set last_finding_id = null
+        where last_run_id in (select id from reconciliation_runs where started_by in (select id from users where username like 'esp017-%') or scope->>'planningPeriodId' = $1)
+           or first_run_id in (select id from reconciliation_runs where started_by in (select id from users where username like 'esp017-%') or scope->>'planningPeriodId' = $1)`,
+      [periodId],
+    );
+    await database.query(
+      `delete from reconciliation_issue_comments where issue_id in (
+         select id from reconciliation_issues where tenant_id = $1
+           or last_run_id in (select id from reconciliation_runs where scope->>'planningPeriodId' = $2)
+       )`,
+      [ORGANIZATION_IDS.MTD, periodId],
+    );
+    await database.query(
+      `delete from reconciliation_issue_events where issue_id in (
+         select id from reconciliation_issues where last_run_id in (
+           select id from reconciliation_runs where started_by in (select id from users where username like 'esp017-%') or scope->>'planningPeriodId' = $1
+         )
+       )`,
+      [periodId],
+    );
+    await database.query(
       `delete from reconciliation_findings where reconciliation_run_id in (select id from reconciliation_runs where started_by in (select id from users where username like 'esp017-%') or scope::text like '%${periodId}%')`,
+    );
+    await database.query(
+      `delete from reconciliation_issues where last_run_id in (
+         select id from reconciliation_runs where started_by in (select id from users where username like 'esp017-%') or scope->>'planningPeriodId' = $1
+       )`,
+      [periodId],
     );
     await database.query(
       `delete from reconciliation_runs where started_by in (select id from users where username like 'esp017-%') or scope->>'planningPeriodId' = $1`,
@@ -1131,7 +1158,7 @@ describe('Gate ESP-017 — reconciliación operacional', () => {
     const journal = JSON.parse(
       readFileSync(resolve(root, 'packages/database/migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries).toHaveLength(50);
+    expect(journal.entries.length).toBeGreaterThanOrEqual(50);
     expect(journal.entries[0]?.tag).toBe('0000_foundation');
     expect(journal.entries[49]?.tag).toBe('0049_esp017_operational_reconciliation');
     const table = await database.query<{ exists: boolean }>(

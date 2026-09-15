@@ -10,7 +10,10 @@ import {
   clinicalAuthorizationReferenceSchema,
   createPatientScheduleRequestSchema,
   createPlanningPeriodRequestSchema,
+  acceptReconciliationIssueRiskRequestSchema,
+  createReconciliationIssueCommentRequestSchema,
   createReconciliationRunRequestSchema,
+  resolveReconciliationIssueRequestSchema,
   ESP014_SCHEDULING_TEMPLATE_VERSION,
   POINT_ACCESS_DENIED,
   foundationJobSchema,
@@ -389,5 +392,33 @@ describe('reconciliation contracts', () => {
     ).toMatchObject({
       planningPeriodId: '10000000-0000-4000-8000-000000000011',
     });
+  });
+
+  it('requires expectedVersion and catalog resolution codes for governance actions', () => {
+    expect(
+      resolveReconciliationIssueRequestSchema.parse({
+        expectedVersion: 1,
+        resolutionCode: 'DATA_CORRECTED',
+        resolutionNote: 'Corrected in the application module',
+      }).resolutionCode,
+    ).toBe('DATA_CORRECTED');
+    expect(
+      resolveReconciliationIssueRequestSchema.safeParse({
+        expectedVersion: 1,
+        resolutionCode: 'MUTE_RULE',
+        resolutionNote: 'nope',
+      }).success,
+    ).toBe(false);
+    expect(
+      acceptReconciliationIssueRiskRequestSchema.parse({
+        expectedVersion: 2,
+        acceptedRiskReason: 'Known temporary lineage gap',
+      }).acceptedRiskReason,
+    ).toBe('Known temporary lineage gap');
+    expect(
+      createReconciliationIssueCommentRequestSchema.safeParse({
+        body: `${'x'.repeat(2001)}`,
+      }).success,
+    ).toBe(false);
   });
 });

@@ -2217,6 +2217,7 @@ export const reconciliationFindings = pgTable(
     fingerprint: varchar('fingerprint', { length: 200 }).notNull(),
     truncated: boolean('truncated').notNull().default(false),
     detectedAt: timestamp('detected_at', { withTimezone: true }).notNull().defaultNow(),
+    issueId: uuid('issue_id').notNull(),
   },
   (table) => [
     unique('reconciliation_findings_run_rule_fingerprint_unique').on(
@@ -2227,6 +2228,7 @@ export const reconciliationFindings = pgTable(
     index('reconciliation_findings_run_severity_idx').on(table.reconciliationRunId, table.severity),
     index('reconciliation_findings_run_rule_idx').on(table.reconciliationRunId, table.ruleCode),
     index('reconciliation_findings_run_domain_idx').on(table.reconciliationRunId, table.domain),
+    index('reconciliation_findings_issue_detected_idx').on(table.issueId, table.detectedAt),
     check(
       'reconciliation_findings_category_check',
       sql`${table.category} IN ('INTEGRITY', 'CONSISTENCY', 'RECONCILIATION', 'OBSERVATION')`,
@@ -2237,5 +2239,124 @@ export const reconciliationFindings = pgTable(
     ),
     check('reconciliation_findings_rule_code_check', sql`length(btrim(${table.ruleCode})) > 0`),
     check('reconciliation_findings_message_check', sql`length(btrim(${table.message})) > 0`),
+  ],
+);
+
+export const reconciliationIssues = pgTable(
+  'reconciliation_issues',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    ruleCode: varchar('rule_code', { length: 40 }).notNull(),
+    fingerprint: varchar('fingerprint', { length: 200 }).notNull(),
+    domain: varchar('domain', { length: 20 }).notNull(),
+    category: varchar('category', { length: 20 }).notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('OPEN'),
+    currentSeverity: varchar('current_severity', { length: 20 }).notNull(),
+    maxSeveritySeen: varchar('max_severity_seen', { length: 20 }).notNull(),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    occurrenceCount: integer('occurrence_count').notNull().default(1),
+    firstRunId: uuid('first_run_id')
+      .notNull()
+      .references(() => reconciliationRuns.id, { onDelete: 'restrict' }),
+    lastRunId: uuid('last_run_id')
+      .notNull()
+      .references(() => reconciliationRuns.id, { onDelete: 'restrict' }),
+    lastFindingId: uuid('last_finding_id'),
+    firstRuleVersion: varchar('first_rule_version', { length: 40 }).notNull(),
+    lastRuleVersion: varchar('last_rule_version', { length: 40 }).notNull(),
+    assignedToUserId: uuid('assigned_to_user_id').references(() => users.id, {
+      onDelete: 'restrict',
+    }),
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+    acknowledgedBy: uuid('acknowledged_by').references(() => users.id, { onDelete: 'restrict' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: uuid('resolved_by').references(() => users.id, { onDelete: 'restrict' }),
+    resolutionCode: varchar('resolution_code', { length: 40 }),
+    resolutionNote: text('resolution_note'),
+    acceptedRiskAt: timestamp('accepted_risk_at', { withTimezone: true }),
+    acceptedRiskBy: uuid('accepted_risk_by').references(() => users.id, { onDelete: 'restrict' }),
+    acceptedRiskReason: text('accepted_risk_reason'),
+    acceptedRiskSeverity: varchar('accepted_risk_severity', { length: 20 }),
+    acceptedRiskRuleVersion: varchar('accepted_risk_rule_version', { length: 40 }),
+    riskReviewAt: timestamp('risk_review_at', { withTimezone: true }),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('reconciliation_issues_identity_unique').on(
+      table.tenantId,
+      table.ruleCode,
+      table.fingerprint,
+    ),
+    index('reconciliation_issues_tenant_status_idx').on(table.tenantId, table.status),
+    index('reconciliation_issues_tenant_severity_idx').on(table.tenantId, table.currentSeverity),
+    index('reconciliation_issues_tenant_assigned_idx').on(table.tenantId, table.assignedToUserId),
+    index('reconciliation_issues_tenant_rule_idx').on(table.tenantId, table.ruleCode),
+    index('reconciliation_issues_tenant_last_seen_idx').on(table.tenantId, table.lastSeenAt),
+    check(
+      'reconciliation_issues_status_check',
+      sql`${table.status} IN ('OPEN', 'ACKNOWLEDGED', 'RESOLVED', 'ACCEPTED_RISK')`,
+    ),
+    check('reconciliation_issues_occurrence_check', sql`${table.occurrenceCount} >= 1`),
+    check('reconciliation_issues_version_check', sql`${table.version} >= 1`),
+  ],
+);
+
+export const reconciliationIssueEvents = pgTable(
+  'reconciliation_issue_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    issueId: uuid('issue_id')
+      .notNull()
+      .references(() => reconciliationIssues.id, { onDelete: 'restrict' }),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    eventType: varchar('event_type', { length: 40 }).notNull(),
+    fromStatus: varchar('from_status', { length: 20 }),
+    toStatus: varchar('to_status', { length: 20 }),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'restrict' }),
+    reconciliationRunId: uuid('reconciliation_run_id').references(() => reconciliationRuns.id, {
+      onDelete: 'restrict',
+    }),
+    findingId: uuid('finding_id'),
+    metadataJson: jsonb('metadata_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('reconciliation_issue_events_issue_created_idx').on(table.issueId, table.createdAt),
+  ],
+);
+
+export const reconciliationIssueComments = pgTable(
+  'reconciliation_issue_comments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    issueId: uuid('issue_id')
+      .notNull()
+      .references(() => reconciliationIssues.id, { onDelete: 'restrict' }),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    authorUserId: uuid('author_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    editedAt: timestamp('edited_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('reconciliation_issue_comments_issue_created_idx').on(table.issueId, table.createdAt),
+    check(
+      'reconciliation_issue_comments_body_check',
+      sql`length(btrim(${table.body})) > 0 AND length(${table.body}) <= 2000`,
+    ),
   ],
 );

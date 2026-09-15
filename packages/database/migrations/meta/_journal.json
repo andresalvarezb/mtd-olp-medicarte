@@ -351,6 +351,13 @@
       "when": 1790460438663,
       "tag": "0049_esp017_operational_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1790460439663,
+      "tag": "0050_esp018_reconciliation_governance",
+      "breakpoints": true
     }
   ]
 }

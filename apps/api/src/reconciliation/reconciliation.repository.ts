@@ -1,10 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
+import type { PoolClient } from 'pg';
 import type { createDatabase } from '@authorization/database';
 import type { ReconciliationFindingListQuery } from '@authorization/contracts';
 import {
   reconciliationRunScopeSchema,
   reconciliationRunStatusSchema,
 } from '@authorization/contracts';
+import {
+  decideIssueRecurrence,
+  maxReconciliationSeverity,
+  type ReconciliationIssueStatus,
+  type ReconciliationSeverity,
+} from '@authorization/domain';
 import { DATABASE } from '../tokens';
 import type { PersistedFinding, ReconciliationRunScope } from './reconciliation.types';
 import type { EngineRuleResult } from './reconciliation.types';
@@ -53,6 +61,7 @@ type ReconciliationFindingRow = {
   fingerprint: string;
   truncated: boolean;
   detected_at: Date | string;
+  issue_id: string;
 };
 
 function asIso(value: Date | string | null | undefined): string | null {
@@ -60,7 +69,175 @@ function asIso(value: Date | string | null | undefined): string | null {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-const FINDING_BATCH = 200;
+type LockedIssueRow = {
+  id: string;
+  status: ReconciliationIssueStatus;
+  current_severity: ReconciliationSeverity;
+  max_severity_seen: ReconciliationSeverity;
+  accepted_risk_severity: ReconciliationSeverity | null;
+  accepted_risk_rule_version: string | null;
+};
+
+async function linkFindingToIssue(
+  client: PoolClient,
+  runId: string,
+  tenantId: string,
+  finding: PersistedFinding,
+): Promise<void> {
+  const existing = await client.query<{ id: string }>(
+    `select id from reconciliation_findings
+      where reconciliation_run_id = $1 and rule_code = $2 and fingerprint = $3`,
+    [runId, finding.ruleCode, finding.fingerprint],
+  );
+  if (existing.rows[0]) return;
+
+  const findingId = randomUUID();
+  let locked: LockedIssueRow | undefined;
+  let created = false;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const inserted = await client.query<{ id: string }>(
+      `insert into reconciliation_issues (
+         tenant_id, rule_code, fingerprint, domain, category, status,
+         current_severity, max_severity_seen, first_seen_at, last_seen_at,
+         occurrence_count, first_run_id, last_run_id, last_finding_id,
+         first_rule_version, last_rule_version, version
+       ) values ($1,$2,$3,$4,$5,'OPEN',$6,$6,now(),now(),1,$7,$7,$8,$9,$9,1)
+       on conflict (tenant_id, rule_code, fingerprint) do nothing
+       returning id`,
+      [
+        tenantId,
+        finding.ruleCode,
+        finding.fingerprint,
+        finding.domain,
+        finding.category,
+        finding.severity,
+        runId,
+        findingId,
+        finding.ruleVersion,
+      ],
+    );
+    const issue = await client.query<LockedIssueRow>(
+      `select id, status, current_severity, max_severity_seen,
+              accepted_risk_severity, accepted_risk_rule_version
+         from reconciliation_issues
+        where tenant_id = $1 and rule_code = $2 and fingerprint = $3
+        for update`,
+      [tenantId, finding.ruleCode, finding.fingerprint],
+    );
+    locked = issue.rows[0];
+    if (locked) {
+      created = inserted.rows[0]?.id === locked.id;
+      break;
+    }
+  }
+  if (!locked) throw new Error('ISSUE_UPSERT_FAILED');
+
+  if (created) {
+    await client.query(
+      `insert into reconciliation_issue_events
+         (issue_id, tenant_id, event_type, to_status, reconciliation_run_id, finding_id, metadata_json)
+       values ($1,$2,'ISSUE_CREATED','OPEN',$3,$4,'{"source":"ESP-017"}'::jsonb)`,
+      [locked.id, tenantId, runId, findingId],
+    );
+  } else {
+    const decision = decideIssueRecurrence(
+      {
+        status: locked.status,
+        acceptedRiskSeverity: locked.accepted_risk_severity,
+        acceptedRiskRuleVersion: locked.accepted_risk_rule_version,
+      },
+      { severity: finding.severity, ruleVersion: finding.ruleVersion },
+    );
+    const maxSeen = maxReconciliationSeverity(locked.max_severity_seen, finding.severity);
+    await client.query(
+      `update reconciliation_issues
+          set occurrence_count = occurrence_count + 1,
+              last_seen_at = now(),
+              last_run_id = $2,
+              last_finding_id = $3,
+              current_severity = $4,
+              max_severity_seen = $5,
+              last_rule_version = $6,
+              status = $7,
+              resolved_at = case when $8 then null else resolved_at end,
+              resolved_by = case when $8 then null else resolved_by end,
+              resolution_code = case when $8 then null else resolution_code end,
+              resolution_note = case when $8 then null else resolution_note end,
+              accepted_risk_at = case when $9 then null else accepted_risk_at end,
+              accepted_risk_by = case when $9 then null else accepted_risk_by end,
+              accepted_risk_reason = case when $9 then null else accepted_risk_reason end,
+              accepted_risk_severity = case when $9 then null else accepted_risk_severity end,
+              accepted_risk_rule_version = case when $9 then null else accepted_risk_rule_version end,
+              risk_review_at = case when $9 then null else risk_review_at end,
+              version = version + 1,
+              updated_at = now()
+        where id = $1`,
+      [
+        locked.id,
+        runId,
+        findingId,
+        finding.severity,
+        maxSeen,
+        finding.ruleVersion,
+        decision.nextStatus,
+        decision.clearResolution,
+        decision.clearAcceptedRisk,
+      ],
+    );
+    if (decision.eventType) {
+      await client.query(
+        `insert into reconciliation_issue_events
+           (issue_id, tenant_id, event_type, from_status, to_status,
+            reconciliation_run_id, finding_id, metadata_json)
+         values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
+        [
+          locked.id,
+          tenantId,
+          decision.eventType,
+          locked.status,
+          decision.nextStatus,
+          runId,
+          findingId,
+          JSON.stringify({
+            previousSeverity: locked.current_severity,
+            nextSeverity: finding.severity,
+            ruleVersion: finding.ruleVersion,
+          }),
+        ],
+      );
+    }
+  }
+
+  await client.query(
+    `insert into reconciliation_findings (
+       id, reconciliation_run_id, rule_code, rule_version, category, severity, domain,
+       entity_type, entity_id, related_entity_type, related_entity_id,
+       dispensing_point_id, planning_period_id, commercial_code, message,
+       evidence_json, fingerprint, truncated, issue_id
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19)`,
+    [
+      findingId,
+      runId,
+      finding.ruleCode,
+      finding.ruleVersion,
+      finding.category,
+      finding.severity,
+      finding.domain,
+      finding.entityType,
+      finding.entityId,
+      finding.relatedEntityType,
+      finding.relatedEntityId,
+      finding.dispensingPointId,
+      finding.planningPeriodId,
+      finding.commercialCode,
+      finding.message,
+      JSON.stringify(finding.evidence),
+      finding.fingerprint,
+      finding.truncated,
+      locked.id,
+    ],
+  );
+}
 
 @Injectable()
 export class ReconciliationRepository {
@@ -96,45 +273,31 @@ export class ReconciliationRepository {
     );
   }
 
-  async insertFindings(runId: string, findings: readonly PersistedFinding[]): Promise<void> {
+  async insertFindings(
+    runId: string,
+    tenantId: string,
+    findings: readonly PersistedFinding[],
+  ): Promise<void> {
     if (findings.length === 0) return;
-    for (let index = 0; index < findings.length; index += FINDING_BATCH) {
-      const batch = findings.slice(index, index + FINDING_BATCH);
-      const values: unknown[] = [];
-      const tuples = batch.map((finding) => {
-        const base = values.length;
-        values.push(
-          runId,
-          finding.ruleCode,
-          finding.ruleVersion,
-          finding.category,
-          finding.severity,
-          finding.domain,
-          finding.entityType,
-          finding.entityId,
-          finding.relatedEntityType,
-          finding.relatedEntityId,
-          finding.dispensingPointId,
-          finding.planningPeriodId,
-          finding.commercialCode,
-          finding.message,
-          JSON.stringify(finding.evidence),
-          finding.fingerprint,
-          finding.truncated,
-        );
-        const slots = Array.from({ length: 17 }, (_, slot) => `$${base + slot + 1}`);
-        return `(${slots.join(',')})`;
-      });
-      await this.database.pool.query(
-        `insert into reconciliation_findings (
-           reconciliation_run_id, rule_code, rule_version, category, severity, domain,
-           entity_type, entity_id, related_entity_type, related_entity_id,
-           dispensing_point_id, planning_period_id, commercial_code, message,
-           evidence_json, fingerprint, truncated
-         ) values ${tuples.join(',')}
-         on conflict (reconciliation_run_id, rule_code, fingerprint) do nothing`,
-        values,
+    const client = await this.database.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `set constraints reconciliation_issues_last_finding_fk, reconciliation_issue_events_finding_fk deferred`,
       );
+      for (const finding of findings) {
+        await linkFindingToIssue(client, runId, tenantId, finding);
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        /* ignore */
+      }
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -243,6 +406,38 @@ export class ReconciliationRepository {
         order by
           case f.severity when 'CRITICAL' then 0 when 'ERROR' then 1 when 'WARNING' then 2 else 3 end,
           f.rule_code, f.detected_at, f.id
+        limit $${values.length}`,
+      values,
+    );
+    return result.rows;
+  }
+
+  async listFindingsByIssue(
+    tenantId: string,
+    issueId: string,
+    query: ReconciliationFindingListQuery,
+  ): Promise<ReconciliationFindingRow[]> {
+    const values: unknown[] = [tenantId, issueId];
+    const filters = ['r.tenant_id = $1', 'f.issue_id = $2'];
+    if (query.severity) {
+      values.push(query.severity);
+      filters.push(`f.severity = $${values.length}`);
+    }
+    if (query.domain) {
+      values.push(query.domain);
+      filters.push(`f.domain = $${values.length}`);
+    }
+    if (query.ruleCode) {
+      values.push(query.ruleCode);
+      filters.push(`f.rule_code = $${values.length}`);
+    }
+    values.push(query.limit);
+    const result = await this.database.pool.query<ReconciliationFindingRow>(
+      `select f.*
+         from reconciliation_findings f
+         join reconciliation_runs r on r.id = f.reconciliation_run_id
+        where ${filters.join(' and ')}
+        order by f.detected_at desc, f.id desc
         limit $${values.length}`,
       values,
     );

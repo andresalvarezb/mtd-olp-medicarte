@@ -193,7 +193,7 @@ export class ReconciliationEngine {
           }
           const persisted = [...unique.values()];
           findings.push(...persisted);
-          await this.repository.insertFindings(runId, persisted);
+          await this.repository.insertFindings(runId, input.tenantId, persisted);
           ruleResults.push({
             ruleCode: rule.ruleCode,
             status: classifyRuleStatus(evaluation),
@@ -261,11 +261,17 @@ export class ReconciliationEngine {
         technicalFailure,
         snapshot,
         readerConnection: 'pool.connect() REPEATABLE READ READ ONLY',
-        writerConnection: 'pool.query reconciliation_runs/findings',
+        writerConnection: 'pool.query reconciliation_runs/findings/issues',
         ruleResults,
         truncated: ruleResults.some((item) => item.truncated),
         legacyScan: input.legacyScan ?? null,
-        writableTables: ['reconciliation_runs', 'reconciliation_findings'],
+        writableTables: [
+          'reconciliation_runs',
+          'reconciliation_findings',
+          'reconciliation_issues',
+          'reconciliation_issue_events',
+          'reconciliation_issue_comments',
+        ],
         autoRepair: false,
         sourceOfTruth: 'postgresql',
       },

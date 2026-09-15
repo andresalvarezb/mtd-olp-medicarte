@@ -1822,6 +1822,7 @@ export const reconciliationFindingResponseSchema = z.object({
   truncated: z.boolean(),
   recommendedAction: z.string(),
   detectedAt: isoDateTimeSchema,
+  issueId: z.string().uuid(),
 });
 export type ReconciliationFindingResponse = z.infer<typeof reconciliationFindingResponseSchema>;
 
@@ -1835,6 +1836,181 @@ export const reconciliationFindingListQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(1000).optional().default(200),
 });
 export type ReconciliationFindingListQuery = z.infer<typeof reconciliationFindingListQuerySchema>;
+
+export const reconciliationIssueStatusSchema = z.enum([
+  'OPEN',
+  'ACKNOWLEDGED',
+  'RESOLVED',
+  'ACCEPTED_RISK',
+]);
+export type ReconciliationIssueStatus = z.infer<typeof reconciliationIssueStatusSchema>;
+
+export const reconciliationIssueEventTypeSchema = z.enum([
+  'ISSUE_CREATED',
+  'ISSUE_ACKNOWLEDGED',
+  'ISSUE_ASSIGNED',
+  'ISSUE_UNASSIGNED',
+  'ISSUE_RESOLVED',
+  'ISSUE_ACCEPTED_RISK',
+  'ISSUE_REOPENED',
+  'RISK_ACCEPTANCE_INVALIDATED',
+  'ISSUE_MANUALLY_REOPENED',
+]);
+export type ReconciliationIssueEventType = z.infer<typeof reconciliationIssueEventTypeSchema>;
+
+export const reconciliationResolutionCodeSchema = z.enum([
+  'DATA_CORRECTED',
+  'PROCESS_CORRECTED',
+  'RULE_UPDATED',
+  'NO_LONGER_APPLICABLE',
+  'OTHER',
+]);
+export type ReconciliationResolutionCode = z.infer<typeof reconciliationResolutionCodeSchema>;
+
+export const reconciliationIssueListQuerySchema = z.object({
+  status: reconciliationIssueStatusSchema.optional(),
+  severity: reconciliationSeveritySchema.optional(),
+  domain: reconciliationDomainSchema.optional(),
+  ruleCode: z.string().min(1).optional(),
+  assignedTo: z.string().uuid().optional(),
+  unassigned: z.coerce.boolean().optional(),
+  firstSeenFrom: isoDateTimeSchema.optional(),
+  firstSeenTo: isoDateTimeSchema.optional(),
+  lastSeenFrom: isoDateTimeSchema.optional(),
+  lastSeenTo: isoDateTimeSchema.optional(),
+  riskReviewOverdue: z.coerce.boolean().optional(),
+  dispensingPointId: z.string().uuid().optional(),
+  planningPeriodId: z.string().uuid().optional(),
+  commercialCode: z.string().min(1).optional(),
+  limit: z.coerce.number().int().positive().max(500).optional().default(100),
+});
+export type ReconciliationIssueListQuery = z.infer<typeof reconciliationIssueListQuerySchema>;
+
+const assigneeSummarySchema = z
+  .object({
+    id: z.string().uuid(),
+    username: z.string(),
+    displayName: z.string(),
+  })
+  .nullable();
+
+export const reconciliationIssueResponseSchema = z.object({
+  id: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  ruleCode: z.string(),
+  fingerprint: z.string(),
+  domain: reconciliationDomainSchema,
+  category: reconciliationCategorySchema,
+  description: z.string(),
+  recommendedAction: z.string(),
+  status: reconciliationIssueStatusSchema,
+  currentSeverity: reconciliationSeveritySchema,
+  maxSeveritySeen: reconciliationSeveritySchema,
+  occurrenceCount: z.number().int().positive(),
+  firstSeenAt: isoDateTimeSchema,
+  lastSeenAt: isoDateTimeSchema,
+  firstRunId: z.string().uuid(),
+  lastRunId: z.string().uuid(),
+  lastFindingId: z.string().uuid(),
+  firstRuleVersion: z.string(),
+  lastRuleVersion: z.string(),
+  assignee: assigneeSummarySchema,
+  acknowledgedAt: isoDateTimeSchema.nullable(),
+  acknowledgedBy: z.string().uuid().nullable(),
+  resolvedAt: isoDateTimeSchema.nullable(),
+  resolvedBy: z.string().uuid().nullable(),
+  resolutionCode: reconciliationResolutionCodeSchema.nullable(),
+  resolutionNote: z.string().nullable(),
+  acceptedRiskAt: isoDateTimeSchema.nullable(),
+  acceptedRiskBy: z.string().uuid().nullable(),
+  acceptedRiskReason: z.string().nullable(),
+  acceptedRiskSeverity: reconciliationSeveritySchema.nullable(),
+  acceptedRiskRuleVersion: z.string().nullable(),
+  riskReviewAt: isoDateTimeSchema.nullable(),
+  riskReviewOverdue: z.boolean(),
+  daysSinceLastSeen: z.number().int().nonnegative(),
+  version: z.number().int().positive(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type ReconciliationIssueResponse = z.infer<typeof reconciliationIssueResponseSchema>;
+
+export const reconciliationIssueEventResponseSchema = z.object({
+  id: z.string().uuid(),
+  issueId: z.string().uuid(),
+  eventType: reconciliationIssueEventTypeSchema,
+  fromStatus: reconciliationIssueStatusSchema.nullable(),
+  toStatus: reconciliationIssueStatusSchema.nullable(),
+  actorUserId: z.string().uuid().nullable(),
+  reconciliationRunId: z.string().uuid().nullable(),
+  findingId: z.string().uuid().nullable(),
+  metadata: z.record(z.unknown()),
+  createdAt: isoDateTimeSchema,
+});
+export type ReconciliationIssueEventResponse = z.infer<
+  typeof reconciliationIssueEventResponseSchema
+>;
+
+export const reconciliationIssueCommentResponseSchema = z.object({
+  id: z.string().uuid(),
+  issueId: z.string().uuid(),
+  authorUserId: z.string().uuid(),
+  authorUsername: z.string(),
+  body: z.string(),
+  createdAt: isoDateTimeSchema,
+});
+export type ReconciliationIssueCommentResponse = z.infer<
+  typeof reconciliationIssueCommentResponseSchema
+>;
+
+export const expectedVersionSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+});
+
+export const acknowledgeReconciliationIssueRequestSchema = expectedVersionSchema;
+export type AcknowledgeReconciliationIssueRequest = z.infer<
+  typeof acknowledgeReconciliationIssueRequestSchema
+>;
+
+export const assignReconciliationIssueRequestSchema = expectedVersionSchema.extend({
+  assignedToUserId: z.string().uuid(),
+});
+export type AssignReconciliationIssueRequest = z.infer<
+  typeof assignReconciliationIssueRequestSchema
+>;
+
+export const unassignReconciliationIssueRequestSchema = expectedVersionSchema;
+export type UnassignReconciliationIssueRequest = z.infer<
+  typeof unassignReconciliationIssueRequestSchema
+>;
+
+export const resolveReconciliationIssueRequestSchema = expectedVersionSchema.extend({
+  resolutionCode: reconciliationResolutionCodeSchema,
+  resolutionNote: z.string().trim().min(1).max(2000),
+});
+export type ResolveReconciliationIssueRequest = z.infer<
+  typeof resolveReconciliationIssueRequestSchema
+>;
+
+export const acceptReconciliationIssueRiskRequestSchema = expectedVersionSchema.extend({
+  acceptedRiskReason: z.string().trim().min(1).max(2000),
+  riskReviewAt: isoDateTimeSchema.optional(),
+});
+export type AcceptReconciliationIssueRiskRequest = z.infer<
+  typeof acceptReconciliationIssueRiskRequestSchema
+>;
+
+export const reopenReconciliationIssueRequestSchema = expectedVersionSchema;
+export type ReopenReconciliationIssueRequest = z.infer<
+  typeof reopenReconciliationIssueRequestSchema
+>;
+
+export const createReconciliationIssueCommentRequestSchema = z.object({
+  body: z.string().trim().min(1).max(2000),
+});
+export type CreateReconciliationIssueCommentRequest = z.infer<
+  typeof createReconciliationIssueCommentRequestSchema
+>;
 
 export const reconciliationRuleCatalogItemSchema = z.object({
   ruleCode: z.string(),
