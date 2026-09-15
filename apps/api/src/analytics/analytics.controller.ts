@@ -9,6 +9,9 @@ import { AccessService } from '../identity/access.service';
 import type { AuthenticatedRequest } from '../types';
 import { AnalyticsService } from './analytics.service';
 import { buildAnalyticsExportWorkbook } from './analytics-export';
+import { OperationalAccessScopeService } from '../access-scopes/operational-access-scope.service';
+import { throwIfPointAccessDenied } from '../common/point-access';
+import type { Scope } from '../common/request-scope';
 
 @ApiTags('analytics')
 @ApiBearerAuth()
@@ -18,6 +21,7 @@ export class AnalyticsController {
   constructor(
     private readonly analytics: AnalyticsService,
     private readonly access: AccessService,
+    private readonly pointAccess: OperationalAccessScopeService,
   ) {}
 
   @Get('operational')
@@ -28,16 +32,14 @@ export class AnalyticsController {
   ) {
     const query = analyticsQuerySchema.parse(raw ?? {});
     const profile = await this.require(organizationId, request, 'analytics.read');
+    const scope = scopeFromProfile(profile, z.string().uuid().parse(organizationId), request);
+    await this.assertPointFilter(scope, query.dispensingPointId);
     const includeEconomics = Boolean(
       profile.organizations
         .find((organization) => organization.id === z.string().uuid().parse(organizationId))
         ?.permissions.includes('analytics.economics.read'),
     );
-    return this.analytics.operational(
-      query,
-      scopeFromProfile(profile, z.string().uuid().parse(organizationId), request),
-      includeEconomics,
-    );
+    return this.analytics.operational(query, scope, includeEconomics);
   }
 
   @Get('novelties')
@@ -46,10 +48,10 @@ export class AnalyticsController {
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.analytics.novelties(
-      analyticsQuerySchema.parse(raw ?? {}),
-      await this.scope(organizationId, request, 'analytics.read'),
-    );
+    const query = analyticsQuerySchema.parse(raw ?? {});
+    const scope = await this.scope(organizationId, request, 'analytics.read');
+    await this.assertPointFilter(scope, query.dispensingPointId);
+    return this.analytics.novelties(query, scope);
   }
 
   @Get('inventory')
@@ -58,10 +60,10 @@ export class AnalyticsController {
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.analytics.inventory(
-      analyticsQuerySchema.parse(raw ?? {}),
-      await this.scope(organizationId, request, 'analytics.read'),
-    );
+    const query = analyticsQuerySchema.parse(raw ?? {});
+    const scope = await this.scope(organizationId, request, 'analytics.read');
+    await this.assertPointFilter(scope, query.dispensingPointId);
+    return this.analytics.inventory(query, scope);
   }
 
   @Get('economics')
@@ -70,10 +72,10 @@ export class AnalyticsController {
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.analytics.economics(
-      analyticsQuerySchema.parse(raw ?? {}),
-      await this.scope(organizationId, request, 'analytics.economics.read'),
-    );
+    const query = analyticsQuerySchema.parse(raw ?? {});
+    const scope = await this.scope(organizationId, request, 'analytics.economics.read');
+    await this.assertPointFilter(scope, query.dispensingPointId);
+    return this.analytics.economics(query, scope);
   }
 
   @Get('drilldown')
@@ -82,8 +84,10 @@ export class AnalyticsController {
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    await this.scope(organizationId, request, 'analytics.read');
-    return this.analytics.drilldown(analyticsDrilldownQuerySchema.parse(raw ?? {}));
+    const query = analyticsDrilldownQuerySchema.parse(raw ?? {});
+    const scope = await this.scope(organizationId, request, 'analytics.read');
+    await this.assertPointFilter(scope, query.dispensingPointId);
+    return this.analytics.drilldown(query);
   }
 
   @Get('export.xlsx')
@@ -95,16 +99,14 @@ export class AnalyticsController {
   ) {
     const query = analyticsQuerySchema.parse(raw ?? {});
     const profile = await this.require(organizationId, request, 'analytics.read');
+    const scope = scopeFromProfile(profile, z.string().uuid().parse(organizationId), request);
+    await this.assertPointFilter(scope, query.dispensingPointId);
     const includeEconomics = Boolean(
       profile.organizations
         .find((organization) => organization.id === z.string().uuid().parse(organizationId))
         ?.permissions.includes('analytics.economics.read'),
     );
-    const payload = await this.analytics.operational(
-      query,
-      scopeFromProfile(profile, z.string().uuid().parse(organizationId), request),
-      includeEconomics,
-    );
+    const payload = await this.analytics.operational(query, scope, includeEconomics);
     const buffer = buildAnalyticsExportWorkbook(payload, includeEconomics);
     response.setHeader(
       'content-type',
@@ -137,5 +139,18 @@ export class AnalyticsController {
     const id = z.string().uuid().parse(organizationId);
     const profile = await this.require(id, request, permission);
     return scopeFromProfile(profile, id, request);
+  }
+
+  private async assertPointFilter(
+    scope: Scope,
+    dispensingPointId: string | undefined,
+  ): Promise<void> {
+    if (!dispensingPointId) return;
+    try {
+      await this.pointAccess.assertCanAccessPoint(scope, dispensingPointId);
+    } catch (error) {
+      throwIfPointAccessDenied(error);
+      throw error;
+    }
   }
 }

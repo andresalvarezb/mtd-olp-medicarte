@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ORGANIZATION_IDS, adminLogin, ensureOperatorTokens, ensureUser } from './helpers/auth';
+import {
+  ORGANIZATION_IDS,
+  adminLogin,
+  ensureOperatorTokens,
+  ensureUser,
+  grantAllPointsToMedicarteOperator,
+  deletePointScopesForPointCodeLike,
+} from './helpers/auth';
 
 const database = new Client({
   connectionString:
@@ -210,6 +217,7 @@ async function cleanup() {
   await database.query(`delete from purchase_orders where purchase_order_code like $1`, [
     `${prefix}%`,
   ]);
+  await deletePointScopesForPointCodeLike(database, `${prefix}%`);
   await database.query(`delete from dispensing_points where code like $1`, [`${prefix}%`]);
 }
 
@@ -240,14 +248,14 @@ describe('Gate ESP-008 - operational inventory ledger', () => {
     ).rows[0]!.id;
     periodId = (
       await database.query<{ id: string }>(
-      `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by)
+        `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by)
        values ('2020-01-01','2020-01-31','2019-12-01T00:00:00Z','2019-12-10T00:00:00Z','2020-01-15',$1,$1) returning id`,
         [userId],
       )
     ).rows[0]!.id;
     secondPeriodId = (
       await database.query<{ id: string }>(
-      `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by)
+        `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by)
        values ('2020-02-01','2020-02-29','2020-01-01T00:00:00Z','2020-01-10T00:00:00Z','2020-02-15',$1,$1) returning id`,
         [userId],
       )
@@ -258,6 +266,7 @@ describe('Gate ESP-008 - operational inventory ledger', () => {
         [ORGANIZATION_IDS.MTD, code('POINT'), userId],
       )
     ).rows[0]!.id;
+    await grantAllPointsToMedicarteOperator(database);
   });
   afterAll(async () => {
     if (!connected) return;
@@ -389,6 +398,7 @@ describe('Gate ESP-008 - operational inventory ledger', () => {
         [ORGANIZATION_IDS.MTD, code('OTHER-POINT'), userId],
       )
     ).rows[0]!.id;
+    await grantAllPointsToMedicarteOperator(database);
     const product = code('IDENTITY-PRODUCT');
     const cases = [
       { code: product, lot: 'LOT-A', expiration: '2099-12-31', pointId },

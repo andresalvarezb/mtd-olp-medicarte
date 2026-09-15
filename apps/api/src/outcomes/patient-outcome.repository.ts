@@ -8,6 +8,7 @@ import {
   scheduleToday,
 } from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
+import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -45,6 +46,7 @@ export class PatientOutcomeRepository {
           from patient_schedules where id=${scheduleId} for update`)
       ).rows[0];
       if (!schedule) throw new Error('PATIENT_SCHEDULE_NOT_FOUND');
+      await lockActivePointGrants(tx, scope, [schedule.dispensing_point_id]);
       if (schedule.revision !== body.expectedScheduleRevision)
         throw new Error('PATIENT_SCHEDULE_REVISION_CONFLICT');
 
@@ -143,11 +145,31 @@ export class PatientOutcomeRepository {
     return this.findOn(this.database.db, id, scope);
   }
 
+  async existsIgnoringPoint(id: string, scope: Scope): Promise<boolean> {
+    const org = ['MTD', 'MEDICARTE'].includes(scope.organizationCode)
+      ? sql`true`
+      : sql`dp.organization_id=${scope.organizationId}`;
+    const result = await this.database.db.execute<{ id: string }>(
+      sql`select o.id from patient_schedule_outcomes o join patient_schedules ps on ps.id=o.patient_schedule_id join dispensing_points dp on dp.id=ps.dispensing_point_id where o.id=${id} and ${org} limit 1`,
+    );
+    return Boolean(result.rows[0]);
+  }
+
+  async scheduleExistsIgnoringPoint(scheduleId: string, scope: Scope): Promise<boolean> {
+    const org = ['MTD', 'MEDICARTE'].includes(scope.organizationCode)
+      ? sql`true`
+      : sql`dp.organization_id=${scope.organizationId}`;
+    const result = await this.database.db.execute<{ id: string }>(
+      sql`select ps.id from patient_schedules ps join dispensing_points dp on dp.id=ps.dispensing_point_id where ps.id=${scheduleId} and ${org} limit 1`,
+    );
+    return Boolean(result.rows[0]);
+  }
+
   async list(scope: Scope) {
     const rows = await this.database.db.execute<{ id: string }>(sql`select pso.id
       from patient_schedule_outcomes pso join patient_schedules ps on ps.id=pso.patient_schedule_id
       join dispensing_points dp on dp.id=ps.dispensing_point_id
-      where ${['MTD', 'MEDICARTE'].includes(scope.organizationCode) ? sql`true` : sql`dp.organization_id=${scope.organizationId}`}
+      where ${this.visibility(scope)}
       order by pso.occurred_on desc,pso.created_at desc limit 500`);
     return Promise.all(rows.rows.map((row) => this.find(row.id, scope)));
   }
@@ -180,7 +202,7 @@ export class PatientOutcomeRepository {
         a.id application_id from patient_schedules ps join authorization_items ai on ai.id=ps.authorization_item_id
         join dispensing_points dp on dp.id=ps.dispensing_point_id left join patient_schedule_outcomes o on o.patient_schedule_id=ps.id and o.schedule_revision=ps.revision
         left join patient_applications a on a.patient_schedule_id=ps.id and a.schedule_revision=ps.revision and a.status='CONFIRMED'
-        where ps.id=${scheduleId} and ${['MTD', 'MEDICARTE'].includes(scope.organizationCode) ? sql`true` : sql`dp.organization_id=${scope.organizationId}`}`)
+        where ps.id=${scheduleId} and ${this.visibility(scope)}`)
     ).rows[0];
     if (!row) return null;
     const priority = calculateAuthorizationPriority(
@@ -220,7 +242,7 @@ export class PatientOutcomeRepository {
 
   async operationalStatuses(scope: Scope) {
     const rows = await this.database.db.execute<{ id: string }>(
-      sql`select ps.id from patient_schedules ps join dispensing_points dp on dp.id=ps.dispensing_point_id where ${['MTD', 'MEDICARTE'].includes(scope.organizationCode) ? sql`true` : sql`dp.organization_id=${scope.organizationId}`} order by ps.scheduled_date,ps.id limit 500`,
+      sql`select ps.id from patient_schedules ps join dispensing_points dp on dp.id=ps.dispensing_point_id where ${this.visibility(scope)} order by ps.scheduled_date,ps.id limit 500`,
     );
     return Promise.all(rows.rows.map((row) => this.operationalStatus(row.id, scope)));
   }
@@ -228,7 +250,7 @@ export class PatientOutcomeRepository {
   private async findOn(conn: Tx | Database['db'], id: string, scope: Scope) {
     const outcome = (
       await conn.execute<Outcome>(
-        sql`select o.* from patient_schedule_outcomes o join patient_schedules ps on ps.id=o.patient_schedule_id join dispensing_points dp on dp.id=ps.dispensing_point_id where o.id=${id} and ${['MTD', 'MEDICARTE'].includes(scope.organizationCode) ? sql`true` : sql`dp.organization_id=${scope.organizationId}`}`,
+        sql`select o.* from patient_schedule_outcomes o join patient_schedules ps on ps.id=o.patient_schedule_id join dispensing_points dp on dp.id=ps.dispensing_point_id where o.id=${id} and ${this.visibility(scope)}`,
       )
     ).rows[0];
     if (!outcome) return null;
@@ -259,6 +281,13 @@ export class PatientOutcomeRepository {
         quantity: line.quantity,
       })),
     };
+  }
+
+  private visibility(scope: Scope) {
+    const org = ['MTD', 'MEDICARTE'].includes(scope.organizationCode)
+      ? sql`true`
+      : sql`dp.organization_id=${scope.organizationId}`;
+    return sql`${org} and ${applyPointScope(sql`ps.dispensing_point_id`, scope)}`;
   }
 
   private async audit(tx: Tx, scope: Scope, action: string, id: string, after: unknown) {

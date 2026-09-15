@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ORGANIZATION_IDS, adminLogin, ensureOperatorTokens, ensureUser } from './helpers/auth';
+import {
+  ORGANIZATION_IDS,
+  adminLogin,
+  ensureOperatorTokens,
+  ensureUser,
+  grantAllPointsToMedicarteOperator,
+  deletePointScopesForPoints,
+} from './helpers/auth';
 
 const url =
   process.env.DATABASE_URL ??
@@ -112,6 +119,7 @@ describe('Gate ESP-009 - stock transfers', () => {
         [`${prefix}-PRODUCT`, source, `${prefix}-LOT`],
       )
     ).rows[0]!.id;
+    await grantAllPointsToMedicarteOperator(db);
   });
   afterAll(async () => {
     if (!connected) return;
@@ -129,6 +137,7 @@ describe('Gate ESP-009 - stock transfers', () => {
       [`${prefix}%`],
     );
     await db.query(`delete from inventory_lots where commercial_code like $1`, [`${prefix}%`]);
+    await deletePointScopesForPoints(db, [source, destination]);
     await db.query(`delete from dispensing_points where id in ($1,$2)`, [source, destination]);
     await db.end();
   });

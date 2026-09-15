@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
 import type { Scope } from '../common/request-scope';
+import { applyPointScope } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -71,6 +72,7 @@ export class InventoryRepository {
     const conditions = [sql`true`];
     if (!['OLP', 'MEDICARTE', 'MTD'].includes(scope.organizationCode))
       conditions.push(sql`dp.organization_id=${scope.organizationId}`);
+    conditions.push(applyPointScope(sql`l.dispensing_point_id`, scope));
     if (filters.commercialCode) conditions.push(sql`l.commercial_code=${filters.commercialCode}`);
     if (filters.dispensingPointId)
       conditions.push(sql`l.dispensing_point_id=${filters.dispensingPointId}`);
@@ -118,18 +120,20 @@ export class InventoryRepository {
         sql`select m.id,m.inventory_lot_id,m.movement_type,m.quantity_delta,m.source_type,m.source_id,m.occurred_at,m.created_by,m.metadata,m.created_at
       from inventory_movements m where m.inventory_lot_id=${id} order by m.occurred_at,m.created_at,m.id`,
       )
-      .then((result) => result.rows.map((row) => ({
-        id: row.id,
-        inventoryLotId: row.inventory_lot_id,
-        movementType: row.movement_type,
-        quantityDelta: row.quantity_delta,
-        sourceType: row.source_type,
-        sourceId: row.source_id,
-        occurredAt: row.occurred_at,
-        createdBy: row.created_by,
-        metadata: row.metadata,
-        createdAt: row.created_at,
-      })));
+      .then((result) =>
+        result.rows.map((row) => ({
+          id: row.id,
+          inventoryLotId: row.inventory_lot_id,
+          movementType: row.movement_type,
+          quantityDelta: row.quantity_delta,
+          sourceType: row.source_type,
+          sourceId: row.source_id,
+          occurredAt: row.occurred_at,
+          createdBy: row.created_by,
+          metadata: row.metadata,
+          createdAt: row.created_at,
+        })),
+      );
   }
 
   async fefo(scope: Scope, commercialCode: string, dispensingPointId: string) {

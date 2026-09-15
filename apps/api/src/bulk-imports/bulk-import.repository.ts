@@ -10,6 +10,7 @@ import type {
 import type { createDatabase } from '@authorization/database';
 import {
   BULK_IMPORT_ROW_CLAIM_LEASE_SECONDS,
+  POINT_ACCESS_DENIED,
   decideBulkImportCompletion,
   rowIdempotencyKey,
 } from '@authorization/domain';
@@ -200,6 +201,7 @@ export class BulkImportRepository {
   async listRows(
     jobId: string,
     filter: 'ALL' | 'VALID' | 'INVALID' | 'EXECUTED' | 'FAILED',
+    actor?: Scope,
   ): Promise<BulkImportRowResponse[]> {
     const where =
       filter === 'VALID'
@@ -229,7 +231,7 @@ export class BulkImportRepository {
              execution_error_code, execution_error, error_column, entity_reference, attempt_count,
              normalized_payload
       from bulk_import_rows
-      where job_id = ${jobId} and ${where}
+      where job_id = ${jobId} and ${where} and ${actor ? this.rowPointFilter(actor) : sql`true`}
       order by row_number
     `);
     return result.rows.map((row) => {
@@ -535,9 +537,32 @@ export class BulkImportRepository {
   }
 
   private orgFilter(actor: Scope) {
-    return actor.organizationCode === 'MTD' || actor.isFoundationAdmin
-      ? sql`true`
-      : sql`organization_id = ${actor.organizationId}`;
+    if (actor.organizationCode === 'MTD' || actor.isFoundationAdmin) return sql`true`;
+    if (actor.pointAccessKind === 'explicit') {
+      return sql`organization_id = ${actor.organizationId} and created_by = ${actor.userId}`;
+    }
+    return sql`organization_id = ${actor.organizationId}`;
+  }
+
+  private rowPointFilter(actor: Scope) {
+    if (actor.pointAccessKind !== 'explicit') return sql`true`;
+    return sql`(
+      coalesce(normalized_payload->>'dispensingPointCode', '') = ''
+      or error_code = ${POINT_ACCESS_DENIED}
+      or execution_error_code = ${POINT_ACCESS_DENIED}
+      or not exists (
+        select 1 from dispensing_points dp
+        where upper(dp.code) = upper(normalized_payload->>'dispensingPointCode')
+      )
+      or exists (
+        select 1
+        from dispensing_points dp
+        join user_point_scopes ups on ups.dispensing_point_id = dp.id
+        where ups.user_id = ${actor.userId}::uuid
+          and ups.revoked_at is null
+          and upper(dp.code) = upper(normalized_payload->>'dispensingPointCode')
+      )
+    )`;
   }
 
   private async audit(

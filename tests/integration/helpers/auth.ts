@@ -120,6 +120,73 @@ export async function ensureUser(input: {
   return login(input.username, input.password);
 }
 
+export async function grantMedicarteOperatorPoints(
+  database: { query: (text: string, values?: unknown[]) => Promise<unknown> },
+  pointIds: readonly string[],
+): Promise<void> {
+  if (pointIds.length === 0) return;
+  await database.query(
+    `insert into user_point_scopes (user_id, dispensing_point_id, granted_by)
+     select u.id, dp.id, admin.id
+     from users u
+     cross join unnest($1::uuid[]) as point(id)
+     join dispensing_points dp on dp.id = point.id
+     cross join users admin
+     where u.username = 'medicarte-operator'
+       and admin.username = 'foundation-admin'
+       and not exists (
+         select 1 from user_point_scopes existing
+         where existing.user_id = u.id
+           and existing.dispensing_point_id = dp.id
+           and existing.revoked_at is null
+       )`,
+    [pointIds],
+  );
+}
+
+export async function deletePointScopesForPoints(
+  database: { query: (text: string, values?: unknown[]) => Promise<unknown> },
+  pointIds: readonly (string | null | undefined)[],
+): Promise<void> {
+  const ids = pointIds.filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return;
+  await database.query(
+    `delete from user_point_scopes where dispensing_point_id = any($1::uuid[])`,
+    [ids],
+  );
+}
+
+export async function deletePointScopesForPointCodeLike(
+  database: { query: (text: string, values?: unknown[]) => Promise<unknown> },
+  codeLike: string,
+): Promise<void> {
+  await database.query(
+    `delete from user_point_scopes
+      where dispensing_point_id in (select id from dispensing_points where code like $1)`,
+    [codeLike],
+  );
+}
+
+export async function grantAllPointsToMedicarteOperator(database: {
+  query: (text: string, values?: unknown[]) => Promise<unknown>;
+}): Promise<void> {
+  await database.query(
+    `insert into user_point_scopes (user_id, dispensing_point_id, granted_by)
+     select u.id, dp.id, admin.id
+     from users u
+     cross join dispensing_points dp
+     cross join users admin
+     where u.username = 'medicarte-operator'
+       and admin.username = 'foundation-admin'
+       and not exists (
+         select 1 from user_point_scopes existing
+         where existing.user_id = u.id
+           and existing.dispensing_point_id = dp.id
+           and existing.revoked_at is null
+       )`,
+  );
+}
+
 /** Token de OLP_OPERATOR y MEDICARTE_OPERATOR de desarrollo, idempotente. */
 export async function ensureOperatorTokens(): Promise<{
   olpToken: string;

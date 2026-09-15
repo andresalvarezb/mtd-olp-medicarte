@@ -34,6 +34,7 @@ import {
   type SchedulingAuthorization,
 } from '../clinical/clinical-authorization.repository';
 import type { Scope } from '../common/request-scope';
+import { throwIfPointAccessDenied, pointAccessDeniedException } from '../common/point-access';
 import {
   PatientScheduleRepository,
   isScheduleDuplicateError,
@@ -62,14 +63,20 @@ export class PatientScheduleService {
     await this.requirePeriodForDate(input.body.scheduledDate);
     const point = await this.repository.findDispensingPointById(input.body.dispensingPointId);
     if (!point) throw dispensingPointNotFound();
+    await this.assertPointAccess(input.actor, point.id);
 
     // La escritura es autoritativa: el repository revalida en transacción con
     // locks y devuelve errores estructurados ante estado obsoleto.
-    const outcome = await this.repository.create({
-      request: toCreateInput(input.body, item.commercialCode),
-      actor: input.actor,
-    });
-    return unwrapPersistenceOutcome(outcome);
+    try {
+      const outcome = await this.repository.create({
+        request: toCreateInput(input.body, item.commercialCode),
+        actor: input.actor,
+      });
+      return unwrapPersistenceOutcome(outcome);
+    } catch (error) {
+      throwIfPointAccessDenied(error);
+      throw error;
+    }
   }
 
   async createInTx(
@@ -86,6 +93,7 @@ export class PatientScheduleService {
       });
       return unwrapPersistenceOutcome(outcome);
     } catch (error) {
+      throwIfPointAccessDenied(error);
       if (isScheduleDuplicateError(error)) {
         throw new ConflictException({
           code: 'PATIENT_SCHEDULE_DUPLICATE',
@@ -103,6 +111,7 @@ export class PatientScheduleService {
   async findById(id: string, actor: Scope): Promise<PatientScheduleResponse> {
     const schedule = await this.repository.findById(id, toPatientScheduleScope(actor));
     if (!schedule) throw patientScheduleNotFound();
+    await this.assertPointAccess(actor, schedule.dispensingPointId);
     return schedule;
   }
 
@@ -148,7 +157,7 @@ export class PatientScheduleService {
       await this.requirePeriodForDate(input.body.scheduledDate as string);
       assertScheduleTransition(current.status, 'RESCHEDULED');
     }
-    const outcome = await this.repository.applyMutation({
+    const outcome = await this.applyScopedMutation({
       id: current.id,
       expectedRevision: input.body.expectedRevision,
       changeType: changesDate ? 'RESCHEDULED' : 'UPDATED',
@@ -182,7 +191,7 @@ export class PatientScheduleService {
       const point = await this.repository.findDispensingPointById(input.body.dispensingPointId);
       if (!point) throw dispensingPointNotFound();
     }
-    const outcome = await this.repository.applyMutation({
+    const outcome = await this.applyScopedMutation({
       id: current.id,
       expectedRevision: input.body.expectedRevision,
       changeType: 'RESCHEDULED',
@@ -208,7 +217,7 @@ export class PatientScheduleService {
     const current = await this.findById(input.id, input.actor);
     assertNotCancelled(current.status);
     assertScheduleTransition(current.status, 'CANCELLED');
-    const outcome = await this.repository.applyMutation({
+    const outcome = await this.applyScopedMutation({
       id: current.id,
       expectedRevision: input.body.expectedRevision,
       changeType: 'CANCELLED',
@@ -249,8 +258,25 @@ export class PatientScheduleService {
     };
   }
 
-  async listDispensingPoints(): Promise<DispensingPointResponse[]> {
-    return this.repository.listDispensingPoints();
+  async listDispensingPoints(actor: Scope): Promise<DispensingPointResponse[]> {
+    return this.repository.listDispensingPoints(toPatientScheduleScope(actor));
+  }
+
+  private async applyScopedMutation(
+    input: Parameters<PatientScheduleRepository['applyMutation']>[0],
+  ) {
+    try {
+      return await this.repository.applyMutation(input);
+    } catch (error) {
+      throwIfPointAccessDenied(error);
+      throw error;
+    }
+  }
+
+  private async assertPointAccess(actor: Scope, pointId: string): Promise<void> {
+    if (actor.pointAccessKind !== 'explicit') return;
+    const allowed = await this.repository.hasActiveGrant(actor.userId, pointId);
+    if (!allowed) throw pointAccessDeniedException();
   }
 
   private resolveLateHandling(
@@ -357,7 +383,9 @@ function toCreateInput(
 export function toPatientScheduleScope(actor: Scope): PatientScheduleScope {
   return {
     organizationId: actor.organizationId,
+    userId: actor.userId,
     bypassOrganizationScope: actor.organizationCode === 'MTD' || actor.isFoundationAdmin,
+    pointAccessKind: actor.pointAccessKind,
   };
 }
 

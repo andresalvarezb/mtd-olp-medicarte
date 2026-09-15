@@ -1,16 +1,18 @@
 import { Inject, Injectable, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import type { MeResponse } from '@authorization/contracts';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import {
   organizations,
   permissions,
   rolePermissions,
   roles,
   userOrganizationRoles,
+  userPointScopes,
   users,
 } from '@authorization/database';
 import type { createDatabase } from '@authorization/database';
 import { DATABASE } from '../tokens';
+import { pointAccessKindFor } from '../common/request-scope';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -57,7 +59,12 @@ export class AccessService {
       });
     }
 
-    const scopes = new Map<string, MeResponse['organizations'][number]>();
+    const scopes = new Map<
+      string,
+      Omit<MeResponse['organizations'][number], 'pointAccess'> & {
+        pointAccess?: MeResponse['organizations'][number]['pointAccess'];
+      }
+    >();
     for (const row of rows) {
       if (!row.organizationActive) continue;
       const scope = scopes.get(row.organizationId) ?? {
@@ -73,12 +80,31 @@ export class AccessService {
       scopes.set(row.organizationId, scope);
     }
 
+    const grantedPoints = await this.database.db
+      .select({ dispensingPointId: userPointScopes.dispensingPointId })
+      .from(userPointScopes)
+      .where(and(eq(userPointScopes.userId, userId), isNull(userPointScopes.revokedAt)));
+    const accessiblePointIds = grantedPoints.map((row) => row.dispensingPointId);
+
     return {
       id: first.userId,
       username: first.username,
       displayName: first.displayName,
       mustChangePassword: first.mustChangePassword,
-      organizations: [...scopes.values()],
+      organizations: [...scopes.values()].map((organization) => {
+        const kind = pointAccessKindFor(organization.code, organization.roles);
+        return {
+          id: organization.id,
+          code: organization.code,
+          name: organization.name,
+          roles: organization.roles,
+          permissions: organization.permissions,
+          pointAccess: {
+            kind,
+            accessiblePointIds: kind === 'explicit' ? accessiblePointIds : [],
+          },
+        };
+      }),
     };
   }
 

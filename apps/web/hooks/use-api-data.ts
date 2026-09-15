@@ -27,6 +27,17 @@ export function useApiData<T>(fetcher: () => Promise<T>, deps: unknown[]): UseAp
       .catch((err: unknown) => {
         if (cancelled) return;
         if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (
+          err instanceof Error &&
+          'code' in err &&
+          (err as { code: string }).code === 'POINT_ACCESS_DENIED'
+        ) {
+          setData(null);
+          setError(
+            'No tienes acceso a este punto de dispensación. Actualiza para ver el alcance vigente.',
+          );
+          return;
+        }
         setError(err instanceof Error ? err.message : 'Error inesperado al consultar la API.');
       })
       .finally(() => {

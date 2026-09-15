@@ -12,6 +12,7 @@ import {
   scheduleToday,
 } from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
+import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -90,6 +91,7 @@ export class PatientApplicationRepository {
   async create(body: CreatePatientApplicationRequest, scope: Scope) {
     return this.database.db.transaction(async (tx) => {
       const schedule = await this.lockSchedule(tx, body.patientScheduleId);
+      await lockActivePointGrants(tx, scope, [schedule.dispensing_point_id]);
       this.assertSchedule(schedule, body.scheduleRevision);
       this.assertAuthorization(schedule);
       const id = (
@@ -110,6 +112,7 @@ export class PatientApplicationRepository {
     return this.database.db.transaction(async (tx) => {
       const application = await this.lockApplication(tx, id);
       if (!application) return { outcome: 'not_found' as const };
+      await lockActivePointGrants(tx, scope, [application.dispensing_point_id]);
       if (application.status !== 'DRAFT') throw new Error('PATIENT_APPLICATION_FROZEN');
       if (application.version !== body.expectedVersion)
         return { outcome: 'version_conflict' as const, currentVersion: application.version };
@@ -135,6 +138,7 @@ export class PatientApplicationRepository {
     return this.database.db.transaction(async (tx) => {
       const application = await this.lockApplication(tx, id);
       if (!application) return { outcome: 'not_found' as const };
+      await lockActivePointGrants(tx, scope, [application.dispensing_point_id]);
       if (application.status === 'CONFIRMED') return this.findOn(tx, id, scope);
       if (application.status === 'CANCELLED') throw new Error('PATIENT_APPLICATION_CANCELLED');
       if (application.version !== expectedVersion)
@@ -251,6 +255,7 @@ export class PatientApplicationRepository {
     return this.database.db.transaction(async (tx) => {
       const application = await this.lockApplication(tx, id);
       if (!application) return { outcome: 'not_found' as const };
+      await lockActivePointGrants(tx, scope, [application.dispensing_point_id]);
       if (application.version !== expectedVersion)
         return { outcome: 'version_conflict' as const, currentVersion: application.version };
       if (application.status !== 'DRAFT') throw new Error('PATIENT_APPLICATION_CANCEL_NOT_ALLOWED');
@@ -269,6 +274,7 @@ export class PatientApplicationRepository {
       conditions.push(sql`pa.patient_schedule_id=${query.patientScheduleId}`);
     if (!['MTD', 'MEDICARTE'].includes(scope.organizationCode))
       conditions.push(sql`dp.organization_id=${scope.organizationId}`);
+    conditions.push(applyPointScope(sql`pa.dispensing_point_id`, scope));
     return this.database.db
       .execute<{
         id: string;
@@ -282,6 +288,16 @@ export class PatientApplicationRepository {
     return this.findOn(this.database.db, id, scope);
   }
 
+  async existsIgnoringPoint(id: string, scope: Scope): Promise<boolean> {
+    const org = ['MTD', 'MEDICARTE'].includes(scope.organizationCode)
+      ? sql`true`
+      : sql`dp.organization_id=${scope.organizationId}`;
+    const result = await this.database.db.execute<{ id: string }>(
+      sql`select pa.id from patient_applications pa join dispensing_points dp on dp.id=pa.dispensing_point_id where pa.id=${id} and ${org} limit 1`,
+    );
+    return Boolean(result.rows[0]);
+  }
+
   async eligibleSchedules(scope: Scope) {
     const rows = await this.database.db
       .execute<Schedule>(sql`select ps.id,ps.revision,ps.authorization_item_id,ps.commercial_code,ps.dispensing_point_id,ps.scheduled_date::text,ps.quantity,ps.status,
@@ -289,7 +305,8 @@ export class PatientApplicationRepository {
       ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,ai.enablement_status,ai.coverage_type,ai.direction_status
       from patient_schedules ps join authorization_items ai on ai.id=ps.authorization_item_id join dispensing_points dp on dp.id=ps.dispensing_point_id
       where ps.status in ('SCHEDULED','RESCHEDULED') and not exists (select 1 from patient_applications pa where pa.patient_schedule_id=ps.id and pa.status in ('DRAFT','CONFIRMED'))
-      and (${['MTD', 'MEDICARTE'].includes(scope.organizationCode)} or dp.organization_id=${scope.organizationId}) order by ps.scheduled_date,ps.id limit 500`);
+      and (${['MTD', 'MEDICARTE'].includes(scope.organizationCode)} or dp.organization_id=${scope.organizationId})
+      and ${applyPointScope(sql`ps.dispensing_point_id`, scope)} order by ps.scheduled_date,ps.id limit 500`);
     return rows.rows
       .filter((row) => {
         const result = evaluateScheduleAuthorizationEligibility({
@@ -433,7 +450,7 @@ export class PatientApplicationRepository {
   private async findOn(conn: Conn, id: string, scope: Scope) {
     const app = (
       await conn.execute<ApplicationRow>(
-        sql`select pa.*,ps.quantity scheduled_quantity,ai.numero_autorizacion authorization_number,coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE',ai.source_data->>'NUM_DOCUMENTO') patient_document,ai.source_data->>'NOMBRE_PACIENTE' patient_name,ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,dp.code dispensing_point_code,dp.name dispensing_point_name from patient_applications pa join patient_schedules ps on ps.id=pa.patient_schedule_id join authorization_items ai on ai.id=pa.authorization_item_id join dispensing_points dp on dp.id=pa.dispensing_point_id where pa.id=${id} and ${['MTD', 'MEDICARTE'].includes(scope.organizationCode) ? sql`true` : sql`dp.organization_id=${scope.organizationId}`}`,
+        sql`select pa.*,ps.quantity scheduled_quantity,ai.numero_autorizacion authorization_number,coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE',ai.source_data->>'NUM_DOCUMENTO') patient_document,ai.source_data->>'NOMBRE_PACIENTE' patient_name,ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,dp.code dispensing_point_code,dp.name dispensing_point_name from patient_applications pa join patient_schedules ps on ps.id=pa.patient_schedule_id join authorization_items ai on ai.id=pa.authorization_item_id join dispensing_points dp on dp.id=pa.dispensing_point_id where pa.id=${id} and ${['MTD', 'MEDICARTE'].includes(scope.organizationCode) ? sql`true` : sql`dp.organization_id=${scope.organizationId}`} and ${applyPointScope(sql`pa.dispensing_point_id`, scope)}`,
       )
     ).rows[0];
     if (!app) return null;

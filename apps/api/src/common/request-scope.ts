@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
-import type { MeResponse } from '@authorization/contracts';
+import type { MeResponse, PointAccessKind } from '@authorization/contracts';
+import { isPointScopeGlobalActor, requiresPointGrant } from '@authorization/domain';
 import type { AuthenticatedRequest } from '../types';
 
 export type Scope = Readonly<{
@@ -10,7 +11,17 @@ export type Scope = Readonly<{
   readSensitive: boolean;
   isFoundationAdmin: boolean;
   canCrossOrganizationOperationalExport: boolean;
+  pointAccessKind: PointAccessKind;
 }>;
+
+export function pointAccessKindFor(
+  organizationCode: string,
+  roles: readonly string[],
+): PointAccessKind {
+  if (isPointScopeGlobalActor(organizationCode, roles)) return 'global';
+  if (requiresPointGrant(organizationCode, roles)) return 'explicit';
+  return 'unrestricted';
+}
 
 export function scopeFromProfile(
   profile: MeResponse,
@@ -33,5 +44,6 @@ export function scopeFromProfile(
     canCrossOrganizationOperationalExport:
       organization.code === 'MTD' &&
       organization.permissions.includes('operational_exports.create'),
+    pointAccessKind: pointAccessKindFor(organization.code, organization.roles),
   };
 }

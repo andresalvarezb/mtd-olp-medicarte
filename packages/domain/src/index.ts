@@ -144,6 +144,18 @@ export type {
   BulkImportRowExecutionStatus,
   BulkImportRowValidationStatus,
 } from './bulk-import';
+export {
+  POINT_ACCESS_DENIED,
+  PointAccessDeniedError,
+  canAccessPoint,
+  canAccessPoints,
+  isExplicitPointScope,
+  isGlobalPointScope,
+  isPointScopeEligibleTarget,
+  isPointScopeGlobalActor,
+  requiresPointGrant,
+} from './operational-point-scope';
+export type { PointAccessKind, PointAccessScope } from './operational-point-scope';
 export type { ReceiptConformity, ReceiptQuantityInput } from './receipt';
 export type {
   ScheduleAuthorizationEligibility,

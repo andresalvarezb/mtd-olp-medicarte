@@ -21,6 +21,7 @@ describe('clean navigation', () => {
       'operationalIndicators',
       'bulkImports',
       'admin',
+      'operationalScopes',
     ]);
     expect(ALL_NAV_ITEMS[0]?.roles).toEqual(ROLES);
   });
@@ -101,5 +102,16 @@ describe('clean navigation', () => {
     expect(imports?.roles).toContain('MEDICARTE');
     expect(imports?.roles).not.toContain('OLP');
     expect(imports?.roles).not.toContain('COMPENSAR');
+  });
+
+  it('exposes operational point scopes to MTD admin and auditoria', () => {
+    const scopes = ALL_NAV_ITEMS.find((item) => item.view === 'operationalScopes');
+    expect(scopes).toMatchObject({
+      href: '/administracion',
+      permission: 'operational_scopes.read',
+    });
+    expect(scopes?.roles).toContain('MTD');
+    expect(scopes?.roles).toContain('MTD_AUDITORIA');
+    expect(scopes?.roles).not.toContain('MEDICARTE');
   });
 });

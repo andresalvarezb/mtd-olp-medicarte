@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import * as XLSX from 'xlsx';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ORGANIZATION_IDS, adminLogin, ensureOperatorTokens, ensureUser } from './helpers/auth';
+import {
+  ORGANIZATION_IDS,
+  adminLogin,
+  ensureOperatorTokens,
+  ensureUser,
+  grantAllPointsToMedicarteOperator,
+  deletePointScopesForPointCodeLike,
+} from './helpers/auth';
 
 const databaseUrl =
   process.env.DATABASE_URL ??
@@ -275,6 +282,7 @@ async function cleanup(): Promise<void> {
   );
   await database.query(`delete from authorization_items where numero_autorizacion like 'ESP014-%'`);
   await database.query(`delete from import_batches where original_filename like 'esp014-%'`);
+  await deletePointScopesForPointCodeLike(database, 'ESP14-PT%');
   await database.query(`delete from dispensing_points where code like 'ESP14-PT%'`);
   await database.query(`delete from planning_periods where start_date between $1 and $2`, [
     PERIOD.from,
@@ -341,6 +349,7 @@ beforeAll(async () => {
       [foundationUserId],
     )
   ).rows[0]!.id;
+  await grantAllPointsToMedicarteOperator(database);
 });
 
 afterAll(async () => {

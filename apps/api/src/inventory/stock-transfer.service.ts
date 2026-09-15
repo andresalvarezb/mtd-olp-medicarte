@@ -9,6 +9,7 @@ import type {
   UpdateStockTransferRequest,
 } from '@authorization/contracts';
 import type { Scope } from '../common/request-scope';
+import { throwIfPointAccessDenied, pointAccessDeniedException } from '../common/point-access';
 import { StockTransferRepository } from './stock-transfer.repository';
 
 @Injectable()
@@ -34,12 +35,12 @@ export class StockTransferService {
   }
   async detail(id: string, scope: Scope) {
     const value = await this.repository.find(id, scope);
-    if (!value)
-      throw new NotFoundException({
-        code: 'STOCK_TRANSFER_NOT_FOUND',
-        message: 'Stock transfer not found',
-      });
-    return value;
+    if (value) return value;
+    if (await this.repository.existsIgnoringPoint(id)) throw pointAccessDeniedException();
+    throw new NotFoundException({
+      code: 'STOCK_TRANSFER_NOT_FOUND',
+      message: 'Stock transfer not found',
+    });
   }
   private async run<T>(action: () => Promise<T>): Promise<T> {
     try {
@@ -60,11 +61,11 @@ export class StockTransferService {
       }
       return result;
     } catch (error) {
+      throwIfPointAccessDenied(error);
       if (error instanceof ConflictException || error instanceof NotFoundException) throw error;
       const code = error instanceof Error ? error.message : 'INVALID_STOCK_TRANSFER';
       const conflicts = [
         'STOCK_TRANSFER_SAME_POINT',
-        'STOCK_TRANSFER_POINT_OUT_OF_SCOPE',
         'STOCK_TRANSFER_LINE_OUT_OF_SCOPE',
         'STOCK_TRANSFER_FROZEN',
         'STOCK_TRANSFER_INVALID_STATUS',

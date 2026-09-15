@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ORGANIZATION_IDS, adminLogin, ensureOperatorTokens, ensureUser } from './helpers/auth';
+import {
+  ORGANIZATION_IDS,
+  adminLogin,
+  ensureOperatorTokens,
+  ensureUser,
+  grantAllPointsToMedicarteOperator,
+  deletePointScopesForPoints,
+} from './helpers/auth';
 
 const db = new Client({
   connectionString:
@@ -167,6 +174,7 @@ beforeAll(async () => {
       [ORGANIZATION_IDS.MEDICARTE, `ESP011-OTHER-${suffix}`, userId],
     )
   ).rows[0]!.id;
+  await grantAllPointsToMedicarteOperator(db);
 });
 afterAll(async () => {
   await db.query(
@@ -201,8 +209,10 @@ afterAll(async () => {
   await db.query(`delete from patient_schedules where id=any($1::uuid[])`, [scheduleIds]);
   await db.query(`delete from authorization_items where id=any($1::uuid[])`, [authIds]);
   await db.query(`delete from import_batches where id=any($1::uuid[])`, [batchIds]);
-  if (pointId && otherPointId)
+  if (pointId && otherPointId) {
+    await deletePointScopesForPoints(db, [pointId, otherPointId]);
     await db.query(`delete from dispensing_points where id in ($1,$2)`, [pointId, otherPointId]);
+  }
   await db.query(
     `alter table patient_application_lines enable trigger patient_application_lines_confirmed_immutable`,
   );

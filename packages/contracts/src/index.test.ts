@@ -11,7 +11,10 @@ import {
   createPatientScheduleRequestSchema,
   createPlanningPeriodRequestSchema,
   ESP014_SCHEDULING_TEMPLATE_VERSION,
+  POINT_ACCESS_DENIED,
   foundationJobSchema,
+  meResponseSchema,
+  replaceOperationalPointScopeRequestSchema,
   legacyAuthorizationHistoryResponseSchema,
   loginRequestSchema,
   operationalAnalyticsResponseSchema,
@@ -334,5 +337,42 @@ describe('ESP-014 bulk import contracts', () => {
         cancelledAt: null,
       }).status,
     ).toBe('READY');
+  });
+});
+
+describe('ESP-015 operational point scope contracts', () => {
+  it('attaches pointAccess to each organization in /me', () => {
+    const parsed = meResponseSchema.parse({
+      id: '00000000-0000-4000-8000-000000000001',
+      username: 'medicarte-operator',
+      displayName: 'Medicarte Operator',
+      mustChangePassword: false,
+      organizations: [
+        {
+          id: '10000000-0000-4000-8000-000000000004',
+          code: 'MEDICARTE',
+          name: 'Medicarte',
+          roles: ['MEDICARTE_OPERATOR'],
+          permissions: ['patient_schedules.manage'],
+          pointAccess: { kind: 'explicit', accessiblePointIds: [] },
+        },
+      ],
+    });
+    expect(parsed.organizations[0]?.pointAccess).toEqual({
+      kind: 'explicit',
+      accessiblePointIds: [],
+    });
+  });
+
+  it('replaces the complete point set and keeps POINT_ACCESS_DENIED stable', () => {
+    expect(
+      replaceOperationalPointScopeRequestSchema.parse({
+        pointIds: ['00000000-0000-4000-8000-000000000011'],
+      }).pointIds,
+    ).toHaveLength(1);
+    expect(
+      replaceOperationalPointScopeRequestSchema.safeParse({ pointIds: ['not-a-uuid'] }).success,
+    ).toBe(false);
+    expect(POINT_ACCESS_DENIED).toBe('POINT_ACCESS_DENIED');
   });
 });

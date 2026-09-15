@@ -301,6 +301,28 @@ export const dispensingPoints = pgTable(
 );
 
 /**
+ * ESP-015: data authorization by dispensing point. Independent of RBAC.
+ * Active grants are unique per (user, point). Revoked rows remain for audit.
+ * Partial unique index lives in migration 0047; Drizzle does not express it.
+ */
+export const userPointScopes = pgTable('user_point_scopes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'restrict' }),
+  dispensingPointId: uuid('dispensing_point_id')
+    .notNull()
+    .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+  grantedBy: uuid('granted_by')
+    .notNull()
+    .references(() => users.id, { onDelete: 'restrict' }),
+  grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  revokedBy: uuid('revoked_by').references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
  * ESP-002: períodos de planificación. El rango es inclusivo [start_date, end_date].
  *
  * Invariantes que viven en PostgreSQL y no solo en la API:

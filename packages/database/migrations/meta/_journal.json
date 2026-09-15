@@ -330,6 +330,13 @@
       "when": 1790460435663,
       "tag": "0046_esp014_claim_fencing",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790460436663,
+      "tag": "0047_esp015_point_scopes",
+      "breakpoints": true
     }
   ]
 }

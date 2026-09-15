@@ -18,7 +18,9 @@ import {
   scheduleToday,
 } from '@authorization/domain';
 import { SCHEDULING_EXPIRATION_COLUMN } from '../clinical/clinical-authorization.repository';
+import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
+import type { PointAccessKind } from '@authorization/contracts';
 
 type Database = ReturnType<typeof createDatabase>;
 export type PatientScheduleTransaction = Parameters<
@@ -30,11 +32,14 @@ export type PatientScheduleActor = Readonly<{
   userId: string;
   organizationId: string;
   correlationId: string;
+  pointAccessKind: PointAccessKind;
 }>;
 
 export type PatientScheduleScope = Readonly<{
   organizationId: string;
+  userId: string;
   bypassOrganizationScope: boolean;
+  pointAccessKind: PointAccessKind;
 }>;
 
 export type PlanningPeriodContext = Readonly<{
@@ -260,7 +265,7 @@ export class PatientScheduleRepository {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
 
   async findById(id: string, scope: PatientScheduleScope): Promise<PatientScheduleResponse | null> {
-    const scopeFilter = this.scopeFilter(scope);
+    const scopeFilter = this.orgScopeFilter(scope);
     const result = await this.database.db.execute<PatientScheduleJoinedRow>(sql`
       select ${SCHEDULE_COLUMNS}
       from patient_schedules ps
@@ -457,7 +462,7 @@ export class PatientScheduleRepository {
     return result.rows[0] ?? null;
   }
 
-  async listDispensingPoints(): Promise<DispensingPointOption[]> {
+  async listDispensingPoints(scope: PatientScheduleScope): Promise<DispensingPointOption[]> {
     const result = await this.database.db.execute<{
       id: string;
       code: string;
@@ -467,9 +472,20 @@ export class PatientScheduleRepository {
       select id, code, name, active
       from dispensing_points
       where active = true
+        and ${applyPointScope(sql`id`, scope)}
       order by name, code
     `);
     return result.rows;
+  }
+
+  async hasActiveGrant(userId: string, pointId: string): Promise<boolean> {
+    const result = await this.database.db.execute<{ id: string }>(sql`
+      select id from user_point_scopes
+      where user_id = ${userId}::uuid
+        and dispensing_point_id = ${pointId}::uuid
+        and revoked_at is null
+    `);
+    return Boolean(result.rows[0]);
   }
 
   async findDispensingPointsByCodes(codes: readonly string[]): Promise<DispensingPointOption[]> {
@@ -514,6 +530,7 @@ export class PatientScheduleRepository {
       actor: PatientScheduleActor;
     },
   ): Promise<PatientSchedulePersistenceOutcome> {
+    await lockActivePointGrants(tx, input.actor, [input.request.dispensingPointId]);
     const item = await lockAuthorizableItem(tx, input.request.authorizationItemId);
     if (!item) return { outcome: 'authorization_not_found' as const };
     if (item.codigo_medicamento !== input.request.commercialCode) {
@@ -580,6 +597,10 @@ export class PatientScheduleRepository {
       this.database.db.transaction(async (tx) => {
         const current = await lockCurrent(tx, input.id);
         if (!current) return { outcome: 'not_found' as const };
+        await lockActivePointGrants(tx, input.actor, [
+          current.dispensing_point_id,
+          requested.dispensingPointId ?? current.dispensing_point_id,
+        ]);
         if (current.revision !== input.expectedRevision) {
           const schedule = await selectJoined(tx, input.id);
           if (!schedule) return { outcome: 'not_found' as const };
@@ -677,13 +698,17 @@ export class PatientScheduleRepository {
     });
   }
 
-  private scopeFilter(scope: PatientScheduleScope): SQL {
+  private orgScopeFilter(scope: PatientScheduleScope): SQL {
     if (scope.bypassOrganizationScope) return sql`true`;
     return sql`exists (
       select 1 from authorization_item_organizations aio
       where aio.authorization_item_id = ps.authorization_item_id
         and aio.organization_id = ${scope.organizationId}
     )`;
+  }
+
+  private scopeFilter(scope: PatientScheduleScope): SQL {
+    return sql`${this.orgScopeFilter(scope)} and ${applyPointScope(sql`ps.dispensing_point_id`, scope)}`;
   }
 
   async loadActiveSchedulesForItems(
@@ -987,6 +1012,7 @@ export class PatientScheduleRepository {
       `);
       const row = claimed.rows[0];
       if (!row) return { outcome: 'skipped' as const };
+      await lockActivePointGrants(tx, input.actor, [row.dispensingPointId as string]);
 
       // Revalidación in-tx: lock de la autorización y nueva evaluación clínica
       // antes de escribir schedule/history/audit.

@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ORGANIZATION_IDS, adminLogin, ensureOperatorTokens } from './helpers/auth';
+import {
+  ORGANIZATION_IDS,
+  adminLogin,
+  ensureOperatorTokens,
+  grantAllPointsToMedicarteOperator,
+  deletePointScopesForPoints,
+} from './helpers/auth';
 
 const database = new Client({
   connectionString:
@@ -169,9 +175,11 @@ describe('Gate ESP-007 - API/integration hardening', () => {
         [ORGANIZATION_IDS.MTD, fixture, userId],
       )
     ).rows[0]!.id;
+    await grantAllPointsToMedicarteOperator(database);
   });
   afterAll(async () => {
     await cleanup();
+    await deletePointScopesForPoints(database, [pointId]);
     await database.query('delete from dispensing_points where id=$1', [pointId]);
     if (periodCreated) {
       await database.query('delete from planning_periods where id=$1', [periodId]);
@@ -215,7 +223,16 @@ describe('Gate ESP-007 - API/integration hardening', () => {
     const draft = await createDraft(delivery);
     const response = await api('PATCH', `/medicarte/receipts/${draft.id}`, {
       expectedVersion: draft.version,
-      lines: [{ deliveryLineId: delivery.deliveryLineId, receivedQuantity: 21, acceptedQuantity: 21, rejectedQuantity: 0, receivedLotNumber: delivery.lot, receivedExpirationDate: '2099-12-31' }],
+      lines: [
+        {
+          deliveryLineId: delivery.deliveryLineId,
+          receivedQuantity: 21,
+          acceptedQuantity: 21,
+          rejectedQuantity: 0,
+          receivedLotNumber: delivery.lot,
+          receivedExpirationDate: '2099-12-31',
+        },
+      ],
     });
     expect(response.status).toBe(400);
     const state = await database.query<{
@@ -448,6 +465,9 @@ describe('Gate ESP-007 - API/integration hardening', () => {
     const tables = await database.query<{ table_name: string }>(
       `select table_name from information_schema.tables where table_schema='public' and table_name in ('inventory_lots','inventory_movements')`,
     );
-    expect(tables.rows.map((row) => row.table_name)).toEqual(['inventory_lots', 'inventory_movements']);
+    expect(tables.rows.map((row) => row.table_name)).toEqual([
+      'inventory_lots',
+      'inventory_movements',
+    ]);
   });
 });

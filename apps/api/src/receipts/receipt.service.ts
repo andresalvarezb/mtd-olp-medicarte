@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ReceiptRepository, type ReceiptOutcome } from './receipt.repository';
 import type { Scope } from '../common/request-scope';
+import { throwIfPointAccessDenied, pointAccessDeniedException } from '../common/point-access';
 import type { UpdateReceiptRequest } from '@authorization/contracts';
 @Injectable()
 export class ReceiptService {
@@ -24,9 +25,9 @@ export class ReceiptService {
   }
   async detail(id: string, scope: Scope) {
     const value = await this.repository.find(id, scope);
-    if (!value)
-      throw new NotFoundException({ code: 'RECEIPT_NOT_FOUND', message: 'Receipt not found' });
-    return value;
+    if (value) return value;
+    if (await this.repository.existsIgnoringPoint(id, scope)) throw pointAccessDeniedException();
+    throw new NotFoundException({ code: 'RECEIPT_NOT_FOUND', message: 'Receipt not found' });
   }
   private async run<T extends object | null>(
     action: () => Promise<T | ReceiptOutcome>,
@@ -43,6 +44,7 @@ export class ReceiptService {
         });
       return result;
     } catch (error) {
+      throwIfPointAccessDenied(error);
       if (error instanceof ConflictException || error instanceof NotFoundException) throw error;
       const message = error instanceof Error ? error.message : 'Invalid receipt';
       const conflicts = [

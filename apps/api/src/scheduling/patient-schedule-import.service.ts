@@ -271,6 +271,7 @@ export class PatientScheduleImportService {
           periods,
           existingKeys,
           seenKeys,
+          actor,
         }),
       );
     }
@@ -284,6 +285,7 @@ export class PatientScheduleImportService {
     periods: Awaited<ReturnType<PatientScheduleRepository['loadPeriodsCovering']>>;
     existingKeys: Set<string>;
     seenKeys: Set<string>;
+    actor: Scope;
   }): Promise<StagedImportRowInsert> {
     const { row } = input;
     const authorizationNumber = normalizeImportText(row.values.AUTORIZACION);
@@ -378,6 +380,16 @@ export class PatientScheduleImportService {
     const point = input.points.find((candidate) => candidate.code.toUpperCase() === pointCode);
     if (!point) {
       return reject('INVALID', 'DISPENSING_POINT_NOT_FOUND', `Point ${pointCode} was not found`);
+    }
+    if (input.actor.pointAccessKind === 'explicit') {
+      const allowed = await this.repository.hasActiveGrant(input.actor.userId, point.id);
+      if (!allowed) {
+        return reject(
+          'INVALID',
+          'POINT_ACCESS_DENIED',
+          'The dispensing point is outside the actor data scope',
+        );
+      }
     }
     const period = input.periods.find(
       (candidate) => candidate.startDate <= scheduledDate && candidate.endDate >= scheduledDate,

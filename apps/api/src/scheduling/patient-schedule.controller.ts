@@ -159,8 +159,8 @@ export class PatientScheduleController {
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    await this.requireScope(organizationId, request, 'patient_schedules.read');
-    return { items: await this.schedules.listDispensingPoints() };
+    const scope = await this.requireScope(organizationId, request, 'patient_schedules.read');
+    return { items: await this.schedules.listDispensingPoints(scope) };
   }
 
   @Get('timing-preview')

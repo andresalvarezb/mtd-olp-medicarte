@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
 import { deriveReceiptConformity, validateReceiptQuantities } from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
+import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
 import type { ReceiptLineRequest, UpdateReceiptRequest } from '@authorization/contracts';
 import { InventoryRepository } from '../inventory/inventory.repository';
@@ -48,9 +49,10 @@ export class ReceiptRepository {
   async create(deliveryId: string, scope: Scope) {
     return this.database.db.transaction(async (tx) => {
       const delivery = await tx.execute<{ purchase_order_id: string; status: string }>(
-        sql`select d.purchase_order_id,d.status from deliveries d where d.id=${deliveryId} and exists (select 1 from delivery_lines dl join dispensing_points dp on dp.id=dl.dispensing_point_id where dl.delivery_id=d.id and ${this.scopeFilter(scope)}) for update`,
+        sql`select d.purchase_order_id,d.status from deliveries d where d.id=${deliveryId} for update`,
       );
       if (!delivery.rows[0]) throw new Error('RECEIPT_DELIVERY_NOT_FOUND');
+      await this.lockDeliveryPoints(tx, deliveryId, scope);
       if (delivery.rows[0].status !== 'DISPATCHED')
         throw new Error('RECEIPT_DELIVERY_NOT_DISPATCHED');
       const existing = await tx.execute<{ id: string }>(
@@ -91,6 +93,7 @@ export class ReceiptRepository {
       if (row.version !== body.expectedVersion)
         return { outcome: 'version_conflict', currentVersion: row.version };
       if (row.status !== 'DRAFT') throw new Error('RECEIPT_FROZEN');
+      await this.lockDeliveryPoints(tx, row.delivery_id, scope);
       await this.replaceLines(tx, id, row.delivery_id, body.lines, scope);
       await tx.execute(
         sql`update receipts set received_at=coalesce(${body.receivedAt ?? null}::timestamptz,received_at),version=version+1,updated_at=now(),updated_by=${scope.userId} where id=${id}`,
@@ -119,6 +122,7 @@ export class ReceiptRepository {
       if (row.version !== expectedVersion)
         return { outcome: 'version_conflict', currentVersion: row.version };
       if (row.status !== 'DRAFT') throw new Error('RECEIPT_FROZEN');
+      await this.lockDeliveryPoints(tx, row.delivery_id, scope);
       const delivery = await tx.execute<{ purchase_order_id: string; status: string }>(
         sql`select purchase_order_id,status from deliveries where id=${row.delivery_id} for update`,
       );
@@ -203,12 +207,25 @@ export class ReceiptRepository {
       .execute<{
         id: string;
       }>(
-        sql`select distinct r.id from receipts r join deliveries d on d.id=r.delivery_id join delivery_lines dl on dl.delivery_id=d.id join dispensing_points dp on dp.id=dl.dispensing_point_id where ${filter} and ${this.scopeFilter(scope)} order by r.id`,
+        sql`select distinct r.id from receipts r join deliveries d on d.id=r.delivery_id join delivery_lines dl on dl.delivery_id=d.id join dispensing_points dp on dp.id=dl.dispensing_point_id where ${filter} and ${this.scopeFilter(scope)} and ${this.deliveryFullyInScope(scope)} order by r.id`,
       )
       .then((result) => Promise.all(result.rows.map((r) => this.find(r.id, scope))));
   }
   find(id: string, scope: Scope) {
     return this.findOn(this.database.db, id, scope);
+  }
+
+  async existsIgnoringPoint(id: string, scope: Scope): Promise<boolean> {
+    const org =
+      scope.organizationCode === 'OLP' ||
+      scope.organizationCode === 'MEDICARTE' ||
+      scope.organizationCode === 'MTD'
+        ? sql`true`
+        : sql`dp.organization_id=${scope.organizationId}`;
+    const result = await this.database.db.execute<{ id: string }>(
+      sql`select r.id from receipts r join deliveries d on d.id=r.delivery_id join delivery_lines dl on dl.delivery_id=d.id join dispensing_points dp on dp.id=dl.dispensing_point_id where r.id=${id} and ${org} limit 1`,
+    );
+    return Boolean(result.rows[0]);
   }
 
   private async replaceLines(
@@ -270,11 +287,36 @@ export class ReceiptRepository {
     );
   }
   private scopeFilter(scope: Scope) {
-    return scope.organizationCode === 'OLP' ||
+    const org =
+      scope.organizationCode === 'OLP' ||
       scope.organizationCode === 'MEDICARTE' ||
       scope.organizationCode === 'MTD'
-      ? sql`true`
-      : sql`dp.organization_id=${scope.organizationId}`;
+        ? sql`true`
+        : sql`dp.organization_id=${scope.organizationId}`;
+    return sql`${org} and ${applyPointScope(sql`dp.id`, scope)}`;
+  }
+
+  private deliveryFullyInScope(scope: Scope) {
+    if (scope.pointAccessKind !== 'explicit') return sql`true`;
+    return sql`not exists (
+      select 1 from delivery_lines xdl
+      where xdl.delivery_id = d.id
+        and xdl.dispensing_point_id not in (
+          select ups.dispensing_point_id from user_point_scopes ups
+          where ups.user_id = ${scope.userId}::uuid and ups.revoked_at is null
+        )
+    )`;
+  }
+
+  private async lockDeliveryPoints(tx: Tx, deliveryId: string, scope: Scope): Promise<void> {
+    const points = await tx.execute<{ dispensing_point_id: string }>(
+      sql`select distinct dispensing_point_id from delivery_lines where delivery_id=${deliveryId}`,
+    );
+    await lockActivePointGrants(
+      tx,
+      scope,
+      points.rows.map((row) => row.dispensing_point_id),
+    );
   }
   private async audit(tx: Tx, scope: Scope, action: string, id: string, after: unknown) {
     await tx.execute(

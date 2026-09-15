@@ -17,6 +17,7 @@ import { StatusBadge, type PillTone } from '@/components/ui/status-badge';
 import { Note } from '@/components/ui/timeline';
 import { Tabs } from '@/components/ui/tabs';
 import { useRole } from '@/components/layout/role-context';
+import { PointScopeGuard } from '@/components/point-scope/empty-point-scope';
 import { useApiData } from '@/hooks/use-api-data';
 import { ApiError } from '@/lib/api-client';
 import {
@@ -313,183 +314,345 @@ export function PatientSchedulingView() {
   const pointItems = points.data?.items ?? [];
 
   return (
-    <>
-      <PageHeader
-        title="Programación de pacientes"
-        description="Medicarte registra la intención de aplicar productos autorizados. La programación no reserva inventario ni crea órdenes de compra."
-        actions={<span className="pill blue">{scheduleItems.length} programaciones</span>}
-      />
+    <PointScopeGuard>
+      <>
+        <PageHeader
+          title="Programación de pacientes"
+          description="Medicarte registra la intención de aplicar productos autorizados. La programación no reserva inventario ni crea órdenes de compra."
+          actions={<span className="pill blue">{scheduleItems.length} programaciones</span>}
+        />
 
-      {error ? (
-        <div className="login-error" role="alert" style={{ marginBottom: 14 }}>
-          {error}
-        </div>
-      ) : null}
-      {message ? (
-        <div className="pill green" role="status" style={{ marginBottom: 14 }}>
-          {message}
-        </div>
-      ) : null}
+        {error ? (
+          <div className="login-error" role="alert" style={{ marginBottom: 14 }}>
+            {error}
+          </div>
+        ) : null}
+        {message ? (
+          <div className="pill green" role="status" style={{ marginBottom: 14 }}>
+            {message}
+          </div>
+        ) : null}
 
-      <Tabs tabs={['Programación individual', 'Programaciones', 'Carga masiva XLSX']}>
-        {(active) => (
-          <>
-            {active === 0 ? (
-              <>
-                <Card>
-                  <CardHead
-                    title="Buscar paciente o autorización"
-                    subtitle="Busca por número de autorización o documento del paciente."
-                  />
-                  <CardBody>
-                    <div className="config-grid">
-                      <div className="field">
-                        <label htmlFor="schedule-search-authorization">Autorización</label>
-                        <input
-                          id="schedule-search-authorization"
-                          className="control"
-                          value={searchAuthorization}
-                          placeholder="Número de autorización"
-                          onChange={(event) => setSearchAuthorization(event.target.value)}
-                        />
-                      </div>
-                      <div className="field">
-                        <label htmlFor="schedule-search-document">Documento paciente</label>
-                        <input
-                          id="schedule-search-document"
-                          className="control"
-                          value={searchDocument}
-                          placeholder="Documento"
-                          onChange={(event) => setSearchDocument(event.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                      <button
-                        type="button"
-                        className="btn"
-                        disabled={busy || (!searchAuthorization && !searchDocument)}
-                        onClick={handleSearch}
-                      >
-                        {busy ? 'Buscando…' : 'Buscar'}
-                      </button>
-                    </div>
-                  </CardBody>
-                </Card>
-
-                {searchResults.length > 0 ? (
+        <Tabs tabs={['Programación individual', 'Programaciones', 'Carga masiva XLSX']}>
+          {(active) => (
+            <>
+              {active === 0 ? (
+                <>
                   <Card>
                     <CardHead
-                      title="Resultados"
-                      subtitle="Un paciente puede tener varios productos autorizados. La alerta de vencimiento es visual y no reserva stock."
-                    />
-                    <CardBody>
-                      <div className="table-wrap">
-                        <table aria-label="Autorizaciones para programar">
-                          <thead>
-                            <tr>
-                              <th>Autorización</th>
-                              <th>Documento</th>
-                              <th>Paciente</th>
-                              <th>Código comercial</th>
-                              <th>Cantidad autorizada</th>
-                              <th>Vencimiento</th>
-                              <th>Prioridad</th>
-                              <th>Acciones</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {searchResults.map((option) => (
-                              <tr key={option.authorizationItemId}>
-                                <td>{option.authorizationNumber}</td>
-                                <td>{option.patientDocument ?? '—'}</td>
-                                <td>{option.patientName ?? '—'}</td>
-                                <td>
-                                  <strong>{option.commercialCode}</strong>
-                                </td>
-                                <td>{option.authorizedQuantity ?? '—'}</td>
-                                <td>{option.authorizationExpiresOn ?? 'Sin dato'}</td>
-                                <td>
-                                  {option.priorityLevel ? (
-                                    <StatusBadge tone={PRIORITY_META[option.priorityLevel].tone}>
-                                      {PRIORITY_META[option.priorityLevel].label}
-                                      {option.daysUntilExpiration !== null
-                                        ? ` · ${option.daysUntilExpiration} días`
-                                        : ''}
-                                    </StatusBadge>
-                                  ) : (
-                                    <span className="pill gray">Sin dato</span>
-                                  )}
-                                </td>
-                                <td>
-                                  {canManage ? (
-                                    <button
-                                      type="button"
-                                      className="btn"
-                                      style={{ padding: '2px 8px', fontSize: 10 }}
-                                      disabled={!option.canSchedule}
-                                      onClick={() => startScheduling(option)}
-                                    >
-                                      {option.canSchedule ? 'Programar' : 'No habilitada'}
-                                    </button>
-                                  ) : (
-                                    <span style={{ color: 'var(--muted)' }}>Solo lectura</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </CardBody>
-                  </Card>
-                ) : null}
-
-                {selectedOption ? (
-                  <Card>
-                    <CardHead
-                      title={`Programar ${selectedOption.commercialCode}`}
-                      subtitle={`Autorización ${selectedOption.authorizationNumber} · cantidad autorizada ${
-                        selectedOption.authorizedQuantity ?? 'sin dato'
-                      }`}
-                      aside={
-                        selectedOption.priorityLevel ? (
-                          <StatusBadge tone={PRIORITY_META[selectedOption.priorityLevel].tone}>
-                            Vence {selectedOption.authorizationExpiresOn} ·{' '}
-                            {PRIORITY_META[selectedOption.priorityLevel].label}
-                          </StatusBadge>
-                        ) : null
-                      }
+                      title="Buscar paciente o autorización"
+                      subtitle="Busca por número de autorización o documento del paciente."
                     />
                     <CardBody>
                       <div className="config-grid">
                         <div className="field">
-                          <label htmlFor="schedule-quantity">Cantidad a programar</label>
+                          <label htmlFor="schedule-search-authorization">Autorización</label>
                           <input
-                            id="schedule-quantity"
+                            id="schedule-search-authorization"
                             className="control"
-                            type="number"
-                            min={1}
-                            value={form.quantity}
+                            value={searchAuthorization}
+                            placeholder="Número de autorización"
+                            onChange={(event) => setSearchAuthorization(event.target.value)}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="schedule-search-document">Documento paciente</label>
+                          <input
+                            id="schedule-search-document"
+                            className="control"
+                            value={searchDocument}
+                            placeholder="Documento"
+                            onChange={(event) => setSearchDocument(event.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={busy || (!searchAuthorization && !searchDocument)}
+                          onClick={handleSearch}
+                        >
+                          {busy ? 'Buscando…' : 'Buscar'}
+                        </button>
+                      </div>
+                    </CardBody>
+                  </Card>
+
+                  {searchResults.length > 0 ? (
+                    <Card>
+                      <CardHead
+                        title="Resultados"
+                        subtitle="Un paciente puede tener varios productos autorizados. La alerta de vencimiento es visual y no reserva stock."
+                      />
+                      <CardBody>
+                        <div className="table-wrap">
+                          <table aria-label="Autorizaciones para programar">
+                            <thead>
+                              <tr>
+                                <th>Autorización</th>
+                                <th>Documento</th>
+                                <th>Paciente</th>
+                                <th>Código comercial</th>
+                                <th>Cantidad autorizada</th>
+                                <th>Vencimiento</th>
+                                <th>Prioridad</th>
+                                <th>Acciones</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {searchResults.map((option) => (
+                                <tr key={option.authorizationItemId}>
+                                  <td>{option.authorizationNumber}</td>
+                                  <td>{option.patientDocument ?? '—'}</td>
+                                  <td>{option.patientName ?? '—'}</td>
+                                  <td>
+                                    <strong>{option.commercialCode}</strong>
+                                  </td>
+                                  <td>{option.authorizedQuantity ?? '—'}</td>
+                                  <td>{option.authorizationExpiresOn ?? 'Sin dato'}</td>
+                                  <td>
+                                    {option.priorityLevel ? (
+                                      <StatusBadge tone={PRIORITY_META[option.priorityLevel].tone}>
+                                        {PRIORITY_META[option.priorityLevel].label}
+                                        {option.daysUntilExpiration !== null
+                                          ? ` · ${option.daysUntilExpiration} días`
+                                          : ''}
+                                      </StatusBadge>
+                                    ) : (
+                                      <span className="pill gray">Sin dato</span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    {canManage ? (
+                                      <button
+                                        type="button"
+                                        className="btn"
+                                        style={{ padding: '2px 8px', fontSize: 10 }}
+                                        disabled={!option.canSchedule}
+                                        onClick={() => startScheduling(option)}
+                                      >
+                                        {option.canSchedule ? 'Programar' : 'No habilitada'}
+                                      </button>
+                                    ) : (
+                                      <span style={{ color: 'var(--muted)' }}>Solo lectura</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CardBody>
+                    </Card>
+                  ) : null}
+
+                  {selectedOption ? (
+                    <Card>
+                      <CardHead
+                        title={`Programar ${selectedOption.commercialCode}`}
+                        subtitle={`Autorización ${selectedOption.authorizationNumber} · cantidad autorizada ${
+                          selectedOption.authorizedQuantity ?? 'sin dato'
+                        }`}
+                        aside={
+                          selectedOption.priorityLevel ? (
+                            <StatusBadge tone={PRIORITY_META[selectedOption.priorityLevel].tone}>
+                              Vence {selectedOption.authorizationExpiresOn} ·{' '}
+                              {PRIORITY_META[selectedOption.priorityLevel].label}
+                            </StatusBadge>
+                          ) : null
+                        }
+                      />
+                      <CardBody>
+                        <div className="config-grid">
+                          <div className="field">
+                            <label htmlFor="schedule-quantity">Cantidad a programar</label>
+                            <input
+                              id="schedule-quantity"
+                              className="control"
+                              type="number"
+                              min={1}
+                              value={form.quantity}
+                              onChange={(event) =>
+                                setForm((current) => ({ ...current, quantity: event.target.value }))
+                              }
+                            />
+                          </div>
+                          <div className="field">
+                            <label htmlFor="schedule-point">Punto</label>
+                            <select
+                              id="schedule-point"
+                              className="control"
+                              value={form.dispensingPointId}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  dispensingPointId: event.target.value,
+                                }))
+                              }
+                            >
+                              <option value="">Selecciona un punto</option>
+                              {pointItems.map((point) => (
+                                <option key={point.id} value={point.id}>
+                                  {point.code} · {point.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="field">
+                            <label htmlFor="schedule-date">Fecha programada</label>
+                            <input
+                              id="schedule-date"
+                              className="control"
+                              type="date"
+                              value={form.scheduledDate}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  scheduledDate: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          {timing?.lateHandlingRequired ? (
+                            <div className="field">
+                              <label htmlFor="schedule-late-handling">Manejo tardío</label>
+                              <select
+                                id="schedule-late-handling"
+                                className="control"
+                                value={form.lateHandling}
+                                onChange={(event) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    lateHandling: event.target.value as LateHandling,
+                                  }))
+                                }
+                              >
+                                <option value="">Selecciona una decisión</option>
+                                <option value="COMPLEMENTARY_PURCHASE_ORDER">
+                                  {LATE_HANDLING_LABELS.COMPLEMENTARY_PURCHASE_ORDER}
+                                </option>
+                                <option value="NEXT_PERIOD">
+                                  {LATE_HANDLING_LABELS.NEXT_PERIOD}
+                                </option>
+                              </select>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {timingLoading ? (
+                            <span className="pill gray">Calculando período…</span>
+                          ) : timing ? (
+                            <>
+                              <StatusBadge tone={TIMING_META[timing.scheduleTiming].tone}>
+                                {TIMING_META[timing.scheduleTiming].label}
+                              </StatusBadge>
+                              <span className="pill blue">
+                                Período {timing.planningPeriodStartDate} →{' '}
+                                {timing.planningPeriodEndDate}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="pill gray">
+                              Selecciona una fecha con período vigente
+                            </span>
+                          )}
+                        </div>
+                        {timing?.lateHandlingRequired ? (
+                          <Note>
+                            La fecha está después del corte (
+                            {formatDateTime(timing.schedulingCutoffAt)}). Indica si se gestionará
+                            con OC complementaria o en el siguiente período. ESP-003 solo registra
+                            la intención: no crea OC ni demanda consolidada.
+                          </Note>
+                        ) : null}
+
+                        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                          <button
+                            type="button"
+                            className="btn primary"
+                            disabled={
+                              busy ||
+                              !form.quantity ||
+                              Number(form.quantity) <= 0 ||
+                              !form.dispensingPointId ||
+                              !form.scheduledDate ||
+                              (timing?.lateHandlingRequired === true && !form.lateHandling)
+                            }
+                            onClick={handleCreate}
+                          >
+                            Guardar programación
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            disabled={busy}
+                            onClick={() => {
+                              setSelectedOption(null);
+                              setTiming(null);
+                            }}
+                          >
+                            Cerrar
+                          </button>
+                        </div>
+                      </CardBody>
+                    </Card>
+                  ) : null}
+                </>
+              ) : null}
+
+              {active === 1 ? (
+                <>
+                  <Card>
+                    <CardHead
+                      title="Filtros"
+                      subtitle="Consultas por autorización, documento, período, punto, estado y código comercial."
+                    />
+                    <CardBody>
+                      <div className="config-grid">
+                        <div className="field">
+                          <label htmlFor="schedule-filter-authorization">Autorización</label>
+                          <input
+                            id="schedule-filter-authorization"
+                            className="control"
+                            value={filters.authorization}
                             onChange={(event) =>
-                              setForm((current) => ({ ...current, quantity: event.target.value }))
+                              setFilters((current) => ({
+                                ...current,
+                                authorization: event.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div className="field">
-                          <label htmlFor="schedule-point">Punto</label>
-                          <select
-                            id="schedule-point"
+                          <label htmlFor="schedule-filter-document">Documento</label>
+                          <input
+                            id="schedule-filter-document"
                             className="control"
-                            value={form.dispensingPointId}
+                            value={filters.patientDocument}
                             onChange={(event) =>
-                              setForm((current) => ({
+                              setFilters((current) => ({
+                                ...current,
+                                patientDocument: event.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="schedule-filter-point">Punto</label>
+                          <select
+                            id="schedule-filter-point"
+                            className="control"
+                            value={filters.dispensingPointId}
+                            onChange={(event) =>
+                              setFilters((current) => ({
                                 ...current,
                                 dispensingPointId: event.target.value,
                               }))
                             }
                           >
-                            <option value="">Selecciona un punto</option>
+                            <option value="">Todos</option>
                             {pointItems.map((point) => (
                               <option key={point.id} value={point.id}>
                                 {point.code} · {point.name}
@@ -498,477 +661,175 @@ export function PatientSchedulingView() {
                           </select>
                         </div>
                         <div className="field">
-                          <label htmlFor="schedule-date">Fecha programada</label>
-                          <input
-                            id="schedule-date"
+                          <label htmlFor="schedule-filter-status">Estado</label>
+                          <select
+                            id="schedule-filter-status"
                             className="control"
-                            type="date"
-                            value={form.scheduledDate}
+                            value={filters.status}
                             onChange={(event) =>
-                              setForm((current) => ({
+                              setFilters((current) => ({
                                 ...current,
-                                scheduledDate: event.target.value,
+                                status: event.target.value as typeof current.status,
                               }))
                             }
-                          />
+                          >
+                            <option value="">Todos</option>
+                            <option value="SCHEDULED">Programada</option>
+                            <option value="RESCHEDULED">Reprogramada</option>
+                            <option value="CANCELLED">Cancelada</option>
+                          </select>
                         </div>
-                        {timing?.lateHandlingRequired ? (
-                          <div className="field">
-                            <label htmlFor="schedule-late-handling">Manejo tardío</label>
-                            <select
-                              id="schedule-late-handling"
-                              className="control"
-                              value={form.lateHandling}
-                              onChange={(event) =>
-                                setForm((current) => ({
-                                  ...current,
-                                  lateHandling: event.target.value as LateHandling,
-                                }))
-                              }
-                            >
-                              <option value="">Selecciona una decisión</option>
-                              <option value="COMPLEMENTARY_PURCHASE_ORDER">
-                                {LATE_HANDLING_LABELS.COMPLEMENTARY_PURCHASE_ORDER}
-                              </option>
-                              <option value="NEXT_PERIOD">
-                                {LATE_HANDLING_LABELS.NEXT_PERIOD}
-                              </option>
-                            </select>
-                          </div>
-                        ) : null}
                       </div>
-
-                      <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {timingLoading ? (
-                          <span className="pill gray">Calculando período…</span>
-                        ) : timing ? (
-                          <>
-                            <StatusBadge tone={TIMING_META[timing.scheduleTiming].tone}>
-                              {TIMING_META[timing.scheduleTiming].label}
-                            </StatusBadge>
-                            <span className="pill blue">
-                              Período {timing.planningPeriodStartDate} →{' '}
-                              {timing.planningPeriodEndDate}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="pill gray">
-                            Selecciona una fecha con período vigente
-                          </span>
-                        )}
-                      </div>
-                      {timing?.lateHandlingRequired ? (
-                        <Note>
-                          La fecha está después del corte (
-                          {formatDateTime(timing.schedulingCutoffAt)}). Indica si se gestionará con
-                          OC complementaria o en el siguiente período. ESP-003 solo registra la
-                          intención: no crea OC ni demanda consolidada.
-                        </Note>
-                      ) : null}
-
                       <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                         <button
                           type="button"
-                          className="btn primary"
-                          disabled={
-                            busy ||
-                            !form.quantity ||
-                            Number(form.quantity) <= 0 ||
-                            !form.dispensingPointId ||
-                            !form.scheduledDate ||
-                            (timing?.lateHandlingRequired === true && !form.lateHandling)
-                          }
-                          onClick={handleCreate}
+                          className="btn"
+                          disabled={busy}
+                          onClick={() => setAppliedFilters(filters)}
                         >
-                          Guardar programación
+                          Filtrar
                         </button>
                         <button
                           type="button"
                           className="btn"
                           disabled={busy}
                           onClick={() => {
-                            setSelectedOption(null);
-                            setTiming(null);
+                            const cleared = {
+                              authorization: '',
+                              patientDocument: '',
+                              status: '' as const,
+                              dispensingPointId: '',
+                            };
+                            setFilters(cleared);
+                            setAppliedFilters(cleared);
                           }}
                         >
-                          Cerrar
+                          Limpiar
                         </button>
                       </div>
                     </CardBody>
                   </Card>
-                ) : null}
-              </>
-            ) : null}
 
-            {active === 1 ? (
-              <>
-                <Card>
-                  <CardHead
-                    title="Filtros"
-                    subtitle="Consultas por autorización, documento, período, punto, estado y código comercial."
-                  />
-                  <CardBody>
-                    <div className="config-grid">
-                      <div className="field">
-                        <label htmlFor="schedule-filter-authorization">Autorización</label>
-                        <input
-                          id="schedule-filter-authorization"
-                          className="control"
-                          value={filters.authorization}
-                          onChange={(event) =>
-                            setFilters((current) => ({
-                              ...current,
-                              authorization: event.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="field">
-                        <label htmlFor="schedule-filter-document">Documento</label>
-                        <input
-                          id="schedule-filter-document"
-                          className="control"
-                          value={filters.patientDocument}
-                          onChange={(event) =>
-                            setFilters((current) => ({
-                              ...current,
-                              patientDocument: event.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="field">
-                        <label htmlFor="schedule-filter-point">Punto</label>
-                        <select
-                          id="schedule-filter-point"
-                          className="control"
-                          value={filters.dispensingPointId}
-                          onChange={(event) =>
-                            setFilters((current) => ({
-                              ...current,
-                              dispensingPointId: event.target.value,
-                            }))
-                          }
-                        >
-                          <option value="">Todos</option>
-                          {pointItems.map((point) => (
-                            <option key={point.id} value={point.id}>
-                              {point.code} · {point.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="field">
-                        <label htmlFor="schedule-filter-status">Estado</label>
-                        <select
-                          id="schedule-filter-status"
-                          className="control"
-                          value={filters.status}
-                          onChange={(event) =>
-                            setFilters((current) => ({
-                              ...current,
-                              status: event.target.value as typeof current.status,
-                            }))
-                          }
-                        >
-                          <option value="">Todos</option>
-                          <option value="SCHEDULED">Programada</option>
-                          <option value="RESCHEDULED">Reprogramada</option>
-                          <option value="CANCELLED">Cancelada</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                      <button
-                        type="button"
-                        className="btn"
-                        disabled={busy}
-                        onClick={() => setAppliedFilters(filters)}
-                      >
-                        Filtrar
-                      </button>
-                      <button
-                        type="button"
-                        className="btn"
-                        disabled={busy}
-                        onClick={() => {
-                          const cleared = {
-                            authorization: '',
-                            patientDocument: '',
-                            status: '' as const,
-                            dispensingPointId: '',
-                          };
-                          setFilters(cleared);
-                          setAppliedFilters(cleared);
-                        }}
-                      >
-                        Limpiar
-                      </button>
-                    </div>
-                  </CardBody>
-                </Card>
-
-                <Card>
-                  <CardHead
-                    title="Programaciones registradas"
-                    subtitle="Cancelar o reprogramar conserva el histórico append-only."
-                  />
-                  <CardBody>
-                    {schedules.loading ? (
-                      <Note>Cargando programaciones…</Note>
-                    ) : scheduleItems.length === 0 ? (
-                      <Note>Sin programaciones para los filtros seleccionados.</Note>
-                    ) : (
-                      <div className="table-wrap">
-                        <table aria-label="Programaciones registradas">
-                          <thead>
-                            <tr>
-                              <th>Autorización</th>
-                              <th>Paciente</th>
-                              <th>Código</th>
-                              <th>Cantidad</th>
-                              <th>Punto</th>
-                              <th>Fecha</th>
-                              <th>Período</th>
-                              <th>Timing</th>
-                              <th>Prioridad</th>
-                              <th>Estado</th>
-                              <th>Acciones</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {scheduleItems.map((schedule) => (
-                              <tr key={schedule.id}>
-                                <td>{schedule.authorizationNumber}</td>
-                                <td>{schedule.patientName ?? schedule.patientDocument ?? '—'}</td>
-                                <td>{schedule.commercialCode}</td>
-                                <td>{schedule.quantity}</td>
-                                <td>{schedule.dispensingPointCode}</td>
-                                <td>{schedule.scheduledDate}</td>
-                                <td>
-                                  {schedule.planningPeriodStartDate} →{' '}
-                                  {schedule.planningPeriodEndDate}
-                                </td>
-                                <td>
-                                  <StatusBadge tone={TIMING_META[schedule.scheduleTiming].tone}>
-                                    {TIMING_META[schedule.scheduleTiming].label}
-                                  </StatusBadge>
-                                </td>
-                                <td>
-                                  {schedule.priorityLevel ? (
-                                    <StatusBadge tone={PRIORITY_META[schedule.priorityLevel].tone}>
-                                      {PRIORITY_META[schedule.priorityLevel].label}
-                                    </StatusBadge>
-                                  ) : (
-                                    <span className="pill gray">—</span>
-                                  )}
-                                </td>
-                                <td>
-                                  <StatusBadge tone={STATUS_META[schedule.status].tone}>
-                                    {STATUS_META[schedule.status].label}
-                                  </StatusBadge>
-                                </td>
-                                <td>
-                                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                    <button
-                                      type="button"
-                                      className="btn"
-                                      style={{ padding: '2px 8px', fontSize: 10 }}
-                                      onClick={() => setSelectedSchedule(schedule)}
-                                    >
-                                      Historial
-                                    </button>
-                                    {canManage && schedule.status !== 'CANCELLED' ? (
-                                      <>
-                                        <button
-                                          type="button"
-                                          className="btn"
-                                          style={{ padding: '2px 8px', fontSize: 10 }}
-                                          disabled={busy}
-                                          onClick={() => {
-                                            setRescheduleTarget(schedule);
-                                            setRescheduleForm({
-                                              scheduledDate: schedule.scheduledDate,
-                                              dispensingPointId: schedule.dispensingPointId,
-                                              lateHandling: '',
-                                            });
-                                          }}
-                                        >
-                                          Reprogramar
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="btn"
-                                          style={{ padding: '2px 8px', fontSize: 10 }}
-                                          disabled={busy}
-                                          onClick={() => handleCancel(schedule)}
-                                        >
-                                          Cancelar
-                                        </button>
-                                      </>
-                                    ) : null}
-                                    <ScheduleOutcomeActions
-                                      schedule={schedule}
-                                      organizationId={organizationId}
-                                      operationalStatus={
-                                        operationalStatuses.data?.items.find(
-                                          (status: OperationalStatusResponse) =>
-                                            status.patientScheduleId === schedule.id &&
-                                            status.scheduleRevision === schedule.revision,
-                                        ) ?? null
-                                      }
-                                      canManage={canManage}
-                                      canApply={canApply}
-                                      onChanged={() => {
-                                        operationalStatuses.reload();
-                                        schedules.reload();
-                                      }}
-                                    />
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </CardBody>
-                </Card>
-
-                {rescheduleTarget ? (
                   <Card>
                     <CardHead
-                      title={`Reprogramar ${rescheduleTarget.commercialCode}`}
-                      subtitle="Se conserva el lineage: se crea una nueva revisión del historial."
+                      title="Programaciones registradas"
+                      subtitle="Cancelar o reprogramar conserva el histórico append-only."
                     />
                     <CardBody>
-                      <div className="config-grid">
-                        <div className="field">
-                          <label htmlFor="reschedule-date">Nueva fecha</label>
-                          <input
-                            id="reschedule-date"
-                            className="control"
-                            type="date"
-                            value={rescheduleForm.scheduledDate}
-                            onChange={(event) =>
-                              setRescheduleForm((current) => ({
-                                ...current,
-                                scheduledDate: event.target.value,
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="field">
-                          <label htmlFor="reschedule-point">Punto</label>
-                          <select
-                            id="reschedule-point"
-                            className="control"
-                            value={rescheduleForm.dispensingPointId}
-                            onChange={(event) =>
-                              setRescheduleForm((current) => ({
-                                ...current,
-                                dispensingPointId: event.target.value,
-                              }))
-                            }
-                          >
-                            {pointItems.map((point) => (
-                              <option key={point.id} value={point.id}>
-                                {point.code} · {point.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="field">
-                          <label htmlFor="reschedule-late">Manejo tardío (solo si aplica)</label>
-                          <select
-                            id="reschedule-late"
-                            className="control"
-                            value={rescheduleForm.lateHandling}
-                            onChange={(event) =>
-                              setRescheduleForm((current) => ({
-                                ...current,
-                                lateHandling: event.target.value as LateHandling,
-                              }))
-                            }
-                          >
-                            <option value="">Sin cambio</option>
-                            <option value="COMPLEMENTARY_PURCHASE_ORDER">
-                              {LATE_HANDLING_LABELS.COMPLEMENTARY_PURCHASE_ORDER}
-                            </option>
-                            <option value="NEXT_PERIOD">{LATE_HANDLING_LABELS.NEXT_PERIOD}</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                        <button
-                          type="button"
-                          className="btn primary"
-                          disabled={busy || !rescheduleForm.scheduledDate}
-                          onClick={handleReschedule}
-                        >
-                          Guardar reprogramación
-                        </button>
-                        <button
-                          type="button"
-                          className="btn"
-                          disabled={busy}
-                          onClick={() => setRescheduleTarget(null)}
-                        >
-                          Cerrar
-                        </button>
-                      </div>
-                    </CardBody>
-                  </Card>
-                ) : null}
-
-                {selectedSchedule ? (
-                  <Card>
-                    <CardHead
-                      title={`Historial de ${selectedSchedule.commercialCode}`}
-                      subtitle="Revisiones append-only: fecha, punto y cantidad de cada cambio."
-                      aside={
-                        <StatusBadge tone={STATUS_META[selectedSchedule.status].tone}>
-                          {STATUS_META[selectedSchedule.status].label}
-                        </StatusBadge>
-                      }
-                    />
-                    <CardBody>
-                      {history.loading ? (
-                        <Note>Cargando historial…</Note>
-                      ) : (history.data?.items.length ?? 0) === 0 ? (
-                        <Note>Sin revisiones registradas.</Note>
+                      {schedules.loading ? (
+                        <Note>Cargando programaciones…</Note>
+                      ) : scheduleItems.length === 0 ? (
+                        <Note>Sin programaciones para los filtros seleccionados.</Note>
                       ) : (
                         <div className="table-wrap">
-                          <table aria-label="Historial de programación">
+                          <table aria-label="Programaciones registradas">
                             <thead>
                               <tr>
-                                <th>Revisión</th>
-                                <th>Cambio</th>
-                                <th>Fecha</th>
-                                <th>Punto</th>
+                                <th>Autorización</th>
+                                <th>Paciente</th>
+                                <th>Código</th>
                                 <th>Cantidad</th>
-                                <th>Estado</th>
+                                <th>Punto</th>
+                                <th>Fecha</th>
+                                <th>Período</th>
                                 <th>Timing</th>
-                                <th>Manejo tardío</th>
-                                <th>Registrado</th>
+                                <th>Prioridad</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {history.data?.items.map((entry) => (
-                                <tr key={entry.revision}>
-                                  <td>v{entry.revision}</td>
-                                  <td>{entry.changeType}</td>
-                                  <td>{entry.scheduledDate}</td>
-                                  <td>{entry.dispensingPointId.slice(0, 8)}</td>
-                                  <td>{entry.quantity}</td>
-                                  <td>{STATUS_META[entry.status].label}</td>
-                                  <td>{TIMING_META[entry.scheduleTiming].label}</td>
+                              {scheduleItems.map((schedule) => (
+                                <tr key={schedule.id}>
+                                  <td>{schedule.authorizationNumber}</td>
+                                  <td>{schedule.patientName ?? schedule.patientDocument ?? '—'}</td>
+                                  <td>{schedule.commercialCode}</td>
+                                  <td>{schedule.quantity}</td>
+                                  <td>{schedule.dispensingPointCode}</td>
+                                  <td>{schedule.scheduledDate}</td>
                                   <td>
-                                    {entry.lateHandling
-                                      ? LATE_HANDLING_LABELS[entry.lateHandling]
-                                      : '—'}
+                                    {schedule.planningPeriodStartDate} →{' '}
+                                    {schedule.planningPeriodEndDate}
                                   </td>
-                                  <td>{formatDateTime(entry.changedAt)}</td>
+                                  <td>
+                                    <StatusBadge tone={TIMING_META[schedule.scheduleTiming].tone}>
+                                      {TIMING_META[schedule.scheduleTiming].label}
+                                    </StatusBadge>
+                                  </td>
+                                  <td>
+                                    {schedule.priorityLevel ? (
+                                      <StatusBadge
+                                        tone={PRIORITY_META[schedule.priorityLevel].tone}
+                                      >
+                                        {PRIORITY_META[schedule.priorityLevel].label}
+                                      </StatusBadge>
+                                    ) : (
+                                      <span className="pill gray">—</span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <StatusBadge tone={STATUS_META[schedule.status].tone}>
+                                      {STATUS_META[schedule.status].label}
+                                    </StatusBadge>
+                                  </td>
+                                  <td>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                      <button
+                                        type="button"
+                                        className="btn"
+                                        style={{ padding: '2px 8px', fontSize: 10 }}
+                                        onClick={() => setSelectedSchedule(schedule)}
+                                      >
+                                        Historial
+                                      </button>
+                                      {canManage && schedule.status !== 'CANCELLED' ? (
+                                        <>
+                                          <button
+                                            type="button"
+                                            className="btn"
+                                            style={{ padding: '2px 8px', fontSize: 10 }}
+                                            disabled={busy}
+                                            onClick={() => {
+                                              setRescheduleTarget(schedule);
+                                              setRescheduleForm({
+                                                scheduledDate: schedule.scheduledDate,
+                                                dispensingPointId: schedule.dispensingPointId,
+                                                lateHandling: '',
+                                              });
+                                            }}
+                                          >
+                                            Reprogramar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="btn"
+                                            style={{ padding: '2px 8px', fontSize: 10 }}
+                                            disabled={busy}
+                                            onClick={() => handleCancel(schedule)}
+                                          >
+                                            Cancelar
+                                          </button>
+                                        </>
+                                      ) : null}
+                                      <ScheduleOutcomeActions
+                                        schedule={schedule}
+                                        organizationId={organizationId}
+                                        operationalStatus={
+                                          operationalStatuses.data?.items.find(
+                                            (status: OperationalStatusResponse) =>
+                                              status.patientScheduleId === schedule.id &&
+                                              status.scheduleRevision === schedule.revision,
+                                          ) ?? null
+                                        }
+                                        canManage={canManage}
+                                        canApply={canApply}
+                                        onChanged={() => {
+                                          operationalStatuses.reload();
+                                          schedules.reload();
+                                        }}
+                                      />
+                                    </div>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -977,156 +838,302 @@ export function PatientSchedulingView() {
                       )}
                     </CardBody>
                   </Card>
-                ) : null}
-              </>
-            ) : null}
 
-            {active === 2 ? (
-              <Card>
-                <CardHead
-                  title="Carga masiva XLSX"
-                  subtitle="Columnas mínimas: AUTORIZACION, DOCUMENTO, COD_COMERCIAL, CANTIDAD, PUNTO, FECHA_PROGRAMADA. COD_COMERCIAL es la identidad del producto."
-                  aside={
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={busy}
-                      onClick={handleDownloadTemplate}
-                    >
-                      Descargar plantilla
-                    </button>
-                  }
-                />
-                <CardBody>
-                  {canManage ? (
-                    <>
-                      <div className="field">
-                        <label htmlFor="schedule-import-file">Archivo XLSX</label>
-                        <input
-                          id="schedule-import-file"
-                          ref={fileInput}
-                          className="control"
-                          type="file"
-                          accept=".xlsx"
-                          onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
-                        />
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                        <button
-                          type="button"
-                          className="btn"
-                          disabled={busy || !importFile}
-                          onClick={handleUpload}
-                        >
-                          {busy ? 'Procesando…' : 'Validar archivo'}
-                        </button>
-                        {importBatch?.status === 'READY_TO_CONFIRM' ? (
+                  {rescheduleTarget ? (
+                    <Card>
+                      <CardHead
+                        title={`Reprogramar ${rescheduleTarget.commercialCode}`}
+                        subtitle="Se conserva el lineage: se crea una nueva revisión del historial."
+                      />
+                      <CardBody>
+                        <div className="config-grid">
+                          <div className="field">
+                            <label htmlFor="reschedule-date">Nueva fecha</label>
+                            <input
+                              id="reschedule-date"
+                              className="control"
+                              type="date"
+                              value={rescheduleForm.scheduledDate}
+                              onChange={(event) =>
+                                setRescheduleForm((current) => ({
+                                  ...current,
+                                  scheduledDate: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="field">
+                            <label htmlFor="reschedule-point">Punto</label>
+                            <select
+                              id="reschedule-point"
+                              className="control"
+                              value={rescheduleForm.dispensingPointId}
+                              onChange={(event) =>
+                                setRescheduleForm((current) => ({
+                                  ...current,
+                                  dispensingPointId: event.target.value,
+                                }))
+                              }
+                            >
+                              {pointItems.map((point) => (
+                                <option key={point.id} value={point.id}>
+                                  {point.code} · {point.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="field">
+                            <label htmlFor="reschedule-late">Manejo tardío (solo si aplica)</label>
+                            <select
+                              id="reschedule-late"
+                              className="control"
+                              value={rescheduleForm.lateHandling}
+                              onChange={(event) =>
+                                setRescheduleForm((current) => ({
+                                  ...current,
+                                  lateHandling: event.target.value as LateHandling,
+                                }))
+                              }
+                            >
+                              <option value="">Sin cambio</option>
+                              <option value="COMPLEMENTARY_PURCHASE_ORDER">
+                                {LATE_HANDLING_LABELS.COMPLEMENTARY_PURCHASE_ORDER}
+                              </option>
+                              <option value="NEXT_PERIOD">
+                                {LATE_HANDLING_LABELS.NEXT_PERIOD}
+                              </option>
+                            </select>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                           <button
                             type="button"
                             className="btn primary"
-                            disabled={busy}
-                            onClick={handleConfirmImport}
+                            disabled={busy || !rescheduleForm.scheduledDate}
+                            onClick={handleReschedule}
                           >
-                            Confirmar filas válidas
+                            Guardar reprogramación
                           </button>
-                        ) : null}
-                      </div>
-                      <Note>
-                        La confirmación escribe únicamente las filas VALID en una transacción por
-                        fila. Las filas inválidas, duplicadas o en conflicto se conservan para
-                        corrección y no bloquean a las válidas.
-                      </Note>
-                    </>
-                  ) : (
-                    <Note>Tu rol permite consultar cargas, pero no crear ni confirmar.</Note>
-                  )}
-
-                  {importBatch ? (
-                    <>
-                      <div className="metric-list" style={{ marginTop: 14 }}>
-                        <div className="metric-mini">
-                          <span>Estado</span>
-                          <strong>{IMPORT_STATUS_LABELS[importBatch.status]}</strong>
+                          <button
+                            type="button"
+                            className="btn"
+                            disabled={busy}
+                            onClick={() => setRescheduleTarget(null)}
+                          >
+                            Cerrar
+                          </button>
                         </div>
-                        <div className="metric-mini">
-                          <span>Total</span>
-                          <strong>{importBatch.totalRows}</strong>
-                        </div>
-                        <div className="metric-mini">
-                          <span>Válidas</span>
-                          <strong>{importBatch.validRows}</strong>
-                        </div>
-                        <div className="metric-mini">
-                          <span>Inválidas</span>
-                          <strong>{importBatch.invalidRows}</strong>
-                        </div>
-                        <div className="metric-mini">
-                          <span>Duplicadas</span>
-                          <strong>{importBatch.duplicateRows}</strong>
-                        </div>
-                        <div className="metric-mini">
-                          <span>Conflictos</span>
-                          <strong>{importBatch.conflictRows}</strong>
-                        </div>
-                        <div className="metric-mini">
-                          <span>Confirmadas</span>
-                          <strong>{importBatch.confirmedRows}</strong>
-                        </div>
-                      </div>
-                      {importRows.length > 0 ? (
-                        <div className="table-wrap" style={{ marginTop: 14 }}>
-                          <table aria-label="Filas de la carga">
-                            <thead>
-                              <tr>
-                                <th>Fila</th>
-                                <th>Autorización</th>
-                                <th>Documento</th>
-                                <th>Código</th>
-                                <th>Cantidad</th>
-                                <th>Punto</th>
-                                <th>Fecha</th>
-                                <th>Timing</th>
-                                <th>Resultado</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {importRows.map((row) => (
-                                <tr key={row.id}>
-                                  <td>{row.rowNumber}</td>
-                                  <td>{row.authorizationNumber ?? '—'}</td>
-                                  <td>{row.patientDocument ?? '—'}</td>
-                                  <td>{row.commercialCode ?? '—'}</td>
-                                  <td>{row.quantity ?? '—'}</td>
-                                  <td>{row.dispensingPointCode ?? '—'}</td>
-                                  <td>{row.scheduledDate ?? '—'}</td>
-                                  <td>
-                                    {row.scheduleTiming
-                                      ? TIMING_META[row.scheduleTiming].label
-                                      : '—'}
-                                  </td>
-                                  <td>
-                                    <StatusBadge tone={STAGING_META[row.stagingStatus]}>
-                                      {row.stagingStatus}
-                                    </StatusBadge>
-                                    <div style={{ color: 'var(--muted)', fontSize: 11 }}>
-                                      {row.resultCode}
-                                      {row.resultMessage ? ` · ${row.resultMessage}` : ''}
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : null}
-                    </>
+                      </CardBody>
+                    </Card>
                   ) : null}
-                </CardBody>
-              </Card>
-            ) : null}
-          </>
-        )}
-      </Tabs>
-    </>
+
+                  {selectedSchedule ? (
+                    <Card>
+                      <CardHead
+                        title={`Historial de ${selectedSchedule.commercialCode}`}
+                        subtitle="Revisiones append-only: fecha, punto y cantidad de cada cambio."
+                        aside={
+                          <StatusBadge tone={STATUS_META[selectedSchedule.status].tone}>
+                            {STATUS_META[selectedSchedule.status].label}
+                          </StatusBadge>
+                        }
+                      />
+                      <CardBody>
+                        {history.loading ? (
+                          <Note>Cargando historial…</Note>
+                        ) : (history.data?.items.length ?? 0) === 0 ? (
+                          <Note>Sin revisiones registradas.</Note>
+                        ) : (
+                          <div className="table-wrap">
+                            <table aria-label="Historial de programación">
+                              <thead>
+                                <tr>
+                                  <th>Revisión</th>
+                                  <th>Cambio</th>
+                                  <th>Fecha</th>
+                                  <th>Punto</th>
+                                  <th>Cantidad</th>
+                                  <th>Estado</th>
+                                  <th>Timing</th>
+                                  <th>Manejo tardío</th>
+                                  <th>Registrado</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {history.data?.items.map((entry) => (
+                                  <tr key={entry.revision}>
+                                    <td>v{entry.revision}</td>
+                                    <td>{entry.changeType}</td>
+                                    <td>{entry.scheduledDate}</td>
+                                    <td>{entry.dispensingPointId.slice(0, 8)}</td>
+                                    <td>{entry.quantity}</td>
+                                    <td>{STATUS_META[entry.status].label}</td>
+                                    <td>{TIMING_META[entry.scheduleTiming].label}</td>
+                                    <td>
+                                      {entry.lateHandling
+                                        ? LATE_HANDLING_LABELS[entry.lateHandling]
+                                        : '—'}
+                                    </td>
+                                    <td>{formatDateTime(entry.changedAt)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </CardBody>
+                    </Card>
+                  ) : null}
+                </>
+              ) : null}
+
+              {active === 2 ? (
+                <Card>
+                  <CardHead
+                    title="Carga masiva XLSX"
+                    subtitle="Columnas mínimas: AUTORIZACION, DOCUMENTO, COD_COMERCIAL, CANTIDAD, PUNTO, FECHA_PROGRAMADA. COD_COMERCIAL es la identidad del producto."
+                    aside={
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={busy}
+                        onClick={handleDownloadTemplate}
+                      >
+                        Descargar plantilla
+                      </button>
+                    }
+                  />
+                  <CardBody>
+                    {canManage ? (
+                      <>
+                        <div className="field">
+                          <label htmlFor="schedule-import-file">Archivo XLSX</label>
+                          <input
+                            id="schedule-import-file"
+                            ref={fileInput}
+                            className="control"
+                            type="file"
+                            accept=".xlsx"
+                            onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                          <button
+                            type="button"
+                            className="btn"
+                            disabled={busy || !importFile}
+                            onClick={handleUpload}
+                          >
+                            {busy ? 'Procesando…' : 'Validar archivo'}
+                          </button>
+                          {importBatch?.status === 'READY_TO_CONFIRM' ? (
+                            <button
+                              type="button"
+                              className="btn primary"
+                              disabled={busy}
+                              onClick={handleConfirmImport}
+                            >
+                              Confirmar filas válidas
+                            </button>
+                          ) : null}
+                        </div>
+                        <Note>
+                          La confirmación escribe únicamente las filas VALID en una transacción por
+                          fila. Las filas inválidas, duplicadas o en conflicto se conservan para
+                          corrección y no bloquean a las válidas.
+                        </Note>
+                      </>
+                    ) : (
+                      <Note>Tu rol permite consultar cargas, pero no crear ni confirmar.</Note>
+                    )}
+
+                    {importBatch ? (
+                      <>
+                        <div className="metric-list" style={{ marginTop: 14 }}>
+                          <div className="metric-mini">
+                            <span>Estado</span>
+                            <strong>{IMPORT_STATUS_LABELS[importBatch.status]}</strong>
+                          </div>
+                          <div className="metric-mini">
+                            <span>Total</span>
+                            <strong>{importBatch.totalRows}</strong>
+                          </div>
+                          <div className="metric-mini">
+                            <span>Válidas</span>
+                            <strong>{importBatch.validRows}</strong>
+                          </div>
+                          <div className="metric-mini">
+                            <span>Inválidas</span>
+                            <strong>{importBatch.invalidRows}</strong>
+                          </div>
+                          <div className="metric-mini">
+                            <span>Duplicadas</span>
+                            <strong>{importBatch.duplicateRows}</strong>
+                          </div>
+                          <div className="metric-mini">
+                            <span>Conflictos</span>
+                            <strong>{importBatch.conflictRows}</strong>
+                          </div>
+                          <div className="metric-mini">
+                            <span>Confirmadas</span>
+                            <strong>{importBatch.confirmedRows}</strong>
+                          </div>
+                        </div>
+                        {importRows.length > 0 ? (
+                          <div className="table-wrap" style={{ marginTop: 14 }}>
+                            <table aria-label="Filas de la carga">
+                              <thead>
+                                <tr>
+                                  <th>Fila</th>
+                                  <th>Autorización</th>
+                                  <th>Documento</th>
+                                  <th>Código</th>
+                                  <th>Cantidad</th>
+                                  <th>Punto</th>
+                                  <th>Fecha</th>
+                                  <th>Timing</th>
+                                  <th>Resultado</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {importRows.map((row) => (
+                                  <tr key={row.id}>
+                                    <td>{row.rowNumber}</td>
+                                    <td>{row.authorizationNumber ?? '—'}</td>
+                                    <td>{row.patientDocument ?? '—'}</td>
+                                    <td>{row.commercialCode ?? '—'}</td>
+                                    <td>{row.quantity ?? '—'}</td>
+                                    <td>{row.dispensingPointCode ?? '—'}</td>
+                                    <td>{row.scheduledDate ?? '—'}</td>
+                                    <td>
+                                      {row.scheduleTiming
+                                        ? TIMING_META[row.scheduleTiming].label
+                                        : '—'}
+                                    </td>
+                                    <td>
+                                      <StatusBadge tone={STAGING_META[row.stagingStatus]}>
+                                        {row.stagingStatus}
+                                      </StatusBadge>
+                                      <div style={{ color: 'var(--muted)', fontSize: 11 }}>
+                                        {row.resultCode}
+                                        {row.resultMessage ? ` · ${row.resultMessage}` : ''}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </CardBody>
+                </Card>
+              ) : null}
+            </>
+          )}
+        </Tabs>
+      </>
+    </PointScopeGuard>
   );
 }

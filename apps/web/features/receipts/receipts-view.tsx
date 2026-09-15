@@ -12,6 +12,7 @@ import {
   updateReceipt,
 } from '@/lib/purchase-orders-api';
 import type { ReceiptResponse } from '@authorization/contracts';
+import { PointScopeGuard } from '@/components/point-scope/empty-point-scope';
 
 export function ReceiptsView() {
   const { organizationId } = useRole();
@@ -59,189 +60,191 @@ export function ReceiptsView() {
     }
   };
   return (
-    <>
-      <PageHeader
-        title="Recepciones"
-        description="Control físico de entregas OLP. Las cantidades aceptadas quedan disponibles para el siguiente proceso, sin crear inventario."
-      />
-      {error && <div className="login-error">{error}</div>}
-      <Card>
-        <CardBody>
-          <h2>Deliveries pendientes de recepción</h2>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Referencia</th>
-                <th>Punto</th>
-                <th>Despacho</th>
-                <th>Cantidad</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {(deliveries.data?.items ?? [])
-                .filter((item) => item.status === 'DISPATCHED')
-                .map((delivery) => (
-                  <tr key={delivery.id}>
-                    <td>{delivery.supplierReference ?? delivery.id}</td>
-                    <td>{delivery.lines[0]?.dispensingPointName ?? '-'}</td>
-                    <td>{delivery.dispatchedAt ?? '-'}</td>
-                    <td>{delivery.lines.reduce((total, line) => total + line.quantity, 0)}</td>
+    <PointScopeGuard>
+      <>
+        <PageHeader
+          title="Recepciones"
+          description="Control físico de entregas OLP. Las cantidades aceptadas quedan disponibles para el siguiente proceso, sin crear inventario."
+        />
+        {error && <div className="login-error">{error}</div>}
+        <Card>
+          <CardBody>
+            <h2>Deliveries pendientes de recepción</h2>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Referencia</th>
+                  <th>Punto</th>
+                  <th>Despacho</th>
+                  <th>Cantidad</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {(deliveries.data?.items ?? [])
+                  .filter((item) => item.status === 'DISPATCHED')
+                  .map((delivery) => (
+                    <tr key={delivery.id}>
+                      <td>{delivery.supplierReference ?? delivery.id}</td>
+                      <td>{delivery.lines[0]?.dispensingPointName ?? '-'}</td>
+                      <td>{delivery.dispatchedAt ?? '-'}</td>
+                      <td>{delivery.lines.reduce((total, line) => total + line.quantity, 0)}</td>
+                      <td>
+                        <button className="button primary" onClick={() => void open(delivery.id)}>
+                          Registrar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            <h2>Borradores</h2>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Recepción</th>
+                  <th>Delivery</th>
+                  <th>Estado</th>
+                  <th>Conformidad</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {(pending.data?.items ?? []).map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.id}</td>
+                    <td>{item.deliveryId}</td>
+                    <td>{item.status}</td>
+                    <td>{item.conformity ?? '-'}</td>
                     <td>
-                      <button className="button primary" onClick={() => void open(delivery.id)}>
-                        Registrar
+                      <button className="button" onClick={() => setReceipt(item)}>
+                        Abrir
                       </button>
                     </td>
                   </tr>
                 ))}
-            </tbody>
-          </table>
-          <h2>Borradores</h2>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Recepción</th>
-                <th>Delivery</th>
-                <th>Estado</th>
-                <th>Conformidad</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {(pending.data?.items ?? []).map((item) => (
-                <tr key={item.id}>
-                  <td>{item.id}</td>
-                  <td>{item.deliveryId}</td>
-                  <td>{item.status}</td>
-                  <td>{item.conformity ?? '-'}</td>
-                  <td>
-                    <button className="button" onClick={() => setReceipt(item)}>
-                      Abrir
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardBody>
-      </Card>
-      {receipt && (
-        <Card>
-          <CardBody>
-            <h2>Detalle de recepción</h2>
-            {receipt.lines.map((line, index) => (
-              <div className="flow" key={line.id}>
-                <strong>
-                  Línea {index + 1} · esperado {line.expectedLotNumber} ·{' '}
-                  {line.expectedExpirationDate}
-                </strong>
-                <label>
-                  Recibido{' '}
-                  <input
-                    className="control"
-                    type="number"
-                    min="0"
-                    value={line.receivedQuantity}
-                    onChange={(e) =>
-                      setReceipt({
-                        ...receipt,
-                        lines: receipt.lines.map((candidate, i) =>
-                          i === index
-                            ? { ...candidate, receivedQuantity: Number(e.currentTarget.value) }
-                            : candidate,
-                        ),
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Aceptado{' '}
-                  <input
-                    className="control"
-                    type="number"
-                    min="0"
-                    value={line.acceptedQuantity}
-                    onChange={(e) =>
-                      setReceipt({
-                        ...receipt,
-                        lines: receipt.lines.map((candidate, i) =>
-                          i === index
-                            ? { ...candidate, acceptedQuantity: Number(e.currentTarget.value) }
-                            : candidate,
-                        ),
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Rechazado{' '}
-                  <input
-                    className="control"
-                    type="number"
-                    min="0"
-                    value={line.rejectedQuantity}
-                    onChange={(e) =>
-                      setReceipt({
-                        ...receipt,
-                        lines: receipt.lines.map((candidate, i) =>
-                          i === index
-                            ? { ...candidate, rejectedQuantity: Number(e.currentTarget.value) }
-                            : candidate,
-                        ),
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Lote observado{' '}
-                  <input
-                    className="control"
-                    value={line.receivedLotNumber ?? ''}
-                    onChange={(e) =>
-                      setReceipt({
-                        ...receipt,
-                        lines: receipt.lines.map((candidate, i) =>
-                          i === index
-                            ? { ...candidate, receivedLotNumber: e.currentTarget.value }
-                            : candidate,
-                        ),
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Vencimiento observado{' '}
-                  <input
-                    className="control"
-                    type="date"
-                    value={line.receivedExpirationDate ?? ''}
-                    onChange={(e) =>
-                      setReceipt({
-                        ...receipt,
-                        lines: receipt.lines.map((candidate, i) =>
-                          i === index
-                            ? { ...candidate, receivedExpirationDate: e.currentTarget.value }
-                            : candidate,
-                        ),
-                      })
-                    }
-                  />
-                </label>
-              </div>
-            ))}
-            {receipt.status === 'DRAFT' && (
-              <>
-                <button className="button" onClick={() => void save()}>
-                  Guardar borrador
-                </button>
-                <button className="button primary" onClick={() => void confirm()}>
-                  Confirmar
-                </button>
-              </>
-            )}
+              </tbody>
+            </table>
           </CardBody>
         </Card>
-      )}
-    </>
+        {receipt && (
+          <Card>
+            <CardBody>
+              <h2>Detalle de recepción</h2>
+              {receipt.lines.map((line, index) => (
+                <div className="flow" key={line.id}>
+                  <strong>
+                    Línea {index + 1} · esperado {line.expectedLotNumber} ·{' '}
+                    {line.expectedExpirationDate}
+                  </strong>
+                  <label>
+                    Recibido{' '}
+                    <input
+                      className="control"
+                      type="number"
+                      min="0"
+                      value={line.receivedQuantity}
+                      onChange={(e) =>
+                        setReceipt({
+                          ...receipt,
+                          lines: receipt.lines.map((candidate, i) =>
+                            i === index
+                              ? { ...candidate, receivedQuantity: Number(e.currentTarget.value) }
+                              : candidate,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Aceptado{' '}
+                    <input
+                      className="control"
+                      type="number"
+                      min="0"
+                      value={line.acceptedQuantity}
+                      onChange={(e) =>
+                        setReceipt({
+                          ...receipt,
+                          lines: receipt.lines.map((candidate, i) =>
+                            i === index
+                              ? { ...candidate, acceptedQuantity: Number(e.currentTarget.value) }
+                              : candidate,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Rechazado{' '}
+                    <input
+                      className="control"
+                      type="number"
+                      min="0"
+                      value={line.rejectedQuantity}
+                      onChange={(e) =>
+                        setReceipt({
+                          ...receipt,
+                          lines: receipt.lines.map((candidate, i) =>
+                            i === index
+                              ? { ...candidate, rejectedQuantity: Number(e.currentTarget.value) }
+                              : candidate,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Lote observado{' '}
+                    <input
+                      className="control"
+                      value={line.receivedLotNumber ?? ''}
+                      onChange={(e) =>
+                        setReceipt({
+                          ...receipt,
+                          lines: receipt.lines.map((candidate, i) =>
+                            i === index
+                              ? { ...candidate, receivedLotNumber: e.currentTarget.value }
+                              : candidate,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Vencimiento observado{' '}
+                    <input
+                      className="control"
+                      type="date"
+                      value={line.receivedExpirationDate ?? ''}
+                      onChange={(e) =>
+                        setReceipt({
+                          ...receipt,
+                          lines: receipt.lines.map((candidate, i) =>
+                            i === index
+                              ? { ...candidate, receivedExpirationDate: e.currentTarget.value }
+                              : candidate,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              ))}
+              {receipt.status === 'DRAFT' && (
+                <>
+                  <button className="button" onClick={() => void save()}>
+                    Guardar borrador
+                  </button>
+                  <button className="button primary" onClick={() => void confirm()}>
+                    Confirmar
+                  </button>
+                </>
+              )}
+            </CardBody>
+          </Card>
+        )}
+      </>
+    </PointScopeGuard>
   );
 }

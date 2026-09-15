@@ -66,6 +66,8 @@ import { AnalyticsService } from './analytics/analytics.service';
 import { BulkImportController } from './bulk-imports/bulk-import.controller';
 import { BulkImportRepository } from './bulk-imports/bulk-import.repository';
 import { BulkImportService } from './bulk-imports/bulk-import.service';
+import { AccessScopeController } from './access-scopes/access-scope.controller';
+import { OperationalAccessScopeService } from './access-scopes/operational-access-scope.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -132,6 +134,7 @@ new Gauge({
     PatientApplicationAuditController,
     AnalyticsController,
     BulkImportController,
+    AccessScopeController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -168,6 +171,7 @@ new Gauge({
     AnalyticsService,
     BulkImportRepository,
     BulkImportService,
+    OperationalAccessScopeService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

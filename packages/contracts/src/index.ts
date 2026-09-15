@@ -70,6 +70,15 @@ export const changePasswordRequestSchema = z.object({
 });
 export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
 
+export const pointAccessKindSchema = z.enum(['global', 'explicit', 'unrestricted']);
+export type PointAccessKind = z.infer<typeof pointAccessKindSchema>;
+
+export const organizationPointAccessSchema = z.object({
+  kind: pointAccessKindSchema,
+  accessiblePointIds: z.array(z.string().uuid()),
+});
+export type OrganizationPointAccess = z.infer<typeof organizationPointAccessSchema>;
+
 export const meResponseSchema = z.object({
   id: z.string().uuid(),
   username: z.string(),
@@ -82,10 +91,51 @@ export const meResponseSchema = z.object({
       name: z.string(),
       roles: z.array(z.string()),
       permissions: z.array(z.string()),
+      pointAccess: organizationPointAccessSchema,
     }),
   ),
 });
 export type MeResponse = z.infer<typeof meResponseSchema>;
+
+export const POINT_ACCESS_DENIED = 'POINT_ACCESS_DENIED' as const;
+
+export const operationalPointGrantSchema = z.object({
+  id: z.string().uuid(),
+  dispensingPointId: z.string().uuid(),
+  dispensingPointCode: z.string(),
+  dispensingPointName: z.string(),
+  active: z.boolean(),
+  grantedAt: isoDateTimeSchema,
+  grantedBy: z.string().uuid(),
+});
+export type OperationalPointGrant = z.infer<typeof operationalPointGrantSchema>;
+
+export const operationalPointScopeResponseSchema = z.object({
+  userId: z.string().uuid(),
+  username: z.string(),
+  displayName: z.string(),
+  organizationId: z.string().uuid(),
+  organizationCode: z.string(),
+  roles: z.array(z.string()),
+  eligible: z.boolean(),
+  grants: z.array(operationalPointGrantSchema),
+});
+export type OperationalPointScopeResponse = z.infer<typeof operationalPointScopeResponseSchema>;
+
+export const replaceOperationalPointScopeRequestSchema = z.object({
+  pointIds: z.array(z.string().uuid()),
+});
+export type ReplaceOperationalPointScopeRequest = z.infer<
+  typeof replaceOperationalPointScopeRequestSchema
+>;
+
+export const assignableDispensingPointSchema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  active: z.boolean(),
+});
+export type AssignableDispensingPoint = z.infer<typeof assignableDispensingPointSchema>;
 
 export const apiErrorSchema = z.object({
   code: z.string(),

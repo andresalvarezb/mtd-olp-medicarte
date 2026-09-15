@@ -6,6 +6,8 @@ import type {
   UpdateStockTransferRequest,
 } from '@authorization/contracts';
 import type { Scope } from '../common/request-scope';
+import { applyTransferPointScope, lockActivePointGrants } from '../common/point-scope.sql';
+import { PointAccessDeniedError } from '@authorization/domain';
 import { DATABASE } from '../tokens';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -42,9 +44,18 @@ export class StockTransferRepository {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
 
   private pointScope(scope: Scope) {
-    return ['MTD', 'MEDICARTE'].includes(scope.organizationCode)
+    const org = ['MTD', 'MEDICARTE'].includes(scope.organizationCode)
       ? sql`true`
       : sql`dp.organization_id=${scope.organizationId}`;
+    return org;
+  }
+
+  private transferVisible(scope: Scope) {
+    return sql`${this.pointScope(scope)} and ${applyTransferPointScope(
+      sql`st.source_dispensing_point_id`,
+      sql`st.destination_dispensing_point_id`,
+      scope,
+    )}`;
   }
 
   async create(body: CreateStockTransferRequest, scope: Scope) {
@@ -95,11 +106,22 @@ export class StockTransferRepository {
   async dispatch(id: string, expectedVersion: number, scope: Scope) {
     return this.database.db.transaction(async (tx) => {
       const transfer = (
-        await tx.execute<{ source_dispensing_point_id: string; status: string; version: number }>(
-          sql`select source_dispensing_point_id,status,version from stock_transfers where id=${id} for update`,
+        await tx.execute<{
+          source_dispensing_point_id: string;
+          destination_dispensing_point_id: string;
+          status: string;
+          version: number;
+        }>(
+          sql`select source_dispensing_point_id,destination_dispensing_point_id,status,version from stock_transfers where id=${id} for update`,
         )
       ).rows[0];
       if (!transfer) return { outcome: 'not_found' as const };
+      await this.lockTransferPoints(
+        tx,
+        transfer.source_dispensing_point_id,
+        transfer.destination_dispensing_point_id,
+        scope,
+      );
       if (transfer.status === 'DISPATCHED' || transfer.status === 'RECEIVED')
         return this.findOn(tx, id, scope);
       if (transfer.version !== expectedVersion)
@@ -160,14 +182,21 @@ export class StockTransferRepository {
     return this.database.db.transaction(async (tx) => {
       const transfer = (
         await tx.execute<{
+          source_dispensing_point_id: string;
           destination_dispensing_point_id: string;
           status: string;
           version: number;
         }>(
-          sql`select destination_dispensing_point_id,status,version from stock_transfers where id=${id} for update`,
+          sql`select source_dispensing_point_id,destination_dispensing_point_id,status,version from stock_transfers where id=${id} for update`,
         )
       ).rows[0];
       if (!transfer) return { outcome: 'not_found' as const };
+      await this.lockTransferPoints(
+        tx,
+        transfer.source_dispensing_point_id,
+        transfer.destination_dispensing_point_id,
+        scope,
+      );
       if (transfer.status === 'RECEIVED') return this.findOn(tx, id, scope);
       if (transfer.version !== expectedVersion)
         return { outcome: 'version_conflict' as const, currentVersion: transfer.version };
@@ -211,11 +240,22 @@ export class StockTransferRepository {
   async cancel(id: string, expectedVersion: number, scope: Scope) {
     return this.database.db.transaction(async (tx) => {
       const row = (
-        await tx.execute<{ status: string; version: number }>(
-          sql`select status,version from stock_transfers where id=${id} for update`,
+        await tx.execute<{
+          status: string;
+          version: number;
+          source_dispensing_point_id: string;
+          destination_dispensing_point_id: string;
+        }>(
+          sql`select status,version,source_dispensing_point_id,destination_dispensing_point_id from stock_transfers where id=${id} for update`,
         )
       ).rows[0];
       if (!row) return { outcome: 'not_found' as const };
+      await this.lockTransferPoints(
+        tx,
+        row.source_dispensing_point_id,
+        row.destination_dispensing_point_id,
+        scope,
+      );
       if (row.version !== expectedVersion)
         return { outcome: 'version_conflict' as const, currentVersion: row.version };
       if (row.status !== 'CREATED') throw new Error('STOCK_TRANSFER_CANCEL_NOT_ALLOWED');
@@ -227,12 +267,19 @@ export class StockTransferRepository {
     });
   }
 
+  async existsIgnoringPoint(id: string): Promise<boolean> {
+    const result = await this.database.db.execute<{ id: string }>(
+      sql`select id from stock_transfers where id=${id}`,
+    );
+    return Boolean(result.rows[0]);
+  }
+
   list(scope: Scope, status?: string) {
     return this.database.db
       .execute<{
         id: string;
       }>(
-        sql`select distinct st.id,st.created_at from stock_transfers st join dispensing_points dp on dp.id=st.source_dispensing_point_id where (${status ?? null}::varchar is null or st.status=${status ?? null}) and ${this.pointScope(scope)} order by st.created_at desc`,
+        sql`select distinct st.id,st.created_at from stock_transfers st join dispensing_points dp on dp.id=st.source_dispensing_point_id join dispensing_points dest on dest.id=st.destination_dispensing_point_id where (${status ?? null}::varchar is null or st.status=${status ?? null}) and ${this.transferVisible(scope)} order by st.created_at desc`,
       )
       .then((result) => Promise.all(result.rows.map((row) => this.find(row.id, scope))));
   }
@@ -242,10 +289,20 @@ export class StockTransferRepository {
 
   private async validatePoints(tx: Tx, source: string, destination: string, scope: Scope) {
     if (source === destination) throw new Error('STOCK_TRANSFER_SAME_POINT');
+    await lockActivePointGrants(tx, scope, [source, destination]);
     const points = await tx.execute<{ id: string }>(
       sql`select dp.id from dispensing_points dp where dp.id in (${source},${destination}) and ${this.pointScope(scope)}`,
     );
-    if (points.rows.length !== 2) throw new Error('STOCK_TRANSFER_POINT_OUT_OF_SCOPE');
+    if (points.rows.length !== 2) throw new PointAccessDeniedError();
+  }
+
+  private async lockTransferPoints(
+    tx: Tx,
+    source: string,
+    destination: string,
+    scope: Scope,
+  ): Promise<void> {
+    await lockActivePointGrants(tx, scope, [source, destination]);
   }
   private async replaceLines(
     tx: Tx,
@@ -273,7 +330,7 @@ export class StockTransferRepository {
   }
   private async findOn(conn: Tx | Database['db'], id: string, scope: Scope) {
     const result = await conn.execute<TransferViewRow>(
-      sql`select st.*,sp.code source_code,sp.name source_name,dp.code destination_code,dp.name destination_name,sl.id line_id,sl.source_inventory_lot_id,sl.commercial_code,sl.lot_number,sl.expiration_date::text,sl.quantity,coalesce((select sum(m.quantity_delta) from inventory_movements m where m.inventory_lot_id=sl.source_inventory_lot_id),0)::int source_physical,coalesce((select sum(m.quantity_delta) from inventory_movements m where m.inventory_lot_id=sl.source_inventory_lot_id and m.inventory_lot_id in (select id from inventory_lots where expiration_date >= current_date)),0)::int source_usable,coalesce((select sum(m.quantity_delta) from inventory_movements m join inventory_lots dl on dl.id=m.inventory_lot_id where m.movement_type in ('RECEIPT','TRANSFER_IN') and dl.dispensing_point_id=st.destination_dispensing_point_id and dl.commercial_code=sl.commercial_code and dl.lot_number=sl.lot_number and dl.expiration_date=sl.expiration_date),0)::int destination_physical from stock_transfers st join dispensing_points sp on sp.id=st.source_dispensing_point_id join dispensing_points dp on dp.id=st.destination_dispensing_point_id left join stock_transfer_lines sl on sl.stock_transfer_id=st.id where st.id=${id} and ${this.pointScope(scope)} order by sl.id`,
+      sql`select st.*,sp.code source_code,sp.name source_name,dp.code destination_code,dp.name destination_name,sl.id line_id,sl.source_inventory_lot_id,sl.commercial_code,sl.lot_number,sl.expiration_date::text,sl.quantity,coalesce((select sum(m.quantity_delta) from inventory_movements m where m.inventory_lot_id=sl.source_inventory_lot_id),0)::int source_physical,coalesce((select sum(m.quantity_delta) from inventory_movements m where m.inventory_lot_id=sl.source_inventory_lot_id and m.inventory_lot_id in (select id from inventory_lots where expiration_date >= current_date)),0)::int source_usable,coalesce((select sum(m.quantity_delta) from inventory_movements m join inventory_lots dl on dl.id=m.inventory_lot_id where m.movement_type in ('RECEIPT','TRANSFER_IN') and dl.dispensing_point_id=st.destination_dispensing_point_id and dl.commercial_code=sl.commercial_code and dl.lot_number=sl.lot_number and dl.expiration_date=sl.expiration_date),0)::int destination_physical from stock_transfers st join dispensing_points sp on sp.id=st.source_dispensing_point_id join dispensing_points dp on dp.id=st.destination_dispensing_point_id left join stock_transfer_lines sl on sl.stock_transfer_id=st.id where st.id=${id} and ${this.transferVisible(scope)} order by sl.id`,
     );
     if (!result.rows[0]) return null;
     const first = result.rows[0];

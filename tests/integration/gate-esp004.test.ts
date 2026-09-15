@@ -1,7 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ORGANIZATION_IDS, adminLogin, ensureOperatorTokens, ensureUser } from './helpers/auth';
+import {
+  ORGANIZATION_IDS,
+  adminLogin,
+  ensureOperatorTokens,
+  ensureUser,
+  grantAllPointsToMedicarteOperator,
+  deletePointScopesForPoints,
+  deletePointScopesForPointCodeLike,
+} from './helpers/auth';
 
 const databaseUrl =
   process.env.DATABASE_URL ??
@@ -150,24 +158,20 @@ async function getLineByCode(
   );
   const { items } = (await response.json()) as {
     items: Array<{
-    id: string;
-    regularQuantity: number;
-    lateQuantity: number;
-    projectedQuantity: number;
-    sourceCount: number;
-    revision: number;
-  }>;
+      id: string;
+      regularQuantity: number;
+      lateQuantity: number;
+      projectedQuantity: number;
+      sourceCount: number;
+      revision: number;
+    }>;
   };
   return items[0];
 }
 
-async function consolidatePeriod(
-  periodId: string,
-  token: string = adminToken,
-): Promise<Response> {
+async function consolidatePeriod(periodId: string, token: string = adminToken): Promise<Response> {
   return apiCall('POST', `/planning-periods/${periodId}/consolidate`, {}, token);
 }
-
 
 async function cleanupTestWindow(): Promise<void> {
   await database.query(
@@ -210,16 +214,17 @@ async function cleanupTestWindow(): Promise<void> {
   await database.query(
     `alter table patient_schedule_history enable trigger patient_schedule_history_no_delete`,
   );
-  await database.query(
-    `delete from planning_periods where start_date between $1 and $2`,
-    [PERIOD_WINDOW.from, PERIOD_WINDOW.to],
-  );
+  await database.query(`delete from planning_periods where start_date between $1 and $2`, [
+    PERIOD_WINDOW.from,
+    PERIOD_WINDOW.to,
+  ]);
   await database.query(
     `delete from authorization_item_organizations where authorization_item_id in
       (select id from authorization_items where numero_autorizacion like 'ESP004-%')`,
   );
   await database.query(`delete from authorization_items where numero_autorizacion like 'ESP004-%'`);
   await database.query(`delete from import_batches where original_filename like 'esp004-%'`);
+  await deletePointScopesForPointCodeLike(database, 'ESP4-%');
   await database.query(`delete from dispensing_points where code like 'ESP4-%'`);
 }
 
@@ -322,6 +327,7 @@ beforeAll(async () => {
     [foundationUserId],
   );
   periodThirdId = third.rows[0]!.id;
+  await grantAllPointsToMedicarteOperator(database);
 });
 
 afterAll(async () => {
@@ -374,14 +380,15 @@ afterAll(async () => {
       [PERIOD_WINDOW.from, PERIOD_WINDOW.to],
     );
     if (point1Id || point2Id) {
+      await deletePointScopesForPoints(database, [point1Id, point2Id]);
       await database.query(`delete from dispensing_points where id = any($1::uuid[])`, [
         [point1Id, point2Id].filter(Boolean),
       ]);
     }
-    await database.query(
-      `delete from planning_periods where start_date between $1 and $2`,
-      [PERIOD_WINDOW.from, PERIOD_WINDOW.to],
-    );
+    await database.query(`delete from planning_periods where start_date between $1 and $2`, [
+      PERIOD_WINDOW.from,
+      PERIOD_WINDOW.to,
+    ]);
     if (provenanceBatchIds.length > 0) {
       await database.query(`delete from import_batches where id = any($1::uuid[])`, [
         provenanceBatchIds,
@@ -403,9 +410,27 @@ afterAll(async () => {
 describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
   it('1-2. agrupa por punto y separa por producto/punto/período', async () => {
     // Tres identidades distintas: (itemA1·pt1), (itemA2·pt1), (itemB·pt2).
-    await createSchedule({ authorizationItemId: itemA1Id, commercialCode: CODE_A, dispensingPointId: point1Id, scheduledDate: '2036-01-06', quantity: 3 });
-    await createSchedule({ authorizationItemId: itemA2Id, commercialCode: CODE_B, dispensingPointId: point1Id, scheduledDate: '2036-01-07', quantity: 2 });
-    await createSchedule({ authorizationItemId: itemBId, commercialCode: CODE_C, dispensingPointId: point2Id, scheduledDate: '2036-01-06', quantity: 1 });
+    await createSchedule({
+      authorizationItemId: itemA1Id,
+      commercialCode: CODE_A,
+      dispensingPointId: point1Id,
+      scheduledDate: '2036-01-06',
+      quantity: 3,
+    });
+    await createSchedule({
+      authorizationItemId: itemA2Id,
+      commercialCode: CODE_B,
+      dispensingPointId: point1Id,
+      scheduledDate: '2036-01-07',
+      quantity: 2,
+    });
+    await createSchedule({
+      authorizationItemId: itemBId,
+      commercialCode: CODE_C,
+      dispensingPointId: point2Id,
+      scheduledDate: '2036-01-06',
+      quantity: 1,
+    });
 
     const response = await consolidatePeriod(periodOnTimeId);
     expect(response.status).toBe(200);
@@ -460,20 +485,50 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
     // (Có B · pt1) se programa (qty 2), se reprograma y se cancela: no debe
     // sumarse; una cancelada no deja source yORK su línea desaparece si era
     // la única fuente de esa identidad.
-    const willCancel = await createSchedule({ authorizationItemId: itemBId, commercialCode: CODE_C, dispensingPointId: point1Id, scheduledDate: '2036-01-08', quantity: 2 });
-    await apiCall('POST', `/patient-schedules/${willCancel.id}/reschedule`, {
-      expectedRevision: willCancel.revision,
-      scheduledDate: '2036-01-09',
-    }, medicarteToken, ORGANIZATION_IDS.MEDICARTE);
-    await apiCall('POST', `/patient-schedules/${willCancel.id}/cancel`, { expectedRevision: 2 }, medicarteToken, ORGANIZATION_IDS.MEDICARTE);
+    const willCancel = await createSchedule({
+      authorizationItemId: itemBId,
+      commercialCode: CODE_C,
+      dispensingPointId: point1Id,
+      scheduledDate: '2036-01-08',
+      quantity: 2,
+    });
+    await apiCall(
+      'POST',
+      `/patient-schedules/${willCancel.id}/reschedule`,
+      {
+        expectedRevision: willCancel.revision,
+        scheduledDate: '2036-01-09',
+      },
+      medicarteToken,
+      ORGANIZATION_IDS.MEDICARTE,
+    );
+    await apiCall(
+      'POST',
+      `/patient-schedules/${willCancel.id}/cancel`,
+      { expectedRevision: 2 },
+      medicarteToken,
+      ORGANIZATION_IDS.MEDICARTE,
+    );
 
     // También cambia (B·pt2) de 2 → 5 unidades y consolida: el history rev 1
     // (qty 2) NO se suma; solo el valor vigente (qty 5, rev 2).
-    const willChange = await createSchedule({ authorizationItemId: itemBId, commercialCode: CODE_C, dispensingPointId: point2Id, scheduledDate: '2036-01-07', quantity: 2 });
-    await apiCall('PATCH', `/patient-schedules/${willChange.id}`, {
-      expectedRevision: willChange.revision,
-      quantity: 5,
-    }, medicarteToken, ORGANIZATION_IDS.MEDICARTE);
+    const willChange = await createSchedule({
+      authorizationItemId: itemBId,
+      commercialCode: CODE_C,
+      dispensingPointId: point2Id,
+      scheduledDate: '2036-01-07',
+      quantity: 2,
+    });
+    await apiCall(
+      'PATCH',
+      `/patient-schedules/${willChange.id}`,
+      {
+        expectedRevision: willChange.revision,
+        quantity: 5,
+      },
+      medicarteToken,
+      ORGANIZATION_IDS.MEDICARTE,
+    );
 
     const response = await consolidatePeriod(periodOnTimeId);
     expect(response.status).toBe(200);
@@ -513,10 +568,9 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
     const source = await database.query<{
       quantity: number;
       schedule_revision: number;
-    }>(
-      `select quantity, schedule_revision from demand_sources where patient_schedule_id = $1`,
-      [willChange.id],
-    );
+    }>(`select quantity, schedule_revision from demand_sources where patient_schedule_id = $1`, [
+      willChange.id,
+    ]);
     expect(source.rows[0]).toMatchObject({ quantity: 5, schedule_revision: 2 });
   });
 
@@ -548,7 +602,11 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
 
     const again = await consolidatePeriod(periodOnTimeId);
     expect(again.status).toBe(200);
-    const summary = (await again.json()) as { lineCount: number; sourceCount: number; projectedQuantity: number };
+    const summary = (await again.json()) as {
+      lineCount: number;
+      sourceCount: number;
+      projectedQuantity: number;
+    };
 
     const after = await database.query<{ revision: number; quantity: number }>(
       `select revision, projected_quantity as quantity from projected_demand_lines
@@ -569,12 +627,23 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
   });
 
   it('10-12. COMPLEMENTARY consolida late en su período; NEXT_PERIOD consolida en el período diferido', async () => {
-    const complementary = await createSchedule({ authorizationItemId: itemA1Id, commercialCode: CODE_A, dispensingPointId: point1Id, scheduledDate: '2036-02-03', quantity: 4, lateHandling: 'COMPLEMENTARY_PURCHASE_ORDER' });
+    const complementary = await createSchedule({
+      authorizationItemId: itemA1Id,
+      commercialCode: CODE_A,
+      dispensingPointId: point1Id,
+      scheduledDate: '2036-02-03',
+      quantity: 4,
+      lateHandling: 'COMPLEMENTARY_PURCHASE_ORDER',
+    });
     expect(complementary).toBeTruthy();
 
     const ownPeriod = await consolidatePeriod(periodLateId);
     expect(ownPeriod.status).toBe(200);
-    const ownSummary = (await ownPeriod.json()) as { sourceCount: number; lateQuantity: number; regularQuantity: number };
+    const ownSummary = (await ownPeriod.json()) as {
+      sourceCount: number;
+      lateQuantity: number;
+      regularQuantity: number;
+    };
     expect(ownSummary.sourceCount).toBe(1);
     expect(ownSummary.lateQuantity).toBe(4);
     expect(ownSummary.regularQuantity).toBe(0);
@@ -610,7 +679,12 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
       `/projected-demand?planningPeriodId=${periodNextId}&commercialCode=${CODE_B}`,
     );
     const deferredItems = (await deferredLines.json()) as {
-      items: Array<{ id: string; regularQuantity: number; lateQuantity: number; projectedQuantity: number }>;
+      items: Array<{
+        id: string;
+        regularQuantity: number;
+        lateQuantity: number;
+        projectedQuantity: number;
+      }>;
     };
     expect(deferredItems.items[0]).toMatchObject({
       regularQuantity: 2,
@@ -681,7 +755,11 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
 
     const sources = await apiCall('GET', `/projected-demand/${items[0]!.id}/sources`);
     const sourceItems = (await sources.json()) as {
-      items: Array<{ scheduleTiming: string; lateHandling: string | null; patientScheduleId: string }>;
+      items: Array<{
+        scheduleTiming: string;
+        lateHandling: string | null;
+        patientScheduleId: string;
+      }>;
     };
     expect(sourceItems.items).toHaveLength(1);
     expect(sourceItems.items[0]).toEqual(
@@ -695,8 +773,20 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
 
   it('versionado semántico y matriz de idempotencia', async () => {
     // Consolidación 1: X qty1 + Y qty1 → total 2, revisión 1.
-    const x = await createSchedule({ authorizationItemId: itemCId, commercialCode: CODE_D, dispensingPointId: point1Id, scheduledDate: '2036-01-05', quantity: 1 });
-    await createSchedule({ authorizationItemId: itemCId, commercialCode: CODE_D, dispensingPointId: point1Id, scheduledDate: '2036-01-06', quantity: 1 });
+    const x = await createSchedule({
+      authorizationItemId: itemCId,
+      commercialCode: CODE_D,
+      dispensingPointId: point1Id,
+      scheduledDate: '2036-01-05',
+      quantity: 1,
+    });
+    await createSchedule({
+      authorizationItemId: itemCId,
+      commercialCode: CODE_D,
+      dispensingPointId: point1Id,
+      scheduledDate: '2036-01-06',
+      quantity: 1,
+    });
 
     let response = await consolidatePeriod(periodOnTimeId);
     expect(response.status).toBe(200);
@@ -711,8 +801,20 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
 
     // Consolidación 2: X cancelada, Z entra qty1 → total sigue 2 pero
     // cambió la composición ⇒ revision debe avanzar (2).
-    await apiCall('POST', `/patient-schedules/${x.id}/cancel`, { expectedRevision: 1 }, medicarteToken, ORGANIZATION_IDS.MEDICARTE);
-    await createSchedule({ authorizationItemId: itemCId, commercialCode: CODE_D, dispensingPointId: point1Id, scheduledDate: '2036-01-10', quantity: 1 });
+    await apiCall(
+      'POST',
+      `/patient-schedules/${x.id}/cancel`,
+      { expectedRevision: 1 },
+      medicarteToken,
+      ORGANIZATION_IDS.MEDICARTE,
+    );
+    await createSchedule({
+      authorizationItemId: itemCId,
+      commercialCode: CODE_D,
+      dispensingPointId: point1Id,
+      scheduledDate: '2036-01-10',
+      quantity: 1,
+    });
 
     response = await consolidatePeriod(periodOnTimeId);
     expect(response.status).toBe(200);
@@ -795,7 +897,12 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
   });
 
   it('11. invariantes FK: una fuente fuera de su identidad choca con la FK compuesta', async () => {
-    const line = await database.query<{ id: string; planning_period_id: string; dispensing_point_id: string; commercial_code: string }>(
+    const line = await database.query<{
+      id: string;
+      planning_period_id: string;
+      dispensing_point_id: string;
+      commercial_code: string;
+    }>(
       `select id, planning_period_id, dispensing_point_id, commercial_code
         from projected_demand_lines where planning_period_id = $1 limit 1`,
       [periodOnTimeId],
@@ -848,20 +955,47 @@ describe('Gate ESP-004 — consolidación de demanda proyectada', () => {
   });
 
   it('13-15. RBAC 200/403 (MTD General/READ_ONLY leen; consolidación 403; Medicarte/OLP sin acceso)', async () => {
-    const read = await apiCall('GET', `/projected-demand?planningPeriodId=${periodOnTimeId}`, undefined, mtdGeneralToken);
+    const read = await apiCall(
+      'GET',
+      `/projected-demand?planningPeriodId=${periodOnTimeId}`,
+      undefined,
+      mtdGeneralToken,
+    );
     expect(read.status).toBe(200);
 
-    const manage = await apiCall('POST', `/planning-periods/${periodOnTimeId}/consolidate`, {}, mtdGeneralToken);
+    const manage = await apiCall(
+      'POST',
+      `/planning-periods/${periodOnTimeId}/consolidate`,
+      {},
+      mtdGeneralToken,
+    );
     expect(manage.status).toBe(403);
     expect(((await manage.json()) as { code: string }).code).toBe('PERMISSION_DENIED');
 
-    const medicarteRead = await apiCall('GET', `/projected-demand?planningPeriodId=${periodOnTimeId}`, undefined, medicarteToken, ORGANIZATION_IDS.MEDICARTE);
+    const medicarteRead = await apiCall(
+      'GET',
+      `/projected-demand?planningPeriodId=${periodOnTimeId}`,
+      undefined,
+      medicarteToken,
+      ORGANIZATION_IDS.MEDICARTE,
+    );
     expect(medicarteRead.status).toBe(403);
 
-    const olpRead = await apiCall('GET', `/projected-demand?planningPeriodId=${periodOnTimeId}`, undefined, olpToken, ORGANIZATION_IDS.OLP);
+    const olpRead = await apiCall(
+      'GET',
+      `/projected-demand?planningPeriodId=${periodOnTimeId}`,
+      undefined,
+      olpToken,
+      ORGANIZATION_IDS.OLP,
+    );
     expect(olpRead.status).toBe(403);
 
-    const readOnlyRead = await apiCall('GET', `/projected-demand?planningPeriodId=${periodOnTimeId}`, undefined, readOnlyToken);
+    const readOnlyRead = await apiCall(
+      'GET',
+      `/projected-demand?planningPeriodId=${periodOnTimeId}`,
+      undefined,
+      readOnlyToken,
+    );
     expect(readOnlyRead.status).toBe(200);
 
     const manageByMedicarte = await apiCall(

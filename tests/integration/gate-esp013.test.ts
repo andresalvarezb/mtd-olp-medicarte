@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ORGANIZATION_IDS, adminLogin, ensureOperatorTokens, ensureUser } from './helpers/auth';
+import {
+  ORGANIZATION_IDS,
+  adminLogin,
+  ensureOperatorTokens,
+  ensureUser,
+  deletePointScopesForPoints,
+} from './helpers/auth';
 
 const db = new Client({
   connectionString:
@@ -576,8 +582,8 @@ afterAll(async () => {
   }
   if (batchIds.length)
     await db.query(`delete from import_batches where id=any($1::uuid[])`, [batchIds]);
-  if (pointId && otherPointId)
-    await db.query(`delete from dispensing_points where id in ($1,$2)`, [pointId, otherPointId]);
+  if (pointId && otherPointId) await deletePointScopesForPoints(db, [pointId, otherPointId]);
+  await db.query(`delete from dispensing_points where id in ($1,$2)`, [pointId, otherPointId]);
   if (historicalPeriodCreated)
     await db.query(`delete from planning_periods where id=$1`, [historicalPeriodId]);
   if (periodCreated) await db.query(`delete from planning_periods where id=$1`, [periodId]);

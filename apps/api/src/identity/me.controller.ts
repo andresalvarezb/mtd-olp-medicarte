@@ -26,13 +26,21 @@ export class MeController {
           type: 'array',
           items: {
             type: 'object',
-            required: ['id', 'code', 'name', 'roles', 'permissions'],
+            required: ['id', 'code', 'name', 'roles', 'permissions', 'pointAccess'],
             properties: {
               id: { type: 'string', format: 'uuid' },
               code: { type: 'string' },
               name: { type: 'string' },
               roles: { type: 'array', items: { type: 'string' } },
               permissions: { type: 'array', items: { type: 'string' } },
+              pointAccess: {
+                type: 'object',
+                required: ['kind', 'accessiblePointIds'],
+                properties: {
+                  kind: { type: 'string', enum: ['global', 'explicit', 'unrestricted'] },
+                  accessiblePointIds: { type: 'array', items: { type: 'string', format: 'uuid' } },
+                },
+              },
             },
           },
         },

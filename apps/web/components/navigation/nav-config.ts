@@ -44,7 +44,8 @@ export type ViewId =
   | 'applicationAudits'
   | 'operationalIndicators'
   | 'bulkImports'
-  | 'admin';
+  | 'admin'
+  | 'operationalScopes';
 
 export interface NavItem {
   view: ViewId;
@@ -198,6 +199,14 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: '09',
         permission: 'users.manage',
         roles: ['MTD'],
+      },
+      {
+        view: 'operationalScopes',
+        href: '/administracion',
+        title: 'Accesos operacionales',
+        icon: '17',
+        permission: 'operational_scopes.read',
+        roles: ['MTD', 'MTD_AUDITORIA'],
       },
     ],
   },

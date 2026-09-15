@@ -21,6 +21,7 @@ import {
   canRetryFailedBulkImportJob,
   initialExecutionStatus,
   phiSafeBulkImportLog,
+  PointAccessDeniedError,
 } from '@authorization/domain';
 import type { ApiConfig } from '@authorization/config';
 import type { Scope } from '../common/request-scope';
@@ -136,7 +137,7 @@ export class BulkImportService {
     query: BulkImportRowListQuery,
   ): Promise<BulkImportRowResponse[]> {
     await this.getJob(jobId, actor);
-    return this.repository.listRows(jobId, query.filter);
+    return this.repository.listRows(jobId, query.filter, actor);
   }
 
   async confirm(jobId: string, actor: Scope): Promise<BulkImportJobResponse> {
@@ -195,7 +196,7 @@ export class BulkImportService {
 
   async resultWorkbook(jobId: string, actor: Scope): Promise<Buffer> {
     await this.getJob(jobId, actor);
-    const rows = await this.repository.listRows(jobId, 'ALL');
+    const rows = await this.repository.listRows(jobId, 'ALL', actor);
     return buildBulkImportResultWorkbook(rows);
   }
 
@@ -328,10 +329,20 @@ function jobNotFound(): NotFoundException {
 }
 
 function isBulkDomainFailure(error: unknown): boolean {
-  return error instanceof HttpException || isScheduleDuplicateError(error);
+  return (
+    error instanceof HttpException ||
+    error instanceof PointAccessDeniedError ||
+    isScheduleDuplicateError(error)
+  );
 }
 
 function mapDomainError(error: unknown): { code: string; message: string } {
+  if (error instanceof PointAccessDeniedError) {
+    return {
+      code: error.code,
+      message: error.message,
+    };
+  }
   if (error instanceof HttpException) {
     const response = error.getResponse();
     if (typeof response === 'object' && response && 'code' in response) {

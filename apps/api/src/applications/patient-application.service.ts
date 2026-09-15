@@ -10,6 +10,7 @@ import type {
   UpdatePatientApplicationRequest,
 } from '@authorization/contracts';
 import type { Scope } from '../common/request-scope';
+import { pointAccessDeniedException, throwIfPointAccessDenied } from '../common/point-access';
 import { PatientApplicationRepository } from './patient-application.repository';
 
 @Injectable()
@@ -24,8 +25,9 @@ export class PatientApplicationService {
   }
   async detail(id: string, scope: Scope) {
     const result = await this.repository.find(id, scope);
-    if (!result) throw this.notFound();
-    return result;
+    if (result) return result;
+    if (await this.repository.existsIgnoringPoint(id, scope)) throw pointAccessDeniedException();
+    throw this.notFound();
   }
   create(body: CreatePatientApplicationRequest, scope: Scope) {
     return this.run(() => this.repository.create(body, scope));
@@ -56,6 +58,7 @@ export class PatientApplicationService {
       }
       return result;
     } catch (error) {
+      throwIfPointAccessDenied(error);
       if (error instanceof ConflictException || error instanceof NotFoundException) throw error;
       const code = error instanceof Error ? error.message : 'INVALID_PATIENT_APPLICATION';
       const conflicts = [

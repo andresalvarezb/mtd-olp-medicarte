@@ -17,7 +17,8 @@
 | ESP-011        | ACCEPTED                     |
 | ESP-012        | ACCEPTED                     |
 | ESP-013        | ACCEPTED                     |
-| ESP-014        | IMPLEMENTED / PENDING REVIEW |
+| ESP-014        | ACCEPTED                     |
+| ESP-015        | IMPLEMENTED / PENDING REVIEW |
 
 ### Evidencia de cierre ESP-010
 
@@ -72,6 +73,31 @@ Medicarte, OLP y Compensar no tienen acceso a auditoría de aplicaciones. `READY
 - format:check se aplicó solo a archivos de ESP-013. No hay nueva deuda de formato.
 
 Analytics es read model. El stock actual no se llama sobrante del período. Tarifa COMPENSAR y costo OLP permanecen separados. La tarifa activa actual no se presenta como tarifa histórica. `appliedSupplierCost` es UNAVAILABLE. `effectivePurchaseCoverage` incluye DRAFT; `requestedQuantity` no. No hay utilidad contable ni reserva de stock. Los endpoints analytics son GET.
+
+### Evidencia de cierre ESP-015
+
+- migration: `0047_esp015_point_scopes.sql`
+- ADR: `ADR-038-esp-015-organization-point-access.md`
+- Modelo reutilizado: `organizations`, `users`, `user_organization_roles`, `dispensing_points`
+- Modelo nuevo: `user_point_scopes` (grants activos únicos; revocados se conservan)
+- MTD: scope global por política, sin backfill por punto
+- MEDICARTE_OPERATOR: fail-closed, sin grants = cero puntos
+- Transfer: source AND destination
+- Bulk: preview no reserva; confirm revalida con `FOR SHARE`. Filas `POINT_ACCESS_DENIED` visibles al owner; VALID/SUCCEEDED fuera de scope se ocultan.
+- Revocar no reescribe historia; no se inventaron grants
+- Gate A: PASS (48 migraciones, 0000–0047)
+- Gate B: PASS (ESP-014 + únicamente `0047_esp015_point_scopes.sql`)
+- Gate ESP-015: 18/18 PASS (matriz 1–44 cubierta)
+- Regression ESP-003/007/008/009/010/011/012/013/014: PASS
+- Unit suite: 175/175 PASS
+- Integration suite: 315/315 PASS
+- lint: PASS
+- typecheck: PASS
+- build: PASS
+- git diff --check: PASS
+- format:check se aplicó solo a archivos de ESP-015. No hay nueva deuda de formato.
+
+RBAC y point scope son controles independientes. El frontend no es frontera de seguridad. PostgreSQL sigue siendo source of truth. Sin RESERVED. Sin commit hasta revisión.
 
 ### Evidencia de cierre ESP-014
 

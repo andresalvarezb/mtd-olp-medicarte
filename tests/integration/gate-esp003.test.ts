@@ -2,7 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import * as XLSX from 'xlsx';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ORGANIZATION_IDS, adminLogin, ensureOperatorTokens, ensureUser } from './helpers/auth';
+import {
+  ORGANIZATION_IDS,
+  adminLogin,
+  ensureOperatorTokens,
+  ensureUser,
+  grantAllPointsToMedicarteOperator,
+  deletePointScopesForPoints,
+  deletePointScopesForPointCodeLike,
+} from './helpers/auth';
 
 const databaseUrl =
   process.env.DATABASE_URL ??
@@ -101,12 +109,7 @@ async function uploadImport(rows: unknown[][], filename: string): Promise<Respon
 }
 
 async function confirmImport(importId: string): Promise<Response> {
-  return apiCall(
-    'POST',
-    `/patient-schedules/imports/${importId}/confirm`,
-    {},
-    medicarteToken,
-  );
+  return apiCall('POST', `/patient-schedules/imports/${importId}/confirm`, {}, medicarteToken);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -154,10 +157,9 @@ async function cleanupTestWindow(): Promise<void> {
         select id from authorization_items where numero_autorizacion like 'ESP003-%'
       )`,
   );
-  await database.query(
-    `delete from authorization_items where numero_autorizacion like 'ESP003-%'`,
-  );
+  await database.query(`delete from authorization_items where numero_autorizacion like 'ESP003-%'`);
   await database.query(`delete from import_batches where original_filename like 'esp003-%'`);
+  await deletePointScopesForPointCodeLike(database, 'ESP3-PT%');
   await database.query(`delete from dispensing_points where code like 'ESP3-PT%'`);
   await database.query(`delete from planning_periods where start_date between $1 and $2`, [
     TEST_PERIOD_WINDOW.from,
@@ -324,6 +326,7 @@ beforeAll(async () => {
     [foundationUserId],
   );
   periodNextId = next.rows[0]!.id;
+  await grantAllPointsToMedicarteOperator(database);
 });
 
 afterAll(async () => {
@@ -364,6 +367,7 @@ afterAll(async () => {
       await database.query(`delete from authorization_items where id = any($1::uuid[])`, [itemIds]);
     }
     if (point1Id || point2Id) {
+      await deletePointScopesForPoints(database, [point1Id, point2Id]);
       await database.query(`delete from dispensing_points where id = any($1::uuid[])`, [
         [point1Id, point2Id].filter(Boolean),
       ]);
@@ -630,7 +634,11 @@ describe('Gate ESP-003 — programación de pacientes', () => {
       items: Array<{ revision: number; changeType: string; dispensingPointId: string }>;
     };
     expect(items).toHaveLength(3);
-    expect(items[2]).toMatchObject({ revision: 3, changeType: 'UPDATED', dispensingPointId: point2Id });
+    expect(items[2]).toMatchObject({
+      revision: 3,
+      changeType: 'UPDATED',
+      dispensingPointId: point2Id,
+    });
     expect(await countAuditEvents(onTimeScheduleId)).toBe(3);
   });
 
@@ -932,7 +940,11 @@ describe('Gate ESP-003 — programación de pacientes', () => {
     );
     const rowItems = (
       (await rows.json()) as {
-        items: Array<{ stagingStatus: string; resultCode: string; patientScheduleId: string | null }>;
+        items: Array<{
+          stagingStatus: string;
+          resultCode: string;
+          patientScheduleId: string | null;
+        }>;
       }
     ).items;
     expect(rowItems.filter((row) => row.stagingStatus === 'VALID')).toHaveLength(1);
@@ -947,7 +959,10 @@ describe('Gate ESP-003 — programación de pacientes', () => {
     const row = [AUTH_NUMBER, DOC_A, CODE_A, 1, POINT_2_CODE, '2034-01-06'];
 
     const firstResponse = await uploadImport(
-      [['AUTORIZACION', 'DOCUMENTO', 'COD_COMERCIAL', 'CANTIDAD', 'PUNTO', 'FECHA_PROGRAMADA'], row],
+      [
+        ['AUTORIZACION', 'DOCUMENTO', 'COD_COMERCIAL', 'CANTIDAD', 'PUNTO', 'FECHA_PROGRAMADA'],
+        row,
+      ],
       `esp003-identity-a-${suffix}.xlsx`,
     );
     expect(firstResponse.status).toBe(202);
@@ -960,7 +975,10 @@ describe('Gate ESP-003 — programación de pacientes', () => {
 
     // Lote B, INDEPENDIENTE del lote A: misma identidad canónica.
     const secondResponse = await uploadImport(
-      [['AUTORIZACION', 'DOCUMENTO', 'COD_COMERCIAL', 'CANTIDAD', 'PUNTO', 'FECHA_PROGRAMADA'], row],
+      [
+        ['AUTORIZACION', 'DOCUMENTO', 'COD_COMERCIAL', 'CANTIDAD', 'PUNTO', 'FECHA_PROGRAMADA'],
+        row,
+      ],
       `esp003-identity-b-${suffix}.xlsx`,
     );
     expect(secondResponse.status).toBe(202);
@@ -1056,11 +1074,16 @@ describe('Gate ESP-003 — programación de pacientes', () => {
         where table_schema = 'public'
            and table_name in ('inventory', 'inventory_items', 'inventory_stock', 'inventory_lots', 'inventory_movements')`,
     );
-    expect(tables.rows.map((row) => row.table_name)).toEqual(['inventory_lots', 'inventory_movements']);
+    expect(tables.rows.map((row) => row.table_name)).toEqual([
+      'inventory_lots',
+      'inventory_movements',
+    ]);
     expect(
-      (await database.query<{ count: number }>(
-        `select count(*)::int count from inventory_movements where source_type not in ('RECEIPT_LINE','TRANSFER_LINE')`,
-      )).rows[0]!.count,
+      (
+        await database.query<{ count: number }>(
+          `select count(*)::int count from inventory_movements where source_type not in ('RECEIPT_LINE','TRANSFER_LINE')`,
+        )
+      ).rows[0]!.count,
     ).toBe(0);
   });
 
