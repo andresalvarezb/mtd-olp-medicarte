@@ -474,6 +474,11 @@ export class BulkUpdateProcessor {
       fechaAplicacion: item.fecha_aplicacion,
       newValue,
     });
+    await client.query(
+      `select set_config('app.process_action', $1, true)`,
+      [input.operationType],
+    );
+
     const updateSql =
       input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
         ? `update authorization_items set lugar_dispensacion = $2, fecha_programada = $3::date,
