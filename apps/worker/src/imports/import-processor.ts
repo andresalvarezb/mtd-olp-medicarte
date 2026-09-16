@@ -7,7 +7,11 @@ import {
   type AuthorizationImportJob,
   type ImportRowResultCode,
 } from '@authorization/contracts';
-import { deriveAuthorizationClassification, noveltyForImportResult, type NoveltyProjection } from '@authorization/domain';
+import {
+  deriveAuthorizationClassification,
+  noveltyForImportResult,
+  type NoveltyProjection,
+} from '@authorization/domain';
 import { insertNovelty, type createDatabase } from '@authorization/database';
 import { parseImportFile, ImportFileError, type ParsedImportRow } from './import-parser';
 import { importTerminalErrorClassifications, NonRetryableImportError } from './import-errors';
@@ -50,9 +54,12 @@ function hasValue(row: Record<string, unknown>, field: string): boolean {
 }
 
 function missingRequiredHeaders(headers: string[]): string[] {
-  return ['NUMERO_AUTORIZACION', 'CODIGO_COMERCIAL', 'ESTADO_AUTORIZACION', 'NUMERO_PRESCRIPCION'].filter(
-    (field) => !headers.includes(field),
-  );
+  return [
+    'NUMERO_AUTORIZACION',
+    'CODIGO_COMERCIAL',
+    'ESTADO_AUTORIZACION',
+    'NUMERO_PRESCRIPCION',
+  ].filter((field) => !headers.includes(field));
 }
 
 function missingRequiredValues(row: Record<string, unknown>, headers: string[]): string[] {
@@ -233,6 +240,7 @@ export class ImportProcessor {
             receivedValue: classified.classification?.authorizationKey ?? null,
             description: projection.message,
             actorId: source.created_by,
+            correlationId: job.correlationId,
           });
         }
 

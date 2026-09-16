@@ -904,11 +904,14 @@ export const novelties = pgTable(
     }),
     sourceRowNumber: integer('source_row_number'),
     originalRow: jsonb('original_row').notNull(),
-    code: varchar('code', { length: 30 }).notNull().references(() => noveltyCodes.code, {
-      onDelete: 'restrict',
-    }),
+    code: varchar('code', { length: 30 })
+      .notNull()
+      .references(() => noveltyCodes.code, {
+        onDelete: 'restrict',
+      }),
     stage: varchar('stage', { length: 60 }).notNull(),
     field: varchar('field', { length: 160 }),
+    logicalKey: varchar('logical_key', { length: 500 }).notNull(),
     receivedValue: text('received_value'),
     description: text('description').notNull(),
     active: boolean('active').notNull().default(true),
@@ -917,10 +920,17 @@ export const novelties = pgTable(
     processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('novelties_item_active_idx').on(table.authorizationItemId, table.active, table.processedAt),
+    index('novelties_item_active_idx').on(
+      table.authorizationItemId,
+      table.active,
+      table.processedAt,
+    ),
     index('novelties_code_idx').on(table.code, table.processedAt),
     index('novelties_batch_idx').on(table.importBatchId, table.bulkUpdateBatchId),
     index('novelties_attempt_idx').on(table.code, table.authorizationItemId, table.attemptNumber),
+    index('novelties_logical_idx').on(table.logicalKey),
+    index('novelties_logical_attempt_idx').on(table.logicalKey, table.attemptNumber),
+    index('novelties_logical_active_idx').on(table.logicalKey, table.active),
     check('novelties_attempt_number_check', sql`${table.attemptNumber} > 0`),
   ],
 );

@@ -284,6 +284,7 @@ export class BulkUpdateProcessor {
           receivedValue: extras.newValue ?? null,
           description: bulkUpdateRowResultMessages[code],
           actorId: input.actorId,
+          correlationId: input.correlationId,
         });
       }
       return code;
@@ -477,10 +478,7 @@ export class BulkUpdateProcessor {
       fechaAplicacion: item.fecha_aplicacion,
       newValue,
     });
-    await client.query(
-      `select set_config('app.process_action', $1, true)`,
-      [input.operationType],
-    );
+    await client.query(`select set_config('app.process_action', $1, true)`, [input.operationType]);
 
     const updateSql =
       input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
