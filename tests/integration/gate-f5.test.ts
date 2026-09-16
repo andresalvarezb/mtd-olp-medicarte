@@ -44,11 +44,11 @@ async function seedReadyItem(label: string): Promise<{
        (id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
         source_status_normalized, source_prescripcion_normalized, no_prescripcion,
         enablement_status, coverage_type, direction_status, operation_status,
-        coverage_rule_version, lugar_dispensacion, operational_version,
+        coverage_rule_version, lugar_dispensacion, orden_compra, operational_version,
         tariff_membership_status, tariff_membership_evaluated_at, created_from_batch_id)
      values ($1, $2, $3, $4, '{}'::jsonb, '5', '', '', 'ENABLED', 'PBS',
-             'NOT_APPLICABLE', 'READY_TO_DISPENSE', 'F2-COVERAGE-2', 'Sede logística F5', 1,
-             'LISTED', now(), $5)`,
+             'NOT_APPLICABLE', 'READY_TO_DISPENSE', 'F2-COVERAGE-2', 'Sede logística F5',
+             'OC-F5', 1, 'LISTED', now(), $5)`,
     [itemId, authorization, medication, `${authorization}:${medication}`, batchId],
   );
   await database.query(
@@ -67,15 +67,31 @@ function dateCsv(
 ): Buffer {
   const field =
     operationType === 'REPORT_DISPENSATION_DATE' ? 'FECHA_DISPENSACION' : 'FECHA_APLICACION';
+
   if (operationType === 'REPORT_DISPENSATION_DATE') {
     return xlsxBuffer([
       ['CLAVE_AUTORIZACION', field, ...(extraColumn ? ['CAMPO_EXTRA'] : [])],
-      [`${item.authorization}:${item.medication}`, value, ...(extraColumn ? ['no-permitido'] : [])],
+      [
+        `${item.authorization}:${item.medication}`,
+        value,
+        ...(extraColumn ? ['no-permitido'] : []),
+      ],
     ]);
   }
+
   return xlsxBuffer([
-    ['CLAVE_AUTORIZACION', field, ...(extraColumn ? ['CAMPO_EXTRA'] : [])],
-    [`${item.authorization}:${item.medication}`, value, ...(extraColumn ? ['no-permitido'] : [])],
+    [
+      'CLAVE_AUTORIZACION',
+      field,
+      'COD_AUTORIZACION_MEDICARTE',
+      ...(extraColumn ? ['CAMPO_EXTRA'] : []),
+    ],
+    [
+      `${item.authorization}:${item.medication}`,
+      value,
+      'MEDICARTE-F5',
+      ...(extraColumn ? ['no-permitido'] : []),
+    ],
   ]);
 }
 
@@ -168,7 +184,7 @@ describe('Gate F5', () => {
         headers: { authorization: `Bearer ${olpToken}`, 'x-organization-id': olpOrganizationId },
       },
     );
-    expect(xlsxReport.status).toBe(400);
+    expect(xlsxReport.status).toBe(200);
 
     const afterDispensing = await database.query<{
       fecha_dispensacion: string;
@@ -443,7 +459,10 @@ describe('Gate F5', () => {
     const approved = await seedReadyItem('APPROVED');
     await database.query(
       `update authorization_items
-       set audit_status = 'APPROVED', operation_status = 'DISPENSED'
+       set audit_status = 'APPROVED',
+           operation_status = 'DISPENSED',
+           process_status = 'AUDITORIA_APROBADA',
+           fecha_dispensacion = '2026-08-29'
        where id = $1`,
       [approved.id],
     );
@@ -484,7 +503,10 @@ describe('Gate F5', () => {
       },
     );
     expect(exported.status).toBe(200);
-    expect(await exported.text()).toContain(`'=HYPERLINK`);
+    const exportedCsv = XLSX.utils.sheet_to_csv(
+      XLSX.read(await exported.arrayBuffer(), { type: 'array' }).Sheets.Datos!,
+    );
+    expect(exportedCsv).toContain(`'=HYPERLINK`);
   });
 
   it('no expone flujo individual de soportes', async () => {
