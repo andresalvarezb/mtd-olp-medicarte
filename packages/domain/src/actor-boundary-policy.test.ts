@@ -26,6 +26,18 @@ describe('ESP-020 actor boundaries', () => {
     );
   });
 
+  it('allows custom roles only within their assigned organization boundary', () => {
+    expect(
+      isPermissionAllowedForActor('OLP', 'CUSTOM_REGIONAL_123', 'purchase_orders.review_supplier'),
+    ).toBe(true);
+    expect(
+      isPermissionAllowedForActor('MEDICARTE', 'CUSTOM_REGIONAL_123', 'supplier_deliveries.read'),
+    ).toBe(true);
+    expect(
+      isPermissionAllowedForActor('MTD', 'CUSTOM_REGIONAL_123', 'purchase_orders.review_supplier'),
+    ).toBe(false);
+  });
+
   it('throws a typed error for a forbidden actor capability', () => {
     expect(() =>
       assertPermissionAllowedForActor('OLP', 'OLP_OPERATOR', 'patient_applications.manage'),

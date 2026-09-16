@@ -70,14 +70,14 @@ parcial sin que la respuesta lo declare.
 
 Columnas:
 
-| Columna | Contenido |
-|---|---|
-| Usuario | display name, username y email si existe |
-| Organización | contexto/asignaciones visibles |
-| Rol | labels de rol, nunca códigos técnicos como primer nivel |
-| Estado | Activo/Inactivo |
-| Último acceso | fecha/hora o “Nunca” |
-| Acciones | Ver/Editar y menú contextual |
+| Columna       | Contenido                                               |
+| ------------- | ------------------------------------------------------- |
+| Usuario       | display name, username y email si existe                |
+| Organización  | contexto/asignaciones visibles                          |
+| Rol           | labels de rol, nunca códigos técnicos como primer nivel |
+| Estado        | Activo/Inactivo                                         |
+| Último acceso | fecha/hora o “Nunca”                                    |
+| Acciones      | Ver/Editar y menú contextual                            |
 
 No mostrar passwordConfigured como columna principal. Puede ser una señal de
 seguridad en el detalle.
@@ -86,7 +86,8 @@ seguridad en el detalle.
 
 - **D01:** mostrar `MTD_ADMIN` como “Administrador”; no mostrar
   `SYSTEM_ADMIN`, `isSystemAdmin` ni códigos técnicos como modelo de negocio.
-- **D02:** la UI ofrece únicamente roles predefinidos y solo capabilities
+- **D02 actualizado:** la UI ofrece roles predefinidos y permite crear roles
+  personalizados con scopes organizacionales; solo muestra capabilities
   configurables expresamente permitidas.
 - **D03:** la compatibilidad organización–rol es una frontera estructural; la UI
   no ofrece un editor de esa matriz.
@@ -133,22 +134,17 @@ se muestra una vez con advertencia de canal seguro y `mustChangePassword=true`.
 
 ### Paso 2 — Rol
 
-- Seleccionar organización válida.
-- Mostrar solo roles compatibles con esa organización.
+- Seleccionar un rol activo.
+- Mostrar las organizaciones asociadas al scope del rol como opciones
+  seleccionables; solo pueden elegirse organizaciones permitidas por el rol.
 - Mostrar descripción del rol y módulos principales.
 - El rol `Administrador` muestra advertencia de privilegio elevado.
-- No permitir `MTD_ADMIN` fuera de la organización MTD.
+- No permitir roles sin scope organizacional activo.
 
-### Paso 3 — Scope
-
-Solo aparece si el rol/organización requiere scope explícito:
-
-- Medicarte + `MEDICARTE_OPERATOR`: selector de puntos;
-- MTD/global: mostrar “Acceso global; no requiere seleccionar puntos”;
-- OLP/Compensar: mostrar “El acceso se limita por organización; no aplica scope
-  de puntos”.
-
-No presentar scopes como acciones de módulo.
+El scope del rol define las organizaciones elegibles, pero no concede acceso por
+sí mismo. El administrador debe seleccionar una o varias organizaciones para la
+asignación inicial. Esto evita conceder automáticamente acceso global a roles
+como `READ_ONLY`.
 
 ### Confirmación
 
@@ -156,13 +152,12 @@ Resumen antes de guardar:
 
 ```text
 Usuario
-Organización
 Rol
-Scope
+Organizaciones seleccionadas dentro del scope del rol
 ```
 
-El submit debe ser una operación backend transaccional que crea user,
-assignment, scope inicial y audit cuando corresponda.
+El submit debe ser una operación backend transaccional que crea user, las
+asignaciones seleccionadas y el audit correspondiente.
 
 ## 5. User detail/edit
 
@@ -219,14 +214,14 @@ Ruta: `/administracion/roles`.
 
 Cards o tabla:
 
-| Campo | Ejemplo |
-|---|---|
-| Nombre | Administrador |
+| Campo       | Ejemplo                    |
+| ----------- | -------------------------- |
+| Nombre      | Administrador              |
 | Descripción | Acceso completo al sistema |
-| Módulos | 18 módulos |
-| Usuarios | N usuarios activos |
-| Estado | Protegido / Configurable |
-| Acción | Editar acceso |
+| Módulos     | 18 módulos                 |
+| Usuarios    | N usuarios activos         |
+| Estado      | Protegido / Configurable   |
+| Acción      | Editar acceso              |
 
 El conteo de módulos debe venir del backend/read model y distinguir módulos
 visibles de actions concedidas.
@@ -238,8 +233,8 @@ No hay roles configurables disponibles.
 Los roles base del sistema se cargan con la configuración de autorización.
 ```
 
-Para ESP-020 no se muestra “Crear rol custom” porque D02=A aprueba mantener
-únicamente roles predefinidos.
+La vista muestra “Crear rol personalizado” con nombre y scopes organizacionales.
+No permite convertirlo en administrador ni editar boundaries estructurales.
 
 ## 7. Role access editor
 
@@ -270,7 +265,8 @@ Requisitos:
 - si no hay action configurable, no mostrar control ficticio;
 - no mostrar permission codes en el flujo normal;
 - mostrar warning cuando una action está restringida por actor boundary;
-- explicar que scope por punto se administra aparte.
+- no mezclar el scope operacional por punto con las acciones del rol; ese control
+  no se ofrece en `/administracion`.
 
 ### Shortcuts
 
@@ -302,8 +298,9 @@ Editor read-only:
 
 ## 9. Scope por punto
 
-La UI existente de `OperationalScopesSection` se integra en User detail, no en
-Role access editor.
+El backend conserva la semántica de scope por punto de ESP-015 y la UI la
+expone en una sección separada de **Puntos operativos Medicarte** dentro de
+`/administracion`. La sección no modifica roles ni permisos de módulos.
 
 Estados:
 
@@ -415,4 +412,3 @@ implementación incremental; el DoD final exige endpoint real.
 - no truncar nombres de roles sin tooltip accesible;
 - responsive para tabla y editor;
 - no depender de nombres de usuario para decidir visibilidad.
-

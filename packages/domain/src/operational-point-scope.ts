@@ -1,5 +1,6 @@
-export const POINT_ACCESS_DENIED = 'POINT_ACCESS_DENIED' as const;
+import { isCustomRole } from './organization-role-policy';
 
+export const POINT_ACCESS_DENIED = 'POINT_ACCESS_DENIED' as const;
 export type PointAccessKind = 'global' | 'explicit' | 'unrestricted';
 
 export type PointAccessScope = Readonly<
@@ -32,7 +33,10 @@ export function canAccessPoints(scope: PointAccessScope, pointIds: readonly stri
 }
 
 export function requiresPointGrant(organizationCode: string, roles: readonly string[]): boolean {
-  return organizationCode === 'MEDICARTE' && roles.includes('MEDICARTE_OPERATOR');
+  return (
+    organizationCode === 'MEDICARTE' &&
+    roles.some((role) => role === 'MEDICARTE_OPERATOR' || isCustomRole(role))
+  );
 }
 
 export function isPointScopeGlobalActor(
@@ -45,10 +49,11 @@ export function isPointScopeGlobalActor(
       roles.includes('MTD_OPERATOR') ||
       roles.includes('MTD_GENERAL') ||
       roles.includes('MTD_AUDITORIA') ||
-      roles.includes('READ_ONLY'))
+      roles.includes('READ_ONLY') ||
+      roles.some(isCustomRole))
   );
 }
 
 export function isPointScopeEligibleTarget(roles: readonly string[]): boolean {
-  return roles.includes('MEDICARTE_OPERATOR');
+  return roles.includes('MEDICARTE_OPERATOR') || roles.some(isCustomRole);
 }

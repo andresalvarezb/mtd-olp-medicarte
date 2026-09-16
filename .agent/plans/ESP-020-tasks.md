@@ -1,14 +1,15 @@
 # ESP-020 — Task Breakdown
 
-Estado: **WAVE 1 IMPLEMENTED / WAVE 2+ NOT IMPLEMENTED / D01–D10 APPROVED**
+Estado: **WAVE 1 + ROLE MANAGEMENT SLICE IMPLEMENTED / REMAINDER WAVE 2+ NOT IMPLEMENTED / D01–D10 APPROVED**
 
 Convenciones:
 
 - `S/M/L/XL` es complejidad relativa, no tiempo.
 - Una tarea puede crear código solo durante la futura fase de implementación.
 - Cada tarea debe dejar tests y evidencia antes de marcarse completa.
-- WAVE 1 puede modificar únicamente sus archivos y metadata aprobados; WAVE 2+
-  no está autorizada por este cierre.
+- WAVE 1 modificó únicamente sus archivos y metadata aprobados. El slice de
+  administración de roles fue autorizado y ejecutado el 2026-09-16; el resto
+  de WAVE 2+ permanece fuera de alcance.
 
 Decisiones D01–D10 aprobadas el 2026-09-15. La siguiente matriz es autoritativa
 para trazabilidad; el DAG y las waves al final de este documento prevalecen sobre
@@ -16,51 +17,72 @@ cualquier dependencia histórica que haya quedado en el texto de una tarea.
 
 ## 0.1 Recalculated task status
 
-| ID | Estado posterior a decisiones | Motivo resumido |
-|---|---|---|
-| T001 | UNCHANGED | Baseline requerido para reproducibilidad |
-| T002 | UPDATED | Lifecycle ACTIVE/LEGACY/ORPHAN/RETIRED aprobado |
-| T003 | UPDATED | Module inventory cerrado sin decisión pendiente |
-| T004 | UPDATED | Provenance mínima y clean/existing path aprobados |
-| T005 | CANCELLED_BY_APPROVED_DECISION | D01–D10 ya fueron aprobadas |
-| T006 | UPDATED | Policy organization–role estructural, no configurable |
-| T007 | UPDATED | MTD_ADMIN metadata + ALLOW_ALL aprobados |
-| T008 | UPDATED | Registry incluye lifecycle y actor metadata |
-| T009 | UPDATED | Gate exige mapping completo de ACTIVE |
-| T010 | UPDATED | Actor boundaries no configurables |
-| T011 | UPDATED | Una migration aditiva incluye role metadata + provenance |
-| T012 | UPDATED | Resolver ALLOW_ALL explícito sin role_permissions artificiales |
-| T013 | UPDATED | Invariantes transaccionales y last-admin |
-| T014 | UPDATED | Asignaciones nuevas validan policy; histórico se preserva |
-| T015 | UPDATED | Bootstrap clean-install converge a un único admin |
-| T016 | UPDATED | Fixtures/runtime seeds separados sin cleanup silencioso |
-| T017 | UPDATED | Existing DB usa clasificación, dry-run y confirmación |
-| T018 | UNCHANGED | Read APIs dependen del registry final |
-| T019 | UPDATED | Solo roles predefinidos y concurrency segura |
-| T020 | UPDATED | Preserva multi-organización |
-| T021 | UPDATED | Mantiene semántica ESP-015 exacta |
-| T022 | UPDATED | Audit atómico para mutaciones aprobadas |
-| T023 | UPDATED | Read model incluye organización activa/módulos |
-| T024 | UPDATED | Selector explícito y header coherente |
-| T025 | UNCHANGED | Sidebar deriva del read model |
-| T026 | UNCHANGED | Forbidden UX no sustituye backend |
-| T027 | UNCHANGED | User list |
-| T028 | UPDATED | UX solo ofrece roles predefinidos/compatibles |
-| T029 | UPDATED | Provenance informativa, no autoridad |
-| T030 | UPDATED | Roles protegidos/configurables según D01/D02 |
-| T031 | UPDATED | No edita boundaries ni legacy en UX normal |
-| T032 | UPDATED | Admin protegido y last-admin UX |
-| T033 | UPDATED | Reset production bloqueado; deployment single-admin |
-| T034 | UPDATED | Legacy compatibility solo con consumer real |
-| T035 | UPDATED | Matriz de seguridad para D01–D08 |
-| T036 | UNCHANGED | Tests web/contratos |
-| T037 | UPDATED | Certificación clean/existing sin cleanup destructivo |
-| T038 | UPDATED | Regresión explícita ESP-015…ESP-019 |
-| T039 | NEW | Gate automatizado específico de WAVE 1 |
+| ID   | Estado posterior a decisiones  | Motivo resumido                                                |
+| ---- | ------------------------------ | -------------------------------------------------------------- |
+| T001 | UNCHANGED                      | Baseline requerido para reproducibilidad                       |
+| T002 | UPDATED                        | Lifecycle ACTIVE/LEGACY/ORPHAN/RETIRED aprobado                |
+| T003 | UPDATED                        | Module inventory cerrado sin decisión pendiente                |
+| T004 | UPDATED                        | Provenance mínima y clean/existing path aprobados              |
+| T005 | CANCELLED_BY_APPROVED_DECISION | D01–D10 ya fueron aprobadas                                    |
+| T006 | UPDATED                        | Policy organization–role estructural, no configurable          |
+| T007 | UPDATED                        | MTD_ADMIN metadata + ALLOW_ALL aprobados                       |
+| T008 | UPDATED                        | Registry incluye lifecycle y actor metadata                    |
+| T009 | UPDATED                        | Gate exige mapping completo de ACTIVE                          |
+| T010 | UPDATED                        | Actor boundaries no configurables                              |
+| T011 | UPDATED                        | Una migration aditiva incluye role metadata + provenance       |
+| T012 | UPDATED                        | Resolver ALLOW_ALL explícito sin role_permissions artificiales |
+| T013 | UPDATED                        | Invariantes transaccionales y last-admin                       |
+| T014 | UPDATED                        | Asignaciones nuevas validan policy; histórico se preserva      |
+| T015 | UPDATED                        | Bootstrap clean-install converge a un único admin              |
+| T016 | UPDATED                        | Fixtures/runtime seeds separados sin cleanup silencioso        |
+| T017 | UPDATED                        | Existing DB usa clasificación, dry-run y confirmación          |
+| T018 | UNCHANGED                      | Read APIs dependen del registry final                          |
+| T019 | UPDATED                        | Roles predefinidos/custom validados y concurrency segura       |
+| T020 | UPDATED                        | Preserva multi-organización                                    |
+| T021 | UPDATED                        | Mantiene semántica ESP-015 exacta                              |
+| T022 | UPDATED                        | Audit atómico para mutaciones aprobadas                        |
+| T023 | UPDATED                        | Read model incluye organización activa/módulos                 |
+| T024 | UPDATED                        | Selector explícito y header coherente                          |
+| T025 | UNCHANGED                      | Sidebar deriva del read model                                  |
+| T026 | UNCHANGED                      | Forbidden UX no sustituye backend                              |
+| T027 | UNCHANGED                      | User list                                                      |
+| T028 | UPDATED                        | UX solo ofrece roles predefinidos/compatibles                  |
+| T029 | UPDATED                        | Provenance informativa, no autoridad                           |
+| T030 | UPDATED                        | Roles protegidos/configurables según D01/D02                   |
+| T031 | UPDATED                        | No edita boundaries ni legacy en UX normal                     |
+| T032 | UPDATED                        | Admin protegido y last-admin UX                                |
+| T033 | UPDATED                        | Reset production bloqueado; deployment single-admin            |
+| T034 | UPDATED                        | Legacy compatibility solo con consumer real                    |
+| T035 | UPDATED                        | Matriz de seguridad para D01–D08                               |
+| T036 | UNCHANGED                      | Tests web/contratos                                            |
+| T037 | UPDATED                        | Certificación clean/existing sin cleanup destructivo           |
+| T038 | UPDATED                        | Regresión explícita ESP-015…ESP-019                            |
+| T039 | NEW                            | Gate automatizado específico de WAVE 1                         |
 
 `TOTAL_TASKS_BEFORE=38` · `TOTAL_TASKS_AFTER=39`  
 `MERGED_TASKS=none` · `SPLIT_TASKS=none`  
 `CANCELLED_TASKS=T005` · `PRODUCT_DECISIONS_PENDING=0`
+
+## 0.2 Execution status — role management slice
+
+Implementado el 2026-09-16:
+
+- `T014` parcial: las nuevas asignaciones validan la matriz organización–rol;
+  las invariantes completas de último administrador siguen pendientes.
+- `T018` completado para roles/módulos: `GET /roles`, `GET /roles/:code/access`
+  y `GET /modules`.
+- `T019` completado: creación/actualización de roles personalizados y
+  `PUT /roles/:code/access` con scopes organizacionales, permisos configurables,
+  boundaries estructurales y fingerprint de concurrencia optimista.
+- `T022` parcial: el cambio de permisos de rol y su auditoría son atómicos;
+  la atomicidad de todas las mutaciones de identidad sigue pendiente.
+- `T028`, `T030` y `T031` completados: selectores compatibles, ruta
+  `/administracion/roles`, creación de roles personalizados, listado y editor
+  con roles protegidos/boundaries.
+- `T032` parcial: protección UX de `MTD_ADMIN` completada; UX completa de
+  último administrador sigue pendiente.
+
+El resto de WAVE 2+ permanece sin implementar.
 
 ## 1. Tasks
 
@@ -1142,7 +1164,8 @@ AFTER `ESP020-T022`, `ESP020-T024`
 ### ESP020-T030 — Implement roles list UX
 
 **OBJECTIVE**  
-Mostrar roles predefinidos, modules count, users count y protected status.
+Mostrar roles predefinidos y personalizados, modules count, users count,
+organization scopes, lifecycle y protected status.
 
 **DEPENDENCIES**  
 `ESP020-T018`, `ESP020-T024`.
@@ -1158,7 +1181,8 @@ Mostrar roles predefinidos, modules count, users count y protected status.
 4. Link configurable roles to editor.
 
 **DOMAIN INVARIANTS**  
-No custom role creation in ESP-020.
+Custom roles require explicit organization scopes and cannot become system
+administrators or bypass actor boundaries.
 
 **TESTS REQUIRED**  
 Counts, protected role, 403, empty/error/loading.
@@ -1742,7 +1766,8 @@ Casos obligatorios: **11**
 5. `ALLOW_ALL` incluye una capability nueva `system_allowed`.
 6. Admin no requiere nuevas filas manuales de `role_permissions` y mantiene
    scope global.
-7. Roles predefinidos/protegidos no permiten custom role.
+7. Roles protegidos no permiten edición; custom roles requieren scopes
+   organizacionales y no pueden adquirir semántica de administrador.
 8. Combinaciones organization–role válidas pasan e inválidas se rechazan.
 9. Actor boundary negativa no produce privilege escalation.
 10. Provenance `UNKNOWN` no altera autorización y migration es aditiva.
@@ -1775,4 +1800,3 @@ PARALLELIZABLE_TASKS=T002,T003,T004,T006,T007,T009,T010,T013,T018,T035,T014,T019
 MIGRATIONS_EXPECTED=1
 PRODUCT_DECISIONS_PENDING=0
 ```
-

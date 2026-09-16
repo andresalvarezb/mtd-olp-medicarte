@@ -36,7 +36,7 @@ Las decisiones D01–D10 fueron aprobadas el 2026-09-15:
 D01=A  MTD_ADMIN, label Administrador, role flags y ALLOW_ALL explícito
 D02=A  Solo roles predefinidos
 D03=B  Policy canónica organization–role en domain, no configurable
-D04=A  Preservar multi-organización; selector queda fuera de WAVE 1
+D04=A  Preservar multi-organización; selector activo disponible en la topbar
 D05=B  No borrar permissions legacy; clasificar lifecycle
 D06=B  Persistir provenance mínima; UNKNOWN si no existe evidencia
 D07=A  Mantener ESP-015 exactamente

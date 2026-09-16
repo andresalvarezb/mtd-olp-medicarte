@@ -109,7 +109,7 @@ export class OperationalAccessScopeService {
       if (!target.eligible) {
         throw new BadRequestException({
           code: 'POINT_SCOPE_TARGET_NOT_ELIGIBLE',
-          message: 'Point scope can only be assigned to MEDICARTE_OPERATOR',
+          message: 'Point scope can only be assigned to an eligible Medicarte operator role',
         });
       }
       const current = await tx.execute<{
@@ -199,7 +199,7 @@ export class OperationalAccessScopeService {
       select o.id as organization_id, o.code as organization_code, r.code as role_code
       from user_organization_roles uor
       join organizations o on o.id = uor.organization_id
-      join roles r on r.id = uor.role_id
+      join roles r on r.id = uor.role_id and r.active = true
       where uor.user_id = ${userId}::uuid and uor.active = true
       order by o.code, r.code
     `);

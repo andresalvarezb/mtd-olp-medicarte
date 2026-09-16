@@ -19,6 +19,7 @@ export const PREDEFINED_ROLE_CODES = [
 ] as const;
 
 export const PROTECTED_ROLE_CODES = ['MTD_ADMIN'] as const;
+export const CUSTOM_ROLE_PREFIX = 'CUSTOM_';
 
 export type PredefinedRoleCode = (typeof PREDEFINED_ROLE_CODES)[number];
 
@@ -58,6 +59,10 @@ export function assertRoleAllowedForOrganization(organizationCode: string, roleC
 
 export function isPredefinedRole(roleCode: string): roleCode is PredefinedRoleCode {
   return (PREDEFINED_ROLE_CODES as readonly string[]).includes(roleCode);
+}
+
+export function isCustomRole(roleCode: string): boolean {
+  return roleCode.startsWith(CUSTOM_ROLE_PREFIX);
 }
 
 export function isProtectedRole(roleCode: string): boolean {

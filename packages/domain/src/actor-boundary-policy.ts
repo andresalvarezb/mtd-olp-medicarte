@@ -1,4 +1,5 @@
 import { getAccessPermissionDefinition, type AccessActorBoundary } from '@authorization/contracts';
+import { isCustomRole } from './organization-role-policy';
 
 export const ACTOR_BOUNDARY_VIOLATION = 'ACTOR_BOUNDARY_VIOLATION' as const;
 
@@ -26,6 +27,7 @@ function isBoundaryAllowed(
 ): boolean {
   switch (boundary) {
     case 'SYSTEM':
+      return organizationCode === 'MTD' && roleCode === 'MTD_ADMIN';
     case 'MTD_ONLY':
       return organizationCode === 'MTD';
     case 'MEDICARTE_POINT':
@@ -33,12 +35,16 @@ function isBoundaryAllowed(
       // exception. MEDICARTE operators still require explicit point grants.
       return (
         (organizationCode === 'MTD' && roleCode === 'MTD_ADMIN') ||
-        (organizationCode === 'MEDICARTE' && roleCode === 'MEDICARTE_OPERATOR')
+        (organizationCode === 'MEDICARTE' &&
+          (roleCode === 'MEDICARTE_OPERATOR' || isCustomRole(roleCode)))
       );
     case 'OLP_ONLY':
-      return organizationCode === 'OLP' && roleCode === 'OLP_OPERATOR';
+      return organizationCode === 'OLP' && (roleCode === 'OLP_OPERATOR' || isCustomRole(roleCode));
     case 'COMPENSAR_ONLY':
-      return organizationCode === 'COMPENSAR' && roleCode === 'COMPENSAR_VIEWER';
+      return (
+        organizationCode === 'COMPENSAR' &&
+        (roleCode === 'COMPENSAR_VIEWER' || isCustomRole(roleCode))
+      );
     case 'ACTOR_PROJECTION':
     case 'ORGANIZATION':
       return isKnownOrganization(organizationCode);

@@ -1,6 +1,6 @@
 # ESP-020 — User, Role & Module Access Redesign
 
-Estado: **WAVE 1 IMPLEMENTED / WAVE 2+ SPECIFICATION READY / D01–D10 APPROVED**
+Estado: **WAVE 1 + ROLE MANAGEMENT SLICE IMPLEMENTED / REMAINDER WAVE 2+ SPECIFICATION READY / D01–D10 APPROVED**
 
 WAVE 1 implementa el registry, policies, metadata aditiva y gate de foundations.
 Las fases posteriores siguen siendo especificación; no se cambian seeds,
@@ -92,16 +92,16 @@ Referencia: `.agent/specs/ESP-020-target-architecture.md`.
 
 ### 4.1 User, organization, role, permission, module, action, scope
 
-| Concepto | Persistencia/autoridad target |
-|---|---|
-| User | `users`; identidad y estado |
-| Organization | `organizations`; frontera tenant/actor |
-| Role | `roles`; perfil reusable |
-| Permission | `permissions`; capability backend |
+| Concepto        | Persistencia/autoridad target                     |
+| --------------- | ------------------------------------------------- |
+| User            | `users`; identidad y estado                       |
+| Organization    | `organizations`; frontera tenant/actor            |
+| Role            | `roles`; perfil reusable                          |
+| Permission      | `permissions`; capability backend                 |
 | Role assignment | `user_organization_roles`; contexto user/org/role |
-| Role access | `role_permissions`; persistencia reusable |
-| Module/action | Registry versionado; UX mapping |
-| Point scope | `user_point_scopes`; resource boundary |
+| Role access     | `role_permissions`; persistencia reusable         |
+| Module/action   | Registry versionado; UX mapping                   |
+| Point scope     | `user_point_scopes`; resource boundary            |
 
 ### 4.2 Registry compartido
 
@@ -263,39 +263,41 @@ instalación/reconciliación debe:
 
 ESP-020 mantiene los roles internos actuales. Labels target:
 
-| Internal | Visible |
-|---|---|
-| `MTD_ADMIN` | Administrador |
-| `MTD_OPERATOR` | Operador MTD |
-| `MTD_GENERAL` | MTD General |
-| `MTD_AUDITORIA` | Auditoría MTD |
-| `READ_ONLY` | Solo lectura |
+| Internal             | Visible            |
+| -------------------- | ------------------ |
+| `MTD_ADMIN`          | Administrador      |
+| `MTD_OPERATOR`       | Operador MTD       |
+| `MTD_GENERAL`        | MTD General        |
+| `MTD_AUDITORIA`      | Auditoría MTD      |
+| `READ_ONLY`          | Solo lectura       |
 | `MEDICARTE_OPERATOR` | Operador Medicarte |
-| `OLP_OPERATOR` | Operador OLP |
-| `COMPENSAR_VIEWER` | Consulta Compensar |
+| `OLP_OPERATOR`       | Operador OLP       |
+| `COMPENSAR_VIEWER`   | Consulta Compensar |
 
 ### FR-ROLE-002 — Assignment compatibility
 
 Definir y validar matriz organization–role antes de persistir:
 
-| Organization | Allowed roles target |
-|---|---|
-| MTD | `MTD_ADMIN`, `MTD_OPERATOR`, `MTD_GENERAL`, `MTD_AUDITORIA`, `READ_ONLY` |
-| MEDICARTE | `MEDICARTE_OPERATOR`, `READ_ONLY` |
-| OLP | `OLP_OPERATOR`, `READ_ONLY` |
-| COMPENSAR | `COMPENSAR_VIEWER`, `READ_ONLY` |
+| Organization | Allowed roles target                                                     |
+| ------------ | ------------------------------------------------------------------------ |
+| MTD          | `MTD_ADMIN`, `MTD_OPERATOR`, `MTD_GENERAL`, `MTD_AUDITORIA`, `READ_ONLY` |
+| MEDICARTE    | `MEDICARTE_OPERATOR`, `READ_ONLY`                                        |
+| OLP          | `OLP_OPERATOR`, `READ_ONLY`                                              |
+| COMPENSAR    | `COMPENSAR_VIEWER`, `READ_ONLY`                                          |
 
 Asignaciones históricas incompatibles no se borran automáticamente; se reportan
 y quedan bloqueadas para nuevas operaciones hasta decisión/migración.
 
 ### FR-ROLE-003 — Custom roles
 
-Decisión aprobada — D02=A: fuera de ESP-020. Solo roles predefinidos y edición
-controlada de `role_permissions` en capabilities configurables.
+Decisión actualizada el 2026-09-16: se permiten roles personalizados con código
+generado por el backend, nombre editable, lifecycle activo/inactivo y uno o más
+scopes organizacionales explícitos. No pueden declararse administradores del
+sistema, editar boundaries ni recibir capabilities estructurales.
 
-Si producto exige custom roles, marcar la decisión como scope expansion y crear
-ESP posterior con ownership, lifecycle, boundaries, versioning, APIs y
-migration.
+La creación, actualización, desactivación y asignación de permisos se audita de
+forma atómica. Un rol inactivo no puede recibir nuevas asignaciones y sus
+asignaciones activas se revocan dentro de la misma transacción.
 
 ### FR-ROLE-004 — Protected capabilities
 
@@ -600,10 +602,11 @@ El clean install usa un camino explícito con dry-run/confirmación cuando apliq
 
 - roles list y counts;
 - editor module→actions;
+- crear y desactivar roles personalizados con scopes organizacionales;
 - shortcut seguro;
 - conflict detection;
 - no structural boundary bypass;
-- no custom roles en ESP-020.
+- custom roles no pueden convertirse en administradores ni editar boundaries.
 
 ### Navigation
 
@@ -635,18 +638,18 @@ El clean install usa un camino explícito con dry-run/confirmación cuando apliq
 Estas decisiones fueron aprobadas el 2026-09-15 y bloquean el baseline de
 implementación:
 
-| ID | Decision | Options | Recommendation | Impact |
-|---|---|---|---|---|
-| D-001 | Admin identity | conservar `MTD_ADMIN`; crear `SYSTEM_ADMIN`; flag en user | **APPROVED:** `MTD_ADMIN` + flags en role + `ALLOW_ALL` | Schema metadata, compatibility, allow-all |
-| D-002 | Custom roles | predefinidos; custom ahora | **APPROVED:** solo predefinidos en ESP-020 | Reduce RBAC/migration scope |
-| D-003 | Organization–role matrix | libre; hardcoded policy; DB matrix | **APPROVED:** policy canónica en domain | Actor boundaries |
-| D-004 | Multi-organization UX | selector; ruta; prohibir multi-org | **APPROVED:** selector explícito | `/me`, web context, headers |
-| D-005 | Legacy permissions | eliminar; deprecar; mantener mapping | **APPROVED:** clasificar, no eliminar destructivamente | Permission registry |
-| D-006 | User provenance | no provenance; column/event; external report | **APPROVED:** columna mínima + clasificación conservadora | Seed/migration |
-| D-007 | Point scope organizations | solo Medicarte; todas; role-specific | **APPROVED:** solo MEDICARTE; preservar ESP-015 | Scope service and APIs |
-| D-008 | Audit atomicity | best effort; same tx | **APPROVED:** misma tx para identity/access; login razonable | Services/transactions |
-| D-009 | Reset production | flag; no change | **APPROVED:** bloquear production | Operational safety |
-| D-010 | Clean migration mechanism | editar baseline; guarded cleanup; new baseline | **APPROVED:** no editar applied migrations; clean path explícito | Migration/ops |
+| ID    | Decision                  | Options                                                   | Recommendation                                                   | Impact                                    |
+| ----- | ------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------- |
+| D-001 | Admin identity            | conservar `MTD_ADMIN`; crear `SYSTEM_ADMIN`; flag en user | **APPROVED:** `MTD_ADMIN` + flags en role + `ALLOW_ALL`          | Schema metadata, compatibility, allow-all |
+| D-002 | Custom roles              | predefinidos; custom ahora                                | **APPROVED:** solo predefinidos en ESP-020                       | Reduce RBAC/migration scope               |
+| D-003 | Organization–role matrix  | libre; hardcoded policy; DB matrix                        | **APPROVED:** policy canónica en domain                          | Actor boundaries                          |
+| D-004 | Multi-organization UX     | selector; ruta; prohibir multi-org                        | **APPROVED:** selector explícito                                 | `/me`, web context, headers               |
+| D-005 | Legacy permissions        | eliminar; deprecar; mantener mapping                      | **APPROVED:** clasificar, no eliminar destructivamente           | Permission registry                       |
+| D-006 | User provenance           | no provenance; column/event; external report              | **APPROVED:** columna mínima + clasificación conservadora        | Seed/migration                            |
+| D-007 | Point scope organizations | solo Medicarte; todas; role-specific                      | **APPROVED:** solo MEDICARTE; preservar ESP-015                  | Scope service and APIs                    |
+| D-008 | Audit atomicity           | best effort; same tx                                      | **APPROVED:** misma tx para identity/access; login razonable     | Services/transactions                     |
+| D-009 | Reset production          | flag; no change                                           | **APPROVED:** bloquear production                                | Operational safety                        |
+| D-010 | Clean migration mechanism | editar baseline; guarded cleanup; new baseline            | **APPROVED:** no editar applied migrations; clean path explícito | Migration/ops                             |
 
 `DECISIONS_REQUIRING_PRODUCT_CONFIRMATION=0`.
 
@@ -671,4 +674,3 @@ Quedan explícitamente fuera salvo una decisión posterior:
 - reescribir la lógica de negocio de ESP-001…ESP-019;
 - convertir scopes en permissions;
 - dar acceso de actor cruzado por configuración.
-

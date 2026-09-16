@@ -57,11 +57,12 @@ Los gaps principales para ESP-020 son:
 
 ## 1.1 Decisiones aprobadas
 
-Con fecha 2026-09-15, las decisiones D01–D10 quedan aprobadas:
+Con fecha 2026-09-15, las decisiones D01–D10 quedan aprobadas. D02 fue
+actualizada el 2026-09-16 durante la implementación:
 
 ```text
 D01=A  MTD_ADMIN + role metadata + ALLOW_ALL
-D02=A  Solo roles predefinidos
+D02=UPDATED  Roles predefinidos y roles personalizados con scopes
 D03=B  Policy organización–rol en domain
 D04=A  Selector explícito multi-organización
 D05=B  Legacy permissions clasificados/deprecados
@@ -74,17 +75,17 @@ D10=B  Clean path forward-compatible y migración conservadora
 
 ## 2. Topología del repositorio
 
-| Área | Evidencia | Responsabilidad actual |
-|---|---|---|
-| API | `apps/api` | NestJS, autenticación, guards, identidad, RBAC, scopes y módulos operativos |
-| Web | `apps/web` | Next.js, rutas, navegación, contexto de sesión y administración actual |
-| Worker | `apps/worker` | BullMQ/outbox y operaciones asíncronas |
-| Database | `packages/database` | Drizzle, PostgreSQL, migraciones, reset |
-| Contracts | `packages/contracts` | Schemas Zod y tipos compartidos |
-| Domain | `packages/domain` | Políticas de scope, estados e invariantes de dominio |
-| UI | `packages/ui` | Componentes compartidos |
-| Config | `packages/config` | Validación de variables de entorno |
-| Tests | `tests/integration` | Gates F1, ESP-001…ESP-019 y gestión de usuarios |
+| Área      | Evidencia            | Responsabilidad actual                                                      |
+| --------- | -------------------- | --------------------------------------------------------------------------- |
+| API       | `apps/api`           | NestJS, autenticación, guards, identidad, RBAC, scopes y módulos operativos |
+| Web       | `apps/web`           | Next.js, rutas, navegación, contexto de sesión y administración actual      |
+| Worker    | `apps/worker`        | BullMQ/outbox y operaciones asíncronas                                      |
+| Database  | `packages/database`  | Drizzle, PostgreSQL, migraciones, reset                                     |
+| Contracts | `packages/contracts` | Schemas Zod y tipos compartidos                                             |
+| Domain    | `packages/domain`    | Políticas de scope, estados e invariantes de dominio                        |
+| UI        | `packages/ui`        | Componentes compartidos                                                     |
+| Config    | `packages/config`    | Validación de variables de entorno                                          |
+| Tests     | `tests/integration`  | Gates F1, ESP-001…ESP-019 y gestión de usuarios                             |
 
 No existe una especificación o implementación ESP-020 en el repositorio.
 
@@ -134,12 +135,12 @@ Campos: `id`, `code`, `name`, `drive_url`, `active`, `created_at`.
 
 La migración foundation inserta:
 
-| Código | Nombre actual | Evidencia |
-|---|---|---|
-| `MTD` | MTD | `0000_foundation.sql:117-121` |
-| `COMPENSAR` | Compensar | `0000_foundation.sql:117-121` |
-| `OLP` | OLP | `0000_foundation.sql:117-121` |
-| `MEDICARTE` | Medicarte | `0000_foundation.sql:117-121` |
+| Código      | Nombre actual | Evidencia                     |
+| ----------- | ------------- | ----------------------------- |
+| `MTD`       | MTD           | `0000_foundation.sql:117-121` |
+| `COMPENSAR` | Compensar     | `0000_foundation.sql:117-121` |
+| `OLP`       | OLP           | `0000_foundation.sql:117-121` |
+| `MEDICARTE` | Medicarte     | `0000_foundation.sql:117-121` |
 
 No existe una tabla de compatibilidad organización–rol.
 
@@ -149,16 +150,16 @@ Definición: `packages/database/src/schema.ts:63-67`.
 
 La base actual contiene estos códigos:
 
-| Código | Nombre sembrado | Observación |
-|---|---|---|
-| `MTD_ADMIN` | MTD administrator | Rol administrativo MTD actual |
-| `MTD_OPERATOR` | MTD operator | Rol operativo MTD |
-| `COMPENSAR_VIEWER` | Compensar viewer | Consulta histórica/organizacional |
-| `OLP_OPERATOR` | OLP operator | Operación OLP |
-| `MEDICARTE_OPERATOR` | Medicarte operator | Operación Medicarte |
-| `READ_ONLY` | Read only | Rol transversal, condicionado por organización |
-| `MTD_GENERAL` | MTD General | Añadido en `0019_rbac_profiles.sql` |
-| `MTD_AUDITORIA` | MTD Auditoría | Añadido en `0019_rbac_profiles.sql` |
+| Código               | Nombre sembrado    | Observación                                    |
+| -------------------- | ------------------ | ---------------------------------------------- |
+| `MTD_ADMIN`          | MTD administrator  | Rol administrativo MTD actual                  |
+| `MTD_OPERATOR`       | MTD operator       | Rol operativo MTD                              |
+| `COMPENSAR_VIEWER`   | Compensar viewer   | Consulta histórica/organizacional              |
+| `OLP_OPERATOR`       | OLP operator       | Operación OLP                                  |
+| `MEDICARTE_OPERATOR` | Medicarte operator | Operación Medicarte                            |
+| `READ_ONLY`          | Read only          | Rol transversal, condicionado por organización |
+| `MTD_GENERAL`        | MTD General        | Añadido en `0019_rbac_profiles.sql`            |
+| `MTD_AUDITORIA`      | MTD Auditoría      | Añadido en `0019_rbac_profiles.sql`            |
 
 Los roles son globales, no tienen `organization_id`, `active`,
 `is_system_admin`, `is_editable` ni metadata de actor. Un usuario puede tener
@@ -262,11 +263,11 @@ Persistencia:
 
 Semántica vigente:
 
-| Actor | `pointAccess.kind` | Regla |
-|---|---|---|
-| Roles MTD en organización MTD | `global` | No requiere grants artificiales |
-| `MEDICARTE_OPERATOR` en MEDICARTE | `explicit` | Sin grant = cero puntos |
-| OLP/Compensar | `unrestricted` | Su frontera no se modela con puntos |
+| Actor                             | `pointAccess.kind` | Regla                               |
+| --------------------------------- | ------------------ | ----------------------------------- |
+| Roles MTD en organización MTD     | `global`           | No requiere grants artificiales     |
+| `MEDICARTE_OPERATOR` en MEDICARTE | `explicit`         | Sin grant = cero puntos             |
+| OLP/Compensar                     | `unrestricted`     | Su frontera no se modela con puntos |
 
 Servicio central: `apps/api/src/access-scopes/operational-access-scope.service.ts`.
 Helpers transaccionales: `apps/api/src/common/point-scope.sql.ts`.
@@ -369,14 +370,14 @@ de ESP-020. Un mecanismo operativo futuro deberá definirse aparte.
 
 `apps/api/src/identity/users.controller.ts`:
 
-| Método | Ruta | Permiso | Estado |
-|---|---|---|---|
-| GET | `/users` | `users.manage` | Lista todos los usuarios; filtro `active` |
-| POST | `/users` | `users.manage` | Crea usuario y una asignación |
-| PATCH | `/users/:id` | `users.manage` | Cambia display name/active |
-| POST | `/users/:id/reset-password` | `users.manage` | Reset administrativo |
-| PUT | `/users/:id/assignments` | `users.manage` | Añade/reactiva asignación |
-| DELETE | `/users/:id/assignments/:organizationId` | `users.manage` | Revoca todos los roles de organización |
+| Método | Ruta                                     | Permiso        | Estado                                    |
+| ------ | ---------------------------------------- | -------------- | ----------------------------------------- |
+| GET    | `/users`                                 | `users.manage` | Lista todos los usuarios; filtro `active` |
+| POST   | `/users`                                 | `users.manage` | Crea usuario y una asignación             |
+| PATCH  | `/users/:id`                             | `users.manage` | Cambia display name/active                |
+| POST   | `/users/:id/reset-password`              | `users.manage` | Reset administrativo                      |
+| PUT    | `/users/:id/assignments`                 | `users.manage` | Añade/reactiva asignación                 |
+| DELETE | `/users/:id/assignments/:organizationId` | `users.manage` | Revoca todos los roles de organización    |
 
 No existe GET de detalle dedicado, endpoint de roles, endpoint de permisos,
 endpoint de módulos, endpoint de acceso de rol ni endpoint de audit trail por
@@ -455,36 +456,38 @@ La protección frontend no sustituye la API. Los controllers usan `AuthGuard` y
 
 ### 9.3 Organización activa
 
-`role-context.tsx:220-237` elige una organización automáticamente por prioridad
-de roles. No existe selector de organización activa.
+`role-context.tsx` mantiene una organización activa válida del perfil, con una
+selección inicial por prioridad de roles. `topbar.tsx` permite cambiarla cuando
+el usuario tiene más de una organización.
 
-Un usuario con varias organizaciones puede recibir un perfil completo en `/me`,
-pero la UI selecciona una organización implícitamente y usa ese ID en
-`X-Organization-Id`.
+Un usuario con varias organizaciones recibe un perfil completo en `/me`; la UI
+usa la organización activa seleccionada para enviar `X-Organization-Id`.
 
-**APPROVED — D04:** se preservan usuarios multi-organización y se implementará
-un selector explícito de organización activa. La organización no se moverá a la
-URL ni se prohibirán asignaciones múltiples.
+**IMPLEMENTED — D04:** se preservan usuarios multi-organización y existe un
+selector explícito de organización activa. La organización no se mueve a la
+URL ni se prohíben asignaciones múltiples.
 
 ### 9.4 Administración actual
 
-`apps/web/features/admin/administracion-view.tsx` compone:
-
-- `UsersAdminSection`;
-- `OperationalScopesSection`.
+`apps/web/features/admin/administracion-view.tsx` compone
+`UsersAdminSection` y `OperationalScopesSection`. El control de puntos
+operativos permanece separado del RBAC y permite administrar grants explícitos
+para operadores Medicarte.
 
 `apps/web/features/admin/users-admin.tsx`:
 
-- mantiene organizaciones hardcoded;
-- mantiene roles hardcoded;
+- permite seleccionar una o varias organizaciones dentro del scope del rol;
+- permite agregar asignaciones adicionales a usuarios existentes;
+- permite revocar una asignación concreta organización–rol;
+- carga roles desde el registro/API canónico;
 - muestra usuarios, asignaciones, estado y acciones;
 - crea con password en el mismo formulario;
 - restablece password desde la misma tarjeta;
 - no muestra último acceso en tabla;
 - no muestra audit trail;
-- permite seleccionar combinaciones organización–rol inválidas;
-- muestra un botón por asignación, pero llama a un endpoint que solo recibe
-  organización y puede revocar todos los roles de esa organización.
+- restringe las combinaciones organización–rol al scope permitido por el rol;
+- conserva la ruta legacy de revocación por organización para compatibilidad,
+  pero la UI usa la ruta precisa organización–rol.
 
 ## 10. Auditoría
 
@@ -538,38 +541,38 @@ Faltan pruebas dedicadas de:
 
 ## 12. Gaps y deuda técnica relevante
 
-| ID | Gap | Riesgo ESP-020 | Evidencia |
-|---|---|---|---|
-| G-001 | Sin module registry | UI y backend divergen | `nav-config.ts`, migrations |
-| G-002 | Roles globales sin metadata | No hay semántica de admin protegida | `schema.ts:63-67` |
-| G-003 | Asignación libre organización–rol | Escalamiento/alcance incorrecto | `users.service.ts:175-193` |
-| G-004 | Revocación por organización | Puede retirar más accesos de los vistos | `users.service.ts:368-402` |
-| G-005 | Último admin no transaccional | Lockout bajo concurrencia | `users.service.ts:152-172`, `258-274` |
-| G-006 | Seeds fixture en migrations | Clean install > 1 usuario | `0000`, `0005` |
-| G-007 | Bootstrap con tres targets | Cuentas runtime adicionales | `bootstrap.service.ts:27-50` |
-| G-008 | Sin provenance | Migración destructiva no demostrable | `users` schema |
-| G-009 | `/me` sin módulos/actions | Frontend replica reglas | `access.service.ts` |
-| G-010 | `/me` scopes por usuario global | Riesgo multi-organización futuro | `access.service.ts:83-105` |
-| G-011 | Hardcoded UUIDs | Configuración no portable | scope service/config web |
-| G-012 | Frontend `MTD` ambiguo | Presentación incorrecta de rol | `role-context.tsx`, `nav-config.ts` |
-| G-013 | Audit de users fuera de tx | Cambio sin evidencia atómica | `users.service.ts` |
-| G-014 | Permisos legacy/históricos sin estado | Mapping incompleto o UI engañosa | migrations 0000–0028 |
-| G-015 | Reset no bloquea production | Destrucción operativa accidental | `reset.ts` |
+| ID    | Gap                                   | Riesgo ESP-020                          | Evidencia                             |
+| ----- | ------------------------------------- | --------------------------------------- | ------------------------------------- |
+| G-001 | Sin module registry                   | UI y backend divergen                   | `nav-config.ts`, migrations           |
+| G-002 | Roles globales sin metadata           | No hay semántica de admin protegida     | `schema.ts:63-67`                     |
+| G-003 | Asignación libre organización–rol     | Escalamiento/alcance incorrecto         | `users.service.ts:175-193`            |
+| G-004 | Revocación por organización           | Puede retirar más accesos de los vistos | `users.service.ts:368-402`            |
+| G-005 | Último admin no transaccional         | Lockout bajo concurrencia               | `users.service.ts:152-172`, `258-274` |
+| G-006 | Seeds fixture en migrations           | Clean install > 1 usuario               | `0000`, `0005`                        |
+| G-007 | Bootstrap con tres targets            | Cuentas runtime adicionales             | `bootstrap.service.ts:27-50`          |
+| G-008 | Sin provenance                        | Migración destructiva no demostrable    | `users` schema                        |
+| G-009 | `/me` sin módulos/actions             | Frontend replica reglas                 | `access.service.ts`                   |
+| G-010 | `/me` scopes por usuario global       | Riesgo multi-organización futuro        | `access.service.ts:83-105`            |
+| G-011 | Hardcoded UUIDs                       | Configuración no portable               | scope service/config web              |
+| G-012 | Frontend `MTD` ambiguo                | Presentación incorrecta de rol          | `role-context.tsx`, `nav-config.ts`   |
+| G-013 | Audit de users fuera de tx            | Cambio sin evidencia atómica            | `users.service.ts`                    |
+| G-014 | Permisos legacy/históricos sin estado | Mapping incompleto o UI engañosa        | migrations 0000–0028                  |
+| G-015 | Reset no bloquea production           | Destrucción operativa accidental        | `reset.ts`                            |
 
 ## 13. Respuestas disponibles antes de implementar
 
-| Pregunta | Respuesta auditada |
-|---|---|
-| ¿Por qué hay tantos usuarios? | Inserts de `0000`/`0005`, bootstrap opcional de 3 cuentas y usuarios creados por tests/helpers; no existe provenance unificada. |
-| ¿Qué eliminar solo de runtime seed? | El objetivo es no crear `olp`, `medicarte`, `suspended`, `mtd-general` ni `mtd-auditoria` automáticamente; la eliminación física de existentes requiere clasificación. |
-| ¿Qué reales preservar? | Todos los usuarios no demostrablemente fixture; el repositorio no permite identificar cada uno por provenance. |
-| ¿Diferencia user/role/permission/module/scope? | Se define formalmente en `ESP-020-target-architecture.md`; hoy solo user/role/permission/scope existen como modelo formal. |
-| ¿Cómo se representa admin? | Hoy `MTD_ADMIN`; target aprobado conserva el código y añade metadata/`ALLOW_ALL` explícito. |
-| ¿Cómo se evita lockout? | Hoy solo validación secuencial; transacción + lock es un requerimiento pendiente. |
-| ¿Qué módulos existen realmente? | Rutas y permisos auditados; catálogo canónico aún no existe. |
-| ¿Qué acciones existen? | Implícitas en permission codes; deben mapearse y validarse antes de UI. |
-| ¿Qué fronteras son hard? | MTD/OLP/MEDICARTE/COMPENSAR y scope por punto; D03 fija la matriz canónica estructural. |
-| ¿Cómo sigue ESP-015? | RBAC y data scope siguen independientes; admin MTD debe ser global, no una lista artificial de puntos. |
+| Pregunta                                       | Respuesta auditada                                                                                                                                                     |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ¿Por qué hay tantos usuarios?                  | Inserts de `0000`/`0005`, bootstrap opcional de 3 cuentas y usuarios creados por tests/helpers; no existe provenance unificada.                                        |
+| ¿Qué eliminar solo de runtime seed?            | El objetivo es no crear `olp`, `medicarte`, `suspended`, `mtd-general` ni `mtd-auditoria` automáticamente; la eliminación física de existentes requiere clasificación. |
+| ¿Qué reales preservar?                         | Todos los usuarios no demostrablemente fixture; el repositorio no permite identificar cada uno por provenance.                                                         |
+| ¿Diferencia user/role/permission/module/scope? | Se define formalmente en `ESP-020-target-architecture.md`; hoy solo user/role/permission/scope existen como modelo formal.                                             |
+| ¿Cómo se representa admin?                     | Hoy `MTD_ADMIN`; target aprobado conserva el código y añade metadata/`ALLOW_ALL` explícito.                                                                            |
+| ¿Cómo se evita lockout?                        | Hoy solo validación secuencial; transacción + lock es un requerimiento pendiente.                                                                                      |
+| ¿Qué módulos existen realmente?                | Rutas y permisos auditados; catálogo canónico aún no existe.                                                                                                           |
+| ¿Qué acciones existen?                         | Implícitas en permission codes; deben mapearse y validarse antes de UI.                                                                                                |
+| ¿Qué fronteras son hard?                       | MTD/OLP/MEDICARTE/COMPENSAR y scope por punto; D03 fija la matriz canónica estructural.                                                                                |
+| ¿Cómo sigue ESP-015?                           | RBAC y data scope siguen independientes; admin MTD debe ser global, no una lista artificial de puntos.                                                                 |
 
 ## 13.1 Decisiones estructurales aprobadas adicionales
 
@@ -586,4 +589,3 @@ Faltan pruebas dedicadas de:
   la misma transacción cuando forman parte del mismo acto administrativo.
 - **D10:** no se editan migrations históricas; clean install usa un camino
   forward-compatible y existing DB usa clasificación, dry-run y confirmación.
-

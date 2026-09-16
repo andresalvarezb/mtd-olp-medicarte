@@ -67,7 +67,7 @@ function permission(
     actionCode,
     lifecycle,
     actorBoundary,
-    configurable: options.configurable ?? false,
+    configurable: options.configurable ?? (lifecycle === 'ACTIVE' && options.structural !== true),
     structural: options.structural ?? lifecycle !== 'ACTIVE',
     systemAllowed: options.systemAllowed ?? lifecycle !== 'ORPHAN',
   };

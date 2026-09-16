@@ -46,7 +46,7 @@ export type ViewId =
   | 'bulkImports'
   | 'operationalIntegrity'
   | 'admin'
-  | 'operationalScopes';
+  | 'roles';
 
 export interface NavItem {
   view: ViewId;
@@ -210,12 +210,12 @@ export const NAV_SECTIONS: NavSection[] = [
         roles: ['MTD'],
       },
       {
-        view: 'operationalScopes',
-        href: '/administracion',
-        title: 'Accesos operacionales',
+        view: 'roles',
+        href: '/administracion/roles',
+        title: 'Roles y permisos',
         icon: '19',
-        permission: 'operational_scopes.read',
-        roles: ['MTD', 'MTD_AUDITORIA'],
+        permission: 'users.manage',
+        roles: ['MTD'],
       },
     ],
   },

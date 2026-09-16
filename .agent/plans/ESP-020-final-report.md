@@ -1,16 +1,19 @@
 # ESP-020 — Final Architecture Report
 
-Estado: **WAVE 1 IMPLEMENTADA / WAVE 2+ NO IMPLEMENTADA / D01–D10 APPROVED**
+Estado: **WAVE 1 + ROLE MANAGEMENT SLICE IMPLEMENTADAS / RESTO DE WAVE 2+ NO IMPLEMENTADO / D01–D10 APPROVED**
 
-Fecha de cierre documental: **2026-09-15**. WAVE 1 modificó únicamente el
-registry, policies, metadata schema/migration, resolver de acceso y gates.
-WAVE 2+ no modificó bootstrap, guards, `/me`, sidebar, UI ni `reset.ts`.
+Fecha de cierre documental base: **2026-09-15**. El slice de administración de
+roles se implementó el **2026-09-16**: APIs de roles/módulos, editor de accesos,
+validación de asignaciones, concurrencia optimista, auditoría atómica y UX
+dedicada. El resto de WAVE 2+ no modificó bootstrap, `/me`, `reset.ts` ni las
+invariantes completas de último administrador.
 
 ## A. CURRENT STATE
 
 Existe RBAC persistido en `roles`, `permissions`, `role_permissions` y
 `user_organization_roles`. ESP-015 añade `user_point_scopes` y
-`OperationalAccessScopeService`. No existe module registry ni role-access API.
+`OperationalAccessScopeService`. WAVE 1 añadió el module registry y el slice de
+role-access API descrito en la sección de implementación.
 
 Detalle: `ESP-020-current-state-audit.md`.
 
@@ -33,9 +36,10 @@ usan point grants. La autorización efectiva es RBAC AND data scope.
 
 ## E. CURRENT ADMINISTRATION UI
 
-`/administracion` combina usuarios y scopes. Usuarios, organizaciones y roles
-están hardcoded; no existe lista/editor de roles; revocar por UI puede afectar
-todos los roles de una organización.
+`/administracion` administra usuarios y scopes. `/administracion/roles`
+contiene el listado/editor de roles y permisos; los selectores de asignación
+cargan roles compatibles desde la API. La revocación precisa y la UX completa
+de último administrador siguen pendientes.
 
 ## F. TARGET ARCHITECTURE
 
@@ -130,8 +134,8 @@ guardar password, hash, JWT ni secrets.
 ## T. IMPLEMENTATION PHASES
 
 0. Audit/decisions; 1. registry/policy; 2. identity/bootstrap; 3. backend
-APIs/`/me`; 4. navigation; 5. UX; 6. migration/compatibility; 7. hardening;
-8. certification.
+   APIs/`/me`; 4. navigation; 5. UX; 6. migration/compatibility; 7. hardening;
+1. certification.
 
 ## U. TASK LIST
 
@@ -176,7 +180,7 @@ Mitigations y tareas están registradas en `ESP-020-tasks.md`.
 
 ```text
 D01=A  MTD_ADMIN + role metadata + ALLOW_ALL; no SYSTEM_ADMIN/user flag
-D02=A  Solo roles predefinidos
+D02=UPDATED  Roles predefinidos y roles personalizados con scope organizacional
 D03=B  Policy canónica organization–role en domain
 D04=A  Selector explícito; preservar multi-organización
 D05=B  Lifecycle legacy; no eliminación destructiva
@@ -260,4 +264,3 @@ REGRESSION_GATES=tests/integration/gate-f1.test.ts; tests/integration/gate-f7-us
 PRODUCT_DECISIONS_PENDING=0
 TECHNICAL_BLOCKERS_PENDING=0
 ```
-

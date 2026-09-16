@@ -19,6 +19,26 @@ export type {
   AccessPermissionDefinition,
   AccessPermissionLifecycle,
 } from './access-registry';
+export {
+  createRoleRequestSchema,
+  roleAccessActionSchema,
+  roleAccessModuleSchema,
+  roleAccessResponseSchema,
+  roleSummarySchema,
+  rolesResponseSchema,
+  updateRoleRequestSchema,
+  updateRoleAccessRequestSchema,
+} from './roles';
+export type {
+  CreateRoleRequest,
+  RoleAccessAction,
+  RoleAccessModule,
+  RoleAccessResponse,
+  RoleSummary,
+  RolesResponse,
+  UpdateRoleRequest,
+  UpdateRoleAccessRequest,
+} from './roles';
 
 export const correlationIdSchema = z.string().uuid();
 export const idempotencyKeySchema = z.string().min(8).max(200);
@@ -192,14 +212,27 @@ export type UserResponse = z.infer<typeof userResponseSchema>;
 export const userListQuerySchema = z.object({ active: z.enum(['true', 'false']).optional() });
 export type UserListQuery = z.infer<typeof userListQuerySchema>;
 
-export const createUserRequestSchema = z.object({
-  username: usernameSchema,
-  email: z.string().email().max(320).optional(),
-  displayName: z.string().min(1).max(160),
-  password: newPasswordSchema,
-  organizationId: z.string().uuid(),
-  roleCode: z.string().min(1).max(80),
-});
+export const createUserRequestSchema = z
+  .object({
+    username: usernameSchema,
+    email: z.string().email().max(320).optional(),
+    displayName: z.string().min(1).max(160),
+    password: newPasswordSchema,
+    organizationId: z.string().uuid().optional(),
+    organizationIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(4)
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: 'Organization IDs must be unique',
+      })
+      .optional(),
+    roleCode: z.string().min(1).max(80),
+  })
+  .refine((body) => body.organizationId !== undefined || body.organizationIds !== undefined, {
+    message: 'At least one organization must be selected',
+    path: ['organizationIds'],
+  });
 export type CreateUserRequest = z.infer<typeof createUserRequestSchema>;
 
 export const updateUserRequestSchema = z.object({

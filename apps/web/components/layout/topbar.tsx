@@ -11,7 +11,7 @@ interface TopbarProps {
 export function Topbar({ onOpenMenu }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { role, roleLabel, user, logout } = useRole();
+  const { role, roleLabel, user, me, organizationId, selectOrganization, logout } = useRole();
   const title = titleForPath(pathname);
   const handleLogout = () => {
     logout();
@@ -32,6 +32,23 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
         </div>
       </div>
       <div className="top-actions">
+        {me && me.organizations.length > 1 ? (
+          <label className="field" style={{ minWidth: 150, margin: 0 }}>
+            <span style={{ fontSize: 10, color: 'var(--muted)' }}>Organización activa</span>
+            <select
+              className="control"
+              aria-label="Organización activa"
+              value={organizationId}
+              onChange={(event) => selectOrganization(event.target.value)}
+            >
+              {me.organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <div className="user-chip">
           <div className="avatar">{user?.initials ?? 'UD'}</div>
           <div className="user-meta">

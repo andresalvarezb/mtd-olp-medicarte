@@ -71,7 +71,28 @@ export const roles = pgTable('roles', {
   name: varchar('name', { length: 160 }).notNull(),
   isSystemAdmin: boolean('is_system_admin').notNull().default(false),
   isSystemManaged: boolean('is_system_managed').notNull().default(false),
+  active: boolean('active').notNull().default(true),
 });
+
+export const roleOrganizationScopes = pgTable(
+  'role_organization_scopes',
+  {
+    roleId: uuid('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'restrict' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'role_organization_scopes_pk',
+      columns: [table.roleId, table.organizationId],
+    }),
+    index('role_organization_scopes_organization_idx').on(table.organizationId),
+  ],
+);
 
 export const permissions = pgTable('permissions', {
   id: uuid('id').primaryKey().defaultRandom(),

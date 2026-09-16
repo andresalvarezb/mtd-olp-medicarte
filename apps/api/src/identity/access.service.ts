@@ -48,7 +48,7 @@ export class AccessService {
         and(eq(userOrganizationRoles.userId, users.id), eq(userOrganizationRoles.active, true)),
       )
       .innerJoin(organizations, eq(organizations.id, userOrganizationRoles.organizationId))
-      .innerJoin(roles, eq(roles.id, userOrganizationRoles.roleId))
+      .innerJoin(roles, and(eq(roles.id, userOrganizationRoles.roleId), eq(roles.active, true)))
       .leftJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
       .leftJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
       .where(eq(users.id, userId));

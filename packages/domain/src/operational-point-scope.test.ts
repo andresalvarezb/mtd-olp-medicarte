@@ -17,6 +17,9 @@ describe('ESP-015 operational point scope', () => {
     expect(requiresPointGrant('OLP', ['OLP_OPERATOR'])).toBe(false);
     expect(isPointScopeEligibleTarget(['MEDICARTE_OPERATOR'])).toBe(true);
     expect(isPointScopeEligibleTarget(['MTD_ADMIN'])).toBe(false);
+    expect(requiresPointGrant('MEDICARTE', ['CUSTOM_REGIONAL_123'])).toBe(true);
+    expect(isPointScopeGlobalActor('MTD', ['CUSTOM_REGIONAL_123'])).toBe(true);
+    expect(isPointScopeEligibleTarget(['CUSTOM_REGIONAL_123'])).toBe(true);
   });
 
   it('fails closed when explicit grants are empty', () => {

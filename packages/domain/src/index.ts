@@ -264,6 +264,7 @@ export {
 export {
   ORGANIZATION_ROLE_MATRIX,
   ORGANIZATION_ROLE_NOT_ALLOWED,
+  CUSTOM_ROLE_PREFIX,
   PREDEFINED_ROLE_CODES,
   PROTECTED_ROLE_CODES,
   OrganizationRolePolicyError,
@@ -271,6 +272,7 @@ export {
   assertRoleAllowedForOrganization,
   findInvalidRoleAssignments,
   isPredefinedRole,
+  isCustomRole,
   isProtectedRole,
   isRoleAllowedForOrganization,
 } from './organization-role-policy';
