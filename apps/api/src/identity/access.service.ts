@@ -11,6 +11,7 @@ import {
   users,
 } from '@authorization/database';
 import type { createDatabase } from '@authorization/database';
+import { effectivePermissionCodes, isPermissionAllowedForActor } from '@authorization/domain';
 import { DATABASE } from '../tokens';
 import { pointAccessKindFor } from '../common/request-scope';
 
@@ -38,6 +39,7 @@ export class AccessService {
         organizationName: organizations.name,
         organizationActive: organizations.active,
         roleCode: roles.code,
+        roleIsSystemAdmin: roles.isSystemAdmin,
         permissionCode: permissions.code,
       })
       .from(users)
@@ -63,6 +65,7 @@ export class AccessService {
       string,
       Omit<MeResponse['organizations'][number], 'pointAccess'> & {
         pointAccess?: MeResponse['organizations'][number]['pointAccess'];
+        roleSnapshots: Array<{ code: string; isSystemAdmin: boolean }>;
       }
     >();
     for (const row of rows) {
@@ -73,10 +76,17 @@ export class AccessService {
         name: row.organizationName,
         roles: [],
         permissions: [],
+        roleSnapshots: [],
       };
       if (!scope.roles.includes(row.roleCode)) scope.roles.push(row.roleCode);
       if (row.permissionCode && !scope.permissions.includes(row.permissionCode))
         scope.permissions.push(row.permissionCode);
+      if (!scope.roleSnapshots.some((role) => role.code === row.roleCode)) {
+        scope.roleSnapshots.push({
+          code: row.roleCode,
+          isSystemAdmin: row.roleIsSystemAdmin,
+        });
+      }
       scopes.set(row.organizationId, scope);
     }
 
@@ -85,6 +95,16 @@ export class AccessService {
       .from(userPointScopes)
       .where(and(eq(userPointScopes.userId, userId), isNull(userPointScopes.revokedAt)));
     const accessiblePointIds = grantedPoints.map((row) => row.dispensingPointId);
+
+    for (const scope of scopes.values()) {
+      scope.permissions = [
+        ...effectivePermissionCodes({
+          organizationCode: scope.code,
+          roles: scope.roleSnapshots,
+          grantedPermissionCodes: scope.permissions,
+        }),
+      ];
+    }
 
     return {
       id: first.userId,
@@ -121,7 +141,10 @@ export class AccessService {
     }
     const profile = await this.getProfile(userId);
     const scope = profile.organizations.find((organization) => organization.id === organizationId);
-    if (!scope?.permissions.includes(permission)) {
+    const actorCanUsePermission = scope?.roles.some((roleCode) =>
+      isPermissionAllowedForActor(scope.code, roleCode, permission),
+    );
+    if (!scope?.permissions.includes(permission) || !actorCanUsePermission) {
       throw new ForbiddenException({
         code: 'PERMISSION_DENIED',
         message: 'Permission denied for organization',

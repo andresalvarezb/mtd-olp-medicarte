@@ -1,5 +1,25 @@
 import { z } from 'zod';
 
+export {
+  ACCESS_ACTOR_BOUNDARIES,
+  ACCESS_MODULE_REGISTRY,
+  ACCESS_PERMISSION_CODES,
+  ACCESS_PERMISSION_LIFECYCLES,
+  ACCESS_PERMISSION_REGISTRY,
+  ACCESS_RETIRED_PERMISSION_CODES,
+  ACCESS_SYSTEM_ALLOWED_PERMISSION_CODES,
+  getAccessPermissionDefinition,
+  isSystemAllowedPermission,
+  validateAccessRegistry,
+} from './access-registry';
+export type {
+  AccessActorBoundary,
+  AccessModuleAction,
+  AccessModuleDefinition,
+  AccessPermissionDefinition,
+  AccessPermissionLifecycle,
+} from './access-registry';
+
 export const correlationIdSchema = z.string().uuid();
 export const idempotencyKeySchema = z.string().min(8).max(200);
 const isoDateTimeSchema = z.string().datetime({ offset: true });

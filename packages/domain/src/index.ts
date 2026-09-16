@@ -256,6 +256,37 @@ export type {
   ScheduleLateHandling,
 } from './patient-schedule';
 export {
+  ACTOR_BOUNDARY_VIOLATION,
+  ActorBoundaryPolicyError,
+  assertPermissionAllowedForActor,
+  isPermissionAllowedForActor,
+} from './actor-boundary-policy';
+export {
+  ORGANIZATION_ROLE_MATRIX,
+  ORGANIZATION_ROLE_NOT_ALLOWED,
+  PREDEFINED_ROLE_CODES,
+  PROTECTED_ROLE_CODES,
+  OrganizationRolePolicyError,
+  allowedRolesForOrganization,
+  assertRoleAllowedForOrganization,
+  findInvalidRoleAssignments,
+  isPredefinedRole,
+  isProtectedRole,
+  isRoleAllowedForOrganization,
+} from './organization-role-policy';
+export type {
+  OrganizationCode,
+  PredefinedRoleCode,
+  RoleAssignmentCandidate,
+} from './organization-role-policy';
+export {
+  MTD_ADMIN_ROLE_CODE,
+  effectivePermissionCodes,
+  isAllowAllAdministrator,
+  isPermissionGrantedByAllowAll,
+} from './admin-access-policy';
+export type { AccessRoleSnapshot } from './admin-access-policy';
+export {
   RECONCILIATION_CADENCES,
   RECONCILIATION_DEFAULT_TIMEZONE,
   RECONCILIATION_EXECUTION_STATUSES,

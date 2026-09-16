@@ -1,6 +1,14 @@
 import { defineConfig } from 'vitest/config';
+import { resolve } from 'node:path';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@authorization/contracts': resolve(__dirname, '../packages/contracts/src'),
+      '@authorization/domain': resolve(__dirname, '../packages/domain/src'),
+      '@authorization/database': resolve(__dirname, '../packages/database/src'),
+    },
+  },
   test: {
     include: ['tests/integration/**/*.test.ts'],
     testTimeout: 30_000,

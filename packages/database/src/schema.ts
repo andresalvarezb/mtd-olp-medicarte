@@ -51,11 +51,16 @@ export const users = pgTable(
     passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     active: boolean('active').notNull().default(true),
+    provenance: varchar('provenance', { length: 32 }).notNull().default('UNKNOWN'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check('users_username_format_check', sql`${table.username} ~ '^[a-z0-9][a-z0-9._@-]{1,158}$'`),
+    check(
+      'users_provenance_check',
+      sql`${table.provenance} in ('SYSTEM_BOOTSTRAP', 'TEST_FIXTURE', 'MANUAL_ADMIN_CREATED', 'MIGRATED_LEGACY', 'UNKNOWN')`,
+    ),
     uniqueIndex('users_username_lower_unique').on(sql`lower(${table.username})`),
   ],
 );
@@ -64,6 +69,8 @@ export const roles = pgTable('roles', {
   id: uuid('id').primaryKey().defaultRandom(),
   code: varchar('code', { length: 80 }).notNull().unique(),
   name: varchar('name', { length: 160 }).notNull(),
+  isSystemAdmin: boolean('is_system_admin').notNull().default(false),
+  isSystemManaged: boolean('is_system_managed').notNull().default(false),
 });
 
 export const permissions = pgTable('permissions', {
