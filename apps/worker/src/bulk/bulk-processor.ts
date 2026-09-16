@@ -400,6 +400,9 @@ export class BulkUpdateProcessor {
         { newValue },
       );
     }
+    if (input.operationType === 'REPORT_DISPENSATION_DATE' && !item.orden_compra) {
+      return await reject('INVALID_OPERATION_STATE', item.id, { newValue });
+    }
     if (input.operationType === 'REPORT_APPLICATION_DATE' && !item.fecha_dispensacion) {
       return await reject('INVALID_OPERATION_STATE', item.id, { newValue });
     }
