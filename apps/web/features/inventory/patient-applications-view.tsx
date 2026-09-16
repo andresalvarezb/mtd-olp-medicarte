@@ -14,11 +14,15 @@ import {
   listPatientApplications,
 } from '@/lib/patient-applications-api';
 import { PointScopeGuard } from '@/components/point-scope/empty-point-scope';
+import { FilterBar, FilterField, FilterActions } from '@/components/ui/filter-bar';
+import type { PatientApplicationListQuery } from '@authorization/contracts';
 
 export function PatientApplicationsView() {
   const { organizationId } = useRole();
   const searchParams = useSearchParams();
-  const applications = useApiData(() => listPatientApplications(organizationId), [organizationId]);
+  const [filters, setFilters] = useState<{ patientDocument: string; authorization: string; commercialCode: string; status: PatientApplicationListQuery['status'] }>({ patientDocument: '', authorization: '', commercialCode: '', status: undefined });
+  const [appliedFilters, setAppliedFilters] = useState(filters);
+  const applications = useApiData(() => listPatientApplications(organizationId, appliedFilters), [organizationId, appliedFilters]);
   const schedules = useApiData(
     () => listEligibleApplicationSchedules(organizationId),
     [organizationId],
@@ -166,6 +170,13 @@ export function PatientApplicationsView() {
         <Card>
           <CardBody>
             <h2>Aplicaciones registradas</h2>
+            <FilterBar>
+              <FilterField label="Identificación paciente"><input className="control" value={filters.patientDocument} onChange={(e) => setFilters({ ...filters, patientDocument: e.target.value })} placeholder="Documento" /></FilterField>
+              <FilterField label="Autorización"><input className="control" value={filters.authorization} onChange={(e) => setFilters({ ...filters, authorization: e.target.value })} placeholder="Número de autorización" /></FilterField>
+              <FilterField label="Código producto"><input className="control" value={filters.commercialCode} onChange={(e) => setFilters({ ...filters, commercialCode: e.target.value })} placeholder="Código comercial" /></FilterField>
+              <FilterField label="Estado"><select className="control" value={filters.status ?? ''} onChange={(e) => setFilters({ ...filters, status: (e.target.value || undefined) as PatientApplicationListQuery['status'] })}><option value="">Todos</option><option value="DRAFT">Borrador</option><option value="CONFIRMED">Confirmada</option><option value="CANCELLED">Cancelada</option></select></FilterField>
+              <FilterActions><button className="button primary" onClick={() => setAppliedFilters(filters)}>Filtrar</button><button className="button" onClick={() => { const cleared = { patientDocument: '', authorization: '', commercialCode: '', status: undefined as PatientApplicationListQuery['status'] }; setFilters(cleared); setAppliedFilters(cleared); }}>Limpiar</button></FilterActions>
+            </FilterBar>
             <table className="data-table">
               <thead>
                 <tr>

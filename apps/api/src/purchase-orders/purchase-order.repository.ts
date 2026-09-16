@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
 import type { CreatePurchaseOrderRequest, PurchaseOrderListQuery, UpdatePurchaseOrderRequest } from '@authorization/contracts';
 import { DATABASE } from '../tokens';
+import type { Scope } from '../common/request-scope';
 
 type Database = ReturnType<typeof createDatabase>;
 type Tx = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -110,11 +111,16 @@ export class PurchaseOrderRepository {
     });
   }
 
-  async list(query: PurchaseOrderListQuery, supplier = false) {
-    const filters = [sql`po.status <> 'CANCELLED'`];
+  async list(query: PurchaseOrderListQuery, actor: Scope, supplier = false) {
+    const filters = query.status ? [sql`true`] : [sql`po.status <> 'CANCELLED'`];
     if (supplier) filters.push(sql`po.status <> 'DRAFT'`);
     if (query.planningPeriodId) filters.push(sql`po.planning_period_id = ${query.planningPeriodId}`);
     if (query.status) filters.push(sql`po.status = ${query.status}`);
+    if (query.orderType) filters.push(sql`po.order_type = ${query.orderType}`);
+    if (query.purchaseOrderCode) filters.push(sql`po.purchase_order_code ilike ${`%${query.purchaseOrderCode}%`}`);
+    if (query.commercialCode) filters.push(sql`exists (select 1 from purchase_order_lines pol where pol.purchase_order_id = po.id and pol.commercial_code = ${query.commercialCode})`);
+    if (query.dispensingPointId) filters.push(sql`exists (select 1 from purchase_order_lines pol where pol.purchase_order_id = po.id and pol.dispensing_point_id = ${query.dispensingPointId})`);
+    if (!['MTD', 'MEDICARTE'].includes(actor.organizationCode)) filters.push(sql`po.organization_id = ${actor.organizationId}`);
     const rows = await this.database.db.execute<{ id: string }>(sql`select po.id from purchase_orders po where ${sql.join(filters, sql` and `)} order by po.created_at desc limit ${query.limit}`);
     return Promise.all(rows.rows.map((row) => this.findById(row.id, supplier)));
   }

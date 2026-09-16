@@ -10,7 +10,7 @@ export class PurchaseOrderService {
   update(id: string, body: UpdatePurchaseOrderRequest, actor: Scope) { return this.run(() => this.repository.update({ id, body, actor: this.actor(actor) })); }
   issue(id: string, version: number, actor: Scope) { return this.run(() => this.repository.issue(id, version, this.actor(actor))); }
   cancel(id: string, version: number, actor: Scope) { return this.run(() => this.repository.cancel(id, version, this.actor(actor))); }
-  list(query: PurchaseOrderListQuery, supplier = false) { return this.repository.list(query, supplier); }
+  list(query: PurchaseOrderListQuery, actor: Scope, supplier = false) { return this.repository.list(query, actor, supplier); }
   async detail(id: string, supplier = false) { const result = await this.repository.findById(id, supplier); if (!result) throw new NotFoundException({ code: 'PURCHASE_ORDER_NOT_FOUND', message: 'Purchase order not found' }); return result; }
   review(id: string, lineId: string, input: { acceptedQuantity: number; supplierUnitCost?: number; expectedVersion: number }, actor: Scope) { return this.run(() => this.repository.reviewLine(id, lineId, input, this.actor(actor))); }
   completeReview(id: string, version: number, actor: Scope) { return this.run(() => this.repository.completeReview(id, version, this.actor(actor))); }

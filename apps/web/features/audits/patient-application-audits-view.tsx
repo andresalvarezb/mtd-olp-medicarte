@@ -18,6 +18,7 @@ import {
   rejectPatientApplicationAudit,
   startPatientApplicationAudit,
 } from '@/lib/patient-application-audits-api';
+import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 const statusMeta: Record<ApplicationAuditStatus, { label: string; tone: PillTone }> = {
   READY_FOR_AUDIT: { label: 'Lista para auditar', tone: 'blue' },
@@ -49,6 +50,7 @@ export function PatientApplicationAuditsView() {
   const [evidenceReference, setEvidenceReference] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [textFilter, setTextFilter] = useState({ patient: '', authorization: '', commercialCode: '' });
   const audits = useApiData(
     () =>
       listPatientApplicationAudits(organizationId, {
@@ -119,6 +121,7 @@ export function PatientApplicationAuditsView() {
               <option value="REJECTED">Rechazada</option>
             </select>
           </label>
+          <FilterBar><FilterField label="Paciente"><input className="control" value={textFilter.patient} onChange={(event) => setTextFilter({ ...textFilter, patient: event.target.value })} placeholder="Nombre o identificación" /></FilterField><FilterField label="Autorización"><input className="control" value={textFilter.authorization} onChange={(event) => setTextFilter({ ...textFilter, authorization: event.target.value })} placeholder="Número" /></FilterField><FilterField label="Código producto"><input className="control" value={textFilter.commercialCode} onChange={(event) => setTextFilter({ ...textFilter, commercialCode: event.target.value })} placeholder="Código" /></FilterField></FilterBar>
           {error && <p role="alert">{error}</p>}
           {audits.loading ? <p>Cargando auditorías...</p> : null}
           {!audits.loading && audits.data?.items.length === 0 ? (
@@ -142,7 +145,7 @@ export function PatientApplicationAuditsView() {
                 </tr>
               </thead>
               <tbody>
-                {audits.data?.items.map((item) => {
+                 {audits.data?.items.filter((item) => (!textFilter.patient || `${item.patientName ?? ''} ${item.patientDocument ?? ''}`.toLowerCase().includes(textFilter.patient.toLowerCase())) && (!textFilter.authorization || item.authorizationNumber.toLowerCase().includes(textFilter.authorization.toLowerCase())) && (!textFilter.commercialCode || item.commercialCode.toLowerCase().includes(textFilter.commercialCode.toLowerCase()))).map((item) => {
                   const meta = statusMeta[item.status];
                   return (
                     <tr key={item.patientApplicationId}>

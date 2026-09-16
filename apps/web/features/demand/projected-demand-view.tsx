@@ -17,6 +17,7 @@ import {
   getProjectedDemandSources,
   listProjectedDemand,
 } from '@/lib/projected-demand-api';
+import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 const BOGOTA_DATE_TIME = new Intl.DateTimeFormat('es-CO', {
   timeZone: 'America/Bogota',
@@ -40,6 +41,7 @@ export function ProjectedDemandView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [commercialFilter, setCommercialFilter] = useState('');
 
   const demand = useApiData(
     () =>
@@ -82,7 +84,7 @@ export function ProjectedDemandView() {
     <>
       <PageHeader
         title="Demanda proyectada"
-        description="Consolidación reproducible de las autorizaciones cargadas por período, punto y código comercial. La demanda consolidada no es editable manualmente."
+        description="Consolidación reproducible de las autorizaciones cargadas por período y código comercial. La demanda consolidada no es editable manualmente."
         actions={
           canConsolidate ? (
             <button
@@ -142,6 +144,7 @@ export function ProjectedDemandView() {
             subtitle="Una línea por período + código comercial. El punto se define en la orden de compra."
           />
           <CardBody>
+            <FilterBar><FilterField label="Código comercial"><input className="control" value={commercialFilter} onChange={(event) => setCommercialFilter(event.target.value)} placeholder="Buscar producto" /></FilterField></FilterBar>
             {demand.loading ? (
               <p style={{ color: 'var(--muted)' }}>Cargando demanda…</p>
             ) : lineItems.length === 0 ? (
@@ -165,7 +168,7 @@ export function ProjectedDemandView() {
                     </tr>
                   </thead>
                   <tbody>
-                    {lineItems.map((line) => (
+                    {lineItems.filter((line) => !commercialFilter || line.commercialCode.toLowerCase().includes(commercialFilter.toLowerCase())).map((line) => (
                       <tr key={line.id}>
                         <td>
                           <strong>{line.commercialCode}</strong>

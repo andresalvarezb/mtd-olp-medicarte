@@ -267,6 +267,12 @@ export type CancelPatientApplicationRequest = z.infer<typeof cancelPatientApplic
 export const patientApplicationListQuerySchema = z.object({
   status: patientApplicationStatusSchema.optional(),
   patientScheduleId: z.string().uuid().optional(),
+  patientDocument: z.string().trim().min(1).max(255).optional(),
+  authorization: z.string().trim().min(1).max(255).optional(),
+  commercialCode: commercialCodeSchema.optional(),
+  dispensingPointId: z.string().uuid().optional(),
+  applicationDateFrom: z.string().date().optional(),
+  applicationDateTo: z.string().date().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 export type PatientApplicationListQuery = z.infer<typeof patientApplicationListQuerySchema>;
@@ -1139,6 +1145,10 @@ export type ReviewPurchaseOrderLineRequest = z.infer<typeof reviewPurchaseOrderL
 export const purchaseOrderListQuerySchema = z.object({
   planningPeriodId: z.string().uuid().optional(),
   status: purchaseOrderStatusSchema.optional(),
+  orderType: purchaseOrderTypeSchema.optional(),
+  purchaseOrderCode: z.string().trim().min(1).max(255).optional(),
+  commercialCode: commercialCodeSchema.optional(),
+  dispensingPointId: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 export type PurchaseOrderListQuery = z.infer<typeof purchaseOrderListQuerySchema>;

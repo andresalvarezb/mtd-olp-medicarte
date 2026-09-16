@@ -13,6 +13,7 @@ import {
 } from '@/lib/purchase-orders-api';
 import type { ReceiptResponse } from '@authorization/contracts';
 import { PointScopeGuard } from '@/components/point-scope/empty-point-scope';
+import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 export function ReceiptsView() {
   const { organizationId } = useRole();
@@ -20,6 +21,7 @@ export function ReceiptsView() {
   const deliveries = useApiData(() => listMedicarteDeliveries(organizationId), [organizationId]);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<ReceiptResponse | null>(null);
+  const [filter, setFilter] = useState({ reference: '', status: '', conformity: '' });
   const open = async (deliveryId: string) => {
     try {
       setReceipt(await createReceipt(organizationId, deliveryId));
@@ -70,6 +72,7 @@ export function ReceiptsView() {
         <Card>
           <CardBody>
             <h2>Deliveries pendientes de recepción</h2>
+            <FilterBar><FilterField label="Referencia"><input className="control" value={filter.reference} onChange={(e) => setFilter({ ...filter, reference: e.target.value })} placeholder="Delivery" /></FilterField></FilterBar>
             <table className="data-table">
               <thead>
                 <tr>
@@ -82,7 +85,7 @@ export function ReceiptsView() {
               </thead>
               <tbody>
                 {(deliveries.data?.items ?? [])
-                  .filter((item) => item.status === 'DISPATCHED')
+                  .filter((item) => item.status === 'DISPATCHED' && (!filter.reference || (item.supplierReference ?? item.id).toLowerCase().includes(filter.reference.toLowerCase())))
                   .map((delivery) => (
                     <tr key={delivery.id}>
                       <td>{delivery.supplierReference ?? delivery.id}</td>
@@ -99,6 +102,7 @@ export function ReceiptsView() {
               </tbody>
             </table>
             <h2>Borradores</h2>
+            <FilterBar><FilterField label="Recepción / delivery"><input className="control" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })} placeholder="Buscar ID" /></FilterField><FilterField label="Conformidad"><input className="control" value={filter.conformity} onChange={(e) => setFilter({ ...filter, conformity: e.target.value })} placeholder="Estado" /></FilterField></FilterBar>
             <table className="data-table">
               <thead>
                 <tr>
@@ -110,7 +114,7 @@ export function ReceiptsView() {
                 </tr>
               </thead>
               <tbody>
-                {(pending.data?.items ?? []).map((item) => (
+                {(pending.data?.items ?? []).filter((item) => (!filter.status || item.id.includes(filter.status) || item.deliveryId.includes(filter.status)) && (!filter.conformity || (item.conformity ?? '').includes(filter.conformity))).map((item) => (
                   <tr key={item.id}>
                     <td>{item.id}</td>
                     <td>{item.deliveryId}</td>
