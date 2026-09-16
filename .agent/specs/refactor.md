@@ -237,7 +237,7 @@ La recepción deberá conservar cantidad, lote, vencimiento y conformidad. Esto 
 
 Eliminar la dependencia estructural entre una autorización individual y la orden de compra, entrega e inventario.
 
-## Requerimiento funcional
+## Requerimiento funcional retirado
 
 `authorization_items` continuará representando la autorización y sus productos autorizados.
 
@@ -472,12 +472,11 @@ Este flujo fue retirado. La programación de Medicarte ya no es fuente de demand
 
 ## Requerimiento funcional
 
-Medicarte podrá programar mediante:
+Medicarte ya no programa pacientes. El flujo vigente inicia con el cargue MTD de autorizaciones mediante:
 
-1. carga XLSX;
-2. búsqueda por autorización;
-3. búsqueda por paciente;
-4. edición individual.
+1. carga XLSX de autorizaciones;
+2. validación y preview;
+3. confirmación del cargue.
 
 Cada programación deberá identificar:
 
@@ -536,35 +535,24 @@ Siguiente período
 
 ## Plan de trabajo
 
-### PT-003.1 — Datos
+### PT-003.1 — Datos históricos
 
 Tareas:
 
-- Crear `patient_schedules`.
-- Relacionarlo con autorización, punto y período.
-- Crear historial append-only de modificaciones.
-- Crear campos de prioridad por vencimiento.
+- Conservar `patient_schedules` para trazabilidad histórica.
+- No crear nuevas programaciones.
 
-### PT-003.2 — Backend
+### PT-003.2 — Backend retirado
 
 Tareas:
 
-- Crear servicios de programación.
-- Implementar búsqueda por paciente.
-- Implementar búsqueda por autorización.
-- Crear carga XLSX con staging.
-- Reutilizar validaciones y patrón de importaciones existente.
+- El cargue vigente usa `authorization_items` y el staging de importaciones.
 
-### PT-003.3 — Frontend
+### PT-003.3 — Frontend retirado
 
 Tareas:
 
-- Crear pantalla Programación.
-- Crear búsqueda individual.
-- Crear edición.
-- Crear importador XLSX.
-- Mostrar prioridad de autorización.
-- Mostrar si está dentro/fuera del período.
+- La pantalla de programación no se expone a Medicarte.
 
 ---
 
@@ -578,7 +566,6 @@ Transformar las autorizaciones del cargue en una necesidad logística agregada.
 
 ```text
 planning_period_id
-+ dispensing_point_id
 + commercial_code
 ```
 

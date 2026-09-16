@@ -1016,9 +1016,9 @@ export const projectedDemandLineResponseSchema = z
     planningPeriodId: z.string().uuid(),
     planningPeriodStartDate: z.string().date(),
     planningPeriodEndDate: z.string().date(),
-    dispensingPointId: z.string().uuid(),
-    dispensingPointCode: z.string(),
-    dispensingPointName: z.string(),
+    dispensingPointId: z.string().uuid().nullable(),
+    dispensingPointCode: z.string().nullable(),
+    dispensingPointName: z.string().nullable(),
     commercialCode: commercialCodeSchema,
     regularQuantity: z.number().int().nonnegative(),
     lateQuantity: z.number().int().nonnegative(),
@@ -1110,6 +1110,7 @@ export type PurchaseOrderDemandBucket = z.infer<typeof purchaseOrderDemandBucket
 
 export const purchaseOrderLineRequestSchema = z.object({
   projectedDemandLineId: z.string().uuid(),
+  dispensingPointId: z.string().uuid(),
   expectedDemandRevision: z.number().int().positive(),
   requestedQuantity: z.number().int().positive(),
   requestedDeliveryDate: z.string().date(),
@@ -1620,6 +1621,9 @@ export const analyticsDrilldownResponseSchema = z.object({
 });
 export type AnalyticsDrilldownResponse = z.infer<typeof analyticsDrilldownResponseSchema>;
 
+export const BULK_IMPORT_TYPE_AUTHORIZATIONS = 'AUTHORIZATIONS' as const;
+export const ESP014_AUTHORIZATIONS_TEMPLATE_VERSION = 'ESP014_AUTHORIZATIONS_V1' as const;
+/** Historical value retained only to read previously persisted jobs. */
 export const BULK_IMPORT_TYPE_SCHEDULING = 'SCHEDULING' as const;
 export const ESP014_SCHEDULING_TEMPLATE_VERSION = 'ESP014_SCHEDULING_V1' as const;
 export const BULK_IMPORT_MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -1636,6 +1640,36 @@ export const SCHEDULING_TEMPLATE_REQUIRED_COLUMNS = [
   'FECHA_PROGRAMADA',
 ] as const;
 export const SCHEDULING_TEMPLATE_OPTIONAL_COLUMNS = ['MANEJO_TARDIO'] as const;
+export const AUTHORIZATION_IMPORT_COLUMNS = [
+  'CODEPS',
+  'NUMERO_AUTORIZACION',
+  'TIPO_IDENTIFICACION',
+  'IDENTIFICACION_PACIENTE',
+  'NOMBRE_PACIENTE',
+  'NUMERO_TELEFONO',
+  'CPRG',
+  'CDGN001',
+  'COD_CUPS_PRINCIPAL',
+  'CUPS_PRINCIPAL',
+  'CODIGO_COMERCIAL',
+  'CUMS',
+  'NIT_PRESTADOR',
+  'NOMBRE_PRESTADOR',
+  'COD_CUPS_AUTORIZADO',
+  'CUPS_AUTORIZADO',
+  'CANTIDAD',
+  'DOSIS',
+  'FECHA_ASIGNACION',
+  'FECHA_FINAL_VIGENCIA',
+  'ESTADO_AUTORIZACION',
+  'OBS_AUTORIZACION',
+  'MEDICO_REMITENTE',
+  'CMNT',
+  'IDENTIFICADOR_FUENTE',
+  'FPRO',
+  'VALOR_CUOTA_MODERADORA',
+  'NUMERO_PRESCRIPCION',
+] as const;
 
 export const bulkImportJobStatusSchema = z.enum([
   'UPLOADED',
@@ -1678,7 +1712,7 @@ export type BulkImportValidationError = z.infer<typeof bulkImportValidationError
 
 export const bulkImportJobResponseSchema = z.object({
   id: z.string().uuid(),
-  importType: z.literal('SCHEDULING'),
+  importType: z.enum(['AUTHORIZATIONS', 'SCHEDULING']),
   templateVersion: z.string(),
   status: bulkImportJobStatusSchema,
   originalFilename: z.string(),
@@ -1718,7 +1752,7 @@ export const bulkImportRowResponseSchema = z.object({
   authorizationNumber: z.string().nullable(),
   commercialCode: z.string().nullable(),
   dispensingPointCode: z.string().nullable(),
-  scheduledDate: z.string().date().nullable(),
+  assignmentDate: z.string().date().nullable(),
   quantity: z.number().int().nullable(),
 });
 export type BulkImportRowResponse = z.infer<typeof bulkImportRowResponseSchema>;

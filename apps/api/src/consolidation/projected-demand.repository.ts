@@ -26,7 +26,6 @@ export type ConsolidateOutcome =
 type LoadedAuthorizationRow = Readonly<{
   id: string;
   quantity: number;
-  dispensing_point_id: string;
   commercial_code: string;
   loaded_at: string;
 }>;
@@ -39,7 +38,7 @@ type DesiredSource = Readonly<{
 }>;
 
 type DesiredLine = {
-  dispensingPointId: string;
+  dispensingPointId: string | null;
   commercialCode: string;
   regularQuantity: number;
   lateQuantity: number;
@@ -49,7 +48,7 @@ type DesiredLine = {
 
 type ExistingLineRow = Readonly<{
   id: string;
-  dispensing_point_id: string;
+  dispensing_point_id: string | null;
   commercial_code: string;
   regular_quantity: number;
   late_quantity: number;
@@ -69,9 +68,9 @@ type DemandLineJoinedRow = Readonly<{
   planning_period_id: string;
   planning_period_start_date: string;
   planning_period_end_date: string;
-  dispensing_point_id: string;
-  dispensing_point_code: string;
-  dispensing_point_name: string;
+  dispensing_point_id: string | null;
+  dispensing_point_code: string | null;
+  dispensing_point_name: string | null;
   commercial_code: string;
   regular_quantity: number;
   late_quantity: number;
@@ -120,10 +119,10 @@ const DEMAND_LINE_COLUMNS = sql`
  *   BEGIN
  *   → FOR UPDATE del planning_period: serializa consolidaciones concurrentes
  *     del mismo período; períodos distintos corren independientes.
- *   → Lectura consistente de autorizaciones cargadas habilitadas. El cargue
- *     debe aportar CANTIDAD, PUNTO y FECHA_PROGRAMADA en source_data.
- *   → La fecha ubica la autorización en el período y PUNTO en el punto de
- *     dispensación; la cantidad cargada es la demanda proyectada.
+  *   → Lectura consistente de autorizaciones cargadas habilitadas. El cargue
+  *     debe aportar CANTIDAD y FECHA_ASIGNACION en source_data.
+  *   → La fecha ubica la autorización en el período; la cantidad cargada es la
+  *     demanda proyectada y el punto se selecciona posteriormente en la OC.
  *   → Reconciliación de projected_demand_lines y demand_sources con guardas
  *     de cambio (idempotencia: nada se acumula ni duplica, y consolidar dos
  *     veces sin cambios no reescribe).
@@ -158,28 +157,25 @@ export class ProjectedDemandRepository {
          select ai.id,
                 case when (ai.source_data->>'CANTIDAD') ~ '^[0-9]+$'
                      then (ai.source_data->>'CANTIDAD')::int end as quantity,
-                dp.id as dispensing_point_id,
                 ai.codigo_medicamento as commercial_code,
                 to_char(ai.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as loaded_at
          from authorization_items ai
-         join dispensing_points dp
-           on upper(dp.code) = upper(coalesce(ai.source_data->>'PUNTO', ai.source_data->>'PUNTO_DISPENSACION', ai.source_data->>'LUGAR_DISPENSACION'))
-          and dp.active = true
          join planning_periods pp
-           on coalesce(nullif(ai.source_data->>'FECHA_PROGRAMADA', ''), to_char(ai.created_at, 'YYYY-MM-DD'))::date
-              between pp.start_date and pp.end_date
+           on case when (ai.source_data->>'FECHA_ASIGNACION') ~ '^\\d{4}-\\d{2}-\\d{2}$'
+                   then to_date(ai.source_data->>'FECHA_ASIGNACION', 'YYYY-MM-DD') end
+               between pp.start_date and pp.end_date
          where ai.enablement_status = 'ENABLED'
            and (ai.source_data->>'CANTIDAD') ~ '^[1-9][0-9]*$'
            and pp.id = ${input.periodId}
        `);
 
-      // 3. Agrupación directa por punto y código. Las autorizaciones cargadas
+       // 3. Agrupación directa por período y código. Las autorizaciones cargadas
       // siempre son volumen REGULAR; no existe clasificación por agendamiento.
       const desiredByLine = new Map<string, DesiredLine>();
       for (const authorization of authorizations.rows) {
-        const identity = `${authorization.dispensing_point_id}|${authorization.commercial_code}`;
+        const identity = authorization.commercial_code;
         const line = desiredByLine.get(identity) ?? {
-          dispensingPointId: authorization.dispensing_point_id,
+          dispensingPointId: null,
           commercialCode: authorization.commercial_code,
           regularQuantity: 0,
           lateQuantity: 0,
@@ -267,7 +263,7 @@ export class ProjectedDemandRepository {
       select ${DEMAND_LINE_COLUMNS}
       from projected_demand_lines pdl
       join planning_periods pp on pp.id = pdl.planning_period_id
-      join dispensing_points dp on dp.id = pdl.dispensing_point_id
+     left join dispensing_points dp on dp.id = pdl.dispensing_point_id
       left join demand_sources ds on ds.projected_demand_line_id = pdl.id
       where ${sql.join(filters, sql` and `)}
       group by pdl.id, pp.start_date, pp.end_date, dp.code, dp.name
@@ -282,7 +278,7 @@ export class ProjectedDemandRepository {
       select ${DEMAND_LINE_COLUMNS}
       from projected_demand_lines pdl
       join planning_periods pp on pp.id = pdl.planning_period_id
-      join dispensing_points dp on dp.id = pdl.dispensing_point_id
+      left join dispensing_points dp on dp.id = pdl.dispensing_point_id
       left join demand_sources ds on ds.projected_demand_line_id = pdl.id
       where pdl.id = ${id}
       group by pdl.id, pp.start_date, pp.end_date, dp.code, dp.name
@@ -327,7 +323,7 @@ export class ProjectedDemandRepository {
       for update
     `);
     const existingLineByKey = new Map(
-      existingLines.rows.map((row) => [`${row.dispensing_point_id}|${row.commercial_code}`, row]),
+      existingLines.rows.map((row) => [row.commercial_code, row]),
     );
 
     const existingSources = await tx.execute<ExistingSourceRow>(sql`

@@ -548,9 +548,9 @@ export const projectedDemandLines = pgTable(
     planningPeriodId: uuid('planning_period_id')
       .notNull()
       .references(() => planningPeriods.id, { onDelete: 'restrict' }),
-    dispensingPointId: uuid('dispensing_point_id')
-      .notNull()
-      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    dispensingPointId: uuid('dispensing_point_id').references(() => dispensingPoints.id, {
+      onDelete: 'restrict',
+    }),
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
     projectedQuantity: integer('projected_quantity').notNull(),
     /**
@@ -574,12 +574,11 @@ export const projectedDemandLines = pgTable(
   },
   (table) => [
     /**
-     * ESP-004: identidad de consolidación como UNIQUE CONSTRAINT (migración
-     * 0035) para poder referenciarla con FK compuesto desde demand_sources.
+     * ESP-004: identidad de consolidación por período y código comercial.
+     * El punto se selecciona en la orden de compra.
      */
-    unique('projected_demand_lines_identity_unique').on(
+    unique('projected_demand_lines_period_code_unique').on(
       table.planningPeriodId,
-      table.dispensingPointId,
       table.commercialCode,
     ),
     index('projected_demand_lines_period_status_idx').on(table.planningPeriodId, table.status),
@@ -624,7 +623,7 @@ export const demandSources = pgTable(
      * el timing clasifica el desglose regular/late.
      */
     planningPeriodId: uuid('planning_period_id').notNull(),
-    dispensingPointId: uuid('dispensing_point_id').notNull(),
+    dispensingPointId: uuid('dispensing_point_id'),
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
     scheduleTiming: varchar('schedule_timing', { length: 10 }).notNull(),
     lateHandling: varchar('late_handling', { length: 40 }),
@@ -2035,6 +2034,9 @@ export const bulkImportJobs = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     importType: varchar('import_type', { length: 40 }).notNull(),
+    authorizationImportBatchId: uuid('authorization_import_batch_id').references(() => importBatches.id, {
+      onDelete: 'restrict',
+    }),
     templateVersion: varchar('template_version', { length: 80 }).notNull(),
     status: varchar('status', { length: 30 }).notNull().default('UPLOADED'),
     originalFilename: varchar('original_filename', { length: 255 }).notNull(),
@@ -2069,7 +2071,7 @@ export const bulkImportJobs = pgTable(
       table.createdAt,
     ),
     index('bulk_import_jobs_hash_idx').on(table.createdBy, table.fileHash),
-    check('bulk_import_jobs_type_check', sql`${table.importType} = 'SCHEDULING'`),
+    check('bulk_import_jobs_type_check', sql`${table.importType} IN ('AUTHORIZATIONS', 'SCHEDULING')`),
     check(
       'bulk_import_jobs_status_check',
       sql`${table.status} IN ('UPLOADED', 'VALIDATING', 'READY', 'INVALID', 'PROCESSING', 'COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED')`,

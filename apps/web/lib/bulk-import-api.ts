@@ -12,14 +12,14 @@ function qs(query: object) {
   return result ? `?${result}` : '';
 }
 
-export function downloadSchedulingTemplate(organizationId: string) {
-  return apiRequest<Blob>('/bulk-imports/scheduling/template.xlsx', { organizationId });
+export function downloadAuthorizationTemplate(organizationId: string) {
+  return apiRequest<Blob>('/bulk-imports/authorizations/template.xlsx', { organizationId });
 }
 
-export function uploadSchedulingImport(organizationId: string, file: File) {
+export function uploadAuthorizationImport(organizationId: string, file: File) {
   const body = new FormData();
   body.append('file', file);
-  return apiRequest<BulkImportJobResponse>('/bulk-imports/scheduling/upload', {
+  return apiRequest<BulkImportJobResponse>('/bulk-imports/authorizations/upload', {
     method: 'POST',
     organizationId,
     body,

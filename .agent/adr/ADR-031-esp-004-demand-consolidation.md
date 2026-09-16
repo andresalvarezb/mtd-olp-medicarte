@@ -8,7 +8,7 @@ Aceptada.
 
 El cargue de autorizaciones es la fuente clínica y operativa de la demanda.
 ESP-004 convierte las autorizaciones cargadas en demanda logística consolidada
-por período + punto + código comercial, sin compras, entregas, inventario ni
+por período + código comercial, sin compras, entregas, inventario ni
 aplicaciones. La programación de Medicarte ya no participa en este cálculo y la
 demanda consolidada no es editable manualmente.
 
@@ -17,24 +17,23 @@ demanda consolidada no es editable manualmente.
 ### Identidad de consolidación y línea única
 
 ```text
-planning_period_id + dispensing_point_id + commercial_code
+planning_period_id + commercial_code
 ```
 
 - Una sola fila `projected_demand_lines` por identidad (
-  `projected_demand_lines_identity_unique`, UNIQUE CONSTRAINT que en 0035
-  renombra la restricción creada en ESP-001 para poder referenciarla con FK
-  compuesto).
+  `projected_demand_lines_period_code_unique`.
 - `projected_quantity = regular_quantity + late_quantity` (
   `projected_demand_lines_split_check`) y `projected_quantity > 0`.
 
 ### Ubicación de la autorización en el período
 
-La fecha `FECHA_PROGRAMADA` del cargue ubica la autorización en el período y el
-campo `PUNTO` identifica el punto de dispensación. Toda autorización cargada
-aporta al bucket `REGULAR`; no existen buckets derivados de agendamiento.
+La fecha `FECHA_ASIGNACION` del cargue ubica la autorización en el período.
+El punto no pertenece a la autorización ni a la demanda: MTD lo selecciona en
+cada línea de la orden de compra. Toda autorización cargada aporta al bucket
+`REGULAR`; no existen buckets derivados de agendamiento.
 
-Si no existe fecha o punto válido, la autorización no puede generar demanda
-proyectada y queda fuera del consolidado para revisión del cargue.
+Si no existe una fecha de asignación válida, la autorización no puede generar
+demanda proyectada y queda fuera del consolidado para revisión del cargue.
 
 ### Fuentes
 
@@ -57,7 +56,7 @@ histórico. Trazas nuevas: línea → sources → authorization item → import 
    compartir el lock (los schedules NO se bloquean: la consolidación jamás
    los modifica y su mutación solo invita a la próx consolidación).
 2. Lectura consistente de autorizaciones habilitadas; ubicación por fecha y
-   punto; agrupación por identidad — sin DISTINCT.
+   agrupación por identidad — sin DISTINCT.
 3. Reconciliación de líneas: las líneas no deseadas se borran junto con sus
    fuentes (una Cancelación completa elimina la línea si era única Wendy
    fuente); las líneas deseadas se crean/actualizan solo cuando el estado

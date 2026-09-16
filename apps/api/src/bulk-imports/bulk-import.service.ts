@@ -26,16 +26,13 @@ import {
 import type { ApiConfig } from '@authorization/config';
 import type { Scope } from '../common/request-scope';
 import { API_CONFIG } from '../tokens';
-import { PatientScheduleImportService } from '../scheduling/patient-schedule-import.service';
-import { isScheduleDuplicateError } from '../scheduling/patient-schedule.repository';
-import { PatientScheduleService } from '../scheduling/patient-schedule.service';
 import { BulkImportRepository, type BulkImportRowInsert } from './bulk-import.repository';
 import {
   BulkImportFileError,
   buildBulkImportResultWorkbook,
-  buildEsp014SchedulingTemplate,
+  buildAuthorizationTemplate,
   isAcceptedXlsxMime,
-  parseEsp014SchedulingWorkbook,
+  parseAuthorizationWorkbook,
 } from './bulk-import-xlsx';
 
 export type BulkImportUploadFile = Readonly<{
@@ -52,22 +49,20 @@ export class BulkImportService {
   constructor(
     @Inject(API_CONFIG) private readonly config: ApiConfig,
     private readonly repository: BulkImportRepository,
-    private readonly classifier: PatientScheduleImportService,
-    private readonly schedules: PatientScheduleService,
   ) {}
 
-  buildSchedulingTemplate(): Buffer {
-    return buildEsp014SchedulingTemplate();
+  buildAuthorizationTemplate(): Buffer {
+    return buildAuthorizationTemplate();
   }
 
-  async uploadScheduling(input: {
+  async uploadAuthorizations(input: {
     file: BulkImportUploadFile | undefined;
     actor: Scope;
   }): Promise<BulkImportJobResponse> {
     const file = this.assertFile(input.file);
     let parsed;
     try {
-      parsed = parseEsp014SchedulingWorkbook(file.buffer);
+      parsed = parseAuthorizationWorkbook(file.buffer);
     } catch (error) {
       if (error instanceof BulkImportFileError) {
         throw new BadRequestException({ code: error.code, message: error.message });
@@ -80,31 +75,43 @@ export class BulkImportService {
         message: 'The XLSX file has no data rows',
       });
     }
-    const classified = await this.classifier.classifyParsedRows(parsed.rows, input.actor);
-    const rows: BulkImportRowInsert[] = classified.map((row) => ({
-      rowNumber: row.rowNumber,
-      rawPayload: row.rawData,
-      normalizedPayload: {
-        ...(row.normalizedData && typeof row.normalizedData === 'object'
-          ? (row.normalizedData as Record<string, unknown>)
-          : {}),
-        authorizationNumber: row.authorizationNumber,
-        commercialCode: row.commercialCode,
-        dispensingPointCode: row.dispensingPointCode,
-        scheduledDate: row.scheduledDate,
-        quantity: row.quantity,
-      },
-      validationStatus: row.stagingStatus,
-      errorCode: row.resultCode === 'ROW_VALID' ? null : row.resultCode,
-      errorMessage: row.resultMessage,
-      errorColumn: null,
-      executionStatus: initialExecutionStatus(row.stagingStatus),
-      authorizationNumber: row.authorizationNumber,
-      commercialCode: row.commercialCode,
-      dispensingPointCode: row.dispensingPointCode,
-      scheduledDate: row.scheduledDate,
-      quantity: row.quantity,
-    }));
+    const rows: BulkImportRowInsert[] = parsed.rows.map((row) => {
+      const payload = Object.fromEntries(
+        Object.entries(row.values).map(([key, value]) => [
+          key,
+          key === 'FECHA_ASIGNACION' || key === 'FECHA_FINAL_VIGENCIA'
+            ? dateValue(value)
+            : textValue(value),
+        ]),
+      );
+      const required = ['NUMERO_AUTORIZACION', 'CODIGO_COMERCIAL', 'CANTIDAD', 'FECHA_ASIGNACION'];
+      const missing = required.filter((key) => !payload[key]);
+      const quantity = Number(payload.CANTIDAD);
+      const assignmentDate = payload.FECHA_ASIGNACION;
+      const valid =
+        missing.length === 0 &&
+        Number.isInteger(quantity) &&
+        quantity > 0 &&
+        typeof assignmentDate === 'string' &&
+        isIsoDate(assignmentDate);
+      return {
+        rowNumber: row.rowNumber,
+        rawPayload: row.rawData,
+        normalizedPayload: payload,
+        validationStatus: valid ? 'VALID' : 'INVALID',
+        errorCode: valid ? null : 'INVALID_AUTHORIZATION_ROW',
+        errorMessage: valid
+          ? null
+          : `Missing or invalid fields: ${missing.join(', ') || 'CANTIDAD or FECHA_ASIGNACION'}`,
+        errorColumn: null,
+        executionStatus: initialExecutionStatus(valid ? 'VALID' : 'INVALID'),
+        authorizationNumber: typeof payload.NUMERO_AUTORIZACION === 'string' ? payload.NUMERO_AUTORIZACION : null,
+        commercialCode: typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null,
+        dispensingPointCode: null,
+        assignmentDate: typeof payload.FECHA_ASIGNACION === 'string' ? payload.FECHA_ASIGNACION : null,
+        quantity: valid ? quantity : null,
+      };
+    });
     const validRows = rows.filter((row) => row.validationStatus === 'VALID').length;
     const fileHash = createHash('sha256').update(file.buffer).digest('hex');
     const duplicateFile = await this.repository.hasDuplicateHash(input.actor.userId, fileHash);
@@ -154,7 +161,7 @@ export class BulkImportService {
     }
     if (claimed.previousStatus === 'READY') {
       await this.repository.recordAudit(actor, 'BULK_IMPORT_CONFIRMED', jobId, {
-        importType: 'SCHEDULING',
+        importType: 'AUTHORIZATIONS',
         totalRows: job.totalRows,
       });
     }
@@ -211,31 +218,23 @@ export class BulkImportService {
       if (!claimed) break;
       if (claimed.reclaimed) {
         await this.repository.recordAudit(actor, 'BULK_IMPORT_ROW_RECLAIMED', jobId, {
-          importType: 'SCHEDULING',
+           importType: 'AUTHORIZATIONS',
           rowNumber: claimed.rowNumber,
           claimGeneration: claimed.claimGeneration,
         });
       }
       const payload = claimed.normalizedPayload ?? {};
-      const body = {
-        authorizationItemId: String(payload.authorizationItemId),
-        commercialCode: String(payload.commercialCode),
-        dispensingPointId: String(payload.dispensingPointId),
-        scheduledDate: String(payload.scheduledDate),
-        quantity: Number(payload.quantity),
-        ...(payload.lateHandling
-          ? {
-              lateHandling: payload.lateHandling as 'COMPLEMENTARY_PURCHASE_ORDER' | 'NEXT_PERIOD',
-            }
-          : {}),
-      };
       try {
         const executed = await this.repository.executeClaimedRow({
           rowId: claimed.id,
           attemptNumber: claimed.attemptCount,
           claimToken: claimed.claimToken,
           claimGeneration: claimed.claimGeneration,
-          execute: (tx) => this.schedules.createInTx(tx, { actor, body }),
+          execute: (tx) => this.repository.upsertAuthorizationInTx(tx, {
+            actor,
+            payload,
+            jobId,
+          }),
         });
         if (executed === 'stale') {
           this.logger.warn(
@@ -329,11 +328,33 @@ function jobNotFound(): NotFoundException {
 }
 
 function isBulkDomainFailure(error: unknown): boolean {
-  return (
-    error instanceof HttpException ||
-    error instanceof PointAccessDeniedError ||
-    isScheduleDuplicateError(error)
-  );
+  return error instanceof HttpException || error instanceof PointAccessDeniedError;
+}
+
+function textValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim();
+  }
+  return null;
+}
+
+function dateValue(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+  }
+  const text = textValue(value);
+  if (!text) return null;
+  const match = /^(\d{4})[-/]?(\d{2})[-/]?(\d{2})/.exec(text);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : text;
+}
+
+function isIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function mapDomainError(error: unknown): { code: string; message: string } {
@@ -353,12 +374,6 @@ function mapDomainError(error: unknown): { code: string; message: string } {
       };
     }
     return { code: 'PROCESSING_ERROR', message: error.message };
-  }
-  if (isScheduleDuplicateError(error)) {
-    return {
-      code: 'PATIENT_SCHEDULE_DUPLICATE',
-      message: 'An active schedule already exists for the same authorization, point and date',
-    };
   }
   return {
     code: 'PROCESSING_ERROR',

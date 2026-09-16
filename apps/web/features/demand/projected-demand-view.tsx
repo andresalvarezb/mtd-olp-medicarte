@@ -139,7 +139,7 @@ export function ProjectedDemandView() {
         <Card>
           <CardHead
             title="Líneas de demanda consolidada"
-            subtitle="Una línea por período + punto + código comercial. Proyected = regular + late."
+            subtitle="Una línea por período + código comercial. El punto se define en la orden de compra."
           />
           <CardBody>
             {demand.loading ? (
@@ -171,7 +171,7 @@ export function ProjectedDemandView() {
                           <strong>{line.commercialCode}</strong>
                         </td>
                         <td>
-                          {line.dispensingPointCode} · {line.dispensingPointName}
+                          {line.dispensingPointCode ?? 'Se define en la OC'}
                         </td>
                         <td>{line.regularQuantity}</td>
                         <td>{line.lateQuantity}</td>
@@ -207,8 +207,8 @@ export function ProjectedDemandView() {
       {selectedLine ? (
         <Card>
           <CardHead
-            title={`Programaciones fuente · ${selectedLine.commercialCode}`}
-            subtitle={`${selectedLine.dispensingPointCode} · ${selectedLine.planningPeriodStartDate} → ${selectedLine.planningPeriodEndDate}`}
+            title={`Autorizaciones fuente · ${selectedLine.commercialCode}`}
+            subtitle={`${selectedLine.planningPeriodStartDate} → ${selectedLine.planningPeriodEndDate}`}
             aside={<StatusBadge tone="blue">{selectedLine.sourceCount} fuentes</StatusBadge>}
           />
           <CardBody>
