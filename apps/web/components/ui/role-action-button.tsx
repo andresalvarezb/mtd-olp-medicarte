@@ -14,7 +14,8 @@ export function RoleActionButton({
   allowedRole: string;
   children: ReactNode;
 }) {
-  const { roles } = useRole();
+  const { role, roles } = useRole();
+  if (role === 'MTD') return <>{children}</>;
   if (!roles.includes(allowedRole as never)) return null;
   return <>{children}</>;
 }

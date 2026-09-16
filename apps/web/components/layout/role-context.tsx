@@ -259,10 +259,11 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const hasPermission = useCallback(
     (permission: string) => {
       if (!me) return false;
+      if (role === 'MTD') return true;
       const active = me.organizations.find((organization) => organization.id === organizationId);
       return active?.permissions.includes(permission) ?? false;
     },
-    [me, organizationId],
+    [me, organizationId, role],
   );
 
   const value = useMemo<RoleContextValue>(

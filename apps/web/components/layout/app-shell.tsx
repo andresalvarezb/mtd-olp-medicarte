@@ -12,7 +12,7 @@ const PUBLIC_ROUTES = ['/login'];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const { roles, status, hasPermission } = useRole();
+  const { role, roles, status, hasPermission } = useRole();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -31,12 +31,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     if (
       currentItem &&
+      role !== 'MTD' &&
       (!currentItem.roles.some((r) => roles.includes(r)) ||
         (currentItem.permission ? !hasPermission(currentItem.permission) : false))
     ) {
       router.replace('/acceso-denegado');
     }
-  }, [currentItem, roles, hasPermission, router, status, isPublicRoute, pathname]);
+  }, [currentItem, role, roles, hasPermission, router, status, isPublicRoute, pathname]);
 
   useEffect(() => {
     setMenuOpen(false);

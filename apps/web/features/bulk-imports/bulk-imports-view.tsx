@@ -12,6 +12,7 @@ import {
   cancelBulkImport,
   confirmBulkImport,
   downloadBulkImportResult,
+  downloadRejectedBulkImportRows,
   downloadAuthorizationTemplate,
   getBulkImportRows,
   listBulkImports,
@@ -46,6 +47,7 @@ export function BulkImportsView() {
     () => jobs.data?.items.find((job) => job.id === selectedId) ?? null,
     [jobs.data, selectedId],
   );
+  const hasRejectedRows = Boolean(selected && (selected.invalidRows > 0 || selected.failedRows > 0));
 
   async function onUpload(file: File | undefined) {
     if (!file) return;
@@ -76,7 +78,7 @@ export function BulkImportsView() {
       <>
         <PageHeader
           title="Importaciones"
-            description="Cargue XLSX de autorizaciones. El staging no modifica autorizaciones hasta confirmar."
+          description="Cargue XLSX de autorizaciones. El staging no modifica autorizaciones hasta confirmar."
           actions={
             canManage ? (
               <button
@@ -111,7 +113,7 @@ export function BulkImportsView() {
                 onChange={(event) => void onUpload(event.target.files?.[0])}
               />
             ) : (
-                <p className="field-note">Solo lectura. MTD confirma los cargues.</p>
+              <p className="field-note">Solo lectura. MTD confirma los cargues.</p>
             )}
             {selected?.duplicateFile ? (
               <p className="field-note">Advertencia DUPLICATE_FILE: este archivo ya fue cargado.</p>
@@ -201,6 +203,19 @@ export function BulkImportsView() {
                     >
                       Descargar resultado
                     </button>
+                    {hasRejectedRows ? (
+                      <button
+                        className="button"
+                        type="button"
+                        onClick={() => {
+                          void downloadRejectedBulkImportRows(organizationId, selected.id).then((blob) =>
+                            triggerDownload(blob, 'filas-rechazadas-importacion.xlsx'),
+                          );
+                        }}
+                      >
+                        Descargar filas rechazadas
+                      </button>
+                    ) : null}
                   </div>
                 </>
               ) : null}

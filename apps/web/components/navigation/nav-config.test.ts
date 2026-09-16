@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_NAV_ITEMS, ROLES } from './nav-config';
+import { ALL_NAV_ITEMS } from './nav-config';
 
 describe('clean navigation', () => {
   it('keeps modules in numeric order', () => {
@@ -24,12 +24,10 @@ describe('clean navigation', () => {
       'applicationAudits',
       'bulkImports',
       'operationalIntegrity',
-      'foundation',
       'admin',
       'operationalScopes',
       'roles',
     ]);
-    expect(ALL_NAV_ITEMS.find((item) => item.view === 'foundation')?.roles).toEqual(ROLES);
   });
 
   it('keeps supplier review separate from MTD management', () => {

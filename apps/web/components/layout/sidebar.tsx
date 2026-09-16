@@ -6,7 +6,7 @@ import { NAV_SECTIONS } from '@/components/navigation/nav-config';
 import { useRole } from '@/components/layout/role-context';
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { roles, hasPermission } = useRole();
+  const { role, roles, hasPermission } = useRole();
   const pathname = usePathname();
 
   return (
@@ -25,6 +25,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             const items = section.items
               .filter(
                 (item) =>
+                  role === 'MTD' ||
                   (!item.permission || hasPermission(item.permission)) &&
                   item.roles.some((r) => roles.includes(r)),
               )
@@ -33,14 +34,14 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             return (
               <div key={section.label}>
                 <div className="nav-section">{section.label}</div>
-                {items.map((item) => (
+                {items.map((item, index) => (
                   <Link
                     key={item.view}
                     href={item.href}
                     className={`nav-item${pathname === item.href ? ' active' : ''}`}
                     onClick={onClose}
                   >
-                    <span className="nav-icon">{item.icon}</span>
+                    <span className="nav-icon">{String(index + 1).padStart(2, '0')}</span>
                     {item.title}
                   </Link>
                 ))}

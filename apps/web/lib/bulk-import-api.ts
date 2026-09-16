@@ -70,6 +70,10 @@ export function downloadBulkImportResult(organizationId: string, id: string) {
   return apiRequest<Blob>(`/bulk-imports/${id}/result.xlsx`, { organizationId });
 }
 
+export function downloadRejectedBulkImportRows(organizationId: string, id: string) {
+  return apiRequest<Blob>(`/bulk-imports/${id}/rejected.xlsx`, { organizationId });
+}
+
 export function downloadAnalyticsExport(organizationId: string, query: object) {
   return apiRequest<Blob>(`/analytics/export.xlsx${qs(query)}`, { organizationId });
 }

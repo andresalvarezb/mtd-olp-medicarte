@@ -123,6 +123,21 @@ export class BulkImportRepository {
     return Number(result.rows[0]?.n ?? 0) > 0;
   }
 
+  async findActiveTariffAnnexProductCodes(
+    organizationId: string,
+    codes: readonly string[],
+  ): Promise<Set<string>> {
+    if (codes.length === 0) return new Set();
+    const result = await this.database.db.execute<{ codigo_producto: string }>(sql`
+      select codigo_producto
+      from tariff_annex_products
+      where organization_id = ${organizationId}
+        and active = true
+        and codigo_producto in (${sql.join(codes.map((code) => sql`${code}`), sql`, `)})
+    `);
+    return new Set(result.rows.map((row) => row.codigo_producto));
+  }
+
   async createJob(input: {
     actor: Scope;
     templateVersion: string;

@@ -75,6 +75,15 @@ export class BulkImportService {
         message: 'The XLSX file has no data rows',
       });
     }
+    const commercialCodes = [...new Set(
+      parsed.rows
+        .map((row) => textValue(row.values.CODIGO_COMERCIAL))
+        .filter((value): value is string => Boolean(value)),
+    )];
+    const activeTariffCodes = await this.repository.findActiveTariffAnnexProductCodes(
+      input.actor.organizationId,
+      commercialCodes,
+    );
     const rows: BulkImportRowInsert[] = parsed.rows.map((row) => {
       const payload = Object.fromEntries(
         Object.entries(row.values).map(([key, value]) => [
@@ -88,25 +97,34 @@ export class BulkImportService {
       const missing = required.filter((key) => !payload[key]);
       const quantity = Number(payload.CANTIDAD);
       const assignmentDate = payload.FECHA_ASIGNACION;
+      const commercialCode = typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null;
+      const tariffMatch = commercialCode ? activeTariffCodes.has(commercialCode) : false;
       const valid =
         missing.length === 0 &&
         Number.isInteger(quantity) &&
         quantity > 0 &&
         typeof assignmentDate === 'string' &&
-        isIsoDate(assignmentDate);
+        isIsoDate(assignmentDate) &&
+        tariffMatch;
       return {
         rowNumber: row.rowNumber,
         rawPayload: row.rawData,
         normalizedPayload: payload,
         validationStatus: valid ? 'VALID' : 'INVALID',
-        errorCode: valid ? null : 'INVALID_AUTHORIZATION_ROW',
+        errorCode: valid
+          ? null
+          : !tariffMatch
+            ? 'TARIFF_ANNEX_PRODUCT_NOT_FOUND'
+            : 'INVALID_AUTHORIZATION_ROW',
         errorMessage: valid
           ? null
-          : `Missing or invalid fields: ${missing.join(', ') || 'CANTIDAD or FECHA_ASIGNACION'}`,
+          : !tariffMatch
+            ? `El código comercial ${commercialCode ?? '(vacío)'} no existe en el anexo tarifario activo`
+            : `Missing or invalid fields: ${missing.join(', ') || 'CANTIDAD or FECHA_ASIGNACION'}`,
         errorColumn: null,
         executionStatus: initialExecutionStatus(valid ? 'VALID' : 'INVALID'),
         authorizationNumber: typeof payload.NUMERO_AUTORIZACION === 'string' ? payload.NUMERO_AUTORIZACION : null,
-        commercialCode: typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null,
+        commercialCode,
         dispensingPointCode: null,
         assignmentDate: typeof payload.FECHA_ASIGNACION === 'string' ? payload.FECHA_ASIGNACION : null,
         quantity: valid ? quantity : null,
@@ -205,6 +223,15 @@ export class BulkImportService {
     await this.getJob(jobId, actor);
     const rows = await this.repository.listRows(jobId, 'ALL', actor);
     return buildBulkImportResultWorkbook(rows);
+  }
+
+  async rejectedRowsWorkbook(jobId: string, actor: Scope): Promise<Buffer> {
+    await this.getJob(jobId, actor);
+    const rows = await this.repository.listRows(jobId, 'ALL', actor);
+    const rejectedRows = rows.filter(
+      (row) => row.validationStatus !== 'VALID' || row.executionStatus === 'FAILED',
+    );
+    return buildBulkImportResultWorkbook(rejectedRows);
   }
 
   private async processRows(

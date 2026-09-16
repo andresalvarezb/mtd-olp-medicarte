@@ -28,7 +28,6 @@ export const ROLE_META: Record<Role, { label: string; note: string }> = {
 };
 
 export type ViewId =
-  | 'foundation'
   | 'planningPeriods'
   | 'projectedDemand'
   | 'purchaseOrders'
@@ -187,17 +186,10 @@ export const NAV_SECTIONS: NavSection[] = [
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
       {
-        view: 'foundation',
-        href: '/',
-        title: 'Base de reconstrucción',
-        icon: '16',
-        roles: ROLES,
-      },
-      {
         view: 'admin',
         href: '/administracion',
         title: 'Usuarios y acceso',
-        icon: '17',
+        icon: '16',
         permission: 'users.manage',
         roles: ['MTD'],
       },
@@ -205,7 +197,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'operationalScopes',
         href: '/administracion',
         title: 'Accesos operacionales',
-        icon: '18',
+        icon: '17',
         permission: 'operational_scopes.read',
         roles: ['MTD', 'MTD_AUDITORIA'],
       },
@@ -213,7 +205,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'roles',
         href: '/administracion/roles',
         title: 'Roles y permisos',
-        icon: '19',
+        icon: '18',
         permission: 'users.manage',
         roles: ['MTD'],
       },
