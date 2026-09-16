@@ -12,6 +12,7 @@ import { useRole } from '@/components/layout/role-context';
 import { useApiData } from '@/hooks/use-api-data';
 import { listOperationalStatuses, markPatientNotApplied } from '@/lib/patient-outcomes-api';
 import { PointScopeGuard } from '@/components/point-scope/empty-point-scope';
+import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 const statusMeta: Record<string, { label: string; tone: PillTone }> = {
   SCHEDULED: { label: 'Programado', tone: 'blue' },
@@ -44,6 +45,7 @@ export function OperationalOutcomesView() {
   const [disposition, setDisposition] = useState<PreparedProductDisposition>('NOT_PREPARED');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState({ patient: '', authorization: '', status: '' });
   const submit = async () => {
     const row = statuses.data?.items.find((item) => item.patientScheduleId === selected);
     if (!row) return;
@@ -77,6 +79,7 @@ export function OperationalOutcomesView() {
           <CardBody>
             {statuses.loading && <p>Cargando...</p>}
             {statuses.error && <p role="alert">No se pudo cargar la bandeja.</p>}
+            <FilterBar><FilterField label="Paciente"><input className="control" value={filter.patient} onChange={(e) => setFilter({ ...filter, patient: e.target.value })} placeholder="Nombre o identificación" /></FilterField><FilterField label="Autorización"><input className="control" value={filter.authorization} onChange={(e) => setFilter({ ...filter, authorization: e.target.value })} placeholder="Número" /></FilterField><FilterField label="Estado"><select className="control" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}><option value="">Todos</option>{Object.keys(statusMeta).map((status) => <option key={status} value={status}>{statusMeta[status]?.label}</option>)}</select></FilterField></FilterBar>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -95,7 +98,7 @@ export function OperationalOutcomesView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {statuses.data?.items.map((row) => {
+                   {statuses.data?.items.filter((row) => (!filter.status || row.operationalStatus === filter.status) && (!filter.patient || `${row.patientName ?? ''} ${row.patientDocument ?? ''}`.toLowerCase().includes(filter.patient.toLowerCase())) && (!filter.authorization || row.authorizationNumber.toLowerCase().includes(filter.authorization.toLowerCase()))).map((row) => {
                     const meta = statusMeta[row.operationalStatus]!;
                     const priority =
                       row.priorityLevel === 'CRITICAL'

@@ -237,7 +237,7 @@ La recepción deberá conservar cantidad, lote, vencimiento y conformidad. Esto 
 
 Eliminar la dependencia estructural entre una autorización individual y la orden de compra, entrega e inventario.
 
-## Requerimiento funcional
+## Requerimiento funcional retirado
 
 `authorization_items` continuará representando la autorización y sus productos autorizados.
 
@@ -464,20 +464,19 @@ Tareas:
 
 ---
 
-# ESP-003 — Programación de pacientes por Medicarte
+# ESP-003 — Programación de pacientes por Medicarte (retirado)
 
 ## Objetivo
 
-Convertir la programación realizada por Medicarte en la fuente de la demanda proyectada.
+Este flujo fue retirado. La programación de Medicarte ya no es fuente de demanda.
 
 ## Requerimiento funcional
 
-Medicarte podrá programar mediante:
+Medicarte ya no programa pacientes. El flujo vigente inicia con el cargue MTD de autorizaciones mediante:
 
-1. carga XLSX;
-2. búsqueda por autorización;
-3. búsqueda por paciente;
-4. edición individual.
+1. carga XLSX de autorizaciones;
+2. validación y preview;
+3. confirmación del cargue.
 
 Cada programación deberá identificar:
 
@@ -536,49 +535,37 @@ Siguiente período
 
 ## Plan de trabajo
 
-### PT-003.1 — Datos
+### PT-003.1 — Datos históricos
 
 Tareas:
 
-- Crear `patient_schedules`.
-- Relacionarlo con autorización, punto y período.
-- Crear historial append-only de modificaciones.
-- Crear campos de prioridad por vencimiento.
+- Conservar `patient_schedules` para trazabilidad histórica.
+- No crear nuevas programaciones.
 
-### PT-003.2 — Backend
+### PT-003.2 — Backend retirado
 
 Tareas:
 
-- Crear servicios de programación.
-- Implementar búsqueda por paciente.
-- Implementar búsqueda por autorización.
-- Crear carga XLSX con staging.
-- Reutilizar validaciones y patrón de importaciones existente.
+- El cargue vigente usa `authorization_items` y el staging de importaciones.
 
-### PT-003.3 — Frontend
+### PT-003.3 — Frontend retirado
 
 Tareas:
 
-- Crear pantalla Programación.
-- Crear búsqueda individual.
-- Crear edición.
-- Crear importador XLSX.
-- Mostrar prioridad de autorización.
-- Mostrar si está dentro/fuera del período.
+- La pantalla de programación no se expone a Medicarte.
 
 ---
 
-# ESP-004 — Consolidación de demanda proyectada
+# ESP-004 — Consolidación de demanda proyectada desde autorizaciones
 
 ## Objetivo
 
-Transformar múltiples necesidades individuales en una necesidad logística agregada.
+Transformar las autorizaciones del cargue en una necesidad logística agregada.
 
 ## Clave de consolidación
 
 ```text
 planning_period_id
-+ dispensing_point_id
 + commercial_code
 ```
 
@@ -1445,13 +1432,14 @@ XLSX es transporte, no dominio. Importación muta solo mediante commands ya acep
 
 ## Alcance real de importación
 
-`SCHEDULING` únicamente (programaciones Medicarte). No hay bulk de applications, inventory, receipts, transfers, audits, OC, deliveries ni outcomes.
+El cargue de autorizaciones es la entrada que alimenta la demanda proyectada.
+El flujo de programación de Medicarte queda fuera de la operación vigente. No hay bulk de applications, inventory, receipts, transfers, audits, OC, deliveries ni outcomes.
 
 ## Semántica implementada
 
 Definiciones canónicas: `.agent/adr/ADR-037-esp-014-bulk-operations-export.md`.
 
-- Plantilla `ESP014_SCHEDULING_V1` (hojas `Programacion`, `METADATA`, `Instrucciones`).
+- El cargue de autorizaciones conserva staging y auditoría; sus registros son la fuente de demanda.
 - Staging `bulk_import_jobs` / `bulk_import_rows` / `bulk_import_row_attempts`. Sin binario XLSX en PostgreSQL.
 - Preview informativo: no reserva identidad, inventario, período ni autorización.
 - Confirmación explícita sobre `READY`. `createInTx()` de ESP-003 revalida y persiste en la misma transacción que el mark `SUCCEEDED`.

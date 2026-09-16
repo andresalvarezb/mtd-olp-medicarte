@@ -18,6 +18,7 @@ import {
   transitionPlanningPeriod,
   updatePlanningPeriod,
 } from '@/lib/planning-periods-api';
+import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 const STATUS_TONES: Record<PlanningPeriodStatus, PillTone> = {
   OPEN: 'green',
@@ -85,6 +86,7 @@ export function PlanningPeriodsView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<PlanningPeriodStatus | ''>('');
 
   const setField = (field: keyof FormState, value: string): void => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -177,6 +179,8 @@ export function PlanningPeriodsView() {
           {message}
         </div>
       ) : null}
+
+      <FilterBar><FilterField label="Estado"><select className="control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as PlanningPeriodStatus | '')}><option value="">Todos</option>{Object.keys(STATUS_TONES).map((status) => <option key={status} value={status}>{status}</option>)}</select></FilterField></FilterBar>
 
       {canManage ? (
         <Card>
@@ -284,7 +288,7 @@ export function PlanningPeriodsView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((period) => (
+          {items.filter((period) => !statusFilter || period.status === statusFilter).map((period) => (
                     <tr key={period.id}>
                       <td>
                         <strong>

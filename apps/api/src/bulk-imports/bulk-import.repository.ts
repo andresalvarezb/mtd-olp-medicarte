@@ -39,13 +39,14 @@ export type BulkImportRowInsert = Readonly<{
   authorizationNumber: string | null;
   commercialCode: string | null;
   dispensingPointCode: string | null;
-  scheduledDate: string | null;
+  assignmentDate: string | null;
   quantity: number | null;
 }>;
 
 type JobRow = {
   id: string;
-  import_type: 'SCHEDULING';
+  import_type: 'AUTHORIZATIONS' | 'SCHEDULING';
+  authorization_import_batch_id: string | null;
   template_version: string;
   status: BulkImportJobStatus;
   original_filename: string;
@@ -70,7 +71,7 @@ type JobRow = {
 };
 
 const JOB_COLUMNS = sql`
-  id, import_type, template_version, status, original_filename, mime_type, size_bytes, file_hash,
+  id, import_type, authorization_import_batch_id, template_version, status, original_filename, mime_type, size_bytes, file_hash,
   duplicate_file, total_rows, valid_rows, invalid_rows, duplicate_rows, warning_rows,
   succeeded_rows, failed_rows, skipped_rows, last_error_code, created_at, validated_at,
   confirmed_at, completed_at, cancelled_at
@@ -84,7 +85,7 @@ function asIso(value: Date | string | null): string | null {
 function toJob(row: JobRow): BulkImportJobResponse {
   return {
     id: row.id,
-    importType: 'SCHEDULING',
+    importType: row.import_type,
     templateVersion: row.template_version,
     status: row.status,
     originalFilename: row.original_filename,
@@ -139,13 +140,20 @@ export class BulkImportRepository {
       const duplicateRows = input.rows.filter((row) => row.validationStatus === 'DUPLICATE').length;
       const warningRows = input.rows.filter((row) => row.validationStatus === 'CONFLICT').length;
       const skippedRows = input.rows.filter((row) => row.executionStatus === 'SKIPPED').length;
+      const authorizationBatch = await tx.execute<{ id: string }>(sql`
+        insert into import_batches
+          (organization_id, created_by, original_filename, mime_type, size_bytes, sha256, processor_version, status, total_rows, valid_rows, rejected_rows)
+        values
+          (${input.actor.organizationId}, ${input.actor.userId}, ${input.originalFilename}, ${input.mimeType}, ${input.sizeBytes}, ${input.fileHash}, 1, 'UPLOADED', ${input.rows.length}, ${validRows}, ${invalidRows})
+        returning id
+      `);
       const inserted = await tx.execute<JobRow>(sql`
         insert into bulk_import_jobs (
-          organization_id, created_by, import_type, template_version, status, original_filename,
+          organization_id, created_by, import_type, authorization_import_batch_id, template_version, status, original_filename,
           mime_type, size_bytes, file_hash, duplicate_file, total_rows, valid_rows, invalid_rows,
           duplicate_rows, warning_rows, skipped_rows, correlation_id, validated_at
         ) values (
-          ${input.actor.organizationId}, ${input.actor.userId}, 'SCHEDULING', ${input.templateVersion},
+          ${input.actor.organizationId}, ${input.actor.userId}, 'AUTHORIZATIONS', ${authorizationBatch.rows[0]!.id}, ${input.templateVersion},
           ${input.status}, ${input.originalFilename}, ${input.mimeType}, ${input.sizeBytes},
           ${input.fileHash}, ${input.duplicateFile}, ${input.rows.length}, ${validRows}, ${invalidRows},
           ${duplicateRows}, ${warningRows}, ${skippedRows}, ${input.actor.correlationId}::uuid, now()
@@ -166,13 +174,13 @@ export class BulkImportRepository {
         `);
       }
       await this.audit(tx, input.actor, 'BULK_IMPORT_UPLOADED', job.id, {
-        importType: 'SCHEDULING',
+        importType: 'AUTHORIZATIONS',
         totalRows: input.rows.length,
         validRows,
         invalidRows,
       });
       await this.audit(tx, input.actor, 'BULK_IMPORT_VALIDATED', job.id, {
-        importType: 'SCHEDULING',
+        importType: 'AUTHORIZATIONS',
         status: input.status,
         validRows,
         invalidRows,
@@ -237,7 +245,7 @@ export class BulkImportRepository {
     return result.rows.map((row) => {
       const payload = row.normalized_payload ?? {};
       const executed = row.execution_status === 'FAILED' || row.execution_status === 'SUCCEEDED';
-      const quantityRaw = payload.quantity;
+      const quantityRaw = payload.CANTIDAD;
       return {
         id: row.id,
         rowNumber: row.row_number,
@@ -249,11 +257,11 @@ export class BulkImportRepository {
         entityReference: row.entity_reference,
         attemptCount: Number(row.attempt_count),
         authorizationNumber:
-          typeof payload.authorizationNumber === 'string' ? payload.authorizationNumber : null,
-        commercialCode: typeof payload.commercialCode === 'string' ? payload.commercialCode : null,
+          typeof payload.NUMERO_AUTORIZACION === 'string' ? payload.NUMERO_AUTORIZACION : null,
+          commercialCode: typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null,
         dispensingPointCode:
           typeof payload.dispensingPointCode === 'string' ? payload.dispensingPointCode : null,
-        scheduledDate: typeof payload.scheduledDate === 'string' ? payload.scheduledDate : null,
+        assignmentDate: typeof payload.FECHA_ASIGNACION === 'string' ? payload.FECHA_ASIGNACION : null,
         quantity: typeof quantityRaw === 'number' ? quantityRaw : Number(quantityRaw) || null,
       };
     });
@@ -357,6 +365,52 @@ export class BulkImportRepository {
       claimGeneration: Number(row.claim_generation),
       reclaimed: row.previous_status === 'PROCESSING',
     };
+  }
+
+  async upsertAuthorizationInTx(
+    tx: BulkImportTransaction,
+    input: { actor: Scope; payload: Record<string, unknown>; jobId: string },
+  ): Promise<{ id: string }> {
+    const batch = await tx.execute<{ authorization_import_batch_id: string | null }>(sql`
+      select authorization_import_batch_id from bulk_import_jobs where id = ${input.jobId} for share
+    `);
+    const batchId = batch.rows[0]?.authorization_import_batch_id;
+    if (!batchId) throw new Error('AUTHORIZATION_IMPORT_BATCH_NOT_FOUND');
+    const p = input.payload;
+    const text = (key: string): string => {
+      const value = p[key];
+      return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+        ? String(value)
+        : '';
+    };
+    const result = await tx.execute<{ id: string }>(sql`
+      insert into authorization_items
+        (numero_autorizacion, codigo_medicamento, authorization_key, source_data,
+         source_status_normalized, source_prescripcion_normalized, no_prescripcion,
+         enablement_status, coverage_type, direction_status, coverage_rule_version,
+         created_from_batch_id, updated_by, last_load_id)
+      values
+        (${text('NUMERO_AUTORIZACION')}, ${text('CODIGO_COMERCIAL')},
+         ${`${text('NUMERO_AUTORIZACION')}|${text('CODIGO_COMERCIAL')}`},
+         ${JSON.stringify(p)}::jsonb, ${text('ESTADO_AUTORIZACION')},
+         ${text('NUMERO_PRESCRIPCION')}, ${text('NUMERO_PRESCRIPCION')},
+         case when upper(${text('ESTADO_AUTORIZACION')}) in ('VIGENTE', 'ACTIVA', 'AUTORIZADA') then 'ENABLED' else 'BLOCKED_SOURCE_STATUS' end,
+         'PBS', 'NOT_APPLICABLE', 'AUTHORIZATIONS_V1', ${batchId}, ${input.actor.userId}, ${batchId})
+      on conflict (numero_autorizacion, codigo_medicamento) do update
+        set source_data = excluded.source_data,
+            source_status_normalized = excluded.source_status_normalized,
+            enablement_status = excluded.enablement_status,
+            last_load_id = excluded.last_load_id,
+            updated_by = excluded.updated_by,
+            updated_at = now(), version = authorization_items.version + 1
+      returning id
+    `);
+    const id = result.rows[0]!.id;
+    await tx.execute(sql`
+      insert into authorization_item_organizations (authorization_item_id, organization_id)
+      values (${id}, ${input.actor.organizationId}) on conflict do nothing
+    `);
+    return { id };
   }
 
   async executeClaimedRow<TCreated extends { id: string }>(input: {
@@ -499,7 +553,7 @@ export class BulkImportRepository {
             ? 'BULK_IMPORT_PARTIALLY_COMPLETED'
             : 'BULK_IMPORT_FAILED';
       await this.audit(tx, actor, action, jobId, {
-        importType: 'SCHEDULING',
+        importType: 'AUTHORIZATIONS',
         succeededRows: Number(row.succeeded),
         failedRows: Number(row.failed),
         skippedRows: Number(row.skipped),
@@ -519,7 +573,7 @@ export class BulkImportRepository {
       `);
       const job = updated.rows[0];
       if (!job) return null;
-      await this.audit(tx, actor, 'BULK_IMPORT_CANCELLED', jobId, { importType: 'SCHEDULING' });
+      await this.audit(tx, actor, 'BULK_IMPORT_CANCELLED', jobId, { importType: 'AUTHORIZATIONS' });
       return job;
     });
     return result ? toJob(result) : null;

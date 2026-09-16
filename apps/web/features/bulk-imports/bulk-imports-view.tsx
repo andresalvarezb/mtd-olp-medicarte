@@ -12,11 +12,11 @@ import {
   cancelBulkImport,
   confirmBulkImport,
   downloadBulkImportResult,
-  downloadSchedulingTemplate,
+  downloadAuthorizationTemplate,
   getBulkImportRows,
   listBulkImports,
   retryFailedBulkImport,
-  uploadSchedulingImport,
+  uploadAuthorizationImport,
 } from '@/lib/bulk-import-api';
 
 function triggerDownload(blob: Blob, filename: string) {
@@ -51,7 +51,7 @@ export function BulkImportsView() {
     if (!file) return;
     setError(null);
     try {
-      const job = await uploadSchedulingImport(organizationId, file);
+      const job = await uploadAuthorizationImport(organizationId, file);
       setSelectedId(job.id);
       jobs.reload();
     } catch (cause) {
@@ -76,15 +76,15 @@ export function BulkImportsView() {
       <>
         <PageHeader
           title="Importaciones"
-          description="Canal XLSX de programación. Staging no reserva ni muta hechos hasta confirmar."
+            description="Cargue XLSX de autorizaciones. El staging no modifica autorizaciones hasta confirmar."
           actions={
             canManage ? (
               <button
                 className="button"
                 type="button"
                 onClick={() => {
-                  void downloadSchedulingTemplate(organizationId).then((blob) =>
-                    triggerDownload(blob, 'plantilla-programacion-esp014.xlsx'),
+                  void downloadAuthorizationTemplate(organizationId).then((blob) =>
+                    triggerDownload(blob, 'plantilla-autorizaciones-esp014.xlsx'),
                   );
                 }}
               >
@@ -101,7 +101,7 @@ export function BulkImportsView() {
         <Card>
           <CardHead
             title="Cargar XLSX"
-            subtitle="ESP014_SCHEDULING_V1. Preview antes de confirmar."
+            subtitle="ESP014_AUTHORIZATIONS_V1. Preview antes de confirmar."
           />
           <CardBody>
             {canManage ? (
@@ -111,7 +111,7 @@ export function BulkImportsView() {
                 onChange={(event) => void onUpload(event.target.files?.[0])}
               />
             ) : (
-              <p className="field-note">Solo lectura. Medicarte confirma las cargas.</p>
+                <p className="field-note">Solo lectura. MTD confirma los cargues.</p>
             )}
             {selected?.duplicateFile ? (
               <p className="field-note">Advertencia DUPLICATE_FILE: este archivo ya fue cargado.</p>

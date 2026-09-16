@@ -272,10 +272,10 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
     configurable: true,
   }),
   permission('analytics.economics.read', 'analytics', 'VIEW_ECONOMICS', 'ACTIVE', 'MTD_ONLY'),
-  permission('bulk_imports.read', 'imports', 'VIEW_BULK', 'ACTIVE', 'MEDICARTE_POINT', {
+  permission('bulk_imports.read', 'imports', 'VIEW_BULK', 'ACTIVE', 'MTD_ONLY', {
     configurable: true,
   }),
-  permission('bulk_imports.manage', 'imports', 'IMPORT_CONFIRM', 'ACTIVE', 'MEDICARTE_POINT'),
+  permission('bulk_imports.manage', 'imports', 'IMPORT_CONFIRM', 'ACTIVE', 'MTD_ONLY'),
   permission('operational_scopes.read', 'scopes', 'VIEW', 'ACTIVE', 'MTD_ONLY', {
     structural: true,
   }),

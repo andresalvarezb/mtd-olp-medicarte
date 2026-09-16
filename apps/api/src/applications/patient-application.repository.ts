@@ -272,6 +272,14 @@ export class PatientApplicationRepository {
     if (query.status) conditions.push(sql`pa.status=${query.status}`);
     if (query.patientScheduleId)
       conditions.push(sql`pa.patient_schedule_id=${query.patientScheduleId}`);
+    if (query.patientDocument)
+      conditions.push(sql`coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE', ai.source_data->>'NUM_DOCUMENTO', '') ilike ${`%${query.patientDocument}%`}`);
+    if (query.authorization)
+      conditions.push(sql`ai.numero_autorizacion ilike ${`%${query.authorization}%`}`);
+    if (query.commercialCode) conditions.push(sql`pa.commercial_code=${query.commercialCode}`);
+    if (query.dispensingPointId) conditions.push(sql`pa.dispensing_point_id=${query.dispensingPointId}`);
+    if (query.applicationDateFrom) conditions.push(sql`pa.application_date >= ${query.applicationDateFrom}::date`);
+    if (query.applicationDateTo) conditions.push(sql`pa.application_date <= ${query.applicationDateTo}::date`);
     if (!['MTD', 'MEDICARTE'].includes(scope.organizationCode))
       conditions.push(sql`dp.organization_id=${scope.organizationId}`);
     conditions.push(applyPointScope(sql`pa.dispensing_point_id`, scope));
@@ -279,7 +287,7 @@ export class PatientApplicationRepository {
       .execute<{
         id: string;
       }>(
-        sql`select pa.id from patient_applications pa join dispensing_points dp on dp.id=pa.dispensing_point_id where ${sql.join(conditions, sql` and `)} order by pa.created_at desc,pa.id desc limit ${query.limit}`,
+        sql`select pa.id from patient_applications pa join patient_schedules ps on ps.id=pa.patient_schedule_id join authorization_items ai on ai.id=pa.authorization_item_id join dispensing_points dp on dp.id=pa.dispensing_point_id where ${sql.join(conditions, sql` and `)} order by pa.created_at desc,pa.id desc limit ${query.limit}`,
       )
       .then((result) => Promise.all(result.rows.map((row) => this.find(row.id, scope))));
   }
