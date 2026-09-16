@@ -15,7 +15,71 @@ type ProductRow = {
   codigo_producto: string;
   active: boolean;
   version: number;
+  tarifa_unidad?: string | null;
+  numero_expediente_invima?: string | null;
+  consecutivo_invima_presentacion?: string | null;
+  descripcion_generica?: string | null;
+  descripcion_comercial?: string | null;
+  laboratorio?: string | null;
+  tipo_inclusion?: string | null;
 };
+
+type ProductCommercialInput = {
+  tarifaUnidad: string | null;
+  numeroExpedienteInvima: string | null;
+  consecutivoInvimaPresentacion: string | null;
+  descripcionGenerica: string | null;
+  descripcionComercial: string | null;
+  laboratorio: string | null;
+  tipoInclusion: string | null;
+};
+
+function commercialSnapshotFromInput(input: ProductCommercialInput): Record<string, string | null> {
+  return {
+    tarifaUnidad: input.tarifaUnidad,
+    numeroExpedienteInvima: input.numeroExpedienteInvima,
+    consecutivoInvimaPresentacion: input.consecutivoInvimaPresentacion,
+    descripcionGenerica: input.descripcionGenerica,
+    descripcionComercial: input.descripcionComercial,
+    laboratorio: input.laboratorio,
+    tipoInclusion: input.tipoInclusion,
+  };
+}
+
+function commercialSnapshot(row: ProductRow): Record<string, string | null> {
+  return {
+    tarifaUnidad: row.tarifa_unidad ?? null,
+    numeroExpedienteInvima: row.numero_expediente_invima ?? null,
+    consecutivoInvimaPresentacion: row.consecutivo_invima_presentacion ?? null,
+    descripcionGenerica: row.descripcion_generica ?? null,
+    descripcionComercial: row.descripcion_comercial ?? null,
+    laboratorio: row.laboratorio ?? null,
+    tipoInclusion: row.tipo_inclusion ?? null,
+  };
+}
+
+function commercialColumnsEqual(
+  current: {
+    tarifa_unidad?: string | null;
+    numero_expediente_invima?: string | null;
+    consecutivo_invima_presentacion?: string | null;
+    descripcion_generica?: string | null;
+    descripcion_comercial?: string | null;
+    laboratorio?: string | null;
+    tipo_inclusion?: string | null;
+  },
+  input: ProductCommercialInput,
+): boolean {
+  return (
+    current.tarifa_unidad === input.tarifaUnidad &&
+    current.numero_expediente_invima === input.numeroExpedienteInvima &&
+    current.consecutivo_invima_presentacion === input.consecutivoInvimaPresentacion &&
+    current.descripcion_generica === input.descripcionGenerica &&
+    current.descripcion_comercial === input.descripcionComercial &&
+    current.laboratorio === input.laboratorio &&
+    current.tipo_inclusion === input.tipoInclusion
+  );
+}
 
 function sourceValue(row: Record<string, unknown>, key: string): string | null {
   const value = row[key];
@@ -46,7 +110,10 @@ export type TariffImportProcessingResult = Readonly<{
  * Valida por fila con códigos estables (una fila inválida no impide procesar
  * las demás), no duplica productos al repetir el mismo archivo y emite, en la
  * misma transacción, los eventos de revalidación de los productos creados o
- * reactivados.
+ * reactivados. El archivo más recientemente cargado es la fuente autoritativa:
+ * si el producto ya existe y sus valores cambian, se actualizan los campos
+ * comerciales (versión +1, auditoría y revalidación); si coinciden, el
+ * producto queda intacto (sin incremento de versión).
  */
 export class TariffImportProcessor {
   constructor(private readonly database: Database) {}
@@ -167,19 +234,10 @@ export class TariffImportProcessor {
             row.rawData,
             'CONSECUTIVO_INVIMA_PRESENTACION',
           ),
-          descripcionGenerica: sourceValue(
-            row.rawData,
-            'DESCRIPCION_GENERICA_MEDICAMENTO',
-          ),
-          descripcionComercial: sourceValue(
-            row.rawData,
-            'DESCRIPCION_COMERCIAL_MEDICAMENTO',
-          ),
+          descripcionGenerica: sourceValue(row.rawData, 'DESCRIPCION_GENERICA_MEDICAMENTO'),
+          descripcionComercial: sourceValue(row.rawData, 'DESCRIPCION_COMERCIAL_MEDICAMENTO'),
           laboratorio: sourceValue(row.rawData, 'LABORATORIO_MEDICAMENTO'),
-          tipoInclusion: sourceValue(
-            row.rawData,
-            'TIPO_INCLUSION_MEDICAMENTO',
-          ),
+          tipoInclusion: sourceValue(row.rawData, 'TIPO_INCLUSION_MEDICAMENTO'),
           actorId: batch.created_by,
           organizationId: batch.organization_id,
           correlationId: batch.correlation_id,
@@ -219,7 +277,8 @@ export class TariffImportProcessor {
             originalRow: row.rawData,
             code: novelty.code,
             stage: novelty.stage,
-            field: outcome.code === 'INVALID_PRODUCT_CODE' ? 'CODIGO_PRODUCTO' : (novelty.field ?? null),
+            field:
+              outcome.code === 'INVALID_PRODUCT_CODE' ? 'CODIGO_PRODUCTO' : (novelty.field ?? null),
             receivedValue: outcome.codigo ?? null,
             description: tariffImportRowResultMessages[outcome.code],
             actorId: batch.created_by,
@@ -295,17 +354,10 @@ export class TariffImportProcessor {
     },
     input: {
       codigo: string;
-      tarifaUnidad: string | null;
-      numeroExpedienteInvima: string | null;
-      consecutivoInvimaPresentacion: string | null;
-      descripcionGenerica: string | null;
-      descripcionComercial: string | null;
-      laboratorio: string | null;
-      tipoInclusion: string | null;
       actorId: string;
       organizationId: string;
       correlationId: string;
-    },
+    } & ProductCommercialInput,
   ): Promise<{ resultCode: TariffRowResultCode; productId: string | null }> {
     const inserted = await client.query(
       `insert into tariff_annex_products
@@ -347,17 +399,29 @@ export class TariffImportProcessor {
       return { resultCode: 'PRODUCT_CREATED', productId: product.id };
     }
     const existing = await client.query(
-      `select id, codigo_producto, active, version from tariff_annex_products where codigo_producto = $1 for update`,
+      `select id, codigo_producto, tarifa_unidad, numero_expediente_invima,
+              consecutivo_invima_presentacion, descripcion_generica, descripcion_comercial,
+              laboratorio, tipo_inclusion, active, version
+         from tariff_annex_products where codigo_producto = $1 for update`,
       [input.codigo],
     );
     const current: ProductRow | undefined = existing.rows[0];
     if (!current) {
       return { resultCode: 'PROCESSING_ERROR', productId: null };
     }
-    if (current.active) {
+    if (current.active && commercialColumnsEqual(current, input)) {
       return { resultCode: 'PRODUCT_EXISTING', productId: current.id };
     }
-    const reactivated = await client.query(
+    const commercialValues = [
+      input.tarifaUnidad,
+      input.numeroExpedienteInvima,
+      input.consecutivoInvimaPresentacion,
+      input.descripcionGenerica,
+      input.descripcionComercial,
+      input.laboratorio,
+      input.tipoInclusion,
+    ];
+    const updated = await client.query(
       `update tariff_annex_products
        set tarifa_unidad = $2, numero_expediente_invima = $3,
            consecutivo_invima_presentacion = $4, descripcion_generica = $5,
@@ -365,27 +429,26 @@ export class TariffImportProcessor {
            active = true, version = version + 1, updated_by = $9, updated_at = now()
        where id = $1
        returning id, codigo_producto, active, version`,
-      [
-        current.id,
-        input.tarifaUnidad,
-        input.numeroExpedienteInvima,
-        input.consecutivoInvimaPresentacion,
-        input.descripcionGenerica,
-        input.descripcionComercial,
-        input.laboratorio,
-        input.tipoInclusion,
-        input.actorId,
-      ],
+      [current.id, ...commercialValues, input.actorId],
     );
-    const changed = reactivated.rows[0];
+    const changed = updated.rows[0];
     if (!changed) return { resultCode: 'PROCESSING_ERROR', productId: null };
+    const auditAction = current.active ? 'TARIFF_PRODUCT_UPDATED' : 'TARIFF_PRODUCT_ACTIVATED';
     await this.insertProductAudit(client, {
       actorId: input.actorId,
       organizationId: input.organizationId,
-      action: 'TARIFF_PRODUCT_ACTIVATED',
+      action: auditAction,
       product: changed,
-      before: { active: false, version: current.version },
-      after: { active: true, version: changed.version },
+      before: {
+        ...commercialSnapshot(current),
+        active: current.active,
+        version: current.version,
+      },
+      after: {
+        ...commercialSnapshotFromInput(input),
+        active: changed.active,
+        version: changed.version,
+      },
       correlationId: input.correlationId,
     });
     await this.enqueueRevalidation(client, {
@@ -394,7 +457,10 @@ export class TariffImportProcessor {
       organizationId: input.organizationId,
       correlationId: input.correlationId,
     });
-    return { resultCode: 'PRODUCT_REACTIVATED', productId: changed.id };
+    return {
+      resultCode: current.active ? 'PRODUCT_EXISTING' : 'PRODUCT_REACTIVATED',
+      productId: changed.id,
+    };
   }
 
   private async enqueueRevalidation(

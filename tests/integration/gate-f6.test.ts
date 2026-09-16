@@ -399,6 +399,36 @@ describe('Gate F6', () => {
     expect(exportAudit.rows.length).toBeGreaterThan(0);
   });
 
+  it('el export consolidado expone IDENTIFICACION_PACIENTE con el documento y sin NUM_DOCUMENTO', async () => {
+    const testDoc = '1234567890';
+    const item = await seedItem('PACIENTE-DOC', { withDates: true });
+    await database.query(
+      `update authorization_items
+         set source_data = jsonb_set(source_data, '{IDENTIFICACION_PACIENTE}', to_jsonb($1::text))
+       where id = $2`,
+      [testDoc, item.id],
+    );
+
+    const xlsxResp = await fetch(
+      `${apiUrl}/api/v1/exports/authorization-items.xlsx?includeAll=true`,
+      {
+        headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
+      },
+    );
+    expect(xlsxResp.status).toBe(200);
+    const workbook = XLSX.read(await xlsxResp.arrayBuffer(), { type: 'array' });
+    const sheet = workbook.Sheets.Datos!;
+    const headers = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, raw: false })[0];
+
+    expect(headers).toContain('IDENTIFICACION_PACIENTE');
+    expect(headers).not.toContain('NUM_DOCUMENTO');
+
+    const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { raw: false });
+    const targetRow = rows.find((row) => row['NUMERO_AUTORIZACION'] === item.authorization);
+    expect(targetRow).toBeDefined();
+    expect(targetRow!['IDENTIFICACION_PACIENTE']).toBe(testDoc);
+  });
+
   it('expone indicadores operativos derivados por alcance', async () => {
     const response = await fetch(`${apiUrl}/api/v1/indicators`, {
       headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },

@@ -236,6 +236,154 @@ describe('Gate F8 — Anexo Tarifario', () => {
     expect(actions.has('TARIFF_PRODUCT_ACTIVATED')).toBe(true);
   });
 
+  const tariffHeaders = [
+    'CODIGO_MEDICAMENTO',
+    'TARIFA_UNIDAD',
+    'NUMERO_EXPEDIENTE_INVIMA',
+    'CONSECUTIVO_INVIMA_PRESENTACION',
+    'DESCRIPCION_GENERICA_MEDICAMENTO',
+    'DESCRIPCION_COMERCIAL_MEDICAMENTO',
+    'LABORATORIO_MEDICAMENTO',
+    'TIPO_INCLUSION_MEDICAMENTO',
+  ];
+
+  async function uploadTariffImport(
+    rows: Array<Array<string | number>>,
+  ): Promise<{ id: string; rowCount: number }> {
+    const xlsx = xlsxBuffer([tariffHeaders, ...rows]);
+    const form = new FormData();
+    form.append('file', new Blob([xlsx], { type: XLSX_MIME_TYPE }), 'tariff-update.xlsx');
+    const response = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/imports`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${adminToken}`,
+        'x-organization-id': mtdOrganizationId,
+        'idempotency-key': randomUUID(),
+      },
+      body: form,
+    });
+    expect(response.status).toBe(202);
+    return (await response.json()) as { id: string; rowCount: number };
+  }
+
+  async function waitForTariffImport(batchId: string): Promise<{
+    status: string;
+    createdRows: number;
+    reactivatedRows: number;
+    existingRows: number;
+  }> {
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const status = await fetch(`${apiUrl}/api/v1/admin/tariff-annex/imports/${batchId}`, {
+        headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
+      });
+      const value = (await status.json()) as {
+        status: string;
+        createdRows: number;
+        reactivatedRows: number;
+        existingRows: number;
+      };
+      if (value.status === 'COMPLETED' || value.status === 'FAILED') return value;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error(`Tariff import never finished: ${batchId}`);
+  }
+
+  type ProductState = {
+    id: string;
+    active: boolean;
+    version: number;
+    tarifa_unidad: string | null;
+    laboratorio: string | null;
+    updated_by: string | null;
+  };
+
+  async function fetchProductState(code: string): Promise<ProductState | undefined> {
+    const result = await database.query<ProductState>(
+      `select id, active, version, tarifa_unidad, laboratorio, updated_by
+       from tariff_annex_products where codigo_producto = $1`,
+      [code.toUpperCase()],
+    );
+    return result.rows[0];
+  }
+
+  it('updates existing products from the uploaded file with CREATE/UPDATE/UNCHANGED/REACTIVATION semantics', async () => {
+    const code = `IMPORT-UPD-${randomUUID()}`;
+
+    // CREATE
+    const first = await waitForTariffImport(
+      (await uploadTariffImport([[code, '10', 'EXP-1', 'CON-1', 'GEN-1', 'COM-1', 'LAB-1', 'PBS']]))
+        .id,
+    );
+    expect(first.status).toBe('COMPLETED');
+    expect(first.createdRows).toBe(1);
+    const created = await fetchProductState(code);
+    expect(created).toBeDefined();
+    expect(created!.active).toBe(true);
+    expect(created!.version).toBe(1);
+    const createdId = created!.id;
+
+    // UNCHANGED: valores equivalentes (el sha256 del archivo difiere, los
+    // valores comerciales no), misma versión y sin auditoría de cambio
+    const sameValues = [
+      [code, '10 ', 'EXP-1 ', 'CON-1', 'GEN-1', 'COM-1', ' LAB-1', 'PBS'],
+    ] as Array<Array<string | number>>;
+    const second = await waitForTariffImport((await uploadTariffImport(sameValues)).id);
+    expect(second.createdRows).toBe(0);
+    expect(second.existingRows).toBe(1);
+    const unchanged = await fetchProductState(code);
+    expect(unchanged!.id).toBe(createdId);
+    expect(unchanged!.version).toBe(1);
+
+    // UPDATE: el archivo nuevo es la fuente autoritativa
+    const third = await waitForTariffImport(
+      (
+        await uploadTariffImport([
+          [code, '99', 'EXP-2', 'CON-2', 'GEN-2', 'COM-2', 'LAB-2', 'NO PBS'],
+        ])
+      ).id,
+    );
+    expect(third.existingRows).toBe(1);
+    const updated = await fetchProductState(code);
+    expect(updated!.id).toBe(createdId);
+    expect(updated!.version).toBe(2);
+    expect(updated!.tarifa_unidad).toBe('99');
+    expect(updated!.laboratorio).toBe('LAB-2');
+    expect(updated!.active).toBe(true);
+    const updateAudit = await database.query<{ action: string }>(
+      `select action from audit_events
+       where resource_type = 'tariff_annex_product' and resource_id = $1
+         and action = 'TARIFF_PRODUCT_UPDATED' and after->>'resourceVersion' = '2'`,
+      [createdId],
+    );
+    expect(updateAudit.rows.length).toBeGreaterThan(0);
+    const updateRevalidation = await database.query<{ count: string }>(
+      `select count(*)::text as count from outbox_events
+       where event_type = 'tariff.product.activated' and payload->>'tariffProductId' = $1
+         and payload->>'idempotencyKey' = $2`,
+      [createdId, `tariff-reval:${createdId}:2`],
+    );
+    expect(Number(updateRevalidation.rows[0]?.count ?? '0')).toBe(1);
+
+    // REACTIVATION: producto desactivado vuelve a activarse con los valores del archivo
+    await fetch(`${apiUrl}/api/v1/admin/tariff-annex/products/${createdId}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${adminToken}`, 'x-organization-id': mtdOrganizationId },
+    });
+    const deactivated = await fetchProductState(code);
+    expect(deactivated!.active).toBe(false);
+    const fourth = await waitForTariffImport(
+      (await uploadTariffImport([[code, '55', 'EXP-3', 'CON-3', 'GEN-3', 'COM-3', 'LAB-3', 'PBS']]))
+        .id,
+    );
+    expect(fourth.reactivatedRows).toBe(1);
+    const reactivated = await fetchProductState(code);
+    expect(reactivated!.id).toBe(createdId);
+    expect(reactivated!.active).toBe(true);
+    // version 4: create(1) + update(2) + desactivación lógica(3) + reactivación(4)
+    expect(reactivated!.version).toBe(4);
+    expect(reactivated!.tarifa_unidad).toBe('55');
+  });
+
   it('processes XLSX rows independently and deduplicates the same file', async () => {
     const codeA = `IMPORT-A-${randomUUID()}`;
     const codeB = `IMPORT-B-${randomUUID()}`;
