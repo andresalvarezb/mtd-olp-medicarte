@@ -16,7 +16,9 @@
     "format:check": "prettier --check .",
     "db:generate": "pnpm --filter @authorization/database db:generate",
     "db:migrate": "pnpm --filter @authorization/database db:migrate",
-    "db:reset": "pnpm --filter @authorization/database db:reset --yes"
+    "db:reset": "pnpm --filter @authorization/database db:reset --yes",
+    "prepare:tariff-annex": "node scripts/prepare-tariff-annex.mjs",
+    "test:prepare-tariff-annex": "node --test scripts/prepare-tariff-annex.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.34.0",
