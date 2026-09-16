@@ -515,8 +515,9 @@ export class AuthorizationItemsService {
           returning id, numero_autorizacion, codigo_medicamento, authorization_key, source_data,
                    source_status_normalized, source_prescripcion_normalized, no_prescripcion, enablement_status,
                      coverage_type, direction_status, operation_status, coverage_rule_version, lugar_dispensacion,
-                     fecha_programada::text, fecha_dispensacion::text, fecha_aplicacion::text, audit_status, admission_status,
-                   operational_version, version, created_at, updated_at`,
+                     fecha_programada::text, fecha_dispensacion::text, fecha_aplicacion::text, orden_compra,
+                     audit_status, admission_status, operational_version, tariff_membership_status,
+                     version, created_at, updated_at`,
         [
           itemId,
           JSON.stringify(row.raw_data),

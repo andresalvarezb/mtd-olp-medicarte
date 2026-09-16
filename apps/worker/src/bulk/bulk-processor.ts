@@ -400,6 +400,9 @@ export class BulkUpdateProcessor {
         { newValue },
       );
     }
+    if (input.operationType === 'REPORT_DISPENSATION_DATE' && !item.orden_compra) {
+      return await reject('INVALID_OPERATION_STATE', item.id, { newValue });
+    }
     if (input.operationType === 'REPORT_APPLICATION_DATE' && !item.fecha_dispensacion) {
       return await reject('INVALID_OPERATION_STATE', item.id, { newValue });
     }
@@ -474,6 +477,11 @@ export class BulkUpdateProcessor {
       fechaAplicacion: item.fecha_aplicacion,
       newValue,
     });
+    await client.query(
+      `select set_config('app.process_action', $1, true)`,
+      [input.operationType],
+    );
+
     const updateSql =
       input.operationType === 'ASSIGN_DISPENSATION_LOCATION'
         ? `update authorization_items set lugar_dispensacion = $2, fecha_programada = $3::date,
