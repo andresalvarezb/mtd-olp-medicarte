@@ -16,7 +16,8 @@ import {
 import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 export function StockTransfersView() {
-  const { organizationId } = useRole();
+  const { organizationId, hasPermission } = useRole();
+  const canManage = hasPermission('stock_transfers.manage');
   const transfers = useApiData(() => listStockTransfers(organizationId), [organizationId]);
   const inventory = useApiData(
     () => listInventory(organizationId, { usable: 'true' }),
@@ -45,7 +46,7 @@ export function StockTransfersView() {
           description="Movimiento físico entre puntos. El tránsito no forma parte del saldo utilizable."
         />
         {error && <div className="login-error">{error}</div>}
-        <Card>
+         {canManage && <Card>
           <CardBody>
             <h2>Nuevo traslado</h2>
             <div className="flow">
@@ -112,7 +113,7 @@ export function StockTransfersView() {
               </button>
             </div>
           </CardBody>
-        </Card>
+        </Card>}
         <Card>
           <CardBody>
             <h2>Traslados registrados</h2>
@@ -144,7 +145,7 @@ export function StockTransfersView() {
                     </td>
                     <td>{item.inTransit}</td>
                     <td>
-                      {item.status === 'CREATED' && (
+                      {canManage && item.status === 'CREATED' && (
                         <>
                           <button
                             className="button"
@@ -168,7 +169,7 @@ export function StockTransfersView() {
                           </button>
                         </>
                       )}
-                      {item.status === 'DISPATCHED' && (
+                      {canManage && item.status === 'DISPATCHED' && (
                         <button
                           className="button primary"
                           onClick={() =>

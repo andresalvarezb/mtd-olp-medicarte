@@ -459,6 +459,8 @@ export class AnalyticsRepository {
         return this.deliveryRows(query, limit);
       case 'received':
         return this.receiptRows(query, limit);
+      case 'accepted_into_inventory':
+        return this.acceptedReceiptRows(query, limit);
       case 'applied':
         return this.applicationRows(query, limit);
       case 'not_applied':
@@ -577,6 +579,37 @@ export class AnalyticsRepository {
       limit ${limit}
     `);
     return rows.rows.map((row) => this.item('received', row, 'quantity', 'status', 'reference'));
+  }
+
+  private async acceptedReceiptRows(query: AnalyticsQuery, limit: number) {
+    const period = query.planningPeriodId
+      ? sql`po.planning_period_id = ${query.planningPeriodId}`
+      : sql`true`;
+    const point = query.dispensingPointId
+      ? sql`pol.dispensing_point_id = ${query.dispensingPointId}`
+      : sql`true`;
+    const code = query.commercialCode
+      ? sql`pol.commercial_code = ${query.commercialCode}`
+      : sql`true`;
+    const orderType = query.orderType ? sql`po.order_type = ${query.orderType}` : sql`true`;
+    const bucket = query.demandBucket ? sql`pol.demand_bucket = ${query.demandBucket}` : sql`true`;
+    const receiptDate = this.dateRange(query, sql`r.received_at::date`);
+    const rows = await this.database.db.execute<Record<string, unknown>>(sql`
+      select rl.id, pol.commercial_code, pol.dispensing_point_id, rl.accepted_quantity quantity,
+             r.status, r.id::text reference
+      from receipt_lines rl
+      join receipts r on r.id = rl.receipt_id
+      join delivery_lines dl on dl.id = rl.delivery_line_id
+      join purchase_order_lines pol on pol.id = dl.purchase_order_line_id
+      join purchase_orders po on po.id = pol.purchase_order_id
+      where r.status = 'CONFIRMED' and rl.accepted_quantity > 0
+        and ${period} and ${point} and ${code} and ${orderType} and ${bucket} and ${receiptDate}
+      order by r.received_at desc, rl.id
+      limit ${limit}
+    `);
+    return rows.rows.map((row) =>
+      this.item('accepted_into_inventory', row, 'quantity', 'status', 'reference'),
+    );
   }
 
   private async applicationRows(query: AnalyticsQuery, limit: number) {

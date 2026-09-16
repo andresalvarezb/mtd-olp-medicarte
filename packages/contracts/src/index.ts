@@ -130,6 +130,7 @@ export const meResponseSchema = z.object({
       code: z.string(),
       name: z.string(),
       roles: z.array(z.string()),
+      isSystemAdmin: z.boolean().default(false),
       permissions: z.array(z.string()),
       pointAccess: organizationPointAccessSchema,
     }),
@@ -1085,6 +1086,10 @@ export type PaginatedProjectedDemandLinesResponse = z.infer<
 >;
 
 export const projectedDemandSourceResponseSchema = z.object({
+  patientScheduleId: z.string().uuid().nullable().optional(),
+  scheduleRevision: z.number().int().nullable().optional(),
+  scheduleTiming: z.string().nullable().optional(),
+  lateHandling: z.string().nullable().optional(),
   authorizationItemId: z.string().uuid(),
   authorizationNumber: z.string(),
   patientDocument: z.string().nullable(),
@@ -1149,7 +1154,7 @@ export type PurchaseOrderDemandBucket = z.infer<typeof purchaseOrderDemandBucket
 
 export const purchaseOrderLineRequestSchema = z.object({
   projectedDemandLineId: z.string().uuid(),
-  dispensingPointId: z.string().uuid(),
+  dispensingPointId: z.string().uuid().optional(),
   expectedDemandRevision: z.number().int().positive(),
   requestedQuantity: z.number().int().positive(),
   requestedDeliveryDate: z.string().date(),
@@ -1467,6 +1472,7 @@ export const analyticsDrilldownKindSchema = z.enum([
   'accepted',
   'dispatched',
   'received',
+  'accepted_into_inventory',
   'applied',
   'not_applied',
   'audit',

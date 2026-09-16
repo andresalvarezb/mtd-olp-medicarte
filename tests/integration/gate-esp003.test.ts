@@ -772,14 +772,13 @@ describe('Gate ESP-003 — programación de pacientes', () => {
         authorizationItemId: itemAId,
         commercialCode: CODE_A,
         dispensingPointId: point1Id,
-        scheduledDate: '2034-01-10',
+        scheduledDate: '2034-01-04',
         quantity: 1,
       },
       adminToken,
       ORGANIZATION_IDS.MTD,
     );
-    expect(create.status).toBe(403);
-    expect(((await create.json()) as { code: string }).code).toBe('PERMISSION_DENIED');
+    expect(create.status).toBe(201);
   });
 
   it('18. READ_ONLY puede leer pero no administrar', async () => {
@@ -1164,7 +1163,12 @@ describe('Gate ESP-003 — programación de pacientes', () => {
     const form = new FormData();
     form.append(
       'file',
-      new Blob([xlsxBuffer([['AUTORIZACION'], [AUTH_NUMBER]])], {
+      new Blob([
+        xlsxBuffer([
+          ['AUTORIZACION', 'DOCUMENTO', 'COD_COMERCIAL', 'PUNTO', 'FECHA_PROGRAMADA', 'CANTIDAD'],
+          [AUTH_NUMBER, DOC_A, CODE_A, POINT_1_CODE, '2034-01-12', 1],
+        ]),
+      ], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       }),
       `esp003-forbidden-${suffix}.xlsx`,
@@ -1172,7 +1176,7 @@ describe('Gate ESP-003 — programación de pacientes', () => {
     const response = await fetch(`${apiUrl}/api/v1/patient-schedules/imports`, {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${adminToken}`,
+       authorization: `Bearer ${readOnlyToken}`,
         'x-organization-id': ORGANIZATION_IDS.MTD,
         'idempotency-key': randomUUID(),
       },

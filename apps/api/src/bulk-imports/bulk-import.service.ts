@@ -26,12 +26,17 @@ import {
 import type { ApiConfig } from '@authorization/config';
 import type { Scope } from '../common/request-scope';
 import { API_CONFIG } from '../tokens';
+import { PatientScheduleImportService } from '../scheduling/patient-schedule-import.service';
+import { isScheduleDuplicateError } from '../scheduling/patient-schedule.repository';
+import { PatientScheduleService } from '../scheduling/patient-schedule.service';
 import { BulkImportRepository, type BulkImportRowInsert } from './bulk-import.repository';
 import {
   BulkImportFileError,
   buildBulkImportResultWorkbook,
+  buildEsp014SchedulingTemplate,
   buildAuthorizationTemplate,
   isAcceptedXlsxMime,
+  parseEsp014SchedulingWorkbook,
   parseAuthorizationWorkbook,
 } from './bulk-import-xlsx';
 
@@ -49,10 +54,78 @@ export class BulkImportService {
   constructor(
     @Inject(API_CONFIG) private readonly config: ApiConfig,
     private readonly repository: BulkImportRepository,
-  ) {}
+    classifier?: PatientScheduleImportService,
+    schedules?: PatientScheduleService,
+  ) {
+    this.classifier = classifier;
+    this.schedules = schedules;
+  }
 
   buildAuthorizationTemplate(): Buffer {
     return buildAuthorizationTemplate();
+  }
+
+  buildSchedulingTemplate(): Buffer {
+    return buildEsp014SchedulingTemplate();
+  }
+
+  async uploadScheduling(input: {
+    file: BulkImportUploadFile | undefined;
+    actor: Scope;
+  }): Promise<BulkImportJobResponse> {
+    const file = this.assertFile(input.file);
+    if (!this.classifier) throw new ConflictException('Scheduling import is unavailable');
+    let parsed;
+    try {
+      parsed = parseEsp014SchedulingWorkbook(file.buffer);
+    } catch (error) {
+      if (error instanceof BulkImportFileError) {
+        throw new BadRequestException({ code: error.code, message: error.message });
+      }
+      throw error;
+    }
+    if (parsed.rows.length === 0) {
+      throw new BadRequestException({ code: 'EMPTY_FILE', message: 'The XLSX file has no data rows' });
+    }
+    const classified = await this.classifier.classifyParsedRows(parsed.rows, input.actor);
+    const rows: BulkImportRowInsert[] = classified.map((row) => ({
+      rowNumber: row.rowNumber,
+      rawPayload: row.rawData,
+      normalizedPayload: {
+        ...(row.normalizedData && typeof row.normalizedData === 'object'
+          ? (row.normalizedData as Record<string, unknown>)
+          : {}),
+        authorizationNumber: row.authorizationNumber,
+        commercialCode: row.commercialCode,
+        dispensingPointCode: row.dispensingPointCode,
+        scheduledDate: row.scheduledDate,
+        quantity: row.quantity,
+      },
+      validationStatus: row.stagingStatus,
+      errorCode: row.resultCode === 'ROW_VALID' ? null : row.resultCode,
+      errorMessage: row.resultMessage,
+      errorColumn: null,
+      executionStatus: initialExecutionStatus(row.stagingStatus),
+      authorizationNumber: row.authorizationNumber,
+      commercialCode: row.commercialCode,
+      dispensingPointCode: row.dispensingPointCode,
+      scheduledDate: row.scheduledDate,
+      quantity: row.quantity,
+      assignmentDate: null,
+    }));
+    const fileHash = createHash('sha256').update(file.buffer).digest('hex');
+    return this.repository.createJob({
+      actor: input.actor,
+      templateVersion: parsed.templateVersion,
+      originalFilename: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      fileHash,
+      duplicateFile: await this.repository.hasDuplicateHash(input.actor.userId, fileHash),
+      rows,
+      status: rows.some((row) => row.validationStatus === 'VALID') ? 'READY' : 'INVALID',
+      importType: 'SCHEDULING',
+    });
   }
 
   async uploadAuthorizations(input: {
@@ -257,11 +330,22 @@ export class BulkImportService {
           attemptNumber: claimed.attemptCount,
           claimToken: claimed.claimToken,
           claimGeneration: claimed.claimGeneration,
-          execute: (tx) => this.repository.upsertAuthorizationInTx(tx, {
-            actor,
-            payload,
-            jobId,
-          }),
+          execute: (tx) =>
+            payload.authorizationItemId
+              ? this.schedules!.createInTx(tx, {
+                  actor,
+                  body: {
+                    authorizationItemId: textValue(payload.authorizationItemId) ?? '',
+                    commercialCode: textValue(payload.commercialCode) ?? '',
+                    dispensingPointId: textValue(payload.dispensingPointId) ?? '',
+                    scheduledDate: textValue(payload.scheduledDate) ?? '',
+                    quantity: Number(payload.quantity),
+                    ...(payload.lateHandling
+                      ? { lateHandling: payload.lateHandling as 'COMPLEMENTARY_PURCHASE_ORDER' | 'NEXT_PERIOD' }
+                      : {}),
+                  },
+                })
+              : this.repository.upsertAuthorizationInTx(tx, { actor, payload, jobId }),
         });
         if (executed === 'stale') {
           this.logger.warn(
@@ -311,6 +395,9 @@ export class BulkImportService {
     return this.repository.finalizeFromRows(jobId, actor);
   }
 
+  private readonly classifier: PatientScheduleImportService | undefined;
+  private readonly schedules: PatientScheduleService | undefined;
+
   private assertFile(file: BulkImportUploadFile | undefined): BulkImportUploadFile {
     if (!file) {
       throw new BadRequestException({
@@ -355,7 +442,7 @@ function jobNotFound(): NotFoundException {
 }
 
 function isBulkDomainFailure(error: unknown): boolean {
-  return error instanceof HttpException || error instanceof PointAccessDeniedError;
+  return error instanceof HttpException || error instanceof PointAccessDeniedError || isScheduleDuplicateError(error);
 }
 
 function textValue(value: unknown): string | null {
@@ -401,6 +488,12 @@ function mapDomainError(error: unknown): { code: string; message: string } {
       };
     }
     return { code: 'PROCESSING_ERROR', message: error.message };
+  }
+  if (isScheduleDuplicateError(error)) {
+    return {
+      code: 'PATIENT_SCHEDULE_DUPLICATE',
+      message: 'An active schedule already exists for the same authorization, point and date',
+    };
   }
   return {
     code: 'PROCESSING_ERROR',

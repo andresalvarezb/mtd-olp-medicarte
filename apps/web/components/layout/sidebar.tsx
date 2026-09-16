@@ -6,7 +6,7 @@ import { NAV_SECTIONS } from '@/components/navigation/nav-config';
 import { useRole } from '@/components/layout/role-context';
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { role, roles, hasPermission } = useRole();
+  const { roles, hasPermission } = useRole();
   const pathname = usePathname();
 
   return (
@@ -25,7 +25,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             const items = section.items
               .filter(
                 (item) =>
-                  role === 'MTD' ||
                   (!item.permission || hasPermission(item.permission)) &&
                   item.roles.some((r) => roles.includes(r)),
               )

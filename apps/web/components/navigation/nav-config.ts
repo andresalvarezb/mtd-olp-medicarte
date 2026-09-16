@@ -187,7 +187,7 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       {
         view: 'admin',
-        href: '/administracion',
+        href: '/administracion/usuarios',
         title: 'Usuarios y acceso',
         icon: '16',
         permission: 'users.manage',
@@ -195,7 +195,7 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       {
         view: 'operationalScopes',
-        href: '/administracion',
+        href: '/administracion/accesos-operacionales',
         title: 'Accesos operacionales',
         icon: '17',
         permission: 'operational_scopes.read',

@@ -75,6 +75,7 @@ export class AccessService {
         code: row.organizationCode,
         name: row.organizationName,
         roles: [],
+        isSystemAdmin: false,
         permissions: [],
         roleSnapshots: [],
       };
@@ -118,6 +119,9 @@ export class AccessService {
           code: organization.code,
           name: organization.name,
           roles: organization.roles,
+          isSystemAdmin: organization.roleSnapshots.some(
+            (role) => role.code === 'MTD_ADMIN' && role.isSystemAdmin,
+          ),
           permissions: organization.permissions,
           pointAccess: {
             kind,

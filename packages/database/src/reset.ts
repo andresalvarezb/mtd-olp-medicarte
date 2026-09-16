@@ -82,6 +82,14 @@ async function main(): Promise<void> {
   if (!databaseUrl) {
     throw new Error('DATABASE_URL is required');
   }
+  const parsed = new URL(databaseUrl);
+  if (
+    parsed.hostname !== 'localhost' ||
+    parsed.port !== '15432' ||
+    parsed.pathname !== '/authorization_test_integration'
+  ) {
+    throw new Error('Refusing reset: only the dedicated TEST/INTEGRATION database may be reset');
+  }
 
   const flag = process.argv[2];
   if (flag !== '--yes') {

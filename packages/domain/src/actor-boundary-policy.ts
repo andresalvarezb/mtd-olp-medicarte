@@ -24,6 +24,7 @@ function isBoundaryAllowed(
   boundary: AccessActorBoundary,
   organizationCode: string,
   roleCode: string,
+  permissionCode: string,
 ): boolean {
   switch (boundary) {
     case 'SYSTEM':
@@ -34,7 +35,8 @@ function isBoundaryAllowed(
       // MTD has global point scope and is the only cross-actor administrative
       // exception. MEDICARTE operators still require explicit point grants.
       return (
-        (organizationCode === 'MTD' && roleCode === 'MTD_ADMIN') ||
+        (organizationCode === 'MTD' &&
+          (roleCode === 'MTD_ADMIN' || !/\.(manage|confirm|create|run|execute|upload|dispatch|receive|cancel|approve|reject|assign)$/.test(permissionCode))) ||
         (organizationCode === 'MEDICARTE' &&
           (roleCode === 'MEDICARTE_OPERATOR' || isCustomRole(roleCode)))
       );
@@ -58,7 +60,7 @@ export function isPermissionAllowedForActor(
 ): boolean {
   const permission = getAccessPermissionDefinition(permissionCode);
   if (!permission) return false;
-  return isBoundaryAllowed(permission.actorBoundary, organizationCode, roleCode);
+  return isBoundaryAllowed(permission.actorBoundary, organizationCode, roleCode, permissionCode);
 }
 
 export function assertPermissionAllowedForActor(

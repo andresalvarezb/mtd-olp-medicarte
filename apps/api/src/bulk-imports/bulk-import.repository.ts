@@ -148,6 +148,7 @@ export class BulkImportRepository {
     duplicateFile: boolean;
     rows: readonly BulkImportRowInsert[];
     status: 'READY' | 'INVALID';
+    importType?: 'AUTHORIZATIONS' | 'SCHEDULING';
   }): Promise<BulkImportJobResponse> {
     return this.database.db.transaction(async (tx) => {
       const validRows = input.rows.filter((row) => row.validationStatus === 'VALID').length;
@@ -168,7 +169,7 @@ export class BulkImportRepository {
           mime_type, size_bytes, file_hash, duplicate_file, total_rows, valid_rows, invalid_rows,
           duplicate_rows, warning_rows, skipped_rows, correlation_id, validated_at
         ) values (
-          ${input.actor.organizationId}, ${input.actor.userId}, 'AUTHORIZATIONS', ${authorizationBatch.rows[0]!.id}, ${input.templateVersion},
+          ${input.actor.organizationId}, ${input.actor.userId}, ${input.importType ?? 'AUTHORIZATIONS'}, ${authorizationBatch.rows[0]!.id}, ${input.templateVersion},
           ${input.status}, ${input.originalFilename}, ${input.mimeType}, ${input.sizeBytes},
           ${input.fileHash}, ${input.duplicateFile}, ${input.rows.length}, ${validRows}, ${invalidRows},
           ${duplicateRows}, ${warningRows}, ${skippedRows}, ${input.actor.correlationId}::uuid, now()
@@ -189,13 +190,13 @@ export class BulkImportRepository {
         `);
       }
       await this.audit(tx, input.actor, 'BULK_IMPORT_UPLOADED', job.id, {
-        importType: 'AUTHORIZATIONS',
+        importType: input.importType ?? 'AUTHORIZATIONS',
         totalRows: input.rows.length,
         validRows,
         invalidRows,
       });
       await this.audit(tx, input.actor, 'BULK_IMPORT_VALIDATED', job.id, {
-        importType: 'AUTHORIZATIONS',
+        importType: input.importType ?? 'AUTHORIZATIONS',
         status: input.status,
         validRows,
         invalidRows,

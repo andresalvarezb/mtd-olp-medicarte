@@ -214,7 +214,7 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
     },
   ),
   permission('supplier_deliveries.manage', 'supplier-deliveries', 'MANAGE', 'ACTIVE', 'OLP_ONLY'),
-  permission('medicarte_receipts.read', 'medicarte-receipts', 'VIEW', 'ACTIVE', 'MEDICARTE_POINT', {
+  permission('medicarte_receipts.read', 'medicarte-receipts', 'VIEW', 'ACTIVE', 'ORGANIZATION', {
     configurable: true,
   }),
   permission(
@@ -272,10 +272,10 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
     configurable: true,
   }),
   permission('analytics.economics.read', 'analytics', 'VIEW_ECONOMICS', 'ACTIVE', 'MTD_ONLY'),
-  permission('bulk_imports.read', 'imports', 'VIEW_BULK', 'ACTIVE', 'MTD_ONLY', {
+  permission('bulk_imports.read', 'imports', 'VIEW_BULK', 'ACTIVE', 'MEDICARTE_POINT', {
     configurable: true,
   }),
-  permission('bulk_imports.manage', 'imports', 'IMPORT_CONFIRM', 'ACTIVE', 'MTD_ONLY'),
+  permission('bulk_imports.manage', 'imports', 'IMPORT_CONFIRM', 'ACTIVE', 'MEDICARTE_POINT'),
   permission('operational_scopes.read', 'scopes', 'VIEW', 'ACTIVE', 'MTD_ONLY', {
     structural: true,
   }),

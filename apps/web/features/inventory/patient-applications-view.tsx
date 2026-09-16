@@ -18,11 +18,20 @@ import { FilterBar, FilterField, FilterActions } from '@/components/ui/filter-ba
 import type { PatientApplicationListQuery } from '@authorization/contracts';
 
 export function PatientApplicationsView() {
-  const { organizationId } = useRole();
+  const { organizationId, hasPermission } = useRole();
+  const canManage = hasPermission('patient_applications.manage');
   const searchParams = useSearchParams();
-  const [filters, setFilters] = useState<{ patientDocument: string; authorization: string; commercialCode: string; status: PatientApplicationListQuery['status'] }>({ patientDocument: '', authorization: '', commercialCode: '', status: undefined });
+  const [filters, setFilters] = useState<{
+    patientDocument: string;
+    authorization: string;
+    commercialCode: string;
+    status: PatientApplicationListQuery['status'];
+  }>({ patientDocument: '', authorization: '', commercialCode: '', status: undefined });
   const [appliedFilters, setAppliedFilters] = useState(filters);
-  const applications = useApiData(() => listPatientApplications(organizationId, appliedFilters), [organizationId, appliedFilters]);
+  const applications = useApiData(
+    () => listPatientApplications(organizationId, appliedFilters),
+    [organizationId, appliedFilters],
+  );
   const schedules = useApiData(
     () => listEligibleApplicationSchedules(organizationId),
     [organizationId],
@@ -41,6 +50,10 @@ export function PatientApplicationsView() {
       lot.commercialCode === schedule?.commercialCode &&
       lot.dispensingPointId === schedule?.dispensingPointId &&
       lot.usableBalance > 0,
+  );
+  const fefoDate = lots.reduce<string | null>(
+    (earliest, lot) => (!earliest || lot.expirationDate < earliest ? lot.expirationDate : earliest),
+    null,
   );
   const selectedTotal = Object.values(selected).reduce((sum, value) => sum + value, 0);
   useEffect(() => {
@@ -71,7 +84,7 @@ export function PatientApplicationsView() {
           description="Aplicación física al paciente. El borrador no reserva inventario; la confirmación consume el ledger."
         />
         {error && <div className="login-error">{error}</div>}
-        <Card>
+        {canManage && <Card>
           <CardBody>
             <h2>Nueva aplicación</h2>
             <div className="flow">
@@ -142,12 +155,20 @@ export function PatientApplicationsView() {
                           applicationDate: schedule.scheduledDate,
                           lines: Object.entries(selected)
                             .filter(([, quantity]) => quantity > 0)
-                            .map(([inventoryLotId, quantity]) => ({
-                              inventoryLotId,
-                              quantity,
-                              fefoOverride: Boolean(reason),
-                              ...(reason ? { fefoOverrideReason: reason } : {}),
-                            })),
+                            .map(([inventoryLotId, quantity]) => {
+                              const selectedLot = inventory.data?.items.find(
+                                (lot) => lot.id === inventoryLotId,
+                              );
+                              const override = Boolean(
+                                selectedLot && fefoDate && selectedLot.expirationDate > fefoDate,
+                              );
+                              return {
+                                inventoryLotId,
+                                quantity,
+                                fefoOverride: override,
+                                ...(reason && override ? { fefoOverrideReason: reason } : {}),
+                              };
+                            }),
                         });
                         await confirmPatientApplication(
                           organizationId,
@@ -166,16 +187,73 @@ export function PatientApplicationsView() {
               )}
             </div>
           </CardBody>
-        </Card>
+        </Card>}
         <Card>
           <CardBody>
             <h2>Aplicaciones registradas</h2>
             <FilterBar>
-              <FilterField label="Identificación paciente"><input className="control" value={filters.patientDocument} onChange={(e) => setFilters({ ...filters, patientDocument: e.target.value })} placeholder="Documento" /></FilterField>
-              <FilterField label="Autorización"><input className="control" value={filters.authorization} onChange={(e) => setFilters({ ...filters, authorization: e.target.value })} placeholder="Número de autorización" /></FilterField>
-              <FilterField label="Código producto"><input className="control" value={filters.commercialCode} onChange={(e) => setFilters({ ...filters, commercialCode: e.target.value })} placeholder="Código comercial" /></FilterField>
-              <FilterField label="Estado"><select className="control" value={filters.status ?? ''} onChange={(e) => setFilters({ ...filters, status: (e.target.value || undefined) as PatientApplicationListQuery['status'] })}><option value="">Todos</option><option value="DRAFT">Borrador</option><option value="CONFIRMED">Confirmada</option><option value="CANCELLED">Cancelada</option></select></FilterField>
-              <FilterActions><button className="button primary" onClick={() => setAppliedFilters(filters)}>Filtrar</button><button className="button" onClick={() => { const cleared = { patientDocument: '', authorization: '', commercialCode: '', status: undefined as PatientApplicationListQuery['status'] }; setFilters(cleared); setAppliedFilters(cleared); }}>Limpiar</button></FilterActions>
+              <FilterField label="Identificación paciente">
+                <input
+                  className="control"
+                  value={filters.patientDocument}
+                  onChange={(e) => setFilters({ ...filters, patientDocument: e.target.value })}
+                  placeholder="Documento"
+                />
+              </FilterField>
+              <FilterField label="Autorización">
+                <input
+                  className="control"
+                  value={filters.authorization}
+                  onChange={(e) => setFilters({ ...filters, authorization: e.target.value })}
+                  placeholder="Número de autorización"
+                />
+              </FilterField>
+              <FilterField label="Código producto">
+                <input
+                  className="control"
+                  value={filters.commercialCode}
+                  onChange={(e) => setFilters({ ...filters, commercialCode: e.target.value })}
+                  placeholder="Código comercial"
+                />
+              </FilterField>
+              <FilterField label="Estado">
+                <select
+                  className="control"
+                  value={filters.status ?? ''}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      status: (e.target.value ||
+                        undefined) as PatientApplicationListQuery['status'],
+                    })
+                  }
+                >
+                  <option value="">Todos</option>
+                  <option value="DRAFT">Borrador</option>
+                  <option value="CONFIRMED">Confirmada</option>
+                  <option value="CANCELLED">Cancelada</option>
+                </select>
+              </FilterField>
+              <FilterActions>
+                <button className="button primary" onClick={() => setAppliedFilters(filters)}>
+                  Filtrar
+                </button>
+                <button
+                  className="button"
+                  onClick={() => {
+                    const cleared = {
+                      patientDocument: '',
+                      authorization: '',
+                      commercialCode: '',
+                      status: undefined as PatientApplicationListQuery['status'],
+                    };
+                    setFilters(cleared);
+                    setAppliedFilters(cleared);
+                  }}
+                >
+                  Limpiar
+                </button>
+              </FilterActions>
             </FilterBar>
             <table className="data-table">
               <thead>
@@ -209,7 +287,7 @@ export function PatientApplicationsView() {
                       {item.lines.map((line) => `${line.lotNumber}: ${line.quantity}`).join(' | ')}
                     </td>
                     <td>
-                      {item.status === 'DRAFT' && (
+                      {canManage && item.status === 'DRAFT' && (
                         <>
                           <button
                             className="button primary"

@@ -17,7 +17,8 @@ import type { DeliveryResponse } from '@authorization/contracts';
 import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 export function SupplierDeliveriesView() {
-  const { organizationId } = useRole();
+  const { organizationId, hasPermission } = useRole();
+  const canManage = hasPermission('supplier_deliveries.manage');
   const deliveries = useApiData(() => listSupplierDeliveries(organizationId), [organizationId]);
   const orders = useApiData(() => listSupplierPurchaseOrders(organizationId), [organizationId]);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +104,7 @@ export function SupplierDeliveriesView() {
                     <td>{line.expirationDate}</td>
                     <td>{delivery.status}</td>
                     <td>
-                      {delivery.status === 'DRAFT' ? (
+                      {canManage && delivery.status === 'DRAFT' ? (
                         <>
                           <button
                             className="button"
@@ -150,7 +151,7 @@ export function SupplierDeliveriesView() {
             </tbody>
           </table>
           <p>Crear DRAFT contra una línea aceptada:</p>
-          {(orders.data?.items ?? []).flatMap((order) =>
+           {canManage && (orders.data?.items ?? []).flatMap((order) =>
             order.lines
               .filter((line) => (line.acceptedQuantity ?? 0) > 0)
               .map((line) => (

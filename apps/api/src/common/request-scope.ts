@@ -40,7 +40,10 @@ export function scopeFromProfile(
     userId: profile.id,
     correlationId: request.correlationId,
     readSensitive: organization.permissions.includes('authorizations.read_sensitive'),
-    isFoundationAdmin: organization.roles.includes('MTD_ADMIN'),
+    isFoundationAdmin:
+      organization.code === 'MTD' &&
+      organization.isSystemAdmin === true &&
+      organization.roles.includes('MTD_ADMIN'),
     canCrossOrganizationOperationalExport:
       organization.code === 'MTD' &&
       organization.permissions.includes('operational_exports.create'),

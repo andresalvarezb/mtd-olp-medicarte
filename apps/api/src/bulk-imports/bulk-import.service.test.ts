@@ -2,6 +2,9 @@ import * as XLSX from 'xlsx';
 import { describe, expect, it, vi } from 'vitest';
 import { AUTHORIZATION_IMPORT_COLUMNS, ESP014_AUTHORIZATIONS_TEMPLATE_VERSION } from '@authorization/contracts';
 import { BulkImportService } from './bulk-import.service';
+import type { BulkImportRepository } from './bulk-import.repository';
+import type { ApiConfig } from '@authorization/config';
+import type { Scope } from '../common/request-scope';
 
 function buildAuthorizationWorkbook(codes: readonly string[]): Buffer {
   const workbook = XLSX.utils.book_new();
@@ -39,8 +42,11 @@ function createService() {
     createJob: vi.fn().mockResolvedValue({ id: 'job-1' }),
     findJob: vi.fn().mockResolvedValue({ id: 'job-1', status: 'READY' }),
     listRows: vi.fn(),
-  } as any;
-  const service = new BulkImportService({ IMPORT_MAX_FILE_BYTES: 20 * 1024 * 1024 } as any, repository);
+  };
+  const service = new BulkImportService(
+    { IMPORT_MAX_FILE_BYTES: 20 * 1024 * 1024 } as unknown as ApiConfig,
+    repository as unknown as BulkImportRepository,
+  );
   return { service, repository };
 }
 
@@ -59,13 +65,15 @@ describe('BulkImportService', () => {
         organizationId: 'org-1',
         userId: 'user-1',
         correlationId: '11111111-1111-1111-1111-111111111111',
-      } as any,
+      } as unknown as Scope,
     });
     expect(repository.findActiveTariffAnnexProductCodes).toHaveBeenCalledWith('org-1', [
       'TAR-001',
       'TAR-999',
     ]);
-    const createJobInput = repository.createJob.mock.calls[0][0];
+    const createJobInput = repository.createJob.mock.calls[0]?.[0] as {
+      rows: Array<Record<string, unknown>>;
+    };
     expect(createJobInput.rows).toHaveLength(2);
     expect(createJobInput.rows[0]).toMatchObject({
       validationStatus: 'VALID',
@@ -125,7 +133,7 @@ describe('BulkImportService', () => {
 
     const buffer = await service.rejectedRowsWorkbook('job-1', {
       organizationId: 'org-1',
-    } as any);
+    } as unknown as Scope);
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheet = workbook.Sheets.RESULTADO!;
     const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });

@@ -12,15 +12,43 @@ import {
   updateReceipt,
 } from '@/lib/purchase-orders-api';
 import type { ReceiptResponse } from '@authorization/contracts';
+import { currentBogotaDate } from '@authorization/domain';
 import { PointScopeGuard } from '@/components/point-scope/empty-point-scope';
 import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
+function receiptValidation(receipt: ReceiptResponse): string[] {
+  return receipt.lines.flatMap((line, index) => {
+    const errors: string[] = [];
+    if (line.receivedQuantity < 0 || line.acceptedQuantity < 0 || line.rejectedQuantity < 0)
+      errors.push(`Línea ${index + 1}: las cantidades no pueden ser negativas.`);
+    if (line.receivedQuantity !== line.acceptedQuantity + line.rejectedQuantity)
+      errors.push(`Línea ${index + 1}: recibido debe ser aceptado + rechazado.`);
+    if (line.acceptedQuantity > line.receivedQuantity)
+      errors.push(`Línea ${index + 1}: aceptado no puede superar recibido.`);
+    if (line.receivedQuantity > line.dispatchedQuantity)
+      errors.push(`Línea ${index + 1}: recibido no puede superar despachado.`);
+    if (line.acceptedQuantity > 0 && !line.receivedLotNumber)
+      errors.push(`Línea ${index + 1}: lote observado requerido.`);
+    if (line.acceptedQuantity > 0 && !line.receivedExpirationDate)
+      errors.push(`Línea ${index + 1}: vencimiento requerido.`);
+    if (
+      line.acceptedQuantity > 0 &&
+      line.receivedExpirationDate &&
+      line.receivedExpirationDate < currentBogotaDate()
+    )
+      errors.push(`Línea ${index + 1}: el vencimiento observado está expirado.`);
+    return errors;
+  });
+}
+
 export function ReceiptsView() {
-  const { organizationId } = useRole();
+  const { organizationId, hasPermission } = useRole();
+  const canManage = hasPermission('medicarte_receipts.manage');
   const pending = useApiData(() => listPendingReceipts(organizationId), [organizationId]);
   const deliveries = useApiData(() => listMedicarteDeliveries(organizationId), [organizationId]);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<ReceiptResponse | null>(null);
+  const [validation, setValidation] = useState<string[]>([]);
   const [filter, setFilter] = useState({ reference: '', status: '', conformity: '' });
   const open = async (deliveryId: string) => {
     try {
@@ -32,6 +60,9 @@ export function ReceiptsView() {
   };
   const save = async () => {
     if (!receipt) return;
+    const errors = receiptValidation(receipt);
+    setValidation(errors);
+    if (errors.length) return;
     try {
       setReceipt(
         await updateReceipt(organizationId, receipt.id, {
@@ -54,6 +85,9 @@ export function ReceiptsView() {
   };
   const confirm = async () => {
     if (!receipt) return;
+    const errors = receiptValidation(receipt);
+    setValidation(errors);
+    if (errors.length) return;
     try {
       setReceipt(await confirmReceipt(organizationId, receipt.id, receipt.version));
       pending.reload();
@@ -69,10 +103,24 @@ export function ReceiptsView() {
           description="Control físico de entregas OLP. Las cantidades aceptadas quedan disponibles para el siguiente proceso, sin crear inventario."
         />
         {error && <div className="login-error">{error}</div>}
+        {validation.map((message) => (
+          <div className="login-error" key={message}>
+            {message}
+          </div>
+        ))}
         <Card>
           <CardBody>
             <h2>Deliveries pendientes de recepción</h2>
-            <FilterBar><FilterField label="Referencia"><input className="control" value={filter.reference} onChange={(e) => setFilter({ ...filter, reference: e.target.value })} placeholder="Delivery" /></FilterField></FilterBar>
+            <FilterBar>
+              <FilterField label="Referencia">
+                <input
+                  className="control"
+                  value={filter.reference}
+                  onChange={(e) => setFilter({ ...filter, reference: e.target.value })}
+                  placeholder="Delivery"
+                />
+              </FilterField>
+            </FilterBar>
             <table className="data-table">
               <thead>
                 <tr>
@@ -85,7 +133,14 @@ export function ReceiptsView() {
               </thead>
               <tbody>
                 {(deliveries.data?.items ?? [])
-                  .filter((item) => item.status === 'DISPATCHED' && (!filter.reference || (item.supplierReference ?? item.id).toLowerCase().includes(filter.reference.toLowerCase())))
+                  .filter(
+                    (item) =>
+                      item.status === 'DISPATCHED' &&
+                      (!filter.reference ||
+                        (item.supplierReference ?? item.id)
+                          .toLowerCase()
+                          .includes(filter.reference.toLowerCase())),
+                  )
                   .map((delivery) => (
                     <tr key={delivery.id}>
                       <td>{delivery.supplierReference ?? delivery.id}</td>
@@ -93,16 +148,35 @@ export function ReceiptsView() {
                       <td>{delivery.dispatchedAt ?? '-'}</td>
                       <td>{delivery.lines.reduce((total, line) => total + line.quantity, 0)}</td>
                       <td>
-                        <button className="button primary" onClick={() => void open(delivery.id)}>
-                          Registrar
-                        </button>
+                        {canManage && (
+                          <button className="button primary" onClick={() => void open(delivery.id)}>
+                            Registrar
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
               </tbody>
             </table>
             <h2>Borradores</h2>
-            <FilterBar><FilterField label="Recepción / delivery"><input className="control" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })} placeholder="Buscar ID" /></FilterField><FilterField label="Conformidad"><input className="control" value={filter.conformity} onChange={(e) => setFilter({ ...filter, conformity: e.target.value })} placeholder="Estado" /></FilterField></FilterBar>
+            <FilterBar>
+              <FilterField label="Recepción / delivery">
+                <input
+                  className="control"
+                  value={filter.status}
+                  onChange={(e) => setFilter({ ...filter, status: e.target.value })}
+                  placeholder="Buscar ID"
+                />
+              </FilterField>
+              <FilterField label="Conformidad">
+                <input
+                  className="control"
+                  value={filter.conformity}
+                  onChange={(e) => setFilter({ ...filter, conformity: e.target.value })}
+                  placeholder="Estado"
+                />
+              </FilterField>
+            </FilterBar>
             <table className="data-table">
               <thead>
                 <tr>
@@ -114,19 +188,29 @@ export function ReceiptsView() {
                 </tr>
               </thead>
               <tbody>
-                {(pending.data?.items ?? []).filter((item) => (!filter.status || item.id.includes(filter.status) || item.deliveryId.includes(filter.status)) && (!filter.conformity || (item.conformity ?? '').includes(filter.conformity))).map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.id}</td>
-                    <td>{item.deliveryId}</td>
-                    <td>{item.status}</td>
-                    <td>{item.conformity ?? '-'}</td>
-                    <td>
-                      <button className="button" onClick={() => setReceipt(item)}>
-                        Abrir
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {(pending.data?.items ?? [])
+                  .filter(
+                    (item) =>
+                      (!filter.status ||
+                        item.id.includes(filter.status) ||
+                        item.deliveryId.includes(filter.status)) &&
+                      (!filter.conformity || (item.conformity ?? '').includes(filter.conformity)),
+                  )
+                  .map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.id}</td>
+                      <td>{item.deliveryId}</td>
+                      <td>{item.status}</td>
+                      <td>{item.conformity ?? '-'}</td>
+                      <td>
+                        {canManage && (
+                          <button className="button" onClick={() => setReceipt(item)}>
+                            Abrir
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </CardBody>
@@ -235,7 +319,7 @@ export function ReceiptsView() {
                   </label>
                 </div>
               ))}
-              {receipt.status === 'DRAFT' && (
+              {canManage && receipt.status === 'DRAFT' && (
                 <>
                   <button className="button" onClick={() => void save()}>
                     Guardar borrador

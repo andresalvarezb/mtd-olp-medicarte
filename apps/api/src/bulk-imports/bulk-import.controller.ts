@@ -33,23 +33,23 @@ export class BulkImportController {
     private readonly access: AccessService,
   ) {}
 
-  @Get('authorizations/template.xlsx')
+  @Get('scheduling/template.xlsx')
   async template(
     @Res() response: Response,
     @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
     await this.scope(organizationId, request, 'bulk_imports.read');
-    const buffer = this.bulk.buildAuthorizationTemplate();
+    const buffer = this.bulk.buildSchedulingTemplate();
     response.setHeader('content-type', XLSX_CONTENT_TYPE);
     response.setHeader(
       'content-disposition',
-      'attachment; filename="plantilla-autorizaciones-esp014.xlsx"',
+      'attachment; filename="plantilla-programacion-esp014.xlsx"',
     );
     response.send(buffer);
   }
 
-  @Post('authorizations/upload')
+  @Post('scheduling/upload')
   @HttpCode(202)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: BULK_IMPORT_MAX_FILE_BYTES } }))
   async upload(
@@ -58,7 +58,7 @@ export class BulkImportController {
     @Req() request: AuthenticatedRequest,
   ) {
     const actor = await this.scope(organizationId, request, 'bulk_imports.manage');
-    return this.bulk.uploadAuthorizations({ file, actor });
+    return this.bulk.uploadScheduling({ file, actor });
   }
 
   @Get()
