@@ -4,8 +4,18 @@ import {
   tariffImportRowResultMessages,
   type TariffImportJob,
 } from '@authorization/contracts';
-import { isValidTariffProductCode, noveltyForTariffImportResult } from '@authorization/domain';
-import { insertNovelty, type createDatabase } from '@authorization/database';
+import {
+  isValidTariffProductCode,
+  normalizeTariffProductCode,
+  noveltyForTariffImportResult,
+} from '@authorization/domain';
+import {
+  insertNovelty,
+  resolveNovelties,
+  tariffNoveltyLogicalKey,
+  tariffNoveltyLogicalKeyPrefix,
+  type createDatabase,
+} from '@authorization/database';
 import { parseTariffImportFile, TariffFileError } from './tariff-import-parser';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -271,6 +281,11 @@ export class TariffImportProcessor {
         );
         const novelty = noveltyForTariffImportResult(outcome.code);
         if (novelty) {
+          // Identidad de negocio por producto normalizado cuando existe;
+          // sin producto válido la identidad es técnica (lote + fila).
+          const productForIdentity = outcome.codigo
+            ? normalizeTariffProductCode(outcome.codigo)
+            : '';
           await insertNovelty(client, {
             tariffAnnexImportId: batch.id,
             sourceRowNumber: row.rowNumber,
@@ -282,7 +297,39 @@ export class TariffImportProcessor {
             receivedValue: outcome.codigo ?? null,
             description: tariffImportRowResultMessages[outcome.code],
             actorId: batch.created_by,
+            correlationId: batch.correlation_id,
+            logicalKey: productForIdentity
+              ? tariffNoveltyLogicalKey({
+                  organizationId: batch.organization_id,
+                  normalizedProductCode: productForIdentity,
+                  code: novelty.code,
+                  stage: novelty.stage,
+                  field:
+                    outcome.code === 'INVALID_PRODUCT_CODE'
+                      ? 'CODIGO_PRODUCTO'
+                      : (novelty.field ?? null),
+                })
+              : null,
           });
+        } else {
+          // TASK-NOV-001: la carga exitosa del producto resuelve únicamente
+          // las novedades técnicas previas de ese mismo producto; un producto
+          // ausente del archivo conserva su novedad pendiente.
+          const productForIdentity = outcome.codigo
+            ? normalizeTariffProductCode(outcome.codigo)
+            : '';
+          if (productForIdentity) {
+            await resolveNovelties(client, {
+              logicalKeyPrefix: tariffNoveltyLogicalKeyPrefix({
+                organizationId: batch.organization_id,
+                normalizedProductCode: productForIdentity,
+              }),
+              reason: `TARIFF_PRODUCT_AVAILABLE:${outcome.code}`,
+              actorType: 'SYSTEM',
+              actorId: batch.created_by,
+              correlationId: batch.correlation_id,
+            });
+          }
         }
       }
 

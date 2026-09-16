@@ -113,11 +113,10 @@ const SELECT_BODY = `
          i.authorization_key, i.numero_autorizacion,
          i.source_data->>'IDENTIFICACION_PACIENTE' as identificacion_paciente,
          i.codigo_medicamento as codigo_producto,
-          count(*) over (partition by n.code, coalesce(
-            n.authorization_item_id::text,
-            lower(regexp_replace(btrim(coalesce(n.original_row->>'NUMERO_AUTORIZACION', '')), '\\s+', ' ', 'g')) || '|' ||
-            lower(regexp_replace(btrim(coalesce(n.original_row->>'CODIGO_COMERCIAL', n.original_row->>'COD_COMERCIAL', '')), '\\s+', ' ', 'g')))
-          ) as attempt_count
+          -- TASK-NOV-001: el conteo histórico abarca toda la causal lógica
+          -- (subconsulta, no window: el filtro de estado no debe reducir el
+          -- número de intentos históricos).
+          (select count(*)::int from novelties hn where hn.logical_key = n.logical_key) as attempt_count
     from novelties n
     inner join novelty_codes c on c.code = n.code
     left join authorization_items i on i.id = n.authorization_item_id`;

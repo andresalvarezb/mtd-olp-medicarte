@@ -19,7 +19,11 @@ import {
   type TariffProductListQuery,
   type TariffProductResponse,
 } from '@authorization/contracts';
-import type { createDatabase } from '@authorization/database';
+import {
+  resolveNovelties,
+  tariffNoveltyLogicalKeyPrefix,
+  type createDatabase,
+} from '@authorization/database';
 import type { ApiConfig } from '@authorization/config';
 import {
   currentBogotaDate,
@@ -107,10 +111,7 @@ type NovedadRow = {
 };
 
 type QueryableClient = {
-  query: <T>(
-    query: string,
-    values?: unknown[],
-  ) => Promise<{ rows: T[]; rowCount?: number | null }>;
+  query: <T>(query: string, values?: unknown[]) => Promise<{ rows: T[]; rowCount?: number | null }>;
 };
 
 function parseUuid(value: string, field: string): string {
@@ -481,6 +482,7 @@ export class TariffAnnexService {
         organizationId: input.organizationId,
         correlationId: input.correlationId,
       });
+      await this.resolveProductTechnicalNovelties(client, product.codigo_producto, input);
       return { product, resultCode: 'PRODUCT_CREATED' };
     }
     const existingResult = await client.query<ProductRow>(
@@ -492,6 +494,7 @@ export class TariffAnnexService {
     );
     const existingProduct = existingResult.rows[0];
     if (!existingProduct) throw new Error('Tariff product was not found after upsert');
+    await this.resolveProductTechnicalNovelties(client, existingProduct.codigo_producto, input);
     if (existingProduct.active) {
       return { product: existingProduct, resultCode: 'PRODUCT_EXISTING' };
     }
@@ -535,6 +538,25 @@ export class TariffAnnexService {
       correlationId: input.correlationId,
     });
     return { product: changed, resultCode: 'PRODUCT_REACTIVATED' };
+  }
+
+  /** TASK-NOV-001: el producto disponible resuelve solo sus novedades técnicas. */
+  private async resolveProductTechnicalNovelties(
+    client: QueryableClient,
+    codigoProducto: string,
+    input: { organizationId: string; actorId: string; correlationId: string },
+  ): Promise<void> {
+    await resolveNovelties(client, {
+      logicalKeyPrefix: tariffNoveltyLogicalKeyPrefix({
+        organizationId: input.organizationId,
+        normalizedProductCode: normalizeTariffProductCode(codigoProducto),
+      }),
+      reason: 'TARIFF_PRODUCT_AVAILABLE',
+      actorType: 'USER',
+      actorId: input.actorId,
+      organizationId: input.organizationId,
+      correlationId: input.correlationId,
+    });
   }
 
   private async setProductActive(
@@ -871,12 +893,7 @@ export class TariffAnnexService {
     return toImportBatchResponse(batch);
   }
 
-  async getImportRows(input: {
-    batchId: string;
-    cursor?: string;
-    limit: number;
-    scope: Scope;
-  }) {
+  async getImportRows(input: { batchId: string; cursor?: string; limit: number; scope: Scope }) {
     const batch = await this.getImport(input.batchId, input.scope);
     const cursor = decodeRowCursor(input.cursor);
     const values: unknown[] = [batch.id];
@@ -947,31 +964,31 @@ export class TariffAnnexService {
        order by i.created_at asc, i.id asc`,
     );
     const columns = [
-       'IDENTIFICADOR_REGISTRO',
+      'IDENTIFICADOR_REGISTRO',
       'NUMERO_AUTORIZACION',
-       'IDENTIFICACION_PACIENTE',
+      'IDENTIFICACION_PACIENTE',
       'NOMBRE_PACIENTE',
       'CDGN001',
-       'CODIGO_COMERCIAL',
+      'CODIGO_COMERCIAL',
       'CUPS_AUTORIZADO',
       'CANTIDAD',
       'DOSIS',
       'FECHA_ASIGNACION',
       'FECHA_FINAL_VIGENCIA',
-       'VALOR_CUOTA_MODERADORA',
-       'NUMERO_PRESCRIPCION',
-       'CLAVE_AUTORIZACION',
-       'TIPO_COBERTURA',
-       'ESTADO_OPERACION',
-       'ESTADO_HABILITACION',
-       'ESTADO_DIRECCIONAMIENTO',
-       'ESTADO_PERTENENCIA_ANEXO',
-       'FECHA_FINAL_VIGENCIA',
-       'CAUSAL',
-       'DETALLE_NOVEDAD',
-       'ESTADO_AUDITORIA',
-       'FECHA_CREACION',
-       'FECHA_ACTUALIZACION',
+      'VALOR_CUOTA_MODERADORA',
+      'NUMERO_PRESCRIPCION',
+      'CLAVE_AUTORIZACION',
+      'TIPO_COBERTURA',
+      'ESTADO_OPERACION',
+      'ESTADO_HABILITACION',
+      'ESTADO_DIRECCIONAMIENTO',
+      'ESTADO_PERTENENCIA_ANEXO',
+      'FECHA_FINAL_VIGENCIA',
+      'CAUSAL',
+      'DETALLE_NOVEDAD',
+      'ESTADO_AUDITORIA',
+      'FECHA_CREACION',
+      'FECHA_ACTUALIZACION',
     ];
     const rows: Array<Record<string, string | null>> = result.rows.map((row) => {
       const novedadInput: EpsNovedadInput = {
@@ -985,30 +1002,30 @@ export class TariffAnnexService {
       };
       const causales = deriveEpsNovedadCausales(novedadInput);
       return {
-         IDENTIFICADOR_REGISTRO: row.id,
+        IDENTIFICADOR_REGISTRO: row.id,
         NUMERO_AUTORIZACION: row.numero_autorizacion,
-         IDENTIFICACION_PACIENTE: row.numero_documento,
+        IDENTIFICACION_PACIENTE: row.numero_documento,
         NOMBRE_PACIENTE: row.nombre_paciente,
         CDGN001: row.cdgn001,
-         CODIGO_COMERCIAL: row.codigo_medicamento,
+        CODIGO_COMERCIAL: row.codigo_medicamento,
         CUPS_AUTORIZADO: row.cups_autorizado,
         CANTIDAD: row.cantidad,
         DOSIS: row.dosis,
         FECHA_ASIGNACION: row.fecha_asignacion,
         FECHA_FINAL_VIGENCIA: row.fecha_final_vigencia,
-         VALOR_CUOTA_MODERADORA: row.valor_cuota_moderadora,
-         NUMERO_PRESCRIPCION: row.no_prescripcion,
-         CLAVE_AUTORIZACION: row.authorization_key,
-         TIPO_COBERTURA: row.coverage_type,
-         ESTADO_OPERACION: row.operation_status,
-         ESTADO_HABILITACION: row.enablement_status,
-         ESTADO_DIRECCIONAMIENTO: row.direction_status,
-         ESTADO_PERTENENCIA_ANEXO: row.tariff_membership_status,
-         CAUSAL: causales.join(';'),
-         DETALLE_NOVEDAD: causales.map((causal) => epsNovedadCausalMessages[causal]).join('; '),
-         ESTADO_AUDITORIA: row.audit_status,
-         FECHA_CREACION: row.created_at.toISOString(),
-         FECHA_ACTUALIZACION: row.updated_at.toISOString(),
+        VALOR_CUOTA_MODERADORA: row.valor_cuota_moderadora,
+        NUMERO_PRESCRIPCION: row.no_prescripcion,
+        CLAVE_AUTORIZACION: row.authorization_key,
+        TIPO_COBERTURA: row.coverage_type,
+        ESTADO_OPERACION: row.operation_status,
+        ESTADO_HABILITACION: row.enablement_status,
+        ESTADO_DIRECCIONAMIENTO: row.direction_status,
+        ESTADO_PERTENENCIA_ANEXO: row.tariff_membership_status,
+        CAUSAL: causales.join(';'),
+        DETALLE_NOVEDAD: causales.map((causal) => epsNovedadCausalMessages[causal]).join('; '),
+        ESTADO_AUDITORIA: row.audit_status,
+        FECHA_CREACION: row.created_at.toISOString(),
+        FECHA_ACTUALIZACION: row.updated_at.toISOString(),
       };
     });
     await this.auditNovedadesExport(input.scope, input.format, rows.length, columns);
