@@ -39,6 +39,7 @@ type ReconciliationRunRow = {
   generated_at: Date | string | null;
   duration_ms: number | null;
   metadata: { ruleResults?: EngineRuleResult[] } | null;
+  operation_execution_id: string | null;
 };
 
 type ReconciliationFindingRow = {
@@ -249,11 +250,12 @@ export class ReconciliationRepository {
     scope: ReconciliationRunScope;
     rulesVersion: string;
     totalRules: number;
+    operationExecutionId?: string | null;
   }): Promise<string> {
     const result = await this.database.pool.query<{ id: string }>(
       `insert into reconciliation_runs
-         (tenant_id, status, scope, started_by, rules_version, total_rules, metadata)
-       values ($1,'PENDING',$2::jsonb,$3,$4,$5,'{}'::jsonb)
+         (tenant_id, status, scope, started_by, rules_version, total_rules, metadata, operation_execution_id)
+       values ($1,'PENDING',$2::jsonb,$3,$4,$5,'{}'::jsonb,$6)
        returning id`,
       [
         input.tenantId,
@@ -261,6 +263,7 @@ export class ReconciliationRepository {
         input.startedBy,
         input.rulesVersion,
         input.totalRules,
+        input.operationExecutionId ?? null,
       ],
     );
     return result.rows[0]!.id;
@@ -469,5 +472,6 @@ export function mapRunRow(row: ReconciliationRunRow, ruleResults: EngineRuleResu
     generatedAt: asIso(row.generated_at),
     durationMs: row.duration_ms == null ? null : Number(row.duration_ms),
     ruleResults: ruleResults.length > 0 ? ruleResults : (metadata.ruleResults ?? []),
+    operationExecutionId: row.operation_execution_id ?? null,
   };
 }

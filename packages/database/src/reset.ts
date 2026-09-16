@@ -9,6 +9,9 @@ if (!process.env.DATABASE_URL && existsSync(envPath)) {
 }
 
 const OPERATIONAL_TABLES = [
+  'reconciliation_notifications',
+  'reconciliation_operation_executions',
+  'reconciliation_operation_policies',
   'reconciliation_issue_comments',
   'reconciliation_issue_events',
   'reconciliation_findings',

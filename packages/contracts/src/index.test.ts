@@ -14,6 +14,9 @@ import {
   createReconciliationIssueCommentRequestSchema,
   createReconciliationRunRequestSchema,
   resolveReconciliationIssueRequestSchema,
+  upsertReconciliationOperationPolicyRequestSchema,
+  reconciliationOperationExecutionResponseSchema,
+  reconciliationNotificationResponseSchema,
   ESP014_SCHEDULING_TEMPLATE_VERSION,
   POINT_ACCESS_DENIED,
   foundationJobSchema,
@@ -420,5 +423,77 @@ describe('reconciliation contracts', () => {
         body: `${'x'.repeat(2001)}`,
       }).success,
     ).toBe(false);
+  });
+
+  it('validates ESP-019 operations policy and execution schemas', () => {
+    const validPolicy = upsertReconciliationOperationPolicyRequestSchema.parse({
+      cadence: 'DAILY',
+      localTime: '02:00',
+      severityAlertThreshold: 'ERROR',
+    });
+    expect(validPolicy.cadence).toBe('DAILY');
+    expect(validPolicy.localTime).toBe('02:00');
+    expect(validPolicy.timezone).toBe('America/Bogota');
+    expect(validPolicy.severityAlertThreshold).toBe('ERROR');
+
+    // Rejects invalid time format
+    expect(
+      upsertReconciliationOperationPolicyRequestSchema.safeParse({
+        cadence: 'DAILY',
+        localTime: '25:00',
+      }).success,
+    ).toBe(false);
+
+    // Rejects weekday > 7 or < 1
+    expect(
+      upsertReconciliationOperationPolicyRequestSchema.safeParse({
+        cadence: 'WEEKLY',
+        weekday: 8,
+      }).success,
+    ).toBe(false);
+
+    const validExecution = reconciliationOperationExecutionResponseSchema.parse({
+      id: '10000000-0000-4000-8000-000000000001',
+      tenantId: '10000000-0000-4000-8000-000000000002',
+      policyId: null,
+      triggerType: 'MANUAL',
+      scheduledFor: null,
+      claimedAt: null,
+      startedAt: null,
+      completedAt: null,
+      status: 'PENDING',
+      reconciliationRunId: null,
+      attemptCount: 0,
+      claimToken: null,
+      claimGeneration: 0,
+      leaseExpiresAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      missedOccurrencesCount: 0,
+      skipReason: null,
+      createdAt: '2026-09-15T00:00:00.000Z',
+      updatedAt: '2026-09-15T00:00:00.000Z',
+    });
+    expect(validExecution.status).toBe('PENDING');
+
+    const validNotification = reconciliationNotificationResponseSchema.parse({
+      id: '10000000-0000-4000-8000-000000000001',
+      tenantId: '10000000-0000-4000-8000-000000000002',
+      executionId: null,
+      reconciliationRunId: null,
+      notificationType: 'RECONCILIATION_CRITICAL',
+      severity: 'CRITICAL',
+      dedupKey: 'RUN_HEALTH:123',
+      status: 'SENT',
+      channel: 'IN_APP',
+      payload: { criticalFindings: 1 },
+      attemptCount: 0,
+      readAt: null,
+      sentAt: '2026-09-15T00:00:00.000Z',
+      lastErrorCode: null,
+      createdAt: '2026-09-15T00:00:00.000Z',
+      updatedAt: '2026-09-15T00:00:00.000Z',
+    });
+    expect(validNotification.notificationType).toBe('RECONCILIATION_CRITICAL');
   });
 });

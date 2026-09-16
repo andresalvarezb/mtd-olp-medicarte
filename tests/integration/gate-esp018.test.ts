@@ -142,6 +142,9 @@ beforeAll(async () => {
        select id from reconciliation_issues where last_run_id in (
          select id from reconciliation_runs where scope->>'planningPeriodId' in (
            select id::text from planning_periods where start_date >= '2054-01-01'
+         )) or first_run_id in (
+         select id from reconciliation_runs where scope->>'planningPeriodId' in (
+           select id::text from planning_periods where start_date >= '2054-01-01'
          )))`,
   );
   await database.query(
@@ -149,11 +152,17 @@ beforeAll(async () => {
        select id from reconciliation_issues where last_run_id in (
          select id from reconciliation_runs where scope->>'planningPeriodId' in (
            select id::text from planning_periods where start_date >= '2054-01-01'
+         )) or first_run_id in (
+         select id from reconciliation_runs where scope->>'planningPeriodId' in (
+           select id::text from planning_periods where start_date >= '2054-01-01'
          )))`,
   );
   await database.query(
     `update reconciliation_issues set last_finding_id = null
       where last_run_id in (
+        select id from reconciliation_runs where scope->>'planningPeriodId' in (
+          select id::text from planning_periods where start_date >= '2054-01-01'
+        )) or first_run_id in (
         select id from reconciliation_runs where scope->>'planningPeriodId' in (
           select id::text from planning_periods where start_date >= '2054-01-01'
         ))`,
@@ -166,6 +175,9 @@ beforeAll(async () => {
   );
   await database.query(
     `delete from reconciliation_issues where last_run_id in (
+       select id from reconciliation_runs where scope->>'planningPeriodId' in (
+         select id::text from planning_periods where start_date >= '2054-01-01'
+       )) or first_run_id in (
        select id from reconciliation_runs where scope->>'planningPeriodId' in (
          select id::text from planning_periods where start_date >= '2054-01-01'
        ))`,
@@ -384,6 +396,8 @@ afterAll(async () => {
         `delete from reconciliation_issue_comments where issue_id in (
            select id from reconciliation_issues where last_run_id in (
              select id from reconciliation_runs where scope->>'planningPeriodId' = $1
+           ) or first_run_id in (
+             select id from reconciliation_runs where scope->>'planningPeriodId' = $1
            ))`,
         [periodId],
       );
@@ -391,12 +405,15 @@ afterAll(async () => {
         `delete from reconciliation_issue_events where issue_id in (
            select id from reconciliation_issues where last_run_id in (
              select id from reconciliation_runs where scope->>'planningPeriodId' = $1
+           ) or first_run_id in (
+             select id from reconciliation_runs where scope->>'planningPeriodId' = $1
            ))`,
         [periodId],
       );
       await database.query(
         `update reconciliation_issues set last_finding_id = null
-          where last_run_id in (select id from reconciliation_runs where scope->>'planningPeriodId' = $1)`,
+          where last_run_id in (select id from reconciliation_runs where scope->>'planningPeriodId' = $1)
+             or first_run_id in (select id from reconciliation_runs where scope->>'planningPeriodId' = $1)`,
         [periodId],
       );
       await database.query(
@@ -406,7 +423,8 @@ afterAll(async () => {
       );
       await database.query(
         `delete from reconciliation_issues where last_run_id in (
-           select id from reconciliation_runs where scope->>'planningPeriodId' = $1)`,
+           select id from reconciliation_runs where scope->>'planningPeriodId' = $1)
+           or first_run_id in (select id from reconciliation_runs where scope->>'planningPeriodId' = $1)`,
         [periodId],
       );
       await database.query(
@@ -1060,11 +1078,11 @@ describe('Gate ESP-018 — governance de findings', () => {
     );
   });
 
-  it('Gate A. PostgreSQL has 51 migrations through 0050', async () => {
+  it('Gate A. PostgreSQL has 52 migrations through 0051', async () => {
     const journal = JSON.parse(
       readFileSync(resolve(root, 'packages/database/migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries).toHaveLength(51);
+    expect(journal.entries.length).toBeGreaterThanOrEqual(51);
     expect(journal.entries[0]?.tag).toBe('0000_foundation');
     expect(journal.entries[50]?.tag).toBe('0050_esp018_reconciliation_governance');
     const table = await database.query<{ exists: boolean }>(

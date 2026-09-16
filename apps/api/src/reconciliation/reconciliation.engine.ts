@@ -46,6 +46,7 @@ export type EngineRunInput = ReconciliationScopeInput &
     domains?: readonly ReconciliationDomain[];
     severities?: readonly ReconciliationSeverity[];
     snapshotHooks?: EngineSnapshotHooks;
+    operationExecutionId?: string | null;
   }>;
 
 function isFatalSnapshotError(error: unknown): boolean {
@@ -82,6 +83,7 @@ export class ReconciliationEngine {
       scope,
       rulesVersion: RECONCILIATION_RULES_VERSION,
       totalRules: selected.length,
+      operationExecutionId: input.operationExecutionId ?? null,
     });
     const started = Date.now();
     await this.repository.markRunning(runId);

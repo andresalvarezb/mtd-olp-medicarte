@@ -2172,10 +2172,17 @@ export const reconciliationRuns = pgTable(
     metadata: jsonb('metadata')
       .notNull()
       .default(sql`'{}'::jsonb`),
+    operationExecutionId: uuid('operation_execution_id').references(
+      () => reconciliationOperationExecutions.id,
+      { onDelete: 'set null' },
+    ),
   },
   (table) => [
     index('reconciliation_runs_tenant_started_idx').on(table.tenantId, table.startedAt),
     index('reconciliation_runs_status_idx').on(table.tenantId, table.status, table.startedAt),
+    uniqueIndex('reconciliation_runs_operation_execution_unique')
+      .on(table.operationExecutionId)
+      .where(sql`${table.operationExecutionId} IS NOT NULL`),
     check(
       'reconciliation_runs_status_check',
       sql`${table.status} IN ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED')`,
@@ -2358,5 +2365,151 @@ export const reconciliationIssueComments = pgTable(
       'reconciliation_issue_comments_body_check',
       sql`length(btrim(${table.body})) > 0 AND length(${table.body}) <= 2000`,
     ),
+  ],
+);
+
+/**
+ * ESP-019: Operación programada y alertamiento controlado de reconciliación.
+ * PostgreSQL remains the source of truth for policies, executions, leases,
+ * fencing, and notifications.
+ */
+export const reconciliationOperationPolicies = pgTable(
+  'reconciliation_operation_policies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    enabled: boolean('enabled').notNull().default(false),
+    cadence: varchar('cadence', { length: 20 }).notNull().default('DAILY'),
+    timezone: varchar('timezone', { length: 80 }).notNull().default('America/Bogota'),
+    localTime: varchar('local_time', { length: 10 }).default('02:00'),
+    weekday: integer('weekday'),
+    domains: jsonb('domains'),
+    planningPeriodScope: varchar('planning_period_scope', { length: 40 }),
+    severityAlertThreshold: varchar('severity_alert_threshold', { length: 20 })
+      .notNull()
+      .default('ERROR'),
+    notifyOnRecovery: boolean('notify_on_recovery').notNull().default(true),
+    notifyOnTechnicalFailure: boolean('notify_on_technical_failure').notNull().default(true),
+    nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('reconciliation_operation_policies_tenant_unique').on(table.tenantId),
+    index('reconciliation_operation_policies_tenant_enabled_idx').on(table.tenantId, table.enabled),
+    check(
+      'reconciliation_operation_policies_cadence_check',
+      sql`${table.cadence} IN ('DAILY', 'WEEKLY', 'MANUAL')`,
+    ),
+    check(
+      'reconciliation_operation_policies_threshold_check',
+      sql`${table.severityAlertThreshold} IN ('CRITICAL', 'ERROR', 'WARNING', 'NONE')`,
+    ),
+    check(
+      'reconciliation_operation_policies_weekday_check',
+      sql`${table.weekday} IS NULL OR (${table.weekday} >= 1 AND ${table.weekday} <= 7)`,
+    ),
+  ],
+);
+
+export const reconciliationOperationExecutions = pgTable(
+  'reconciliation_operation_executions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    policyId: uuid('policy_id').references(() => reconciliationOperationPolicies.id, {
+      onDelete: 'set null',
+    }),
+    triggerType: varchar('trigger_type', { length: 20 }).notNull().default('SCHEDULED'),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    status: varchar('status', { length: 20 }).notNull().default('PENDING'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    claimToken: varchar('claim_token', { length: 100 }),
+    claimGeneration: integer('claim_generation').notNull().default(0),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    lastErrorMessage: text('last_error_message'),
+    missedOccurrencesCount: integer('missed_occurrences_count').notNull().default(0),
+    skipReason: varchar('skip_reason', { length: 80 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('reconciliation_operation_executions_scheduled_unique').on(
+      table.tenantId,
+      table.policyId,
+      table.scheduledFor,
+    ),
+    index('reconciliation_operation_executions_tenant_status_idx').on(table.tenantId, table.status),
+    index('reconciliation_operation_executions_lease_idx').on(table.leaseExpiresAt),
+    check(
+      'reconciliation_operation_executions_trigger_check',
+      sql`${table.triggerType} IN ('MANUAL', 'SCHEDULED', 'RETRY')`,
+    ),
+    check(
+      'reconciliation_operation_executions_status_check',
+      sql`${table.status} IN ('PENDING', 'CLAIMED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED')`,
+    ),
+  ],
+);
+
+export const reconciliationNotifications = pgTable(
+  'reconciliation_notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    executionId: uuid('execution_id').references(() => reconciliationOperationExecutions.id, {
+      onDelete: 'set null',
+    }),
+    reconciliationRunId: uuid('reconciliation_run_id').references(() => reconciliationRuns.id, {
+      onDelete: 'set null',
+    }),
+    notificationType: varchar('notification_type', { length: 40 }).notNull(),
+    severity: varchar('severity', { length: 20 }).notNull(),
+    dedupKey: varchar('dedup_key', { length: 200 }).notNull().unique(),
+    status: varchar('status', { length: 20 }).notNull().default('SENT'),
+    channel: varchar('channel', { length: 20 }).notNull().default('IN_APP'),
+    payloadJson: jsonb('payload_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('reconciliation_notifications_tenant_created_idx').on(table.tenantId, table.createdAt),
+    index('reconciliation_notifications_tenant_unread_idx').on(table.tenantId),
+    check(
+      'reconciliation_notifications_type_check',
+      sql`${table.notificationType} IN ('RECONCILIATION_CRITICAL', 'RECONCILIATION_ERROR', 'RECONCILIATION_WARNING', 'RECONCILIATION_TECHNICAL_FAILURE', 'RECONCILIATION_RECOVERY', 'RISK_REVIEW_OVERDUE')`,
+    ),
+    check(
+      'reconciliation_notifications_severity_check',
+      sql`${table.severity} IN ('CRITICAL', 'ERROR', 'WARNING', 'INFO')`,
+    ),
+    check(
+      'reconciliation_notifications_status_check',
+      sql`${table.status} IN ('PENDING', 'SENT', 'FAILED', 'SUPPRESSED')`,
+    ),
+    check('reconciliation_notifications_channel_check', sql`${table.channel} IN ('IN_APP')`),
   ],
 );

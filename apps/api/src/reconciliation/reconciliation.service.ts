@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { RECONCILIATION_RULES, type ReconciliationRuleDefinition } from '@authorization/domain';
 import type {
   CreateReconciliationRunRequest,
@@ -17,6 +17,8 @@ import { ReconciliationEngine } from './reconciliation.engine';
 import { ReconciliationIssuesRepository } from './reconciliation-issues.repository';
 import { ReconciliationMetricsProvider } from './reconciliation.metrics';
 import { mapRunRow, ReconciliationRepository } from './reconciliation.repository';
+import { ReconciliationOperationsRepository } from './reconciliation-operations.repository';
+import { ReconciliationOperationsService } from './reconciliation-operations.service';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -28,6 +30,8 @@ export class ReconciliationService {
   constructor(
     private readonly repository: ReconciliationRepository,
     private readonly issues: ReconciliationIssuesRepository,
+    private readonly operationsRepo: ReconciliationOperationsRepository,
+    private readonly operationsService: ReconciliationOperationsService,
     metrics: ReconciliationMetricsProvider,
     @Inject(DATABASE) database: Database,
   ) {
@@ -44,6 +48,14 @@ export class ReconciliationService {
     startedBy: string,
     body: CreateReconciliationRunRequest,
   ): Promise<ReconciliationRunResponse> {
+    const isRunning = await this.operationsRepo.hasActiveExecutionOrRun(tenantId);
+    if (isRunning) {
+      throw new ConflictException({
+        code: 'RECONCILIATION_ALREADY_RUNNING',
+        message: 'There is already an active reconciliation running for this tenant',
+      });
+    }
+
     const { id } = await this.engine.execute({
       tenantId,
       startedBy,
@@ -54,6 +66,12 @@ export class ReconciliationService {
       ...(body.severities ? { severities: body.severities } : {}),
     });
     this.metrics.metrics.setOpenIssueCounts(await this.issues.countByStatusSeverity());
+
+    const policy = await this.operationsRepo.getPolicy(tenantId);
+    if (policy) {
+      await this.operationsService.evaluateAlertsForRun(tenantId, null, id, policy);
+    }
+
     return this.get(tenantId, id);
   }
 

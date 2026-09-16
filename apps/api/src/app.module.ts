@@ -73,6 +73,9 @@ import { LegacyCompatibilityProjectionService } from './legacy/legacy-compatibil
 import { ReconciliationController } from './reconciliation/reconciliation.controller';
 import { ReconciliationIssuesRepository } from './reconciliation/reconciliation-issues.repository';
 import { ReconciliationIssuesService } from './reconciliation/reconciliation-issues.service';
+import { ReconciliationOperationsRepository } from './reconciliation/reconciliation-operations.repository';
+import { ReconciliationOperationsService } from './reconciliation/reconciliation-operations.service';
+import { ReconciliationSchedulerWorker } from './reconciliation/reconciliation-scheduler.worker';
 import { ReconciliationMetricsProvider } from './reconciliation/reconciliation.metrics';
 import { ReconciliationRepository } from './reconciliation/reconciliation.repository';
 import { ReconciliationService } from './reconciliation/reconciliation.service';
@@ -187,6 +190,9 @@ new Gauge({
     ReconciliationService,
     ReconciliationIssuesRepository,
     ReconciliationIssuesService,
+    ReconciliationOperationsRepository,
+    ReconciliationOperationsService,
+    ReconciliationSchedulerWorker,
     ReconciliationMetricsProvider,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },

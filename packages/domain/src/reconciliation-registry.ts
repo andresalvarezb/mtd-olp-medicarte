@@ -1314,6 +1314,9 @@ export const RECONCILIATION_WRITABLE_TABLES = [
   'reconciliation_issues',
   'reconciliation_issue_events',
   'reconciliation_issue_comments',
+  'reconciliation_operation_policies',
+  'reconciliation_operation_executions',
+  'reconciliation_notifications',
 ] as const;
 
 export const RECONCILIATION_OPERATIONAL_TABLES = [

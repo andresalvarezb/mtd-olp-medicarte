@@ -18,6 +18,8 @@ import { ApiError } from '@/lib/api-client';
 import { listPlanningPeriods } from '@/lib/planning-periods-api';
 import { listDispensingPoints } from '@/lib/patient-schedules-api';
 import { OperationalIssuesPanel } from './operational-issues-panel';
+import { OperationalOperationsPanel } from './operational-operations-panel';
+import { OperationalAlertsPanel } from './operational-alerts-panel';
 import {
   getReconciliationRun,
   listReconciliationFindings,
@@ -85,7 +87,10 @@ export function OperationalIntegrityView() {
   const canRun = hasPermission('reconciliation.run');
   const canTriage = hasPermission('reconciliation_issues.triage');
   const canComment = hasPermission('reconciliation_issues.comment');
-  const [tab, setTab] = useState<'runs' | 'issues'>('runs');
+  const canReadOperations = hasPermission('reconciliation_operations.read');
+  const canManageOperations = hasPermission('reconciliation_operations.manage');
+  const canReadNotifications = hasPermission('reconciliation_notifications.read');
+  const [tab, setTab] = useState<'runs' | 'issues' | 'operations' | 'alerts'>('runs');
   const [focusIssueId, setFocusIssueId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
@@ -189,16 +194,57 @@ export function OperationalIntegrityView() {
           ) : null
         }
       />
-      <p>
-        <button className="btn" type="button" onClick={() => setTab('runs')}>
+      <p style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <button
+          className={`btn ${tab === 'runs' ? 'primary' : ''}`}
+          type="button"
+          onClick={() => setTab('runs')}
+        >
           Runs
-        </button>{' '}
-        <button className="btn" type="button" onClick={() => setTab('issues')}>
+        </button>
+        <button
+          className={`btn ${tab === 'issues' ? 'primary' : ''}`}
+          type="button"
+          onClick={() => setTab('issues')}
+        >
           Issues
         </button>
+        {canReadOperations ? (
+          <button
+            className={`btn ${tab === 'operations' ? 'primary' : ''}`}
+            type="button"
+            onClick={() => setTab('operations')}
+          >
+            Operations
+          </button>
+        ) : null}
+        {canReadNotifications ? (
+          <button
+            className={`btn ${tab === 'alerts' ? 'primary' : ''}`}
+            type="button"
+            onClick={() => setTab('alerts')}
+          >
+            Alerts
+          </button>
+        ) : null}
       </p>
       {error ? <p className="banner error">{error}</p> : null}
-      {tab === 'issues' ? (
+      {tab === 'operations' ? (
+        <OperationalOperationsPanel
+          organizationId={organizationId}
+          canManage={canManageOperations}
+          canRun={canRun}
+        />
+      ) : tab === 'alerts' ? (
+        <OperationalAlertsPanel
+          organizationId={organizationId}
+          canRead={canReadNotifications}
+          onSelectRun={(runId) => {
+            setTab('runs');
+            setSelectedId(runId);
+          }}
+        />
+      ) : tab === 'issues' ? (
         <OperationalIssuesPanel
           organizationId={organizationId}
           canTriage={canTriage}

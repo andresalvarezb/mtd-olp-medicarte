@@ -38,6 +38,14 @@ describe('parseApiConfig', () => {
     expect(parseApiConfig(base).AUTH_JWT_TTL_SECONDS).toBe(28_800);
     expect(parseApiConfig(base).AUTH_BOOTSTRAP_ADMIN_USERNAME).toBe('foundation-admin');
   });
+
+  it('defaults reconciliation operations scheduler to disabled', () => {
+    const config = parseApiConfig(base);
+    expect(config.RECONCILIATION_SCHEDULER_ENABLED).toBe(false);
+    expect(config.RECONCILIATION_SCHEDULER_TICK_MS).toBe(60_000);
+    expect(config.RECONCILIATION_OPERATION_LEASE_SECONDS).toBe(120);
+    expect(config.RECONCILIATION_MAX_ATTEMPTS).toBe(3);
+  });
 });
 
 describe('parseWorkerConfig', () => {
@@ -48,5 +56,16 @@ describe('parseWorkerConfig', () => {
       REDIS_URL: 'redis://redis:6379',
     });
     expect(config.SCHEDULER_ENABLED).toBe(true);
+    expect(config.RECONCILIATION_SCHEDULER_ENABLED).toBe(false);
+  });
+
+  it('allows enabling reconciliation scheduler explicitly', () => {
+    const config = parseWorkerConfig({
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://user:password@database:5432/authorization',
+      REDIS_URL: 'redis://redis:6379',
+      RECONCILIATION_SCHEDULER_ENABLED: 'true',
+    });
+    expect(config.RECONCILIATION_SCHEDULER_ENABLED).toBe(true);
   });
 });

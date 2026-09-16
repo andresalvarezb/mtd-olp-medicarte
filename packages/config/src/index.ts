@@ -57,10 +57,21 @@ const bulkConfigSchema = {
   BULK_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
 };
 
+const reconciliationOperationsConfigSchema = {
+  RECONCILIATION_SCHEDULER_ENABLED: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .default('false'),
+  RECONCILIATION_SCHEDULER_TICK_MS: z.coerce.number().int().min(100).default(60_000),
+  RECONCILIATION_OPERATION_LEASE_SECONDS: z.coerce.number().int().min(10).max(3600).default(120),
+  RECONCILIATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+};
+
 export const apiConfigSchema = commonSchema.extend({
   ...importConfigSchema,
   ...mipresConfigSchema,
   ...authConfigSchema,
+  ...reconciliationOperationsConfigSchema,
   PORT: z.coerce.number().int().positive().optional(),
   API_PORT: z.coerce.number().int().positive().default(3001),
   API_PUBLIC_URL: z.string().url(),
@@ -71,6 +82,7 @@ export const workerConfigSchema = commonSchema.extend({
   ...importConfigSchema,
   ...mipresConfigSchema,
   ...bulkConfigSchema,
+  ...reconciliationOperationsConfigSchema,
   IMPORT_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
   SCHEDULER_ENABLED: z
     .enum(['true', 'false'])

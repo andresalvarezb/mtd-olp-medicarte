@@ -12,6 +12,13 @@ import type {
   ReconciliationRunResponse,
   ReconciliationRuleCatalogItem,
   ResolveReconciliationIssueRequest,
+  ListReconciliationNotificationsQuery,
+  ListReconciliationOperationExecutionsQuery,
+  ReconciliationNotificationResponse,
+  ReconciliationOperationExecutionResponse,
+  ReconciliationOperationPolicyResponse,
+  TriggerManualOperationExecutionRequest,
+  UpsertReconciliationOperationPolicyRequest,
 } from '@authorization/contracts';
 import { apiRequest } from './api-client';
 
@@ -183,5 +190,114 @@ export function createIssueComment(
     method: 'POST',
     organizationId,
     body: JSON.stringify(body),
+  });
+}
+
+export function getOperationPolicy(organizationId: string) {
+  return apiRequest<{ policy: ReconciliationOperationPolicyResponse | null }>(
+    '/reconciliation/operations/policy',
+    { organizationId },
+  );
+}
+
+export function upsertOperationPolicy(
+  organizationId: string,
+  body: UpsertReconciliationOperationPolicyRequest,
+) {
+  return apiRequest<{ policy: ReconciliationOperationPolicyResponse }>(
+    '/reconciliation/operations/policy',
+    {
+      method: 'PUT',
+      organizationId,
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function enableOperationPolicy(organizationId: string) {
+  return apiRequest<{ policy: ReconciliationOperationPolicyResponse }>(
+    '/reconciliation/operations/policy/enable',
+    {
+      method: 'POST',
+      organizationId,
+    },
+  );
+}
+
+export function disableOperationPolicy(organizationId: string) {
+  return apiRequest<{ policy: ReconciliationOperationPolicyResponse }>(
+    '/reconciliation/operations/policy/disable',
+    {
+      method: 'POST',
+      organizationId,
+    },
+  );
+}
+
+export function listOperationExecutions(
+  organizationId: string,
+  query: Partial<ListReconciliationOperationExecutionsQuery> = {},
+) {
+  return apiRequest<{ items: ReconciliationOperationExecutionResponse[] }>(
+    `/reconciliation/operations/executions${querySuffix(query)}`,
+    { organizationId },
+  );
+}
+
+export function getOperationExecution(organizationId: string, id: string) {
+  return apiRequest<ReconciliationOperationExecutionResponse>(
+    `/reconciliation/operations/executions/${id}`,
+    { organizationId },
+  );
+}
+
+export function cancelOperationExecution(organizationId: string, id: string) {
+  return apiRequest<ReconciliationOperationExecutionResponse>(
+    `/reconciliation/operations/executions/${id}/cancel`,
+    {
+      method: 'POST',
+      organizationId,
+    },
+  );
+}
+
+export function triggerManualOperationExecution(
+  organizationId: string,
+  body: TriggerManualOperationExecutionRequest = {},
+) {
+  return apiRequest<{ execution: ReconciliationOperationExecutionResponse }>(
+    '/reconciliation/operations/trigger',
+    {
+      method: 'POST',
+      organizationId,
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function listReconciliationNotifications(
+  organizationId: string,
+  query: Partial<ListReconciliationNotificationsQuery> = {},
+) {
+  return apiRequest<{ items: ReconciliationNotificationResponse[] }>(
+    `/reconciliation/notifications${querySuffix(query)}`,
+    { organizationId },
+  );
+}
+
+export function markNotificationRead(organizationId: string, id: string) {
+  return apiRequest<ReconciliationNotificationResponse>(
+    `/reconciliation/notifications/${id}/read`,
+    {
+      method: 'POST',
+      organizationId,
+    },
+  );
+}
+
+export function markAllNotificationsRead(organizationId: string) {
+  return apiRequest<{ updatedCount: number }>('/reconciliation/notifications/read-all', {
+    method: 'POST',
+    organizationId,
   });
 }

@@ -21,7 +21,8 @@
 | ESP-015        | ACCEPTED                     |
 | ESP-016        | ACCEPTED                     |
 | ESP-017        | ACCEPTED                     |
-| ESP-018        | IMPLEMENTED / PENDING REVIEW |
+| ESP-018        | ACCEPTED                     |
+| ESP-019        | IMPLEMENTED / PENDING REVIEW |
 
 ### Evidencia de cierre ESP-010
 
@@ -1708,6 +1709,44 @@ Detalle normativo: `.agent/adr/ADR-041-esp-018-reconciliation-governance.md`.
 - scheduler automático;
 - alerting externo;
 - auto-close por ausencia en un run posterior.
+
+---
+
+# ESP-019 — Operación programada y alertamiento controlado de reconciliación
+
+## Objetivo
+
+Convertir el reconciler operacional en una capacidad programada, robusta y con alertamiento controlado sin introducir un segundo scheduler autoritativo fuera de PostgreSQL.
+
+PostgreSQL se mantiene como source of truth y autoridad para políticas, ejecuciones programadas y manuales, leases, fencing y notificaciones in-app.
+
+ESP-017 permanece como la autoridad de detección técnica y ESP-018 como la autoridad de governance de issues. ESP-019 no altera reglas de detección, severidades, códigos de salida ni estado de findings.
+
+Detalle normativo: `.agent/adr/ADR-042-esp-019-reconciliation-operations-and-alerts.md` y `docs/adr/042-reconciliation-operations-and-alerts.md`.
+
+## Fuera de alcance
+
+- Auto-reparación de datos;
+- Conversión de ACCEPTED_RISK a PASS;
+- Modificación de exit codes del CLI de reconciliación;
+- Schedulers arbitrarios cron en MVP (solo DAILY, WEEKLY y MANUAL);
+- Alertas externas no configuradas o sin infraestructura durable.
+
+### Evidencia de cierre ESP-019
+
+- migration: `0051_esp019_reconciliation_operations.sql` (ajustada con cardinalidad estricta y vínculo canónico único).
+- Hardening de cardinalidad: `reconciliation_runs.operation_execution_id` canónico; eliminado `reconciliation_run_id` de `reconciliation_operation_executions`.
+- Restricción física en DB: `UNIQUE (operation_execution_id) WHERE operation_execution_id IS NOT NULL` en `reconciliation_runs`.
+- Gate A PostgreSQL: 52 migraciones hasta 0051 registradas y aplicadas; índice UNIQUE y eliminación de columna duplicada verificados.
+- Gate B Bootstrap seguro: la migración no inserta políticas auto-habilitadas.
+- Gate ESP-019: 14/14 suites PASS (74 verificaciones exhaustivas, incluyendo concurrencia DB, Crash Window C, runs manuales NULL y complementariedad Fencing + UNIQUE).
+- Gate ESP-018: 13/13 suites PASS (sin regresiones de governance).
+- Gate ESP-017: 33/33 tests PASS (detección técnica y CLI intactos).
+- Unit suites: domain, contracts, config PASS (232 tests unitarios).
+- Integration suites: 21/21 suites PASS (383 tests de integración).
+- build: 8/8 paquetes compilan exitosamente.
+- Docker: API, Worker y Web healthy.
+- git diff --check: PASS.
 
 ---
 

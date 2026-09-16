@@ -1798,6 +1798,7 @@ export const reconciliationRunResponseSchema = z.object({
   generatedAt: isoDateTimeSchema.nullable(),
   durationMs: z.number().int().nonnegative().nullable(),
   ruleResults: z.array(reconciliationRuleResultSchema),
+  operationExecutionId: z.string().uuid().nullable().optional(),
 });
 export type ReconciliationRunResponse = z.infer<typeof reconciliationRunResponseSchema>;
 
@@ -2029,3 +2030,186 @@ export const reconciliationRuleCatalogItemSchema = z.object({
   executable: z.boolean(),
 });
 export type ReconciliationRuleCatalogItem = z.infer<typeof reconciliationRuleCatalogItemSchema>;
+
+export const reconciliationCadenceSchema = z.enum(['DAILY', 'WEEKLY', 'MANUAL']);
+export type ReconciliationCadence = z.infer<typeof reconciliationCadenceSchema>;
+
+export const reconciliationTriggerTypeSchema = z.enum(['MANUAL', 'SCHEDULED', 'RETRY']);
+export type ReconciliationTriggerType = z.infer<typeof reconciliationTriggerTypeSchema>;
+
+export const reconciliationExecutionStatusSchema = z.enum([
+  'PENDING',
+  'CLAIMED',
+  'RUNNING',
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+  'SKIPPED',
+]);
+export type ReconciliationExecutionStatus = z.infer<typeof reconciliationExecutionStatusSchema>;
+
+export const reconciliationNotificationTypeSchema = z.enum([
+  'RECONCILIATION_CRITICAL',
+  'RECONCILIATION_ERROR',
+  'RECONCILIATION_WARNING',
+  'RECONCILIATION_TECHNICAL_FAILURE',
+  'RECONCILIATION_RECOVERY',
+  'RISK_REVIEW_OVERDUE',
+]);
+export type ReconciliationNotificationType = z.infer<typeof reconciliationNotificationTypeSchema>;
+
+export const reconciliationNotificationStatusSchema = z.enum([
+  'PENDING',
+  'SENT',
+  'FAILED',
+  'SUPPRESSED',
+]);
+export type ReconciliationNotificationStatus = z.infer<
+  typeof reconciliationNotificationStatusSchema
+>;
+
+export const reconciliationSeverityAlertThresholdSchema = z.enum([
+  'CRITICAL',
+  'ERROR',
+  'WARNING',
+  'NONE',
+]);
+export type ReconciliationSeverityAlertThreshold = z.infer<
+  typeof reconciliationSeverityAlertThresholdSchema
+>;
+
+export const reconciliationNotificationChannelSchema = z.enum(['IN_APP']);
+export type ReconciliationNotificationChannel = z.infer<
+  typeof reconciliationNotificationChannelSchema
+>;
+
+export const reconciliationOperationPolicyResponseSchema = z.object({
+  id: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  enabled: z.boolean(),
+  cadence: reconciliationCadenceSchema,
+  timezone: z.string(),
+  localTime: z.string().nullable(),
+  weekday: z.number().int().min(1).max(7).nullable(),
+  domains: z.array(reconciliationDomainSchema).nullable(),
+  planningPeriodScope: z.string().nullable(),
+  severityAlertThreshold: reconciliationSeverityAlertThresholdSchema,
+  notifyOnRecovery: z.boolean(),
+  notifyOnTechnicalFailure: z.boolean(),
+  nextRunAt: isoDateTimeSchema.nullable(),
+  createdBy: z.string().uuid(),
+  updatedBy: z.string().uuid(),
+  version: z.number().int().positive(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type ReconciliationOperationPolicyResponse = z.infer<
+  typeof reconciliationOperationPolicyResponseSchema
+>;
+
+export const upsertReconciliationOperationPolicyRequestSchema = z.object({
+  expectedVersion: z.number().int().positive().optional(),
+  enabled: z.boolean().default(false),
+  cadence: reconciliationCadenceSchema,
+  timezone: z.string().default('America/Bogota'),
+  localTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .nullable()
+    .optional(),
+  weekday: z.number().int().min(1).max(7).nullable().optional(),
+  domains: z.array(reconciliationDomainSchema).nullable().optional(),
+  planningPeriodScope: z.string().nullable().optional(),
+  severityAlertThreshold: reconciliationSeverityAlertThresholdSchema.default('ERROR'),
+  notifyOnRecovery: z.boolean().default(true),
+  notifyOnTechnicalFailure: z.boolean().default(true),
+});
+export type UpsertReconciliationOperationPolicyRequest = z.infer<
+  typeof upsertReconciliationOperationPolicyRequestSchema
+>;
+
+export const reconciliationOperationExecutionResponseSchema = z.object({
+  id: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  policyId: z.string().uuid().nullable(),
+  triggerType: reconciliationTriggerTypeSchema,
+  scheduledFor: isoDateTimeSchema.nullable(),
+  claimedAt: isoDateTimeSchema.nullable(),
+  startedAt: isoDateTimeSchema.nullable(),
+  completedAt: isoDateTimeSchema.nullable(),
+  status: reconciliationExecutionStatusSchema,
+  reconciliationRunId: z.string().uuid().nullable(),
+  attemptCount: z.number().int().nonnegative(),
+  claimToken: z.string().nullable(),
+  claimGeneration: z.number().int().nonnegative(),
+  leaseExpiresAt: isoDateTimeSchema.nullable(),
+  lastErrorCode: z.string().nullable(),
+  lastErrorMessage: z.string().nullable(),
+  missedOccurrencesCount: z.number().int().nonnegative(),
+  skipReason: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  runHealth: z.enum(['HEALTHY', 'UNHEALTHY']).nullable().optional(),
+  criticalFindings: z.number().int().nonnegative().nullable().optional(),
+  errorFindings: z.number().int().nonnegative().nullable().optional(),
+  warningFindings: z.number().int().nonnegative().nullable().optional(),
+});
+export type ReconciliationOperationExecutionResponse = z.infer<
+  typeof reconciliationOperationExecutionResponseSchema
+>;
+
+export const reconciliationNotificationResponseSchema = z.object({
+  id: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  executionId: z.string().uuid().nullable(),
+  reconciliationRunId: z.string().uuid().nullable(),
+  notificationType: reconciliationNotificationTypeSchema,
+  severity: reconciliationSeveritySchema,
+  dedupKey: z.string(),
+  status: reconciliationNotificationStatusSchema,
+  channel: reconciliationNotificationChannelSchema,
+  payload: z.record(z.unknown()),
+  attemptCount: z.number().int().nonnegative(),
+  readAt: isoDateTimeSchema.nullable(),
+  sentAt: isoDateTimeSchema.nullable(),
+  lastErrorCode: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type ReconciliationNotificationResponse = z.infer<
+  typeof reconciliationNotificationResponseSchema
+>;
+
+export const listReconciliationOperationExecutionsQuerySchema = z.object({
+  status: reconciliationExecutionStatusSchema.optional(),
+  triggerType: reconciliationTriggerTypeSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type ListReconciliationOperationExecutionsQuery = z.infer<
+  typeof listReconciliationOperationExecutionsQuerySchema
+>;
+
+export const listReconciliationNotificationsQuerySchema = z.object({
+  unreadOnly: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
+  status: reconciliationNotificationStatusSchema.optional(),
+  severity: reconciliationSeveritySchema.optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type ListReconciliationNotificationsQuery = z.infer<
+  typeof listReconciliationNotificationsQuerySchema
+>;
+
+export const triggerManualOperationExecutionRequestSchema = z.object({
+  domains: z.array(reconciliationDomainSchema).min(1).optional(),
+  planningPeriodId: z.string().uuid().optional(),
+  dispensingPointId: z.string().uuid().optional(),
+  commercialCode: z.string().min(1).max(255).optional(),
+});
+export type TriggerManualOperationExecutionRequest = z.infer<
+  typeof triggerManualOperationExecutionRequestSchema
+>;

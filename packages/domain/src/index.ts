@@ -255,3 +255,32 @@ export type {
   ScheduleExpirationPolicy,
   ScheduleLateHandling,
 } from './patient-schedule';
+export {
+  RECONCILIATION_CADENCES,
+  RECONCILIATION_DEFAULT_TIMEZONE,
+  RECONCILIATION_EXECUTION_STATUSES,
+  RECONCILIATION_NOTIFICATION_CHANNELS,
+  RECONCILIATION_NOTIFICATION_STATUSES,
+  RECONCILIATION_NOTIFICATION_TYPES,
+  RECONCILIATION_SEVERITY_ALERT_THRESHOLDS,
+  RECONCILIATION_TRIGGER_TYPES,
+  calculateNextSlot,
+  countMissedSlots,
+  deriveRunHealth,
+  evaluateHealthAlert,
+  getZonedDate,
+  getZonedParts,
+  isComparableScope,
+  parseLocalTime,
+  shouldEmitRecovery,
+} from './reconciliation-operations';
+export type {
+  PolicyScheduleConfig,
+  ReconciliationCadence,
+  ReconciliationExecutionStatus,
+  ReconciliationNotificationChannel,
+  ReconciliationNotificationStatus,
+  ReconciliationNotificationType,
+  ReconciliationSeverityAlertThreshold,
+  ReconciliationTriggerType,
+} from './reconciliation-operations';

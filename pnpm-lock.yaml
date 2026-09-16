@@ -153,6 +153,9 @@ importers:
       '@authorization/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@authorization/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@authorization/ui':
         specifier: workspace:*
         version: link:../../packages/ui

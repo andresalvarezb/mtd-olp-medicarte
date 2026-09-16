@@ -7,6 +7,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -19,17 +20,22 @@ import {
   assignReconciliationIssueRequestSchema,
   createReconciliationIssueCommentRequestSchema,
   createReconciliationRunRequestSchema,
+  listReconciliationNotificationsQuerySchema,
+  listReconciliationOperationExecutionsQuerySchema,
   reopenReconciliationIssueRequestSchema,
   reconciliationFindingListQuerySchema,
   reconciliationIssueListQuerySchema,
   resolveReconciliationIssueRequestSchema,
+  triggerManualOperationExecutionRequestSchema,
   unassignReconciliationIssueRequestSchema,
+  upsertReconciliationOperationPolicyRequestSchema,
 } from '@authorization/contracts';
 import { AuthGuard } from '../common/auth.guard';
 import { scopeFromProfile } from '../common/request-scope';
 import { AccessService } from '../identity/access.service';
 import type { AuthenticatedRequest } from '../types';
 import { ReconciliationIssuesService } from './reconciliation-issues.service';
+import { ReconciliationOperationsService } from './reconciliation-operations.service';
 import { ReconciliationService } from './reconciliation.service';
 
 type ReconciliationPermission =
@@ -37,7 +43,10 @@ type ReconciliationPermission =
   | 'reconciliation.run'
   | 'reconciliation_issues.read'
   | 'reconciliation_issues.triage'
-  | 'reconciliation_issues.comment';
+  | 'reconciliation_issues.comment'
+  | 'reconciliation_operations.read'
+  | 'reconciliation_operations.manage'
+  | 'reconciliation_notifications.read';
 
 @ApiTags('reconciliation')
 @ApiBearerAuth()
@@ -47,6 +56,7 @@ export class ReconciliationController {
   constructor(
     private readonly reconciliation: ReconciliationService,
     private readonly issues: ReconciliationIssuesService,
+    private readonly operations: ReconciliationOperationsService,
     private readonly access: AccessService,
   ) {}
 
@@ -321,5 +331,154 @@ export class ReconciliationController {
       scope.correlationId,
       createReconciliationIssueCommentRequestSchema.parse(rawBody ?? {}),
     );
+  }
+
+  // --- ESP-019: Operación programada y alertamiento controlado ---
+
+  @Get('operations/policy')
+  async getPolicy(
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation_operations.read');
+    const policy = await this.operations.getPolicy(scope.organizationId);
+    return { policy };
+  }
+
+  @Put('operations/policy')
+  @HttpCode(200)
+  async upsertPolicy(
+    @Body() rawBody: unknown,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation_operations.manage');
+    const body = upsertReconciliationOperationPolicyRequestSchema.parse(rawBody ?? {});
+    const policy = await this.operations.upsertPolicy(
+      scope.organizationId,
+      scope.userId,
+      body,
+      scope.correlationId,
+    );
+    return { policy };
+  }
+
+  @Post('operations/policy/enable')
+  @HttpCode(200)
+  async enablePolicy(
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation_operations.manage');
+    const policy = await this.operations.enablePolicy(
+      scope.organizationId,
+      scope.userId,
+      scope.correlationId,
+    );
+    return { policy };
+  }
+
+  @Post('operations/policy/disable')
+  @HttpCode(200)
+  async disablePolicy(
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation_operations.manage');
+    const policy = await this.operations.disablePolicy(
+      scope.organizationId,
+      scope.userId,
+      scope.correlationId,
+    );
+    return { policy };
+  }
+
+  @Get('operations/executions')
+  async listExecutions(
+    @Query() rawQuery: unknown,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation_operations.read');
+    const query = listReconciliationOperationExecutionsQuerySchema.parse(rawQuery ?? {});
+    return this.operations.listExecutions(scope.organizationId, query);
+  }
+
+  @Get('operations/executions/:id')
+  async getExecution(
+    @Param('id') rawId: string,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation_operations.read');
+    return this.operations.getExecution(scope.organizationId, z.string().uuid().parse(rawId));
+  }
+
+  @Post('operations/executions/:id/cancel')
+  @HttpCode(200)
+  async cancelExecution(
+    @Param('id') rawId: string,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation_operations.manage');
+    return this.operations.cancelExecution(
+      scope.organizationId,
+      z.string().uuid().parse(rawId),
+      scope.userId,
+      scope.correlationId,
+    );
+  }
+
+  @Post('operations/trigger')
+  @HttpCode(200)
+  async triggerManual(
+    @Body() rawBody: unknown,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation.run');
+    const body = triggerManualOperationExecutionRequestSchema.parse(rawBody ?? {});
+    return this.operations.triggerManual(
+      scope.organizationId,
+      scope.userId,
+      body,
+      scope.correlationId,
+    );
+  }
+
+  @Get('notifications')
+  async listNotifications(
+    @Query() rawQuery: unknown,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation_notifications.read');
+    const query = listReconciliationNotificationsQuerySchema.parse(rawQuery ?? {});
+    return this.operations.listNotifications(scope.organizationId, query);
+  }
+
+  @Post('notifications/:id/read')
+  @HttpCode(200)
+  async markNotificationRead(
+    @Param('id') rawId: string,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation_notifications.read');
+    return this.operations.markNotificationRead(
+      scope.organizationId,
+      z.string().uuid().parse(rawId),
+    );
+  }
+
+  @Post('notifications/read-all')
+  @HttpCode(200)
+  async markAllNotificationsRead(
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const scope = await this.mtdScope(organizationId, request, 'reconciliation_notifications.read');
+    return this.operations.markAllNotificationsRead(scope.organizationId);
   }
 }
