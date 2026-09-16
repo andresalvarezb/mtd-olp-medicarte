@@ -372,6 +372,13 @@
       "when": 1790546840663,
       "tag": "0052_esp020_identity_access_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1790546841663,
+      "tag": "0054_authorization_based_projected_demand",
+      "breakpoints": true
     }
   ]
 }

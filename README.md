@@ -3,11 +3,10 @@
 Base técnica para reconstruir la operación descrita en
 [`refactor.md`](.agent/specs/refactor.md).
 
-La única secuencia funcional vigente es:
+La secuencia funcional vigente es:
 
 ```text
-Autorización
-→ programación
+Autorización cargada
 → demanda proyectada
 → consolidación
 → orden de compra
@@ -29,7 +28,9 @@ Se conserva únicamente infraestructura transversal:
 - auditoría técnica, outbox e idempotencia;
 - migraciones históricas para cumplir la estrategia `EXPAND → BACKFILL → VERIFY → SWITCH → CONTRACT`.
 
-Los módulos operativos anteriores fueron retirados porque asociaban programación,
+La programación de pacientes de Medicarte dejó de ser un paso operativo de la
+demanda y se conserva únicamente para consultar histórico. Los módulos operativos
+anteriores fueron retirados porque asociaban programación,
 OC, dispensación y aplicación directamente a `authorization_items`. Las columnas y
 tablas antiguas permanecen solamente para futura consulta y migración histórica; no
 existe código activo que cree nuevas operaciones mediante ese modelo.

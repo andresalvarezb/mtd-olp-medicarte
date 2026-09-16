@@ -16,13 +16,9 @@ export class ProjectedDemandService {
   /**
    * consolidatePeriod(periodId): el repository ejecuta la consolidación con
    * locks + reconciliación + verificación de invariantes + auditoría en una
-   * única transacción. Una programación inconsistente (p.ej. LATE +
-   * NEXT_PERIOD sin período diferido) falla de forma explícita.
+   * única transacción. La fuente es el cargue de autorizaciones habilitadas.
    */
-  async consolidate(
-    periodId: string,
-    actor: Scope,
-  ): Promise<ConsolidateProjectedDemandResponse> {
+  async consolidate(periodId: string, actor: Scope): Promise<ConsolidateProjectedDemandResponse> {
     let outcome;
     try {
       outcome = await this.repository.consolidate({
@@ -36,10 +32,7 @@ export class ProjectedDemandService {
     return outcome.summary;
   }
 
-  list(
-    query: ProjectedDemandListQuery,
-    actor: Scope,
-  ): Promise<ProjectedDemandLineResponse[]> {
+  list(query: ProjectedDemandListQuery, actor: Scope): Promise<ProjectedDemandLineResponse[]> {
     void actor;
     return this.repository.list(query);
   }
@@ -90,7 +83,7 @@ function translateConsolidationError(error: unknown): Error {
     return new ConflictException({
       code: error.code,
       message: error.message,
-      fields: { patientScheduleId: [error.patientScheduleId] },
+      fields: { authorizationItemId: [error.patientScheduleId] },
     });
   }
   return error instanceof Error ? error : new Error('Unknown consolidation error');

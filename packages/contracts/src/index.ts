@@ -1046,16 +1046,12 @@ export type PaginatedProjectedDemandLinesResponse = z.infer<
 >;
 
 export const projectedDemandSourceResponseSchema = z.object({
-  patientScheduleId: z.string().uuid(),
-  scheduleRevision: z.number().int().positive(),
   authorizationItemId: z.string().uuid(),
   authorizationNumber: z.string(),
   patientDocument: z.string().nullable(),
   patientName: z.string().nullable(),
-  scheduledDate: z.string().date(),
   quantity: z.number().int().positive(),
-  scheduleTiming: scheduleTimingSchema,
-  lateHandling: lateHandlingSchema.nullable(),
+  loadedAt: isoDateTimeSchema,
 });
 export type ProjectedDemandSourceResponse = z.infer<typeof projectedDemandSourceResponseSchema>;
 

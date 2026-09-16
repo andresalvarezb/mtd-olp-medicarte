@@ -611,8 +611,12 @@ export const demandSources = pgTable(
     projectedDemandLineId: uuid('projected_demand_line_id')
       .notNull()
       .references(() => projectedDemandLines.id, { onDelete: 'restrict' }),
-    patientScheduleId: uuid('patient_schedule_id').notNull(),
-    scheduleRevision: integer('schedule_revision').notNull(),
+    patientScheduleId: uuid('patient_schedule_id'),
+    scheduleRevision: integer('schedule_revision'),
+    authorizationItemId: uuid('authorization_item_id').references(() => authorizationItems.id, {
+      onDelete: 'restrict',
+    }),
+    loadedAt: timestamp('loaded_at', { withTimezone: true }),
     quantity: integer('quantity').notNull(),
     /**
      * ESP-004: pertenencia de la fuente a la identidad de su línea, impuesta
@@ -629,17 +633,24 @@ export const demandSources = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    foreignKey({
-      columns: [table.patientScheduleId, table.scheduleRevision],
-      foreignColumns: [patientScheduleHistory.patientScheduleId, patientScheduleHistory.revision],
-      name: 'demand_sources_schedule_revision_fk',
-    }),
+    // Las fuentes nuevas apuntan a authorization_items. Las columnas de
+    // programación permanecen nullable para conservar datos históricos.
     uniqueIndex('demand_sources_schedule_revision_idx').on(
       table.patientScheduleId,
       table.scheduleRevision,
     ),
+    uniqueIndex('demand_sources_authorization_item_unique')
+      .on(table.projectedDemandLineId, table.authorizationItemId)
+      .where(sql`${table.authorizationItemId} IS NOT NULL`),
     index('demand_sources_demand_line_idx').on(table.projectedDemandLineId, table.createdAt),
-    check('demand_sources_schedule_revision_check', sql`${table.scheduleRevision} > 0`),
+    check(
+      'demand_sources_schedule_revision_check',
+      sql`${table.scheduleRevision} IS NULL OR ${table.scheduleRevision} > 0`,
+    ),
+    check(
+      'demand_sources_authorization_or_schedule_check',
+      sql`${table.authorizationItemId} IS NOT NULL OR (${table.patientScheduleId} IS NOT NULL AND ${table.scheduleRevision} IS NOT NULL)`,
+    ),
     check('demand_sources_quantity_check', sql`${table.quantity} > 0`),
     check(
       'demand_sources_schedule_timing_check',

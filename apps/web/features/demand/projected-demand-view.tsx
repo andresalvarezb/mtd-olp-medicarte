@@ -24,16 +24,6 @@ const BOGOTA_DATE_TIME = new Intl.DateTimeFormat('es-CO', {
   timeStyle: 'short',
 });
 
-const TIMING_LABELS: Record<string, string> = {
-  ON_TIME: 'Dentro del corte',
-  LATE: 'Después del corte',
-};
-
-const LATE_HANDLING_LABELS: Record<string, string> = {
-  COMPLEMENTARY_PURCHASE_ORDER: 'OC complementaria (intención)',
-  NEXT_PERIOD: 'Siguiente período',
-};
-
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : 'Error inesperado.';
 }
@@ -41,10 +31,7 @@ function describeError(error: unknown): string {
 export function ProjectedDemandView() {
   const { organizationId, hasPermission } = useRole();
   const canConsolidate = hasPermission('projected_demand.manage');
-  const periods = useApiData(
-    () => listPlanningPeriods(organizationId),
-    [organizationId],
-  );
+  const periods = useApiData(() => listPlanningPeriods(organizationId), [organizationId]);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');
   const [selectedLine, setSelectedLine] = useState<ProjectedDemandLineResponse | null>(null);
   const [sources, setSources] = useState<
@@ -75,7 +62,7 @@ export function ProjectedDemandView() {
     run(async () => {
       const summary = await consolidatePeriod(organizationId, selectedPeriodId);
       setMessage(
-        `Consolidación completada: ${summary.lineCount} líneas, ${summary.sourceCount} fuentes, ` +
+        `Consolidación completada desde autorizaciones: ${summary.lineCount} líneas, ${summary.sourceCount} fuentes, ` +
           `${summary.projectedQuantity} unidades (regular ${summary.regularQuantity} / late ${summary.lateQuantity}).`,
       );
       demand.reload();
@@ -95,7 +82,7 @@ export function ProjectedDemandView() {
     <>
       <PageHeader
         title="Demanda proyectada"
-        description="Consolidación reproducible de las programaciones vigentes de Medicarte por período, punto y código comercial. La demanda consolidada no es editable manualmente."
+        description="Consolidación reproducible de las autorizaciones cargadas por período, punto y código comercial. La demanda consolidada no es editable manualmente."
         actions={
           canConsolidate ? (
             <button
@@ -160,7 +147,7 @@ export function ProjectedDemandView() {
             ) : lineItems.length === 0 ? (
               <p style={{ color: 'var(--muted)' }}>
                 Sin líneas consolidadas. Ejecuta "Consolidar período" para generarlas desde las
-                programaciones vigentes.
+                autorizaciones cargadas.
               </p>
             ) : (
               <div className="table-wrap">
@@ -192,7 +179,11 @@ export function ProjectedDemandView() {
                           <strong>{line.projectedQuantity}</strong>
                         </td>
                         <td>{line.sourceCount}</td>
-                        <td>{line.consolidatedAt ? BOGOTA_DATE_TIME.format(new Date(line.consolidatedAt)) : '—'}</td>
+                        <td>
+                          {line.consolidatedAt
+                            ? BOGOTA_DATE_TIME.format(new Date(line.consolidatedAt))
+                            : '—'}
+                        </td>
                         <td>
                           <button
                             type="button"
@@ -218,43 +209,31 @@ export function ProjectedDemandView() {
           <CardHead
             title={`Programaciones fuente · ${selectedLine.commercialCode}`}
             subtitle={`${selectedLine.dispensingPointCode} · ${selectedLine.planningPeriodStartDate} → ${selectedLine.planningPeriodEndDate}`}
-            aside={
-              <StatusBadge tone="blue">{selectedLine.sourceCount} fuentes</StatusBadge>
-            }
+            aside={<StatusBadge tone="blue">{selectedLine.sourceCount} fuentes</StatusBadge>}
           />
           <CardBody>
             {sources.length === 0 ? (
               <p style={{ color: 'var(--muted)' }}>Sin fuentes registradas.</p>
             ) : (
               <div className="table-wrap">
-                <table aria-label="Programaciones fuente">
+                <table aria-label="Autorizaciones fuente">
                   <thead>
                     <tr>
                       <th>Autorización</th>
                       <th>Paciente</th>
                       <th>Documento</th>
-                      <th>Fecha</th>
+                      <th>Cargada</th>
                       <th>Cantidad</th>
-                      <th>Timing</th>
-                      <th>Manejo tardío</th>
                     </tr>
                   </thead>
                   <tbody>
                     {sources.map((source) => (
-                      <tr key={`${source.patientScheduleId}-${source.scheduleRevision}`}>
+                      <tr key={source.authorizationItemId}>
                         <td>{source.authorizationNumber}</td>
                         <td>{source.patientName ?? '—'}</td>
                         <td>{source.patientDocument ?? '—'}</td>
-                        <td>{source.scheduledDate}</td>
+                        <td>{source.loadedAt}</td>
                         <td>{source.quantity}</td>
-                        <td>{TIMING_LABELS[source.scheduleTiming]}</td>
-                        <td>
-                          {source.lateHandling
-                            ? LATE_HANDLING_LABELS[source.lateHandling]
-                            : source.scheduleTiming === 'ON_TIME'
-                              ? TIMING_LABELS.ON_TIME
-                              : TIMING_LABELS.LATE}
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -262,8 +241,8 @@ export function ProjectedDemandView() {
               </div>
             )}
             <p style={{ color: 'var(--muted)', marginTop: 12 }}>
-              Las cantidades consolidadas no son editables: se recalculan desde las
-              programaciones vigorizadas en la siguiente consolidación del período.
+              Las cantidades consolidadas no son editables: se recalculan desde el último cargue de
+              autorizaciones al consolidar el período.
             </p>
           </CardBody>
         </Card>
