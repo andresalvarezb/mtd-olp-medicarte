@@ -14,14 +14,17 @@ import {
   listSupplierPurchaseOrders,
 } from '@/lib/purchase-orders-api';
 import type { DeliveryResponse } from '@authorization/contracts';
+import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 export function SupplierDeliveriesView() {
-  const { organizationId } = useRole();
+  const { organizationId, hasPermission } = useRole();
+  const canManage = hasPermission('supplier_deliveries.manage');
   const deliveries = useApiData(() => listSupplierDeliveries(organizationId), [organizationId]);
   const orders = useApiData(() => listSupplierPurchaseOrders(organizationId), [organizationId]);
   const [error, setError] = useState<string | null>(null);
   const [lotNumber, setLotNumber] = useState('');
   const [expirationDate, setExpirationDate] = useState('');
+  const [filter, setFilter] = useState({ reference: '', commercialCode: '', status: '' });
   const create = async (
     order: DeliveryResponse['purchaseOrderId'],
     line: DeliveryResponse['lines'][number],
@@ -69,6 +72,7 @@ export function SupplierDeliveriesView() {
               onChange={(event) => setExpirationDate(event.currentTarget.value)}
             />
           </label>
+            <FilterBar><FilterField label="Referencia"><input className="control" value={filter.reference} onChange={(e) => setFilter({ ...filter, reference: e.target.value })} placeholder="Referencia" /></FilterField><FilterField label="Código"><input className="control" value={filter.commercialCode} onChange={(e) => setFilter({ ...filter, commercialCode: e.target.value })} placeholder="Producto" /></FilterField><FilterField label="Estado"><select className="control" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}><option value="">Todos</option><option value="DRAFT">Borrador</option><option value="DISPATCHED">Despachada</option><option value="RECEIVED">Recibida</option><option value="CANCELLED">Cancelada</option></select></FilterField></FilterBar>
           <table className="data-table">
             <thead>
               <tr>
@@ -85,8 +89,8 @@ export function SupplierDeliveriesView() {
               </tr>
             </thead>
             <tbody>
-              {(deliveries.data?.items ?? []).flatMap((delivery) =>
-                delivery.lines.map((line) => (
+              {(deliveries.data?.items ?? []).filter((delivery) => (!filter.status || delivery.status === filter.status) && (!filter.reference || (delivery.supplierReference ?? delivery.id).toLowerCase().includes(filter.reference.toLowerCase()))).flatMap((delivery) =>
+                delivery.lines.filter((line) => !filter.commercialCode || line.commercialCode.toLowerCase().includes(filter.commercialCode.toLowerCase())).map((line) => (
                   <tr key={`${delivery.id}-${line.id}`}>
                     <td>{delivery.supplierReference ?? delivery.id}</td>
                     <td>
@@ -100,7 +104,7 @@ export function SupplierDeliveriesView() {
                     <td>{line.expirationDate}</td>
                     <td>{delivery.status}</td>
                     <td>
-                      {delivery.status === 'DRAFT' ? (
+                      {canManage && delivery.status === 'DRAFT' ? (
                         <>
                           <button
                             className="button"
@@ -147,7 +151,7 @@ export function SupplierDeliveriesView() {
             </tbody>
           </table>
           <p>Crear DRAFT contra una línea aceptada:</p>
-          {(orders.data?.items ?? []).flatMap((order) =>
+           {canManage && (orders.data?.items ?? []).flatMap((order) =>
             order.lines
               .filter((line) => (line.acceptedQuantity ?? 0) > 0)
               .map((line) => (
@@ -186,6 +190,7 @@ export function SupplierDeliveriesView() {
 export function MedicarteDeliveriesView() {
   const { organizationId } = useRole();
   const deliveries = useApiData(() => listMedicarteDeliveries(organizationId), [organizationId]);
+  const [filter, setFilter] = useState({ reference: '', commercialCode: '' });
   return (
     <PointScopeGuard>
       <>
@@ -196,6 +201,7 @@ export function MedicarteDeliveriesView() {
         />
         <Card>
           <CardBody>
+            <FilterBar><FilterField label="Referencia"><input className="control" value={filter.reference} onChange={(e) => setFilter({ ...filter, reference: e.target.value })} placeholder="Referencia" /></FilterField><FilterField label="Código"><input className="control" value={filter.commercialCode} onChange={(e) => setFilter({ ...filter, commercialCode: e.target.value })} placeholder="Producto" /></FilterField></FilterBar>
             <table className="data-table">
               <thead>
                 <tr>
@@ -212,7 +218,7 @@ export function MedicarteDeliveriesView() {
                 {(deliveries.data?.items ?? [])
                   .filter((delivery) => delivery.status === 'DISPATCHED')
                   .flatMap((delivery) =>
-                    delivery.lines.map((line) => (
+                    delivery.lines.filter((line) => (!filter.reference || (delivery.supplierReference ?? delivery.id).toLowerCase().includes(filter.reference.toLowerCase())) && (!filter.commercialCode || line.commercialCode.toLowerCase().includes(filter.commercialCode.toLowerCase()))).map((line) => (
                       <tr key={`${delivery.id}-${line.id}`}>
                         <td>{delivery.supplierReference ?? delivery.id}</td>
                         <td>{line.dispensingPointName}</td>

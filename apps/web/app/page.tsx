@@ -1,5 +1,5 @@
-import { ResumenEjecutivoView } from '@/features/dashboard/resumen-ejecutivo-view';
+import { redirect } from 'next/navigation';
 
 export default function DashboardPage() {
-  return <ResumenEjecutivoView />;
+  redirect('/indicadores');
 }

@@ -34,8 +34,10 @@ import {
   BulkImportFileError,
   buildBulkImportResultWorkbook,
   buildEsp014SchedulingTemplate,
+  buildAuthorizationTemplate,
   isAcceptedXlsxMime,
   parseEsp014SchedulingWorkbook,
+  parseAuthorizationWorkbook,
 } from './bulk-import-xlsx';
 
 export type BulkImportUploadFile = Readonly<{
@@ -52,9 +54,16 @@ export class BulkImportService {
   constructor(
     @Inject(API_CONFIG) private readonly config: ApiConfig,
     private readonly repository: BulkImportRepository,
-    private readonly classifier: PatientScheduleImportService,
-    private readonly schedules: PatientScheduleService,
-  ) {}
+    classifier?: PatientScheduleImportService,
+    schedules?: PatientScheduleService,
+  ) {
+    this.classifier = classifier;
+    this.schedules = schedules;
+  }
+
+  buildAuthorizationTemplate(): Buffer {
+    return buildAuthorizationTemplate();
+  }
 
   buildSchedulingTemplate(): Buffer {
     return buildEsp014SchedulingTemplate();
@@ -65,6 +74,7 @@ export class BulkImportService {
     actor: Scope;
   }): Promise<BulkImportJobResponse> {
     const file = this.assertFile(input.file);
+    if (!this.classifier) throw new ConflictException('Scheduling import is unavailable');
     let parsed;
     try {
       parsed = parseEsp014SchedulingWorkbook(file.buffer);
@@ -75,10 +85,7 @@ export class BulkImportService {
       throw error;
     }
     if (parsed.rows.length === 0) {
-      throw new BadRequestException({
-        code: 'EMPTY_FILE',
-        message: 'The XLSX file has no data rows',
-      });
+      throw new BadRequestException({ code: 'EMPTY_FILE', message: 'The XLSX file has no data rows' });
     }
     const classified = await this.classifier.classifyParsedRows(parsed.rows, input.actor);
     const rows: BulkImportRowInsert[] = classified.map((row) => ({
@@ -104,7 +111,98 @@ export class BulkImportService {
       dispensingPointCode: row.dispensingPointCode,
       scheduledDate: row.scheduledDate,
       quantity: row.quantity,
+      assignmentDate: null,
     }));
+    const fileHash = createHash('sha256').update(file.buffer).digest('hex');
+    return this.repository.createJob({
+      actor: input.actor,
+      templateVersion: parsed.templateVersion,
+      originalFilename: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      fileHash,
+      duplicateFile: await this.repository.hasDuplicateHash(input.actor.userId, fileHash),
+      rows,
+      status: rows.some((row) => row.validationStatus === 'VALID') ? 'READY' : 'INVALID',
+      importType: 'SCHEDULING',
+    });
+  }
+
+  async uploadAuthorizations(input: {
+    file: BulkImportUploadFile | undefined;
+    actor: Scope;
+  }): Promise<BulkImportJobResponse> {
+    const file = this.assertFile(input.file);
+    let parsed;
+    try {
+      parsed = parseAuthorizationWorkbook(file.buffer);
+    } catch (error) {
+      if (error instanceof BulkImportFileError) {
+        throw new BadRequestException({ code: error.code, message: error.message });
+      }
+      throw error;
+    }
+    if (parsed.rows.length === 0) {
+      throw new BadRequestException({
+        code: 'EMPTY_FILE',
+        message: 'The XLSX file has no data rows',
+      });
+    }
+    const commercialCodes = [...new Set(
+      parsed.rows
+        .map((row) => textValue(row.values.CODIGO_COMERCIAL))
+        .filter((value): value is string => Boolean(value)),
+    )];
+    const activeTariffCodes = await this.repository.findActiveTariffAnnexProductCodes(
+      input.actor.organizationId,
+      commercialCodes,
+    );
+    const rows: BulkImportRowInsert[] = parsed.rows.map((row) => {
+      const payload = Object.fromEntries(
+        Object.entries(row.values).map(([key, value]) => [
+          key,
+          key === 'FECHA_ASIGNACION' || key === 'FECHA_FINAL_VIGENCIA'
+            ? dateValue(value)
+            : textValue(value),
+        ]),
+      );
+      const required = ['NUMERO_AUTORIZACION', 'CODIGO_COMERCIAL', 'CANTIDAD', 'FECHA_ASIGNACION'];
+      const missing = required.filter((key) => !payload[key]);
+      const quantity = Number(payload.CANTIDAD);
+      const assignmentDate = payload.FECHA_ASIGNACION;
+      const commercialCode = typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null;
+      const tariffMatch = commercialCode ? activeTariffCodes.has(commercialCode) : false;
+      const valid =
+        missing.length === 0 &&
+        Number.isInteger(quantity) &&
+        quantity > 0 &&
+        typeof assignmentDate === 'string' &&
+        isIsoDate(assignmentDate) &&
+        tariffMatch;
+      return {
+        rowNumber: row.rowNumber,
+        rawPayload: row.rawData,
+        normalizedPayload: payload,
+        validationStatus: valid ? 'VALID' : 'INVALID',
+        errorCode: valid
+          ? null
+          : !tariffMatch
+            ? 'TARIFF_ANNEX_PRODUCT_NOT_FOUND'
+            : 'INVALID_AUTHORIZATION_ROW',
+        errorMessage: valid
+          ? null
+          : !tariffMatch
+            ? `El código comercial ${commercialCode ?? '(vacío)'} no existe en el anexo tarifario activo`
+            : `Missing or invalid fields: ${missing.join(', ') || 'CANTIDAD or FECHA_ASIGNACION'}`,
+        errorColumn: null,
+        executionStatus: initialExecutionStatus(valid ? 'VALID' : 'INVALID'),
+        authorizationNumber: typeof payload.NUMERO_AUTORIZACION === 'string' ? payload.NUMERO_AUTORIZACION : null,
+        commercialCode,
+        dispensingPointCode: null,
+        assignmentDate: typeof payload.FECHA_ASIGNACION === 'string' ? payload.FECHA_ASIGNACION : null,
+        quantity: valid ? quantity : null,
+      };
+    });
     const validRows = rows.filter((row) => row.validationStatus === 'VALID').length;
     const fileHash = createHash('sha256').update(file.buffer).digest('hex');
     const duplicateFile = await this.repository.hasDuplicateHash(input.actor.userId, fileHash);
@@ -154,7 +252,7 @@ export class BulkImportService {
     }
     if (claimed.previousStatus === 'READY') {
       await this.repository.recordAudit(actor, 'BULK_IMPORT_CONFIRMED', jobId, {
-        importType: 'SCHEDULING',
+        importType: 'AUTHORIZATIONS',
         totalRows: job.totalRows,
       });
     }
@@ -200,6 +298,15 @@ export class BulkImportService {
     return buildBulkImportResultWorkbook(rows);
   }
 
+  async rejectedRowsWorkbook(jobId: string, actor: Scope): Promise<Buffer> {
+    await this.getJob(jobId, actor);
+    const rows = await this.repository.listRows(jobId, 'ALL', actor);
+    const rejectedRows = rows.filter(
+      (row) => row.validationStatus !== 'VALID' || row.executionStatus === 'FAILED',
+    );
+    return buildBulkImportResultWorkbook(rejectedRows);
+  }
+
   private async processRows(
     jobId: string,
     actor: Scope,
@@ -211,31 +318,34 @@ export class BulkImportService {
       if (!claimed) break;
       if (claimed.reclaimed) {
         await this.repository.recordAudit(actor, 'BULK_IMPORT_ROW_RECLAIMED', jobId, {
-          importType: 'SCHEDULING',
+           importType: 'AUTHORIZATIONS',
           rowNumber: claimed.rowNumber,
           claimGeneration: claimed.claimGeneration,
         });
       }
       const payload = claimed.normalizedPayload ?? {};
-      const body = {
-        authorizationItemId: String(payload.authorizationItemId),
-        commercialCode: String(payload.commercialCode),
-        dispensingPointId: String(payload.dispensingPointId),
-        scheduledDate: String(payload.scheduledDate),
-        quantity: Number(payload.quantity),
-        ...(payload.lateHandling
-          ? {
-              lateHandling: payload.lateHandling as 'COMPLEMENTARY_PURCHASE_ORDER' | 'NEXT_PERIOD',
-            }
-          : {}),
-      };
       try {
         const executed = await this.repository.executeClaimedRow({
           rowId: claimed.id,
           attemptNumber: claimed.attemptCount,
           claimToken: claimed.claimToken,
           claimGeneration: claimed.claimGeneration,
-          execute: (tx) => this.schedules.createInTx(tx, { actor, body }),
+          execute: (tx) =>
+            payload.authorizationItemId
+              ? this.schedules!.createInTx(tx, {
+                  actor,
+                  body: {
+                    authorizationItemId: textValue(payload.authorizationItemId) ?? '',
+                    commercialCode: textValue(payload.commercialCode) ?? '',
+                    dispensingPointId: textValue(payload.dispensingPointId) ?? '',
+                    scheduledDate: textValue(payload.scheduledDate) ?? '',
+                    quantity: Number(payload.quantity),
+                    ...(payload.lateHandling
+                      ? { lateHandling: payload.lateHandling as 'COMPLEMENTARY_PURCHASE_ORDER' | 'NEXT_PERIOD' }
+                      : {}),
+                  },
+                })
+              : this.repository.upsertAuthorizationInTx(tx, { actor, payload, jobId }),
         });
         if (executed === 'stale') {
           this.logger.warn(
@@ -285,6 +395,9 @@ export class BulkImportService {
     return this.repository.finalizeFromRows(jobId, actor);
   }
 
+  private readonly classifier: PatientScheduleImportService | undefined;
+  private readonly schedules: PatientScheduleService | undefined;
+
   private assertFile(file: BulkImportUploadFile | undefined): BulkImportUploadFile {
     if (!file) {
       throw new BadRequestException({
@@ -329,11 +442,33 @@ function jobNotFound(): NotFoundException {
 }
 
 function isBulkDomainFailure(error: unknown): boolean {
-  return (
-    error instanceof HttpException ||
-    error instanceof PointAccessDeniedError ||
-    isScheduleDuplicateError(error)
-  );
+  return error instanceof HttpException || error instanceof PointAccessDeniedError || isScheduleDuplicateError(error);
+}
+
+function textValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim();
+  }
+  return null;
+}
+
+function dateValue(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+  }
+  const text = textValue(value);
+  if (!text) return null;
+  const match = /^(\d{4})[-/]?(\d{2})[-/]?(\d{2})/.exec(text);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : text;
+}
+
+function isIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function mapDomainError(error: unknown): { code: string; message: string } {

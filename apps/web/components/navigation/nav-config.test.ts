@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_NAV_ITEMS, ROLES } from './nav-config';
+import { ALL_NAV_ITEMS } from './nav-config';
 
 describe('clean navigation', () => {
+  it('keeps modules in numeric order', () => {
+    const numbers = ALL_NAV_ITEMS.map((item) => Number.parseInt(item.icon, 10));
+    expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
+  });
+
   it('exposes the logistics surfaces through ESP-012', () => {
     expect(ALL_NAV_ITEMS.map((item) => item.view)).toEqual([
       'operationalIndicators',
       'planningPeriods',
-      'patientScheduling',
       'projectedDemand',
       'purchaseOrders',
       'supplierPurchaseOrders',
@@ -20,11 +24,10 @@ describe('clean navigation', () => {
       'applicationAudits',
       'bulkImports',
       'operationalIntegrity',
-      'foundation',
       'admin',
       'operationalScopes',
+      'roles',
     ]);
-    expect(ALL_NAV_ITEMS.find((item) => item.view === 'foundation')?.roles).toEqual(ROLES);
   });
 
   it('keeps supplier review separate from MTD management', () => {
@@ -49,15 +52,6 @@ describe('clean navigation', () => {
     expect(periods?.permission).toBe('planning_periods.read');
     expect(periods?.roles).not.toContain('OLP');
     expect(periods?.roles).not.toContain('MEDICARTE');
-  });
-
-  it('exposes patient scheduling to Medicarte and read roles but never to OLP', () => {
-    const scheduling = ALL_NAV_ITEMS.find((item) => item.view === 'patientScheduling');
-    expect(scheduling?.permission).toBe('patient_schedules.read');
-    expect(scheduling?.roles).toContain('MEDICARTE');
-    expect(scheduling?.roles).toContain('READ_ONLY');
-    expect(scheduling?.roles).not.toContain('OLP');
-    expect(scheduling?.roles).not.toContain('COMPENSAR');
   });
 
   it('exposes projected demand to MTD and read roles but never to Medicarte or OLP', () => {
@@ -103,17 +97,6 @@ describe('clean navigation', () => {
     expect(imports?.roles).toContain('MEDICARTE');
     expect(imports?.roles).not.toContain('OLP');
     expect(imports?.roles).not.toContain('COMPENSAR');
-  });
-
-  it('exposes operational point scopes to MTD admin and auditoria', () => {
-    const scopes = ALL_NAV_ITEMS.find((item) => item.view === 'operationalScopes');
-    expect(scopes).toMatchObject({
-      href: '/administracion',
-      permission: 'operational_scopes.read',
-    });
-    expect(scopes?.roles).toContain('MTD');
-    expect(scopes?.roles).toContain('MTD_AUDITORIA');
-    expect(scopes?.roles).not.toContain('MEDICARTE');
   });
 
   it('exposes operational integrity to MTD read roles and never to Medicarte, OLP or Compensar', () => {

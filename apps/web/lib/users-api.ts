@@ -63,11 +63,16 @@ export function revokeAssignment(
   organizationId: string,
   userId: string,
   targetOrganizationId: string,
+  targetRoleCode?: string,
 ): Promise<UserResponse> {
-  return apiRequest<UserResponse>(`/users/${userId}/assignments/${targetOrganizationId}`, {
-    method: 'DELETE',
-    organizationId,
-  });
+  const roleSuffix = targetRoleCode ? `/${encodeURIComponent(targetRoleCode)}` : '';
+  return apiRequest<UserResponse>(
+    `/users/${userId}/assignments/${targetOrganizationId}${roleSuffix}`,
+    {
+      method: 'DELETE',
+      organizationId,
+    },
+  );
 }
 
 export function changeOwnPassword(body: {

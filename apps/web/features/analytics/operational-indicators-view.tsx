@@ -238,7 +238,7 @@ export function OperationalIndicatorsView() {
                   value={data.funnel.physicallyReceivedQuantity}
                   foot="No es aceptado a inventario"
                   icon="RF"
-                  onClick={() => setDrilldownKind('received')}
+                   onClick={() => setDrilldownKind('accepted_into_inventory')}
                 />
                 <FunnelKpi
                   label="Aceptado a inventario"

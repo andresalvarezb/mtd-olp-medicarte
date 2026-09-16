@@ -28,9 +28,7 @@ export const ROLE_META: Record<Role, { label: string; note: string }> = {
 };
 
 export type ViewId =
-  | 'foundation'
   | 'planningPeriods'
-  | 'patientScheduling'
   | 'projectedDemand'
   | 'purchaseOrders'
   | 'supplierPurchaseOrders'
@@ -45,8 +43,9 @@ export type ViewId =
   | 'operationalIndicators'
   | 'bulkImports'
   | 'operationalIntegrity'
+  | 'operationalScopes'
   | 'admin'
-  | 'operationalScopes';
+  | 'roles';
 
 export interface NavItem {
   view: ViewId;
@@ -83,18 +82,10 @@ export const NAV_SECTIONS: NavSection[] = [
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
       {
-        view: 'patientScheduling',
-        href: '/programacion',
-        title: 'Programación de pacientes',
-        icon: '03',
-        permission: 'patient_schedules.read',
-        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE', 'READ_ONLY'],
-      },
-      {
         view: 'projectedDemand',
         href: '/demanda',
         title: 'Demanda proyectada',
-        icon: '04',
+        icon: '03',
         permission: 'projected_demand.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
@@ -102,7 +93,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'purchaseOrders',
         href: '/ordenes-compra',
         title: 'Órdenes de compra',
-        icon: '05',
+        icon: '04',
         permission: 'purchase_orders.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
@@ -110,7 +101,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'supplierPurchaseOrders',
         href: '/logistica-olp',
         title: 'Revisión OLP',
-        icon: '06',
+        icon: '05',
         permission: 'purchase_orders.read',
         roles: ['OLP'],
       },
@@ -118,7 +109,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'supplierDeliveries',
         href: '/entregas-olp',
         title: 'Entregas OLP',
-        icon: '07',
+        icon: '06',
         permission: 'supplier_deliveries.read',
         roles: ['OLP'],
       },
@@ -126,7 +117,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'medicarteDeliveries',
         href: '/entregas',
         title: 'Entregas en camino',
-        icon: '08',
+        icon: '07',
         permission: 'supplier_deliveries.read',
         roles: ['MEDICARTE'],
       },
@@ -134,7 +125,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'medicarteReceipts',
         href: '/recepciones',
         title: 'Recepciones',
-        icon: '09',
+        icon: '08',
         permission: 'medicarte_receipts.read',
         roles: ['MEDICARTE'],
       },
@@ -142,7 +133,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'inventory',
         href: '/inventario',
         title: 'Inventario operacional',
-        icon: '10',
+        icon: '09',
         permission: 'inventory.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE'],
       },
@@ -150,7 +141,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'stockTransfers',
         href: '/traslados',
         title: 'Traslados',
-        icon: '11',
+        icon: '10',
         permission: 'stock_transfers.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE'],
       },
@@ -158,15 +149,15 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'patientApplications',
         href: '/aplicaciones',
         title: 'Aplicaciones al paciente',
-        icon: '12',
+        icon: '11',
         permission: 'patient_applications.read',
-        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE', 'READ_ONLY'],
+        roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
       {
         view: 'operationalOutcomes',
         href: '/resultados-operacionales',
         title: 'Resultados operacionales',
-        icon: '13',
+        icon: '12',
         permission: 'patient_operational_outcomes.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE', 'READ_ONLY'],
       },
@@ -174,7 +165,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'applicationAudits',
         href: '/auditorias',
         title: 'Auditoría de aplicaciones',
-        icon: '14',
+        icon: '13',
         permission: 'application_audits.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
@@ -182,7 +173,7 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'bulkImports',
         href: '/importaciones',
         title: 'Importaciones',
-        icon: '15',
+        icon: '14',
         permission: 'bulk_imports.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'MEDICARTE', 'READ_ONLY'],
       },
@@ -190,32 +181,33 @@ export const NAV_SECTIONS: NavSection[] = [
         view: 'operationalIntegrity',
         href: '/integridad',
         title: 'Integridad operacional',
-        icon: '16',
+        icon: '15',
         permission: 'reconciliation.read',
         roles: ['MTD', 'MTD_GENERAL', 'MTD_AUDITORIA', 'READ_ONLY'],
       },
       {
-        view: 'foundation',
-        href: '/',
-        title: 'Base de reconstrucción',
-        icon: '17',
-        roles: ROLES,
-      },
-      {
         view: 'admin',
-        href: '/administracion',
+        href: '/administracion/usuarios',
         title: 'Usuarios y acceso',
-        icon: '18',
+        icon: '16',
         permission: 'users.manage',
         roles: ['MTD'],
       },
       {
         view: 'operationalScopes',
-        href: '/administracion',
+        href: '/administracion/accesos-operacionales',
         title: 'Accesos operacionales',
-        icon: '19',
+        icon: '17',
         permission: 'operational_scopes.read',
         roles: ['MTD', 'MTD_AUDITORIA'],
+      },
+      {
+        view: 'roles',
+        href: '/administracion/roles',
+        title: 'Roles y permisos',
+        icon: '18',
+        permission: 'users.manage',
+        roles: ['MTD'],
       },
     ],
   },

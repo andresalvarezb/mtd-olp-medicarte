@@ -13,9 +13,11 @@ import {
   listStockTransfers,
   receiveStockTransfer,
 } from '@/lib/stock-transfers-api';
+import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 export function StockTransfersView() {
-  const { organizationId } = useRole();
+  const { organizationId, hasPermission } = useRole();
+  const canManage = hasPermission('stock_transfers.manage');
   const transfers = useApiData(() => listStockTransfers(organizationId), [organizationId]);
   const inventory = useApiData(
     () => listInventory(organizationId, { usable: 'true' }),
@@ -26,6 +28,7 @@ export function StockTransfersView() {
   const [lot, setLot] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState({ point: '', status: '', product: '' });
   const run = async (action: () => Promise<unknown>) => {
     try {
       setError(null);
@@ -43,7 +46,7 @@ export function StockTransfersView() {
           description="Movimiento físico entre puntos. El tránsito no forma parte del saldo utilizable."
         />
         {error && <div className="login-error">{error}</div>}
-        <Card>
+         {canManage && <Card>
           <CardBody>
             <h2>Nuevo traslado</h2>
             <div className="flow">
@@ -110,10 +113,11 @@ export function StockTransfersView() {
               </button>
             </div>
           </CardBody>
-        </Card>
+        </Card>}
         <Card>
           <CardBody>
             <h2>Traslados registrados</h2>
+            <FilterBar><FilterField label="Punto"><input className="control" value={filter.point} onChange={(e) => setFilter({ ...filter, point: e.target.value })} placeholder="Origen o destino" /></FilterField><FilterField label="Producto"><input className="control" value={filter.product} onChange={(e) => setFilter({ ...filter, product: e.target.value })} placeholder="Código o lote" /></FilterField><FilterField label="Estado"><select className="control" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}><option value="">Todos</option><option value="CREATED">Creado</option><option value="DISPATCHED">Despachado</option><option value="RECEIVED">Recibido</option><option value="CANCELLED">Cancelado</option></select></FilterField></FilterBar>
             <table className="data-table">
               <thead>
                 <tr>
@@ -126,7 +130,7 @@ export function StockTransfersView() {
                 </tr>
               </thead>
               <tbody>
-                {(transfers.data?.items ?? []).map((item) => (
+                {(transfers.data?.items ?? []).filter((item) => (!filter.status || item.status === filter.status) && (!filter.point || `${item.sourceDispensingPointName} ${item.destinationDispensingPointName}`.toLowerCase().includes(filter.point.toLowerCase())) && (!filter.product || item.lines.some((line) => `${line.commercialCode} ${line.lotNumber}`.toLowerCase().includes(filter.product.toLowerCase())))).map((item) => (
                   <tr key={item.id}>
                     <td>{item.sourceDispensingPointName}</td>
                     <td>{item.destinationDispensingPointName}</td>
@@ -141,7 +145,7 @@ export function StockTransfersView() {
                     </td>
                     <td>{item.inTransit}</td>
                     <td>
-                      {item.status === 'CREATED' && (
+                      {canManage && item.status === 'CREATED' && (
                         <>
                           <button
                             className="button"
@@ -165,7 +169,7 @@ export function StockTransfersView() {
                           </button>
                         </>
                       )}
-                      {item.status === 'DISPATCHED' && (
+                      {canManage && item.status === 'DISPATCHED' && (
                         <button
                           className="button primary"
                           onClick={() =>

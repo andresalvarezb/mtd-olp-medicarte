@@ -71,7 +71,28 @@ export const roles = pgTable('roles', {
   name: varchar('name', { length: 160 }).notNull(),
   isSystemAdmin: boolean('is_system_admin').notNull().default(false),
   isSystemManaged: boolean('is_system_managed').notNull().default(false),
+  active: boolean('active').notNull().default(true),
 });
+
+export const roleOrganizationScopes = pgTable(
+  'role_organization_scopes',
+  {
+    roleId: uuid('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'restrict' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'role_organization_scopes_pk',
+      columns: [table.roleId, table.organizationId],
+    }),
+    index('role_organization_scopes_organization_idx').on(table.organizationId),
+  ],
+);
 
 export const permissions = pgTable('permissions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -548,9 +569,9 @@ export const projectedDemandLines = pgTable(
     planningPeriodId: uuid('planning_period_id')
       .notNull()
       .references(() => planningPeriods.id, { onDelete: 'restrict' }),
-    dispensingPointId: uuid('dispensing_point_id')
-      .notNull()
-      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    dispensingPointId: uuid('dispensing_point_id').references(() => dispensingPoints.id, {
+      onDelete: 'restrict',
+    }),
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
     projectedQuantity: integer('projected_quantity').notNull(),
     /**
@@ -574,12 +595,11 @@ export const projectedDemandLines = pgTable(
   },
   (table) => [
     /**
-     * ESP-004: identidad de consolidación como UNIQUE CONSTRAINT (migración
-     * 0035) para poder referenciarla con FK compuesto desde demand_sources.
+     * ESP-004: identidad de consolidación por período y código comercial.
+     * El punto se selecciona en la orden de compra.
      */
-    unique('projected_demand_lines_identity_unique').on(
+    unique('projected_demand_lines_period_code_unique').on(
       table.planningPeriodId,
-      table.dispensingPointId,
       table.commercialCode,
     ),
     index('projected_demand_lines_period_status_idx').on(table.planningPeriodId, table.status),
@@ -611,8 +631,12 @@ export const demandSources = pgTable(
     projectedDemandLineId: uuid('projected_demand_line_id')
       .notNull()
       .references(() => projectedDemandLines.id, { onDelete: 'restrict' }),
-    patientScheduleId: uuid('patient_schedule_id').notNull(),
-    scheduleRevision: integer('schedule_revision').notNull(),
+    patientScheduleId: uuid('patient_schedule_id'),
+    scheduleRevision: integer('schedule_revision'),
+    authorizationItemId: uuid('authorization_item_id').references(() => authorizationItems.id, {
+      onDelete: 'restrict',
+    }),
+    loadedAt: timestamp('loaded_at', { withTimezone: true }),
     quantity: integer('quantity').notNull(),
     /**
      * ESP-004: pertenencia de la fuente a la identidad de su línea, impuesta
@@ -620,7 +644,7 @@ export const demandSources = pgTable(
      * el timing clasifica el desglose regular/late.
      */
     planningPeriodId: uuid('planning_period_id').notNull(),
-    dispensingPointId: uuid('dispensing_point_id').notNull(),
+    dispensingPointId: uuid('dispensing_point_id'),
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
     scheduleTiming: varchar('schedule_timing', { length: 10 }).notNull(),
     lateHandling: varchar('late_handling', { length: 40 }),
@@ -629,17 +653,24 @@ export const demandSources = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    foreignKey({
-      columns: [table.patientScheduleId, table.scheduleRevision],
-      foreignColumns: [patientScheduleHistory.patientScheduleId, patientScheduleHistory.revision],
-      name: 'demand_sources_schedule_revision_fk',
-    }),
+    // Las fuentes nuevas apuntan a authorization_items. Las columnas de
+    // programación permanecen nullable para conservar datos históricos.
     uniqueIndex('demand_sources_schedule_revision_idx').on(
       table.patientScheduleId,
       table.scheduleRevision,
     ),
+    uniqueIndex('demand_sources_authorization_item_unique')
+      .on(table.projectedDemandLineId, table.authorizationItemId)
+      .where(sql`${table.authorizationItemId} IS NOT NULL`),
     index('demand_sources_demand_line_idx').on(table.projectedDemandLineId, table.createdAt),
-    check('demand_sources_schedule_revision_check', sql`${table.scheduleRevision} > 0`),
+    check(
+      'demand_sources_schedule_revision_check',
+      sql`${table.scheduleRevision} IS NULL OR ${table.scheduleRevision} > 0`,
+    ),
+    check(
+      'demand_sources_authorization_or_schedule_check',
+      sql`${table.authorizationItemId} IS NOT NULL OR (${table.patientScheduleId} IS NOT NULL AND ${table.scheduleRevision} IS NOT NULL)`,
+    ),
     check('demand_sources_quantity_check', sql`${table.quantity} > 0`),
     check(
       'demand_sources_schedule_timing_check',
@@ -2024,6 +2055,9 @@ export const bulkImportJobs = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     importType: varchar('import_type', { length: 40 }).notNull(),
+    authorizationImportBatchId: uuid('authorization_import_batch_id').references(() => importBatches.id, {
+      onDelete: 'restrict',
+    }),
     templateVersion: varchar('template_version', { length: 80 }).notNull(),
     status: varchar('status', { length: 30 }).notNull().default('UPLOADED'),
     originalFilename: varchar('original_filename', { length: 255 }).notNull(),
@@ -2058,7 +2092,7 @@ export const bulkImportJobs = pgTable(
       table.createdAt,
     ),
     index('bulk_import_jobs_hash_idx').on(table.createdBy, table.fileHash),
-    check('bulk_import_jobs_type_check', sql`${table.importType} = 'SCHEDULING'`),
+    check('bulk_import_jobs_type_check', sql`${table.importType} IN ('AUTHORIZATIONS', 'SCHEDULING')`),
     check(
       'bulk_import_jobs_status_check',
       sql`${table.status} IN ('UPLOADED', 'VALIDATING', 'READY', 'INVALID', 'PROCESSING', 'COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED')`,

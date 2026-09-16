@@ -48,7 +48,7 @@ export class AccessService {
         and(eq(userOrganizationRoles.userId, users.id), eq(userOrganizationRoles.active, true)),
       )
       .innerJoin(organizations, eq(organizations.id, userOrganizationRoles.organizationId))
-      .innerJoin(roles, eq(roles.id, userOrganizationRoles.roleId))
+      .innerJoin(roles, and(eq(roles.id, userOrganizationRoles.roleId), eq(roles.active, true)))
       .leftJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
       .leftJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
       .where(eq(users.id, userId));
@@ -75,6 +75,7 @@ export class AccessService {
         code: row.organizationCode,
         name: row.organizationName,
         roles: [],
+        isSystemAdmin: false,
         permissions: [],
         roleSnapshots: [],
       };
@@ -118,6 +119,9 @@ export class AccessService {
           code: organization.code,
           name: organization.name,
           roles: organization.roles,
+          isSystemAdmin: organization.roleSnapshots.some(
+            (role) => role.code === 'MTD_ADMIN' && role.isSystemAdmin,
+          ),
           permissions: organization.permissions,
           pointAccess: {
             kind,

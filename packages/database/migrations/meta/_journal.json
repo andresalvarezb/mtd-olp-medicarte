@@ -372,6 +372,27 @@
       "when": 1790546840663,
       "tag": "0052_esp020_identity_access_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1790550440663,
+      "tag": "0053_esp020_custom_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790546841663,
+      "tag": "0054_authorization_based_projected_demand",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790546842663,
+      "tag": "0055_authorization_import_and_purchase_points",
+      "breakpoints": true
     }
   ]
 }

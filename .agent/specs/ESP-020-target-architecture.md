@@ -188,32 +188,25 @@ política en `pointAccessKindFor()` y se conserva el comportamiento de ESP-015.
 
 ## 5. Roles target
 
-La decisión aprobada D02=A es mantener solo roles predefinidos:
+La decisión D02 fue actualizada el 2026-09-16: se mantienen los roles
+predefinidos y se agregan roles personalizados con scopes organizacionales
+persistidos:
 
-| Código actual | Label target | Organización válida principal | Tipo |
-|---|---|---|---|
-| `MTD_ADMIN` | Administrador | MTD | Protegido, allow-all |
-| `MTD_OPERATOR` | Operador MTD | MTD | Predefinido |
-| `MTD_GENERAL` | MTD General | MTD | Predefinido |
-| `MTD_AUDITORIA` | Auditoría MTD | MTD | Predefinido |
-| `READ_ONLY` | Solo lectura | MTD/OLP/COMPENSAR/MEDICARTE según matriz | Predefinido condicionado |
-| `MEDICARTE_OPERATOR` | Operador Medicarte | MEDICARTE | Predefinido, point scope |
-| `OLP_OPERATOR` | Operador OLP | OLP | Predefinido, actor boundary |
-| `COMPENSAR_VIEWER` | Consulta Compensar | COMPENSAR | Predefinido |
+| Código actual        | Label target       | Organización válida principal            | Tipo                        |
+| -------------------- | ------------------ | ---------------------------------------- | --------------------------- |
+| `MTD_ADMIN`          | Administrador      | MTD                                      | Protegido, allow-all        |
+| `MTD_OPERATOR`       | Operador MTD       | MTD                                      | Predefinido                 |
+| `MTD_GENERAL`        | MTD General        | MTD                                      | Predefinido                 |
+| `MTD_AUDITORIA`      | Auditoría MTD      | MTD                                      | Predefinido                 |
+| `READ_ONLY`          | Solo lectura       | MTD/OLP/COMPENSAR/MEDICARTE según matriz | Predefinido condicionado    |
+| `MEDICARTE_OPERATOR` | Operador Medicarte | MEDICARTE                                | Predefinido, point scope    |
+| `OLP_OPERATOR`       | Operador OLP       | OLP                                      | Predefinido, actor boundary |
+| `COMPENSAR_VIEWER`   | Consulta Compensar | COMPENSAR                                | Predefinido                 |
 
-La UI puede permitir ajustar el subconjunto configurable de
-`role_permissions` de roles no protegidos. No se recomienda crear roles custom
-en ESP-020 porque la arquitectura actual no tiene:
-
-- ownership de rol;
-- lifecycle/active;
-- compatibilidad organización–rol persistida;
-- límite de actor;
-- versionado/optimistic concurrency;
-- tratamiento de custom roles en `/me`, navegación y migración.
-
-Los roles custom quedan fuera de ESP-020. Si se requieren, se abrirá una ESP
-posterior con ownership, lifecycle, boundaries, versioning, APIs y migration.
+La UI ajusta el subconjunto configurable de `role_permissions` de roles no
+protegidos. Los roles personalizados usan código generado por backend, lifecycle
+`active`, scopes en `role_organization_scopes`, boundaries estructurales no
+editables y concurrencia optimista. No pueden adquirir `is_system_admin`.
 
 ## 6. Module registry canónico
 
@@ -274,29 +267,29 @@ Esta forma es conceptual; no se implementa en la fase documental.
 
 Estos son módulos observados, no una autorización nueva:
 
-| Module code target | Ruta observada | Permisos principales | Boundary |
-|---|---|---|---|
-| `DASHBOARD` | `/` | `dashboard.read` | Según organización |
-| `PLANNING_PERIODS` | `/periodos` | `planning_periods.*` | MTD |
-| `PATIENT_SCHEDULING` | `/programacion` | `patient_schedules.*` | MTD/Medicarte + scope |
-| `PROJECTED_DEMAND` | `/demanda` | `projected_demand.*` | MTD |
-| `PURCHASE_ORDERS` | `/ordenes-compra` | `purchase_orders.*` | MTD |
-| `OLP_PURCHASE_REVIEW` | `/logistica-olp` | `purchase_orders.read`, `purchase_orders.review_supplier` | OLP |
-| `OLP_DELIVERIES` | `/entregas-olp` | `supplier_deliveries.*` | OLP |
-| `MEDICARTE_DELIVERIES` | `/entregas` | `supplier_deliveries.read` | Medicarte |
-| `RECEIPTS` | `/recepciones` | `medicarte_receipts.*` | Medicarte + scope |
-| `INVENTORY` | `/inventario` | `inventory.read` | MTD/Medicarte + scope |
-| `TRANSFERS` | `/traslados` | `stock_transfers.*` | MTD/Medicarte + scope |
-| `PATIENT_APPLICATIONS` | `/aplicaciones` | `patient_applications.*` | MTD/Medicarte + scope |
-| `OPERATIONAL_OUTCOMES` | `/resultados-operacionales` | `patient_operational_outcomes.*` | MTD/Medicarte + scope |
-| `APPLICATION_AUDITS` | `/auditorias` | `application_audits.*` | MTD |
-| `ANALYTICS` | `/indicadores` | `analytics.*` | MTD |
-| `BULK_IMPORTS` | `/importaciones` | `bulk_imports.*` | MTD/Medicarte + scope |
-| `OPERATIONAL_INTEGRITY` | `/integridad` | `reconciliation*` | MTD |
-| `USERS` | `/administracion` | `users.manage` | MTD admin |
-| `ROLES_ACCESS` | target `/administracion/roles` | target role access API | MTD admin |
-| `POINT_SCOPES` | actual subsection `/administracion` | `operational_scopes.*` | MTD admin/auditor read |
-| `CONFIGURATION` | No ruta actual auditada | tariff/config permissions | MTD admin |
+| Module code target      | Ruta observada                                                 | Permisos principales                                      | Boundary               |
+| ----------------------- | -------------------------------------------------------------- | --------------------------------------------------------- | ---------------------- |
+| `DASHBOARD`             | `/`                                                            | `dashboard.read`                                          | Según organización     |
+| `PLANNING_PERIODS`      | `/periodos`                                                    | `planning_periods.*`                                      | MTD                    |
+| `PATIENT_SCHEDULING`    | `/programacion`                                                | `patient_schedules.*`                                     | MTD/Medicarte + scope  |
+| `PROJECTED_DEMAND`      | `/demanda`                                                     | `projected_demand.*`                                      | MTD                    |
+| `PURCHASE_ORDERS`       | `/ordenes-compra`                                              | `purchase_orders.*`                                       | MTD                    |
+| `OLP_PURCHASE_REVIEW`   | `/logistica-olp`                                               | `purchase_orders.read`, `purchase_orders.review_supplier` | OLP                    |
+| `OLP_DELIVERIES`        | `/entregas-olp`                                                | `supplier_deliveries.*`                                   | OLP                    |
+| `MEDICARTE_DELIVERIES`  | `/entregas`                                                    | `supplier_deliveries.read`                                | Medicarte              |
+| `RECEIPTS`              | `/recepciones`                                                 | `medicarte_receipts.*`                                    | Medicarte + scope      |
+| `INVENTORY`             | `/inventario`                                                  | `inventory.read`                                          | MTD/Medicarte + scope  |
+| `TRANSFERS`             | `/traslados`                                                   | `stock_transfers.*`                                       | MTD/Medicarte + scope  |
+| `PATIENT_APPLICATIONS`  | `/aplicaciones`                                                | `patient_applications.*`                                  | MTD/Medicarte + scope  |
+| `OPERATIONAL_OUTCOMES`  | `/resultados-operacionales`                                    | `patient_operational_outcomes.*`                          | MTD/Medicarte + scope  |
+| `APPLICATION_AUDITS`    | `/auditorias`                                                  | `application_audits.*`                                    | MTD                    |
+| `ANALYTICS`             | `/indicadores`                                                 | `analytics.*`                                             | MTD                    |
+| `BULK_IMPORTS`          | `/importaciones`                                               | `bulk_imports.*`                                          | MTD/Medicarte + scope  |
+| `OPERATIONAL_INTEGRITY` | `/integridad`                                                  | `reconciliation*`                                         | MTD                    |
+| `USERS`                 | `/administracion`                                              | `users.manage`                                            | MTD admin              |
+| `ROLES_ACCESS`          | target `/administracion/roles`                                 | target role access API                                    | MTD admin              |
+| `POINT_SCOPES`          | `/administracion` → Puntos operativos Medicarte              | `operational_scopes.*`                                    | MTD admin/auditor read |
+| `CONFIGURATION`         | No ruta actual auditada                                        | tariff/config permissions                                 | MTD admin              |
 
 `DASHBOARD` debe revisarse contra el actual item `foundation` de
 `nav-config.ts`; el label “Base de reconstrucción” no es un nombre funcional
@@ -497,4 +490,3 @@ explícito con clasificación y dry-run.
   ESP-020.
 - **D10=B:** no se editan migrations históricas; existing DB preserva
   `REAL/UNKNOWN` y cleanup requiere clasificación, dry-run y confirmación.
-

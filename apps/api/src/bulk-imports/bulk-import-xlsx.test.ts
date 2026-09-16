@@ -1,9 +1,15 @@
 import * as XLSX from 'xlsx';
 import { describe, expect, it } from 'vitest';
-import { ESP014_SCHEDULING_TEMPLATE_VERSION } from '@authorization/contracts';
+import {
+  AUTHORIZATION_IMPORT_COLUMNS,
+  ESP014_AUTHORIZATIONS_TEMPLATE_VERSION,
+  ESP014_SCHEDULING_TEMPLATE_VERSION,
+} from '@authorization/contracts';
 import {
   BulkImportFileError,
+  buildAuthorizationTemplate,
   buildEsp014SchedulingTemplate,
+  parseAuthorizationWorkbook,
   parseEsp014SchedulingWorkbook,
 } from './bulk-import-xlsx';
 
@@ -118,6 +124,37 @@ describe('ESP-014 scheduling workbook parser', () => {
   it('emits a versioned official template', () => {
     const parsed = parseEsp014SchedulingWorkbook(buildEsp014SchedulingTemplate());
     expect(parsed.templateVersion).toBe(ESP014_SCHEDULING_TEMPLATE_VERSION);
+    expect(parsed.rows).toEqual([]);
+  });
+});
+
+describe('ESP-014 authorization workbook parser', () => {
+  const META = [
+    ['KEY', 'VALUE'],
+    ['templateVersion', ESP014_AUTHORIZATIONS_TEMPLATE_VERSION],
+    ['importType', 'AUTHORIZATIONS'],
+  ];
+
+  it('reads all official authorization columns and metadata', () => {
+    const parsed = parseAuthorizationWorkbook(
+      workbook({
+        Autorizaciones: [
+          [...AUTHORIZATION_IMPORT_COLUMNS],
+          AUTHORIZATION_IMPORT_COLUMNS.map((column) =>
+            column === 'FECHA_ASIGNACION' ? 45658 : column === 'CANTIDAD' ? 2 : `${column}-1`,
+          ),
+        ],
+        METADATA: META,
+      }),
+    );
+    expect(parsed.templateVersion).toBe(ESP014_AUTHORIZATIONS_TEMPLATE_VERSION);
+    expect(parsed.rows[0]?.values.NUMERO_AUTORIZACION).toBe('NUMERO_AUTORIZACION-1');
+    expect(parsed.rows[0]?.values.CANTIDAD).toBe(2);
+  });
+
+  it('emits the official authorization template', () => {
+    const parsed = parseAuthorizationWorkbook(buildAuthorizationTemplate());
+    expect(parsed.templateVersion).toBe(ESP014_AUTHORIZATIONS_TEMPLATE_VERSION);
     expect(parsed.rows).toEqual([]);
   });
 });

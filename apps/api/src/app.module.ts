@@ -18,6 +18,9 @@ import { AuthController } from './identity/auth.controller';
 import { AuthService } from './identity/auth.service';
 import { BootstrapAdminService } from './identity/bootstrap.service';
 import { MeController } from './identity/me.controller';
+import { ModuleRegistryController } from './identity/module-registry.controller';
+import { RoleAccessController } from './identity/role-access.controller';
+import { RoleAccessService } from './identity/role-access.service';
 import { UsersController } from './identity/users.controller';
 import { UsersService } from './identity/users.service';
 import { OperationsController } from './operations/operations.controller';
@@ -126,6 +129,8 @@ new Gauge({
   controllers: [
     AuthController,
     MeController,
+    ModuleRegistryController,
+    RoleAccessController,
     UsersController,
     OperationsController,
     AdminJobsController,
@@ -154,6 +159,7 @@ new Gauge({
     AccessService,
     AuthService,
     BootstrapAdminService,
+    RoleAccessService,
     UsersService,
     FoundationService,
     PlanningPeriodRepository,

@@ -1,6 +1,6 @@
 # ESP-020 — Implementation Plan
 
-Estado: **WAVE 1 IMPLEMENTED / WAVE 2+ NOT IMPLEMENTED / D01–D10 APPROVED**
+Estado: **WAVE 1 + ROLE MANAGEMENT SLICE IMPLEMENTED / REMAINDER WAVE 2+ NOT IMPLEMENTED / D01–D10 APPROVED**
 
 Este plan se basa en:
 
@@ -11,8 +11,13 @@ Este plan se basa en:
 - `.agent/specs/ESP-020-ux-specification.md`;
 - `.agent/specs/ESP-020-user-role-module-access-redesign.md`.
 
-WAVE 1 fue implementada y verificada. WAVE 2+ permanece fuera de alcance.
+WAVE 1 fue implementada y verificada. El slice de administración de roles fue
+implementado el 2026-09-16: APIs de roles/módulos, escritura de accesos,
+concurrencia optimista, auditoría atómica y UX dedicada. El resto de WAVE 2+
+permanece fuera de alcance.
 D01–D10 fueron aprobadas el 2026-09-15 y `PRODUCT_DECISIONS_PENDING=0`.
+El 2026-09-16 D02 fue ampliada durante la implementación para admitir roles
+personalizados con scopes organizacionales, lifecycle y boundaries estructurales.
 
 ## 1. Estrategia de ejecución
 
@@ -40,23 +45,23 @@ Principios:
 
 ## 2. Impact analysis por paquete
 
-| Área | Impacto esperado | Cambio no asumido |
-|---|---|---|
-| `apps/api` | Identity domain service, role/access APIs, `/me`, modules, guards/policies, audit | No reemplazar auth |
-| `apps/web` | Registry adapter, org selector, users UX, roles UX, sidebar, forbidden | No confiar en permisos de frontend |
-| `apps/worker` | Ninguno previsto; revisar solo si bootstrap/registry se ejecuta allí | No modificar por proximidad |
-| `packages/domain` | Actor boundary, role compatibility, point-access policy | Mantener ESP-015 |
-| `packages/contracts` | Registry y schemas de APIs/read models | No incluir secretos |
-| `packages/database` | Posible metadata/provenance migration, transactions/indexes | No tablas paralelas sin gap |
-| `packages/ui` | Cards/table/toggle/drawer si faltan componentes | No rediseño global |
-| `packages/config` | Variables de bootstrap single-admin y production guards | No cambiar JWT/Argon2 |
-| `tests` | Unit/API/UI/integration/concurrency/migration | No reutilizar fixtures runtime |
-| Docker | Secret/config de único admin | No hardcoded production secret |
-| Render | Variables single-admin y runbook | Worker no cambia salvo evidencia |
-| reset/seed | Separar clean install, dev fixtures y existing DB | No delete genérico |
-| audit | Events de users/roles/modules/scopes | No password/hash/JWT |
-| ESP-015 | Global MTD, explicit Medicarte, fail-closed | No grants artificiales |
-| ESP-017/018/019 | Mantener MTD boundaries y permission behavior | No cambios en reconciliation rules |
+| Área                 | Impacto esperado                                                                  | Cambio no asumido                  |
+| -------------------- | --------------------------------------------------------------------------------- | ---------------------------------- |
+| `apps/api`           | Identity domain service, role/access APIs, `/me`, modules, guards/policies, audit | No reemplazar auth                 |
+| `apps/web`           | Registry adapter, org selector, users UX, roles UX, sidebar, forbidden            | No confiar en permisos de frontend |
+| `apps/worker`        | Ninguno previsto; revisar solo si bootstrap/registry se ejecuta allí              | No modificar por proximidad        |
+| `packages/domain`    | Actor boundary, role compatibility, point-access policy                           | Mantener ESP-015                   |
+| `packages/contracts` | Registry y schemas de APIs/read models                                            | No incluir secretos                |
+| `packages/database`  | Posible metadata/provenance migration, transactions/indexes                       | No tablas paralelas sin gap        |
+| `packages/ui`        | Cards/table/toggle/drawer si faltan componentes                                   | No rediseño global                 |
+| `packages/config`    | Variables de bootstrap single-admin y production guards                           | No cambiar JWT/Argon2              |
+| `tests`              | Unit/API/UI/integration/concurrency/migration                                     | No reutilizar fixtures runtime     |
+| Docker               | Secret/config de único admin                                                      | No hardcoded production secret     |
+| Render               | Variables single-admin y runbook                                                  | Worker no cambia salvo evidencia   |
+| reset/seed           | Separar clean install, dev fixtures y existing DB                                 | No delete genérico                 |
+| audit                | Events de users/roles/modules/scopes                                              | No password/hash/JWT               |
+| ESP-015              | Global MTD, explicit Medicarte, fail-closed                                       | No grants artificiales             |
+| ESP-017/018/019      | Mantener MTD boundaries y permission behavior                                     | No cambios en reconciliation rules |
 
 ## 3. Fases
 
@@ -342,4 +347,3 @@ ESP-020 está lista cuando:
 - audit events no contienen secretos;
 - tests y gates ESP-001…ESP-019 pasan;
 - deployment config no crea cuentas adicionales.
-

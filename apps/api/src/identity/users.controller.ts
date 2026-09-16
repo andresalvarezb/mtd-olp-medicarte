@@ -209,6 +209,29 @@ export class UsersController {
     return this.users.addAssignment({ userId, body, scope });
   }
 
+  @Delete(':id/assignments/:organizationId/:roleCode')
+  @ApiOkResponse({ schema: userResponseSchema })
+  @ApiForbiddenResponse({ schema: errorSchema })
+  @ApiNotFoundResponse({ schema: errorSchema })
+  async revokeRoleAssignment(
+    @Param('id') rawId: string,
+    @Param('organizationId') rawOrganizationId: string,
+    @Param('roleCode') rawRoleCode: string,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const userId = uuidSchema.parse(rawId);
+    const targetOrganizationId = uuidSchema.parse(rawOrganizationId);
+    const roleCode = z.string().min(1).max(80).parse(rawRoleCode);
+    const scope = await this.requireUsersManage(organizationId, request);
+    return this.users.revokeAssignment({
+      userId,
+      organizationId: targetOrganizationId,
+      roleCode,
+      scope,
+    });
+  }
+
   @Delete(':id/assignments/:organizationId')
   @ApiOkResponse({ schema: userResponseSchema })
   @ApiForbiddenResponse({ schema: errorSchema })

@@ -4,9 +4,15 @@ import type {
   UpdatePatientApplicationRequest,
 } from '@authorization/contracts';
 import { apiRequest } from './api-client';
+import type { PatientApplicationListQuery } from '@authorization/contracts';
 
-export function listPatientApplications(organizationId: string) {
-  return apiRequest<{ items: PatientApplicationResponse[] }>('/medicarte/applications', {
+export function listPatientApplications(
+  organizationId: string,
+  query: Partial<PatientApplicationListQuery> = {},
+) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value) params.set(key, String(value));
+  return apiRequest<{ items: PatientApplicationResponse[] }>(`/medicarte/applications?${params}`, {
     organizationId,
   });
 }

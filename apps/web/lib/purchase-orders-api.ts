@@ -17,6 +17,10 @@ export function listPurchaseOrders(
   const params = new URLSearchParams();
   if (query.planningPeriodId) params.set('planningPeriodId', query.planningPeriodId);
   if (query.status) params.set('status', query.status);
+  if (query.orderType) params.set('orderType', String(query.orderType));
+  if (query.purchaseOrderCode) params.set('purchaseOrderCode', String(query.purchaseOrderCode));
+  if (query.commercialCode) params.set('commercialCode', String(query.commercialCode));
+  if (query.dispensingPointId) params.set('dispensingPointId', String(query.dispensingPointId));
   return apiRequest<{ items: PurchaseOrderResponse[] }>(`/purchase-orders?${params}`, {
     organizationId,
   });

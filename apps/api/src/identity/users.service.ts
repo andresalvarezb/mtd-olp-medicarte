@@ -11,6 +11,11 @@ import type {
   UpdateUserRequest,
   UserResponse,
 } from '@authorization/contracts';
+import {
+  assertRoleAllowedForOrganization,
+  isCustomRole,
+  isPredefinedRole,
+} from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
 import { DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
@@ -172,24 +177,83 @@ export class UsersService {
     return Number(result.rows[0]?.count ?? 0) > 0;
   }
 
-  async create(input: { body: CreateUserRequest; scope: Scope }): Promise<UserResponse> {
-    const { body, scope } = input;
-    const organization = await this.database.pool.query(
-      `select id, code, name from organizations where id = $1 and active = true`,
-      [body.organizationId],
-    );
-    if (!organization.rows[0]) {
+  private async assertRoleAssignable(
+    organizationCode: string,
+    roleId: string,
+    roleCode: string,
+    roleActive: boolean,
+  ): Promise<void> {
+    if (!roleActive) {
       throw new BadRequestException({
-        code: 'ORGANIZATION_NOT_FOUND',
-        message: 'Organization not found or inactive',
+        code: 'ROLE_INACTIVE',
+        message: 'Role is inactive',
       });
     }
-    const role = await this.database.pool.query(`select id, code from roles where code = $1`, [
-      body.roleCode,
-    ]);
-    const roleRow = role.rows[0] as { id: string; code: string } | undefined;
+    if (isPredefinedRole(roleCode)) {
+      try {
+        assertRoleAllowedForOrganization(organizationCode, roleCode);
+      } catch (error) {
+        throw new BadRequestException({
+          code: 'ORGANIZATION_ROLE_NOT_ALLOWED',
+          message: error instanceof Error ? error.message : 'Role is not allowed for organization',
+        });
+      }
+      return;
+    }
+    if (!isCustomRole(roleCode)) {
+      throw new BadRequestException({ code: 'ROLE_NOT_FOUND', message: 'Role not found' });
+    }
+    const scope = await this.database.pool.query(
+      `select 1
+         from role_organization_scopes ros
+         join organizations o on o.id = ros.organization_id
+        where ros.role_id = $1 and o.code = $2 and o.active = true`,
+      [roleId, organizationCode],
+    );
+    if (!scope.rowCount) {
+      throw new BadRequestException({
+        code: 'ORGANIZATION_ROLE_NOT_ALLOWED',
+        message: `Role ${roleCode} cannot be assigned to organization ${organizationCode}`,
+      });
+    }
+  }
+
+  async create(input: { body: CreateUserRequest; scope: Scope }): Promise<UserResponse> {
+    const { body, scope } = input;
+    const role = await this.database.pool.query<{
+      id: string;
+      code: string;
+      active: boolean;
+    }>(`select id, code, active from roles where code = $1`, [body.roleCode]);
+    const roleRow = role.rows[0];
     if (!roleRow) {
       throw new BadRequestException({ code: 'ROLE_NOT_FOUND', message: 'Role not found' });
+    }
+    const requestedOrganizationIds = body.organizationIds ?? [
+      ...(body.organizationId ? [body.organizationId] : []),
+    ];
+    const organizations = await this.database.pool.query<{
+      id: string;
+      code: string;
+      name: string;
+    }>(
+      `select id, code, name
+         from organizations
+        where id = any($1::uuid[]) and active = true
+        order by code`,
+      [requestedOrganizationIds],
+    );
+    if (
+      !requestedOrganizationIds.length ||
+      organizations.rows.length !== new Set(requestedOrganizationIds).size
+    ) {
+      throw new BadRequestException({
+        code: 'ORGANIZATION_SELECTION_REQUIRED',
+        message: 'Select one or more active organizations for the new user',
+      });
+    }
+    for (const organization of organizations.rows) {
+      await this.assertRoleAssignable(organization.code, roleRow.id, roleRow.code, roleRow.active);
     }
 
     const passwordHash = await hashPassword(body.password);
@@ -206,8 +270,9 @@ export class UsersService {
         });
       }
       const inserted = await client.query<UserRow>(
-        `insert into users (username, email, display_name, password_hash, password_changed_at, active)
-         values ($1, $2, $3, $4, now(), true)
+        `insert into users
+           (username, email, display_name, password_hash, password_changed_at, active, provenance)
+         values ($1, $2, $3, $4, now(), true, 'MANUAL_ADMIN_CREATED')
          returning ${USER_COLUMNS}`,
         [body.username, body.email ?? null, body.displayName, passwordHash],
       );
@@ -217,9 +282,11 @@ export class UsersService {
       }
       await client.query(
         `insert into user_organization_roles (user_id, organization_id, role_id, active)
-         values ($1, $2, $3, true)
+         select $1, o.id, $2, true
+           from organizations o
+          where o.id = any($3::uuid[])
          on conflict (user_id, organization_id, role_id) do update set active = true`,
-        [user.id, body.organizationId, roleRow.id],
+        [user.id, roleRow.id, organizations.rows.map((organization) => organization.id)],
       );
       await client.query('commit');
       const assignments = await this.loadAssignments([user.id]);
@@ -227,7 +294,7 @@ export class UsersService {
       await this.audit(scope, 'USER_CREATED', user.id, {
         username: body.username,
         roleCode: body.roleCode,
-        organizationId: body.organizationId,
+        organizationCodes: organizations.rows.map((organization) => organization.code),
       });
       return response;
     } catch (error) {
@@ -262,11 +329,7 @@ export class UsersService {
           message: 'You cannot deactivate your own account',
         });
       }
-      if (
-        (await this.isAdmin(user.id)) &&
-        user.active &&
-        (await this.countActiveAdmins()) <= 1
-      ) {
+      if ((await this.isAdmin(user.id)) && user.active && (await this.countActiveAdmins()) <= 1) {
         throw new BadRequestException({
           code: 'LAST_ADMIN_PROTECTED',
           message: 'The system cannot be left without an active administrator',
@@ -332,8 +395,8 @@ export class UsersService {
     scope: Scope;
   }): Promise<UserResponse> {
     const user = await this.getUserRow(input.userId);
-    const organization = await this.database.pool.query(
-      `select id from organizations where id = $1 and active = true`,
+    const organization = await this.database.pool.query<{ id: string; code: string }>(
+      `select id, code from organizations where id = $1 and active = true`,
       [input.body.organizationId],
     );
     if (!organization.rows[0]) {
@@ -342,13 +405,20 @@ export class UsersService {
         message: 'Organization not found or inactive',
       });
     }
-    const role = await this.database.pool.query(`select id from roles where code = $1`, [
-      input.body.roleCode,
-    ]);
-    const roleRow = role.rows[0] as { id: string } | undefined;
+    const role = await this.database.pool.query<{ id: string; code: string; active: boolean }>(
+      `select id, code, active from roles where code = $1`,
+      [input.body.roleCode],
+    );
+    const roleRow = role.rows[0];
     if (!roleRow) {
       throw new BadRequestException({ code: 'ROLE_NOT_FOUND', message: 'Role not found' });
     }
+    await this.assertRoleAssignable(
+      organization.rows[0].code,
+      roleRow.id,
+      roleRow.code,
+      roleRow.active,
+    );
     await this.database.pool.query(
       `insert into user_organization_roles (user_id, organization_id, role_id, active)
        values ($1, $2, $3, true)
@@ -368,24 +438,38 @@ export class UsersService {
   async revokeAssignment(input: {
     userId: string;
     organizationId: string;
+    roleCode?: string;
     scope: Scope;
   }): Promise<UserResponse> {
     const user = await this.getUserRow(input.userId);
+    const targetRoleCode = input.roleCode
+      ? input.roleCode
+      : await this.organizationRoleOf(user.id, input.organizationId);
     if (
       (await this.isAdmin(user.id)) &&
       (await this.countActiveAdmins()) <= 1 &&
-      (await this.organizationRoleOf(user.id, input.organizationId)) === 'MTD_ADMIN'
+      targetRoleCode === 'MTD_ADMIN'
     ) {
       throw new BadRequestException({
         code: 'LAST_ADMIN_PROTECTED',
         message: 'The system cannot be left without an active administrator',
       });
     }
-    const result = await this.database.pool.query(
-      `update user_organization_roles set active = false
-       where user_id = $1 and organization_id = $2 and active = true`,
-      [user.id, input.organizationId],
-    );
+    const result = input.roleCode
+      ? await this.database.pool.query(
+          `update user_organization_roles
+              set active = false
+            where user_id = $1
+              and organization_id = $2
+              and role_id = (select id from roles where code = $3)
+              and active = true`,
+          [user.id, input.organizationId, input.roleCode],
+        )
+      : await this.database.pool.query(
+          `update user_organization_roles set active = false
+           where user_id = $1 and organization_id = $2 and active = true`,
+          [user.id, input.organizationId],
+        );
     if (result.rowCount === 0) {
       throw new NotFoundException({
         code: 'ASSIGNMENT_NOT_FOUND',
@@ -396,6 +480,7 @@ export class UsersService {
     const response = this.toResponse(user, assignments.get(user.id) ?? []);
     await this.audit(input.scope, 'USER_ROLE_CHANGED', user.id, {
       organizationId: input.organizationId,
+      roleCode: input.roleCode ?? null,
       effect: 'REVOKED',
     });
     return response;

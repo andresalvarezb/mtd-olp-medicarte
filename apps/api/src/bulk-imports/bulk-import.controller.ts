@@ -109,6 +109,23 @@ export class BulkImportController {
     response.send(buffer);
   }
 
+  @Get(':id/rejected.xlsx')
+  async rejected(
+    @Param('id') rawId: string,
+    @Res() response: Response,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const actor = await this.scope(organizationId, request, 'bulk_imports.read');
+    const buffer = await this.bulk.rejectedRowsWorkbook(uuidSchema.parse(rawId), actor);
+    response.setHeader('content-type', XLSX_CONTENT_TYPE);
+    response.setHeader(
+      'content-disposition',
+      'attachment; filename="filas-rechazadas-importacion.xlsx"',
+    );
+    response.send(buffer);
+  }
+
   @Get(':id')
   async detail(
     @Param('id') rawId: string,

@@ -88,6 +88,7 @@ interface RoleContextValue {
   user: SessionUser | null;
   me: MeResponse | null;
   organizationId: string;
+  selectOrganization: (organizationId: string) => void;
   hasPermission: (permission: string) => boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
@@ -217,7 +218,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const organizationId = useMemo(() => {
+  const preferredOrganizationId = useMemo(() => {
     const scoped =
       me?.organizations.find((organization) =>
         organization.roles.some((candidate) =>
@@ -226,14 +227,44 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       ) ?? me?.organizations.find((organization) => organization.code === role);
     return scoped?.id ?? me?.organizations[0]?.id ?? '';
   }, [me, role]);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
+
+  useEffect(() => {
+    if (!me) {
+      setSelectedOrganizationId('');
+      return;
+    }
+    if (!me.organizations.some((organization) => organization.id === selectedOrganizationId)) {
+      setSelectedOrganizationId(preferredOrganizationId);
+    }
+  }, [me, preferredOrganizationId, selectedOrganizationId]);
+
+  const organizationId = useMemo(
+    () =>
+      me?.organizations.some((organization) => organization.id === selectedOrganizationId)
+        ? selectedOrganizationId
+        : preferredOrganizationId,
+    [me, preferredOrganizationId, selectedOrganizationId],
+  );
+
+  const selectOrganization = useCallback(
+    (nextOrganizationId: string) => {
+      if (me?.organizations.some((organization) => organization.id === nextOrganizationId)) {
+        setSelectedOrganizationId(nextOrganizationId);
+      }
+    },
+    [me],
+  );
 
   const hasPermission = useCallback(
     (permission: string) => {
       if (!me) return false;
       const active = me.organizations.find((organization) => organization.id === organizationId);
-      return active?.permissions.includes(permission) ?? false;
+      return active?.isSystemAdmin === true && active.code === 'MTD'
+        ? true
+        : (active?.permissions.includes(permission) ?? false);
     },
-    [me],
+    [me, organizationId, role],
   );
 
   const value = useMemo<RoleContextValue>(
@@ -246,6 +277,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       user,
       me,
       organizationId,
+      selectOrganization,
       hasPermission,
       login,
       logout,
@@ -259,6 +291,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       user,
       me,
       organizationId,
+      selectOrganization,
       hasPermission,
       login,
       logout,

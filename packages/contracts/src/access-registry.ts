@@ -67,7 +67,7 @@ function permission(
     actionCode,
     lifecycle,
     actorBoundary,
-    configurable: options.configurable ?? false,
+    configurable: options.configurable ?? (lifecycle === 'ACTIVE' && options.structural !== true),
     structural: options.structural ?? lifecycle !== 'ACTIVE',
     systemAllowed: options.systemAllowed ?? lifecycle !== 'ORPHAN',
   };
@@ -214,7 +214,7 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
     },
   ),
   permission('supplier_deliveries.manage', 'supplier-deliveries', 'MANAGE', 'ACTIVE', 'OLP_ONLY'),
-  permission('medicarte_receipts.read', 'medicarte-receipts', 'VIEW', 'ACTIVE', 'MEDICARTE_POINT', {
+  permission('medicarte_receipts.read', 'medicarte-receipts', 'VIEW', 'ACTIVE', 'ORGANIZATION', {
     configurable: true,
   }),
   permission(

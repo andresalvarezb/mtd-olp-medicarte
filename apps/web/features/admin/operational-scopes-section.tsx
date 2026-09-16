@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { Note } from '@/components/ui/timeline';
 import { useApiData } from '@/hooks/use-api-data';
 import { listUsers } from '@/lib/users-api';
@@ -11,6 +12,15 @@ import {
   replaceUserPointScope,
 } from '@/lib/access-scopes-api';
 import type { UserResponse } from '@/lib/users-api';
+
+function isPointScopeEligible(user: UserResponse): boolean {
+  return user.assignments.some(
+    (assignment) =>
+      assignment.active &&
+      assignment.organizationCode === 'MEDICARTE' &&
+      (assignment.roleCode === 'MEDICARTE_OPERATOR' || assignment.roleCode.startsWith('CUSTOM_')),
+  );
+}
 
 export function OperationalScopesSection({
   organizationId,
@@ -33,22 +43,17 @@ export function OperationalScopesSection({
     [organizationId, selectedId],
   );
 
-  const medicarteUsers = useMemo(
-    () =>
-      (users.data?.items ?? []).filter((user) =>
-        user.assignments.some(
-          (assignment) =>
-            assignment.organizationCode === 'MEDICARTE' &&
-            assignment.roleCode === 'MEDICARTE_OPERATOR' &&
-            assignment.active,
-        ),
-      ),
+  const eligibleUsers = useMemo(
+    () => (users.data?.items ?? []).filter((user) => user.active && isPointScopeEligible(user)),
     [users.data],
   );
-  const filtered = medicarteUsers.filter((user) => {
-    const haystack = `${user.username} ${user.displayName}`.toLowerCase();
-    return haystack.includes(query.trim().toLowerCase());
-  });
+  const filteredUsers = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return eligibleUsers.filter((user) =>
+      `${user.username} ${user.displayName}`.toLowerCase().includes(normalizedQuery),
+    );
+  }, [eligibleUsers, query]);
+  const selected = eligibleUsers.find((user) => user.id === selectedId) ?? null;
 
   useEffect(() => {
     if (scope.data && selectedId === scope.data.userId) {
@@ -73,6 +78,7 @@ export function OperationalScopesSection({
   async function save() {
     if (!selectedId || !canManage) return;
     setError(null);
+    setSaved(false);
     try {
       const next = await replaceUserPointScope(organizationId, selectedId, {
         pointIds: selectedIds,
@@ -86,64 +92,139 @@ export function OperationalScopesSection({
   }
 
   if (!canRead) return null;
-  const selected = medicarteUsers.find((user) => user.id === selectedId) ?? null;
-  const displayed = selectedIds;
 
   return (
     <Card>
       <CardHead
-        title="Accesos operacionales"
-        subtitle="Asignación de puntos de dispensación a operadores Medicarte. Independiente del rol RBAC."
+        title="Puntos operativos Medicarte"
+        subtitle="Define en qué puntos de dispensación puede operar cada usuario. Esta autorización complementa el rol y no cambia sus permisos funcionales."
       />
       <CardBody>
-        {error ? <Note>{error}</Note> : null}
-        {saved ? <Note>Alcance actualizado.</Note> : null}
-        <label>
-          Buscar usuario Medicarte
-          <input value={query} onChange={(event) => setQuery(event.target.value)} />
-        </label>
-        <ul>
-          {filtered.map((user) => {
-            const assignment = user.assignments.find(
-              (item) => item.organizationCode === 'MEDICARTE',
-            );
-            return (
-              <li key={user.id}>
-                <button className="button" type="button" onClick={() => selectUser(user)}>
-                  {user.displayName} · {user.username}
-                </button>
-                <span>
-                  {assignment?.organizationCode} · {assignment?.roleCode}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-        {selected ? (
-          <>
-            <p>
-              {selected.displayName} · {selected.username} · MEDICARTE · MEDICARTE_OPERATOR
-            </p>
-            {(points.data?.items ?? []).map((point) => (
-              <label key={point.id}>
-                <input
-                  type="checkbox"
-                  checked={displayed.includes(point.id)}
-                  disabled={!canManage}
-                  onChange={() => toggle(point.id)}
-                />
-                {point.code} · {point.name}
-              </label>
-            ))}
-            {canManage ? (
-              <button className="button" type="button" onClick={() => void save()}>
-                Guardar
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <p>Selecciona un operador Medicarte para ver y editar sus puntos.</p>
-        )}
+        <Note>
+          Solo aparecen cuentas activas con un rol Medicarte operador o un rol personalizado
+          compatible. Sin puntos asignados, el acceso operacional queda bloqueado por seguridad.
+        </Note>
+        {error ? (
+          <div className="login-error" role="alert" style={{ marginBottom: 10 }}>
+            {error}
+          </div>
+        ) : null}
+        {saved ? <Note>Alcance actualizado correctamente.</Note> : null}
+        {users.error ? <Note>No se pudieron cargar los usuarios: {users.error}</Note> : null}
+        {points.error ? <Note>No se pudieron cargar los puntos: {points.error}</Note> : null}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(220px, 0.8fr) minmax(320px, 1.2fr)',
+            gap: 16,
+            marginTop: 12,
+          }}
+        >
+          <div>
+            <label className="field" style={{ display: 'block' }}>
+              <span>Buscar operador</span>
+              <input
+                className="control"
+                placeholder="Nombre o usuario"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+            <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
+              {filteredUsers.map((user) => {
+                const assignment = user.assignments.find(
+                  (item) =>
+                    item.active &&
+                    item.organizationCode === 'MEDICARTE' &&
+                    (item.roleCode === 'MEDICARTE_OPERATOR' || item.roleCode.startsWith('CUSTOM_')),
+                );
+                const active = user.id === selectedId;
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    className="btn"
+                    style={{
+                      textAlign: 'left',
+                      borderColor: active ? 'var(--accent, #2563eb)' : undefined,
+                    }}
+                    onClick={() => selectUser(user)}
+                  >
+                    <strong>{user.displayName}</strong>
+                    <br />
+                    <small>
+                      {user.username} · {assignment?.roleCode}
+                    </small>
+                  </button>
+                );
+              })}
+              {!filteredUsers.length ? <Note>No hay operadores que coincidan.</Note> : null}
+            </div>
+          </div>
+          <div>
+            {selected ? (
+              <>
+                <div style={{ marginBottom: 10 }}>
+                  <strong>{selected.displayName}</strong>
+                  <br />
+                  <span style={{ color: 'var(--muted)' }}>{selected.username} · MEDICARTE</span>
+                  <div style={{ marginTop: 6 }}>
+                    <StatusBadge tone="blue">
+                      Puntos seleccionados: {selectedIds.length}
+                    </StatusBadge>
+                    {!canManage ? <StatusBadge tone="gray">Solo lectura</StatusBadge> : null}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                    gap: 8,
+                  }}
+                >
+                  {(points.data?.items ?? []).map((point) => (
+                    <label
+                      key={point.id}
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        alignItems: 'flex-start',
+                        padding: 8,
+                        border: '1px solid var(--border, #e2e6ee)',
+                        borderRadius: 6,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(point.id)}
+                        disabled={!canManage}
+                        onChange={() => toggle(point.id)}
+                      />
+                      <span>
+                        <strong>{point.code}</strong>
+                        <br />
+                        <small>{point.name}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {canManage ? (
+                  <button
+                    className="btn"
+                    type="button"
+                    style={{ marginTop: 12 }}
+                    disabled={scope.loading}
+                    onClick={() => void save()}
+                  >
+                    Guardar puntos operativos
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <Note>Selecciona un operador para consultar y editar sus puntos.</Note>
+            )}
+          </div>
+        </div>
       </CardBody>
     </Card>
   );
