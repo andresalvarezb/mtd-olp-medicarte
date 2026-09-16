@@ -4,7 +4,7 @@ import { ALL_NAV_ITEMS, ROLES } from './nav-config';
 describe('clean navigation', () => {
   it('exposes the logistics surfaces through ESP-012', () => {
     expect(ALL_NAV_ITEMS.map((item) => item.view)).toEqual([
-      'foundation',
+      'operationalIndicators',
       'planningPeriods',
       'patientScheduling',
       'projectedDemand',
@@ -18,13 +18,13 @@ describe('clean navigation', () => {
       'patientApplications',
       'operationalOutcomes',
       'applicationAudits',
-      'operationalIndicators',
       'bulkImports',
       'operationalIntegrity',
+      'foundation',
       'admin',
       'operationalScopes',
     ]);
-    expect(ALL_NAV_ITEMS[0]?.roles).toEqual(ROLES);
+    expect(ALL_NAV_ITEMS.find((item) => item.view === 'foundation')?.roles).toEqual(ROLES);
   });
 
   it('keeps supplier review separate from MTD management', () => {
