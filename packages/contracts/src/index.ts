@@ -828,7 +828,7 @@ export const createTariffProductResultSchema = z.enum([
 ]);
 export type CreateTariffProductResult = z.infer<typeof createTariffProductResultSchema>;
 
-export const tariffImportStatusSchema = z.enum(['UPLOADED', 'VALIDATING', 'COMPLETED', 'FAILED']);
+export const tariffImportStatusSchema = z.enum(['PREPARED', 'CONFIRMING', 'UPLOADED', 'VALIDATING', 'COMPLETED', 'FAILED', 'CANCELLED']);
 export type TariffImportStatus = z.infer<typeof tariffImportStatusSchema>;
 
 export const tariffImportRowResultCodeSchema = z.enum([
@@ -868,6 +868,9 @@ export const tariffImportBatchResponseSchema = z.object({
   lastErrorCode: z.string().min(1).max(80).nullable(),
   createdAt: isoDateTimeSchema,
   completedAt: isoDateTimeSchema.nullable(),
+  preview: z.object({
+    total: z.number().int().nonnegative(), unchanged: z.number().int().nonnegative(), changed: z.number().int().nonnegative(), anomalous: z.number().int().nonnegative(), rejected: z.number().int().nonnegative(), scalePatternDetected: z.boolean(),
+  }).nullable().optional(),
 });
 export type TariffImportBatchResponse = z.infer<typeof tariffImportBatchResponseSchema>;
 
@@ -909,6 +912,7 @@ export const tariffImportPayloadSchema = z.object({
   sourceFileId: z.string().uuid(),
   correlationId: correlationIdSchema,
   idempotencyKey: idempotencyKeySchema,
+  overrideReason: z.string().trim().min(10).max(500).optional(),
 });
 export type TariffImportPayload = z.infer<typeof tariffImportPayloadSchema>;
 

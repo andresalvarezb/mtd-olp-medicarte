@@ -16,7 +16,7 @@ import {
   tariffNoveltyLogicalKeyPrefix,
   type createDatabase,
 } from '@authorization/database';
-import { parseTariffImportFile, TariffFileError } from './tariff-import-parser';
+import { canonicalizeTariffMoney, parseTariffImportFile, previewTariffRows, TariffFileError } from './tariff-import-parser';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -151,6 +151,10 @@ export class TariffImportProcessor {
         await client.query('commit');
         return this.summary(job.payload.batchId, 'SKIPPED', 'BATCH_NOT_FOUND');
       }
+      if (batch.status !== 'CONFIRMING' && batch.status !== 'COMPLETED' && batch.status !== 'FAILED') {
+        await client.query('commit');
+        return this.summary(batch.id, 'SKIPPED', 'BATCH_NOT_CONFIRMED');
+      }
       if (batch.status === 'COMPLETED' || batch.status === 'FAILED') {
         const persisted = await client.query<{
           total_rows: number;
@@ -177,11 +181,6 @@ export class TariffImportProcessor {
           duplicateRows: Number(totals?.duplicate_rows ?? 0),
         };
       }
-      if (batch.status !== 'UPLOADED') {
-        await client.query('commit');
-        return this.summary(batch.id, 'SKIPPED', 'BATCH_NOT_PROCESSABLE');
-      }
-
       await client.query(
         `update tariff_annex_imports set status = 'VALIDATING', started_at = now() where id = $1`,
         [batch.id],
@@ -219,6 +218,28 @@ export class TariffImportProcessor {
       let rejectedRows = 0;
       let duplicateRows = 0;
 
+      const activeProducts = await client.query<{ codigo_producto: string; tarifa_unidad: string | null }>(
+        `select codigo_producto, tarifa_unidad from tariff_annex_products where active = true`,
+      );
+      const preview = previewTariffRows(parsed.rows, new Map(activeProducts.rows.map((row) => [row.codigo_producto, row.tarifa_unidad])));
+      if (preview.anomalous > 0 && !job.payload.overrideReason) {
+        await this.failBatch(client, batch.id, 'TARIFF_SCALE_ANOMALY_REQUIRES_OVERRIDE');
+        await client.query(
+          `insert into audit_events (actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
+           values ('USER', $1, $2, 'TARIFF_IMPORT_ANOMALY_BLOCKED', 'tariff_annex_import', $3, $4::jsonb, $5, $6, 'BLOCKED')`,
+          [batch.created_by, batch.organization_id, batch.id, JSON.stringify(preview), batch.correlation_id, batch.correlation_id],
+        );
+        await client.query('commit');
+        return this.summary(batch.id, 'FAILED', 'TARIFF_SCALE_ANOMALY_REQUIRES_OVERRIDE');
+      }
+      if (preview.anomalous > 0 && job.payload.overrideReason) {
+        await client.query(
+          `insert into audit_events (actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
+           values ('USER', $1, $2, 'TARIFF_IMPORT_ANOMALY_OVERRIDE', 'tariff_annex_import', $3, $4::jsonb, $5, $6, 'SUCCESS')`,
+          [batch.created_by, batch.organization_id, batch.id, JSON.stringify({ preview, reason: job.payload.overrideReason }), batch.correlation_id, batch.correlation_id],
+        );
+      }
+
       for (const row of parsed.rows) {
         const codigo = row.codigoProducto;
         if (!isValidTariffProductCode(codigo)) {
@@ -238,7 +259,7 @@ export class TariffImportProcessor {
         seenCodes.set(codigo, row.rowNumber);
         const outcome = await this.upsertProduct(client, {
           codigo,
-          tarifaUnidad: sourceValue(row.rawData, 'TARIFA_UNIDAD'),
+           tarifaUnidad: canonicalizeTariffMoney(row.rawData.TARIFA_UNIDAD).raw,
           numeroExpedienteInvima: sourceValue(row.rawData, 'NUMERO_EXPEDIENTE_INVIMA'),
           consecutivoInvimaPresentacion: sourceValue(
             row.rawData,
@@ -250,7 +271,9 @@ export class TariffImportProcessor {
           tipoInclusion: sourceValue(row.rawData, 'TIPO_INCLUSION_MEDICAMENTO'),
           actorId: batch.created_by,
           organizationId: batch.organization_id,
-          correlationId: batch.correlation_id,
+           correlationId: batch.correlation_id,
+           importId: batch.id,
+           ...(job.payload.overrideReason ? { overrideReason: job.payload.overrideReason } : {}),
         });
         results.set(row.rowNumber, {
           code: outcome.resultCode,
@@ -404,19 +427,22 @@ export class TariffImportProcessor {
       actorId: string;
       organizationId: string;
       correlationId: string;
+      importId: string;
+      overrideReason?: string;
     } & ProductCommercialInput,
   ): Promise<{ resultCode: TariffRowResultCode; productId: string | null }> {
     const inserted = await client.query(
       `insert into tariff_annex_products
-         (codigo_producto, tarifa_unidad, numero_expediente_invima, consecutivo_invima_presentacion,
+         (codigo_producto, tarifa_unidad, tarifa_unidad_canonical, numero_expediente_invima, consecutivo_invima_presentacion,
           descripcion_generica, descripcion_comercial, laboratorio, tipo_inclusion,
           active, organization_id, created_by, updated_by)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $10)
+        values ($1, $2, $3::numeric, $4, $5, $6, $7, $8, $9, true, $10, $11, $11)
        on conflict (codigo_producto) do nothing
        returning id, codigo_producto, active, version`,
       [
         input.codigo,
-        input.tarifaUnidad,
+         input.tarifaUnidad,
+         input.tarifaUnidad,
         input.numeroExpedienteInvima,
         input.consecutivoInvimaPresentacion,
         input.descripcionGenerica,
@@ -437,6 +463,7 @@ export class TariffImportProcessor {
         after: { codigoProducto: product.codigo_producto, active: true, version: product.version },
         correlationId: input.correlationId,
       });
+      await this.insertTariffRevision(client, { product, input, revision: product.version });
       await this.enqueueRevalidation(client, {
         product,
         actorId: input.actorId,
@@ -459,6 +486,11 @@ export class TariffImportProcessor {
     if (current.active && commercialColumnsEqual(current, input)) {
       return { resultCode: 'PRODUCT_EXISTING', productId: current.id };
     }
+    const previous = current.tarifa_unidad ? Number(current.tarifa_unidad.replace(',', '.')) : null;
+    const next = input.tarifaUnidad ? Number(input.tarifaUnidad.replace(',', '.')) : null;
+    if (!input.overrideReason && previous && next && ((previous / next >= 900 && previous / next <= 1100) || (previous / next >= 0.0009 && previous / next <= 0.0011))) {
+      throw new Error('TARIFF_SCALE_ANOMALY_REQUIRES_EXPLICIT_CONFIRMATION');
+    }
     const commercialValues = [
       input.tarifaUnidad,
       input.numeroExpedienteInvima,
@@ -469,14 +501,14 @@ export class TariffImportProcessor {
       input.tipoInclusion,
     ];
     const updated = await client.query(
-      `update tariff_annex_products
-       set tarifa_unidad = $2, numero_expediente_invima = $3,
-           consecutivo_invima_presentacion = $4, descripcion_generica = $5,
-           descripcion_comercial = $6, laboratorio = $7, tipo_inclusion = $8,
-           active = true, version = version + 1, updated_by = $9, updated_at = now()
+       `update tariff_annex_products
+        set tarifa_unidad = $2, tarifa_unidad_canonical = $3::numeric, numero_expediente_invima = $4,
+            consecutivo_invima_presentacion = $5, descripcion_generica = $6,
+            descripcion_comercial = $7, laboratorio = $8, tipo_inclusion = $9,
+            active = true, version = version + 1, updated_by = $10, updated_at = now()
        where id = $1
        returning id, codigo_producto, active, version`,
-      [current.id, ...commercialValues, input.actorId],
+       [current.id, input.tarifaUnidad, input.tarifaUnidad, ...commercialValues.slice(1), input.actorId],
     );
     const changed = updated.rows[0];
     if (!changed) return { resultCode: 'PROCESSING_ERROR', productId: null };
@@ -498,6 +530,7 @@ export class TariffImportProcessor {
       },
       correlationId: input.correlationId,
     });
+    await this.insertTariffRevision(client, { product: changed, input, revision: changed.version });
     await this.enqueueRevalidation(client, {
       product: changed,
       actorId: input.actorId,
@@ -540,6 +573,19 @@ export class TariffImportProcessor {
        values ($1, 'tariff.product.activated', 1, $2::jsonb, $3, $4, $5)
        on conflict (idempotency_key) do nothing`,
       [eventId, JSON.stringify(payload), input.correlationId, input.organizationId, idempotencyKey],
+    );
+  }
+
+  private async insertTariffRevision(
+    client: { query: (query: string, values?: unknown[]) => Promise<unknown> },
+    input: { product: ProductRow; input: ProductCommercialInput & { codigo?: string; actorId: string; importId: string }; revision: number },
+  ): Promise<void> {
+    await client.query(
+      `insert into tariff_product_revisions
+         (product_id,codigo_producto,revision,import_id,tarifa_unidad_raw,tarifa_unidad_canonical,tipo_inclusion,commercial_snapshot,valid_from,changed_by,provenance)
+       values ($1,$2,$3,$4,$5,$6::numeric,$7,$8::jsonb,now(),$9,'IMPORT_PROCESSOR')
+       on conflict (product_id,revision) do nothing`,
+      [input.product.id, input.product.codigo_producto, input.revision, input.input.importId, input.input.tarifaUnidad, input.input.tarifaUnidad, input.input.tipoInclusion, JSON.stringify(commercialSnapshotFromInput(input.input)), input.input.actorId],
     );
   }
 

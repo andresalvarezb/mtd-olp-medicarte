@@ -36,6 +36,7 @@ import {
 import { API_CONFIG, DATABASE } from '../tokens';
 import type { Scope } from '../common/request-scope';
 import { createXlsxExport } from '../common/xlsx-export';
+import * as XLSX from 'xlsx';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -73,6 +74,8 @@ type ImportBatchRow = {
   last_error_code: string | null;
   created_at: Date;
   completed_at: Date | null;
+  preview?: { total: number; unchanged: number; changed: number; anomalous: number; rejected: number; scalePatternDetected: boolean } | null;
+  confirmed_at?: Date | null;
 };
 
 type ImportRowQueryRow = {
@@ -219,7 +222,31 @@ function toImportBatchResponse(row: ImportBatchRow): TariffImportBatchResponse {
     lastErrorCode: row.last_error_code,
     createdAt: row.created_at.toISOString(),
     completedAt: row.completed_at?.toISOString() ?? null,
+    preview: row.preview ?? null,
   };
+}
+
+function buildTariffPreview(content: Buffer, active: Map<string, string | null>) {
+  const workbook = XLSX.read(content, { type: 'buffer', raw: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]!];
+  if (!sheet) throw new BadRequestException({ code: 'TARIFF_IMPORT_INVALID_FILE', message: 'No data sheet' });
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null });
+  const headers = (matrix[0] ?? []).map((value) => String(value ?? '').trim().toUpperCase());
+  const codeIndex = headers.indexOf('CODIGO_PRODUCTO');
+  const tariffIndex = headers.indexOf('TARIFA_UNIDAD');
+  const rows = matrix.slice(1).map((values, index) => {
+    const codigo = normalizeTariffProductCode(values[codeIndex]);
+    const raw = values[tariffIndex];
+    if (!codigo || raw === null || raw === undefined || String(raw).trim() === '') return { rowNumber: index + 2, codigoProducto: codigo, state: 'REJECTED' as const };
+    const next = Number(String(raw).replace(',', '.'));
+    const previousRaw = active.get(codigo);
+    if (previousRaw === undefined || previousRaw === null) return { rowNumber: index + 2, codigoProducto: codigo, state: 'CHANGED' as const };
+    const ratio = next / Number(previousRaw.replace(',', '.'));
+    const anomalous = (ratio >= 900 && ratio <= 1100) || (ratio >= 0.0009 && ratio <= 0.0011);
+    return { rowNumber: index + 2, codigoProducto: codigo, state: anomalous ? 'ANOMALOUS' as const : next === Number(previousRaw) ? 'UNCHANGED' as const : 'CHANGED' as const };
+  });
+  const summary = { total: rows.length, unchanged: rows.filter((r) => r.state === 'UNCHANGED').length, changed: rows.filter((r) => r.state === 'CHANGED').length, anomalous: rows.filter((r) => r.state === 'ANOMALOUS').length, rejected: rows.filter((r) => r.state === 'REJECTED').length, scalePatternDetected: rows.filter((r) => r.state === 'ANOMALOUS').length >= 2 };
+  return { ...summary, rows };
 }
 
 function escapeLikePattern(value: string): string {
@@ -769,7 +796,7 @@ export class TariffAnnexService {
       await client.query(
         `insert into tariff_annex_imports
            (id, organization_id, created_by, original_filename, mime_type, size_bytes, sha256, status, correlation_id, idempotency_key)
-         values ($1, $2, $3, $4, $5, $6, $7, 'UPLOADED', $8, $9)`,
+          values ($1, $2, $3, $4, $5, $6, $7, 'PREPARED', $8, $9)`,
         [
           importId,
           input.scope.organizationId,
@@ -796,6 +823,16 @@ export class TariffAnnexService {
           input.file.buffer,
         ],
       );
+      const activeProducts = await client.query<{ codigo_producto: string; tarifa_unidad: string | null }>(
+        `select codigo_producto, tarifa_unidad from tariff_annex_products where active = true`,
+      );
+      const preview = buildTariffPreview(input.file.buffer, new Map(activeProducts.rows.map((row) => [row.codigo_producto, row.tarifa_unidad])));
+      await client.query(
+        `update tariff_annex_imports set preview = $2::jsonb, preview_total = $3, preview_unchanged = $4,
+           preview_changed = $5, preview_anomalous = $6, preview_rejected = $7,
+           preview_scale_pattern_detected = $8 where id = $1`,
+        [importId, JSON.stringify(preview), preview.total, preview.unchanged, preview.changed, preview.anomalous, preview.rejected, preview.scalePatternDetected],
+      );
       await client.query(
         `insert into audit_events
            (actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result)
@@ -813,22 +850,8 @@ export class TariffAnnexService {
           input.scope.correlationId,
         ],
       );
-      await client.query(
-        `insert into outbox_events
-           (id, event_type, version, payload, correlation_id, organization_id, idempotency_key)
-         values ($1, 'tariff.import', 1, $2::jsonb, $3, $4, $5)`,
-        [
-          eventId,
-          JSON.stringify(payload),
-          input.scope.correlationId,
-          input.scope.organizationId,
-          outboxIdempotencyKey,
-        ],
-      );
       const created = await client.query<ImportBatchRow>(
-        `select id, organization_id, original_filename, mime_type, size_bytes, sha256, status,
-                total_rows, created_rows, reactivated_rows, existing_rows, rejected_rows, duplicate_rows,
-                last_error_code, created_at, completed_at
+        `select *
          from tariff_annex_imports where id = $1`,
         [importId],
       );
@@ -848,6 +871,31 @@ export class TariffAnnexService {
     } finally {
       client.release();
     }
+  }
+
+  async confirmImport(input: { batchId: string; overrideReason?: string; scope: Scope }): Promise<TariffImportBatchResponse> {
+    requireMtd(input.scope);
+    const client = await this.database.pool.connect();
+    try {
+      await client.query('begin');
+      const result = await client.query<ImportBatchRow & { created_by: string; organization_id: string; correlation_id: string; idempotency_key: string; preview_anomalous: number; preview: unknown; source_file_id: string }>(
+        `select b.*, f.id as source_file_id from tariff_annex_imports b join tariff_annex_import_source_files f on f.import_id = b.id
+         where b.id = $1 and b.organization_id = $2 for update`, [parseUuid(input.batchId, 'batchId'), input.scope.organizationId],
+      );
+      const batch = result.rows[0];
+      if (!batch) throw new NotFoundException({ code: 'TARIFF_IMPORT_NOT_FOUND', message: 'Tariff annex import not found' });
+      if (batch.status === 'COMPLETED') { await client.query('commit'); return toImportBatchResponse(batch); }
+      if (batch.status === 'CONFIRMING') { await client.query('commit'); return toImportBatchResponse({ ...batch, preview: batch.preview ?? null }); }
+      if (batch.status !== 'PREPARED') throw new ConflictException({ code: 'TARIFF_IMPORT_NOT_PREPARED', message: 'Import is not prepared' });
+      if (batch.preview_anomalous > 0 && (!input.overrideReason || input.overrideReason.trim().length < 10)) throw new ConflictException({ code: 'TARIFF_IMPORT_OVERRIDE_REQUIRED', message: 'Anomaly override reason is required' });
+      const reason = input.overrideReason?.trim() || null;
+      const payload = { eventId: randomUUID(), batchId: batch.id, sourceFileId: batch.source_file_id, correlationId: batch.correlation_id, idempotencyKey: batch.idempotency_key, ...(reason ? { overrideReason: reason } : {}) };
+      await client.query(`update tariff_annex_imports set status = 'CONFIRMING', confirmed_at = now(), confirmed_by = $2, override_reason = $3 where id = $1`, [batch.id, input.scope.userId, reason]);
+      await client.query(`insert into outbox_events (id,event_type,version,payload,correlation_id,organization_id,idempotency_key) values ($1,'tariff.import',1,$2::jsonb,$3,$4,$5) on conflict (idempotency_key) do nothing`, [payload.eventId, JSON.stringify(payload), batch.correlation_id, batch.organization_id, `tariff-confirm:${batch.id}`]);
+      await client.query(`insert into audit_events (actor_type,actor_id,organization_id,action,resource_type,resource_id,after,correlation_id,request_id,result) values ('USER',$1,$2,'TARIFF_ANNEX_IMPORT_CONFIRMED','tariff_annex_import',$3,$4::jsonb,$5,$6,'SUCCESS')`, [input.scope.userId, input.scope.organizationId, batch.id, JSON.stringify({ overrideReason: reason, preview: batch.preview }), batch.correlation_id, batch.correlation_id]);
+      await client.query('commit');
+      return toImportBatchResponse({ ...batch, status: 'CONFIRMING', confirmed_at: new Date(), preview: batch.preview ?? null });
+    } catch (error) { await client.query('rollback'); throw error; } finally { client.release(); }
   }
 
   async listImports(input: {
