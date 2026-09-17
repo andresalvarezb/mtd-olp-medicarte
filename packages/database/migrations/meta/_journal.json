@@ -225,6 +225,20 @@
       "when": 1790460420663,
       "tag": "0031_novelty_logical_key",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790546820663,
+      "tag": "0033_tariff_provenance_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790546821663,
+      "tag": "0034_tariff_prepare_confirm",
+      "breakpoints": true
     }
   ]
 }

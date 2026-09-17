@@ -6,6 +6,7 @@ import {
   date,
   index,
   integer,
+  numeric,
   jsonb,
   pgTable,
   primaryKey,
@@ -752,6 +753,7 @@ export const tariffAnnexProducts = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     codigoProducto: varchar('codigo_producto', { length: 255 }).notNull(),
     tarifaUnidad: varchar('tarifa_unidad', { length: 255 }),
+    tarifaUnidadCanonical: numeric('tarifa_unidad_canonical', { precision: 18, scale: 4 }),
     numeroExpedienteInvima: varchar('numero_expediente_invima', { length: 255 }),
     consecutivoInvimaPresentacion: varchar('consecutivo_invima_presentacion', { length: 255 }),
     descripcionGenerica: text('descripcion_generica'),
@@ -805,6 +807,16 @@ export const tariffAnnexImports = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+    preview: jsonb('preview'),
+    previewTotal: integer('preview_total').notNull().default(0),
+    previewUnchanged: integer('preview_unchanged').notNull().default(0),
+    previewChanged: integer('preview_changed').notNull().default(0),
+    previewAnomalous: integer('preview_anomalous').notNull().default(0),
+    previewRejected: integer('preview_rejected').notNull().default(0),
+    previewScalePatternDetected: boolean('preview_scale_pattern_detected').notNull().default(false),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    confirmedBy: uuid('confirmed_by').references(() => users.id, { onDelete: 'restrict' }),
+    overrideReason: text('override_reason'),
   },
   (table) => [
     index('tariff_annex_imports_org_idx').on(table.organizationId, table.createdAt),
@@ -859,6 +871,10 @@ export const tariffAnnexImportRows = pgTable(
     productId: uuid('product_id').references(() => tariffAnnexProducts.id, {
       onDelete: 'restrict',
     }),
+    tarifaUnidadRaw: text('tarifa_unidad_raw'),
+    tarifaUnidadCanonical: numeric('tarifa_unidad_canonical', { precision: 18, scale: 4 }),
+    anomalyCode: varchar('anomaly_code', { length: 80 }),
+    provenance: jsonb('provenance'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -874,6 +890,47 @@ export const tariffAnnexImportRows = pgTable(
       sql`${table.resultCode} IN ('PRODUCT_CREATED', 'PRODUCT_REACTIVATED', 'PRODUCT_EXISTING', 'INVALID_PRODUCT_CODE', 'DUPLICATE_IN_FILE', 'INVALID_FILE_FORMAT', 'PROCESSING_ERROR')`,
     ),
   ],
+);
+
+export const tariffProductRevisions = pgTable(
+  'tariff_product_revisions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    productId: uuid('product_id').notNull().references(() => tariffAnnexProducts.id, { onDelete: 'restrict' }),
+    codigoProducto: varchar('codigo_producto', { length: 255 }).notNull(),
+    revision: integer('revision').notNull(),
+    importId: uuid('import_id').references(() => tariffAnnexImports.id, { onDelete: 'restrict' }),
+    importRowId: uuid('import_row_id').references(() => tariffAnnexImportRows.id, { onDelete: 'restrict' }),
+    tarifaUnidadRaw: text('tarifa_unidad_raw'),
+    tarifaUnidadCanonical: numeric('tarifa_unidad_canonical', { precision: 18, scale: 4 }),
+    tipoInclusion: varchar('tipo_inclusion', { length: 100 }),
+    commercialSnapshot: jsonb('commercial_snapshot').notNull(),
+    validFrom: timestamp('valid_from', { withTimezone: true }).notNull(),
+    validTo: timestamp('valid_to', { withTimezone: true }),
+    changedBy: uuid('changed_by').references(() => users.id, { onDelete: 'restrict' }),
+    provenance: text('provenance').notNull(),
+  },
+  (table) => [uniqueIndex('tariff_product_revisions_product_revision_idx').on(table.productId, table.revision), index('tariff_product_revisions_code_idx').on(table.codigoProducto, table.validFrom)],
+);
+
+export const authorizationTariffSnapshots = pgTable(
+  'authorization_tariff_snapshots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    authorizationItemId: uuid('authorization_item_id').notNull().references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    productId: uuid('product_id').references(() => tariffAnnexProducts.id, { onDelete: 'restrict' }),
+    productRevisionId: uuid('product_revision_id').references(() => tariffProductRevisions.id, { onDelete: 'restrict' }),
+    importId: uuid('import_id').references(() => tariffAnnexImports.id, { onDelete: 'restrict' }),
+    codigoProducto: varchar('codigo_producto', { length: 255 }).notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('UNRESOLVED'),
+    tarifaUnidadRaw: text('tarifa_unidad_raw'),
+    tarifaUnidadCanonical: numeric('tarifa_unidad_canonical', { precision: 18, scale: 4 }),
+    tipoInclusion: varchar('tipo_inclusion', { length: 100 }),
+    snapshotAt: timestamp('snapshot_at', { withTimezone: true }).notNull().defaultNow(),
+    provenance: text('provenance').notNull(),
+    unresolvedReason: text('unresolved_reason'),
+  },
+  (table) => [uniqueIndex('authorization_tariff_snapshots_item_idx').on(table.authorizationItemId), index('authorization_tariff_snapshots_import_idx').on(table.importId), check('authorization_tariff_snapshots_status_check', sql`${table.status} IN ('RESOLVED','UNRESOLVED','NOT_APPLICABLE')`)],
 );
 
 export const noveltyCodes = pgTable('novelty_codes', {

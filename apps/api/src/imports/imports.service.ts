@@ -611,8 +611,8 @@ export class ImportsService {
   }> {
     const classification = authorizationClassificationSchema.parse(input.row.normalized_data);
     const rawSource = (input.row.raw_data ?? {}) as Record<string, unknown>;
-    const product = await client.query<{ version: number; tipo_inclusion: string | null }>(
-      `select version, tipo_inclusion from tariff_annex_products
+    const product = await client.query<{ id: string; version: number; tipo_inclusion: string | null; tarifa_unidad: string | null; tarifa_unidad_canonical: string | null }>(
+      `select id, version, tipo_inclusion, tarifa_unidad, tarifa_unidad_canonical from tariff_annex_products
         where organization_id = coalesce((select id from organizations where code = 'MTD' and active = true limit 1), $1::uuid)
           and codigo_producto = $2 and active = true
         order by version desc limit 1`,
@@ -697,6 +697,36 @@ export class ImportsService {
         [input.rowId, importRowResultMessages.EXISTING_ITEM_REVIEW_REQUIRED, existingId],
       );
       return { created: false, tariffRejected: false, existing: true, failed: false, validationRejected: false };
+    }
+    const tariffProduct = product.rows[0];
+    if (tariffProduct) {
+      const revision = await client.query<{ id: string; import_id: string | null }>(
+        `select id, import_id from tariff_product_revisions where product_id = $1 order by valid_from desc, revision desc limit 1`,
+        [tariffProduct.id],
+      );
+      await client.query(
+        `insert into authorization_tariff_snapshots
+           (authorization_item_id, product_id, product_revision_id, import_id, codigo_producto, status,
+            tarifa_unidad_raw, tarifa_unidad_canonical, tipo_inclusion, provenance)
+         values ($1, $2, $3, $4, $5, 'RESOLVED', $6, $7::numeric, $8, 'AUTHORIZATION_CREATE:active_tariff_revision')`,
+        [
+          itemId,
+          tariffProduct.id,
+          revision.rows[0]?.id ?? null,
+          revision.rows[0]?.import_id ?? null,
+          classification.codigoMedicamento,
+          tariffProduct.tarifa_unidad,
+          tariffProduct.tarifa_unidad_canonical,
+          tariffProduct.tipo_inclusion,
+        ],
+      );
+    } else {
+      await client.query(
+        `insert into authorization_tariff_snapshots
+           (authorization_item_id, codigo_producto, status, provenance, unresolved_reason)
+         values ($1, $2, 'NOT_APPLICABLE', 'AUTHORIZATION_CREATE:no_active_tariff_product', 'PRODUCT_NOT_LISTED')`,
+        [itemId, classification.codigoMedicamento],
+      );
     }
     const sourceValue = rawText(sourceDataRecord(input.row.raw_data)?.NUMERO_PRESCRIPCION);
     await client.query(

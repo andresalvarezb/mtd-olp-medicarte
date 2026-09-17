@@ -152,6 +152,17 @@ export class TariffRevalidationProcessor {
          where id = $1`,
         [item.id, TARIFF_ANNEX_RULE_VERSION],
       );
+      await client.query(
+        `insert into authorization_tariff_snapshots
+           (authorization_item_id, product_id, codigo_producto, status, tarifa_unidad_raw,
+            tarifa_unidad_canonical, tipo_inclusion, provenance)
+         select $1, p.id, p.codigo_producto, 'RESOLVED', p.tarifa_unidad,
+                p.tarifa_unidad_canonical, p.tipo_inclusion, 'TARIFF_REVALIDATION:active_product'
+         from tariff_annex_products p
+         where p.id = $2
+         on conflict (authorization_item_id) do nothing`,
+        [item.id, job.payload.tariffProductId],
+      );
       await resolveNovelties(client, {
         authorizationItemId: item.id,
         codes: ['ANX_001', 'ANX_002', 'ANX_003'],

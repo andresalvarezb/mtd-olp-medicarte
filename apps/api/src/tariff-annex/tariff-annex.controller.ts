@@ -465,6 +465,23 @@ export class TariffAnnexController {
     return this.tariffAnnex.getImport(batchId, scopeFromProfile(profile, organization, request));
   }
 
+  @Post('imports/:batchId/confirm')
+  @HttpCode(200)
+  @ApiParam({ name: 'batchId', format: 'uuid' })
+  @ApiHeader({ name: 'X-Organization-Id', required: true })
+  @ApiHeader({ name: 'Idempotency-Key', required: true })
+  async confirmImport(
+    @Param('batchId') batchId: string,
+    @NestBody() rawBody: unknown,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const body = z.object({ overrideReason: z.string().trim().min(10).max(500).optional() }).strict().parse(rawBody ?? {});
+    const organization = uuidSchema.parse(organizationId);
+    const profile = await this.access.requirePermission(request.auth.sub, organization, 'tariff_annex.import');
+    return this.tariffAnnex.confirmImport({ batchId, ...(body.overrideReason ? { overrideReason: body.overrideReason } : {}), scope: scopeFromProfile(profile, organization, request) });
+  }
+
   @Get('imports/:batchId/rows')
   @SkipThrottle()
   @ApiParam({ name: 'batchId', format: 'uuid' })

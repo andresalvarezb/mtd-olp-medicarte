@@ -8,6 +8,58 @@ export type ParsedTariffRow = Readonly<{
   rawData: Record<string, unknown>;
 }>;
 
+export function canonicalizeTariffMoney(
+  value: unknown,
+): { raw: string | null; canonical: string | null } {
+  if (
+    value === null ||
+    value === undefined ||
+    (typeof value === 'string' && value.trim() === '')
+  ) {
+    return { raw: null, canonical: null };
+  }
+
+  const raw =
+    typeof value === 'string'
+      ? value.trim()
+      : typeof value === 'number' || typeof value === 'bigint'
+        ? String(value)
+        : '';
+
+  if (!/^[+-]?\d+(?:[.,]\d{1,4})?$/.test(raw)) {
+    throw new Error('INVALID_TARIFF_MONEY');
+  }
+
+  return {
+    raw,
+    canonical: Number(raw.replace(',', '.')).toFixed(4),
+  };
+}
+
+export type TariffPreviewState = 'UNCHANGED' | 'CHANGED' | 'ANOMALOUS' | 'REJECTED';
+export type TariffPreviewRow = { rowNumber: number; codigoProducto: string; state: TariffPreviewState; ratio: number | null };
+export type TariffPreview = { rows: TariffPreviewRow[]; total: number; unchanged: number; changed: number; anomalous: number; rejected: number; scalePatternDetected: boolean };
+
+export function previewTariffRows(
+  rows: readonly ParsedTariffRow[],
+  active: ReadonlyMap<string, string | null>,
+): TariffPreview {
+  const result = rows.map((row) => {
+    if (!row.codigoProducto) return { rowNumber: row.rowNumber, codigoProducto: '', state: 'REJECTED' as const, ratio: null };
+    try {
+      const next = Number(canonicalizeTariffMoney(row.rawData.TARIFA_UNIDAD).canonical);
+      const previousRaw = active.get(row.codigoProducto);
+      if (previousRaw === undefined || previousRaw === null) return { rowNumber: row.rowNumber, codigoProducto: row.codigoProducto, state: 'CHANGED' as const, ratio: null };
+      const previous = Number(previousRaw.replace(',', '.'));
+      const ratio = previous && next ? next / previous : null;
+      const anomalous = ratio !== null && ((ratio >= 900 && ratio <= 1100) || (ratio >= 0.0009 && ratio <= 0.0011));
+      return { rowNumber: row.rowNumber, codigoProducto: row.codigoProducto, state: anomalous ? 'ANOMALOUS' as const : previous === next ? 'UNCHANGED' as const : 'CHANGED' as const, ratio };
+    } catch { return { rowNumber: row.rowNumber, codigoProducto: row.codigoProducto, state: 'REJECTED' as const, ratio: null }; }
+  });
+  const anomalous = result.filter((row) => row.state === 'ANOMALOUS').length;
+  return { rows: result, total: result.length, unchanged: result.filter((row) => row.state === 'UNCHANGED').length, changed: result.filter((row) => row.state === 'CHANGED').length, anomalous, rejected: result.filter((row) => row.state === 'REJECTED').length, scalePatternDetected: anomalous >= 2 };
+}
+
 export type ParsedTariffFile = Readonly<{
   rows: ParsedTariffRow[];
   headers: string[];
