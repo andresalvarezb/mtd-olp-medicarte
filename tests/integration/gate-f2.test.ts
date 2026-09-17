@@ -579,13 +579,13 @@ describe('Gate F2', () => {
         expectedNoPrescripcion: '',
       },
       {
-        name: 'blocks a NO_PBS item pending MIPRES',
+        name: 'keeps a PBS item ready when MIPRES is present',
         prescripcion: '20260915123456789012',
         status: '5',
-        expectedOperationStatus: 'BLOCKED',
+        expectedOperationStatus: 'READY_TO_DISPENSE',
         expectedEnablementStatus: 'ENABLED',
-        expectedCoverageType: 'NO_PBS',
-        expectedDirectionStatus: 'PENDING',
+        expectedCoverageType: 'PBS',
+        expectedDirectionStatus: 'NOT_APPLICABLE',
         expectedNoPrescripcion: '20260915123456789',
       },
     ] as const;

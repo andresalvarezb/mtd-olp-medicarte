@@ -4,6 +4,7 @@ import {
   deriveAuthorizationClassification,
   deriveCoverageType,
   deriveDirectionStatus,
+  deriveTariffCoverageType,
   deriveEnablementStatus,
   deriveOperationStatus,
   isTariffCoverageConsistent,
@@ -32,6 +33,15 @@ describe('authorization classification', () => {
   it('uses presence of No.PRESCRIPCION for PBS and NO_PBS', () => {
     expect(deriveCoverageType('')).toBe('PBS');
     expect(deriveCoverageType('20260915123000000000')).toBe('NO_PBS');
+  });
+
+  it('Anexo Tarifario is authoritative for PBS and NO_PBS', () => {
+    expect(deriveTariffCoverageType('PBS')).toBe('PBS');
+    expect(deriveTariffCoverageType('NO PBS')).toBe('NO_PBS');
+    expect(deriveTariffCoverageType('NO_PBS')).toBe('NO_PBS');
+    expect(deriveTariffCoverageType('NO-PBS')).toBe('NO_PBS');
+    expect(deriveTariffCoverageType(null)).toBeNull();
+    expect(deriveTariffCoverageType('')).toBeNull();
   });
 
   it('derives the MIPRES prescription by removing the last three digits', () => {

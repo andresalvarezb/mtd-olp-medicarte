@@ -31,8 +31,9 @@ import {
   deriveEarlyProcessStatus,
   deriveEpsNovedadCausales,
   deriveOperationStatus,
+  deriveDirectionStatus,
+  deriveTariffCoverageType,
   deriveTariffMembershipStatus,
-  isTariffCoverageConsistent,
   epsNovedadCausalMessages,
   EPS_CAUSAL_TO_NOVELTY,
   noveltyForImportResult,
@@ -619,43 +620,39 @@ export class ImportsService {
       [input.organizationId, classification.codigoMedicamento],
     );
     const productInTariffAnnex = product.rows.length > 0;
-    if (
-      productInTariffAnnex &&
-      !isTariffCoverageConsistent(classification.coverageType, product.rows[0]?.tipo_inclusion)
-    ) {
-      const message = 'La prescripción y el tipo de inclusión del Anexo Tarifario no coinciden.';
-      await client.query(
-        `update import_rows set result_code = 'INVALID_FIELD_FORMAT', result_message = $2,
-                confirmable = false where id = $1`,
-        [input.rowId, message],
+
+    const tariffCoverageType = productInTariffAnnex
+      ? deriveTariffCoverageType(product.rows[0]?.tipo_inclusion)
+      : null;
+
+    if (productInTariffAnnex && !tariffCoverageType) {
+      throw new Error(
+        `Active tariff product ${classification.codigoMedicamento} has invalid tipo_inclusion`,
       );
-      await insertNovelty(client, {
-        importBatchId: input.batchId,
-        sourceRowNumber: input.row.row_number,
-        originalRow: rawSource,
-        code: 'CLS_002',
-        stage: 'CLASIFICACION',
-        field: 'TIPO_INCLUSION_MEDICAMENTO',
-        receivedValue: product.rows[0]?.tipo_inclusion ?? '',
-        description: message,
-        actorId: input.scope.userId,
-      });
-      return { created: false, tariffRejected: false, existing: false, failed: false, validationRejected: true };
     }
+
+    // El Anexo Tarifario es la fuente autoritativa para PBS/NO_PBS.
+    // NUMERO_PRESCRIPCION/MIPRES se conserva como dato operativo,
+    // pero no modifica la clasificación de cobertura.
+    const effectiveCoverageType =
+      tariffCoverageType ?? classification.coverageType;
+    const effectiveDirectionStatus =
+      deriveDirectionStatus(effectiveCoverageType);
+
     const tariffVersion = Number(product.rows[0]?.version ?? 0);
     const tariffMembershipStatus = deriveTariffMembershipStatus(productInTariffAnnex);
     const operationStatus = deriveOperationStatus({
       enablementStatus: classification.enablementStatus,
-      coverageType: classification.coverageType,
-      directionStatus: classification.directionStatus,
+      coverageType: effectiveCoverageType,
+      directionStatus: effectiveDirectionStatus,
       productInTariffAnnex,
       fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
       today: currentBogotaDate(),
     });
     const processStatus = deriveEarlyProcessStatus({
       operationStatus,
-      coverageType: classification.coverageType,
-      directionStatus: classification.directionStatus,
+      coverageType: effectiveCoverageType,
+      directionStatus: effectiveDirectionStatus,
     });
     const item = await client.query<{ id: string; version: number }>(
       `insert into authorization_items
@@ -675,8 +672,8 @@ export class ImportsService {
         classification.prescripcionNormalized,
         classification.noPrescripcion,
         classification.enablementStatus,
-        classification.coverageType,
-        classification.directionStatus,
+        effectiveCoverageType,
+        effectiveDirectionStatus,
         operationStatus,
         tariffMembershipStatus,
         `${TARIFF_ANNEX_RULE_VERSION}:${tariffVersion}`,
@@ -733,7 +730,7 @@ export class ImportsService {
       `insert into coverage_evaluations
          (authorization_item_id, evaluation_version, source_value, normalized_value, coverage_type, rule_version)
        values ($1, 1, $2, $3, $4, 'F2-COVERAGE-2')`,
-      [itemId, sourceValue, classification.prescripcionNormalized, classification.coverageType],
+      [itemId, sourceValue, classification.prescripcionNormalized, effectiveCoverageType],
     );
     await client.query(
       `insert into authorization_item_organizations (authorization_item_id, organization_id)
@@ -757,7 +754,7 @@ export class ImportsService {
       resourceType: 'authorization_item',
       resourceId: itemId,
       after: {
-        coverageType: classification.coverageType,
+        coverageType: effectiveCoverageType,
         normalizedValue: classification.prescripcionNormalized,
         noPrescripcion: classification.noPrescripcion,
         ruleVersion: 'F2-COVERAGE-2',
@@ -794,8 +791,8 @@ export class ImportsService {
     const remainingCausales = deriveEpsNovedadCausales({
       enablementStatus: classification.enablementStatus,
       operationStatus,
-      coverageType: classification.coverageType,
-      directionStatus: classification.directionStatus,
+      coverageType: effectiveCoverageType,
+      directionStatus: effectiveDirectionStatus,
       tariffMembershipStatus,
       fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
       today: currentBogotaDate(),
