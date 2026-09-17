@@ -226,19 +226,40 @@ function toImportBatchResponse(row: ImportBatchRow): TariffImportBatchResponse {
   };
 }
 
+function tariffCellText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (
+    typeof value === 'number' ||
+    typeof value === 'bigint' ||
+    typeof value === 'boolean'
+  ) {
+    return String(value);
+  }
+  return '';
+}
+
 function buildTariffPreview(content: Buffer, active: Map<string, string | null>) {
   const workbook = XLSX.read(content, { type: 'buffer', raw: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]!];
   if (!sheet) throw new BadRequestException({ code: 'TARIFF_IMPORT_INVALID_FILE', message: 'No data sheet' });
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null });
-  const headers = (matrix[0] ?? []).map((value) => String(value ?? '').trim().toUpperCase());
+  const headers = (matrix[0] ?? []).map((value) =>
+    tariffCellText(value).trim().toUpperCase(),
+  );
   const codeIndex = headers.indexOf('CODIGO_PRODUCTO');
   const tariffIndex = headers.indexOf('TARIFA_UNIDAD');
   const rows = matrix.slice(1).map((values, index) => {
     const codigo = normalizeTariffProductCode(values[codeIndex]);
     const raw = values[tariffIndex];
-    if (!codigo || raw === null || raw === undefined || String(raw).trim() === '') return { rowNumber: index + 2, codigoProducto: codigo, state: 'REJECTED' as const };
-    const next = Number(String(raw).replace(',', '.'));
+    const rawText = tariffCellText(raw).trim();
+    if (!codigo || rawText === '') {
+      return {
+        rowNumber: index + 2,
+        codigoProducto: codigo,
+        state: 'REJECTED' as const,
+      };
+    }
+    const next = Number(rawText.replace(',', '.'));
     const previousRaw = active.get(codigo);
     if (previousRaw === undefined || previousRaw === null) return { rowNumber: index + 2, codigoProducto: codigo, state: 'CHANGED' as const };
     const ratio = next / Number(previousRaw.replace(',', '.'));
@@ -782,17 +803,9 @@ export class TariffAnnexService {
       }
       const importId = randomUUID();
       const sourceFileId = randomUUID();
-      const eventId = randomUUID();
       const outboxIdempotencyKey = createHash('sha256')
         .update(`tariff-import:${importId}:${contentHash}`)
         .digest('hex');
-      const payload = {
-        eventId,
-        batchId: importId,
-        sourceFileId,
-        correlationId: input.scope.correlationId,
-        idempotencyKey: outboxIdempotencyKey,
-      };
       await client.query(
         `insert into tariff_annex_imports
            (id, organization_id, created_by, original_filename, mime_type, size_bytes, sha256, status, correlation_id, idempotency_key)

@@ -8,11 +8,32 @@ export type ParsedTariffRow = Readonly<{
   rawData: Record<string, unknown>;
 }>;
 
-export function canonicalizeTariffMoney(value: unknown): { raw: string | null; canonical: string | null } {
-  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) return { raw: null, canonical: null };
-  const raw = String(value).trim();
-  if (!/^[+-]?\d+(?:[.,]\d{1,4})?$/.test(raw)) throw new Error('INVALID_TARIFF_MONEY');
-  return { raw, canonical: Number(raw.replace(',', '.')).toFixed(4) };
+export function canonicalizeTariffMoney(
+  value: unknown,
+): { raw: string | null; canonical: string | null } {
+  if (
+    value === null ||
+    value === undefined ||
+    (typeof value === 'string' && value.trim() === '')
+  ) {
+    return { raw: null, canonical: null };
+  }
+
+  const raw =
+    typeof value === 'string'
+      ? value.trim()
+      : typeof value === 'number' || typeof value === 'bigint'
+        ? String(value)
+        : '';
+
+  if (!/^[+-]?\d+(?:[.,]\d{1,4})?$/.test(raw)) {
+    throw new Error('INVALID_TARIFF_MONEY');
+  }
+
+  return {
+    raw,
+    canonical: Number(raw.replace(',', '.')).toFixed(4),
+  };
 }
 
 export type TariffPreviewState = 'UNCHANGED' | 'CHANGED' | 'ANOMALOUS' | 'REJECTED';
