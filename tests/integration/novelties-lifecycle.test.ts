@@ -148,7 +148,26 @@ async function uploadTariffImport(rows: Array<Array<string>>): Promise<{ id: str
     body: form,
   });
   expect(response.status).toBe(202);
-  return (await response.json()) as { id: string };
+
+  const batch = (await response.json()) as { id: string };
+
+  const confirm = await fetch(
+    `${apiUrl}/api/v1/admin/tariff-annex/imports/${batch.id}/confirm`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${adminToken}`,
+        'x-organization-id': mtdOrganizationId,
+        'content-type': 'application/json',
+        'idempotency-key': randomUUID(),
+      },
+      body: '{}',
+    },
+  );
+
+  expect(confirm.status).toBe(200);
+
+  return batch;
 }
 
 async function waitForTariffImport(batchId: string): Promise<void> {

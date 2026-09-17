@@ -218,42 +218,10 @@ function rowInput(index: number, overrides: Partial<ImportRowInput> = {}): Impor
 }
 
 async function cleanup(): Promise<void> {
-  await database.query(
-    `delete from novelties where import_batch_id in
-      (select id from import_batches where original_filename like $1)
-      or original_row->>'CODEPS' = $2 or authorization_item_id in
-      (select id from authorization_items where numero_autorizacion like $1)`,
-    [`${prefix}%`, 'EPS-1'],
-  );
-  await database.query(
-    `delete from coverage_evaluations where authorization_item_id in (select id from authorization_items where numero_autorizacion like $1)`,
-    [`${prefix}%`],
-  );
-  await database.query(
-    `delete from authorization_item_organizations where authorization_item_id in (select id from authorization_items where numero_autorizacion like $1)`,
-    [`${prefix}%`],
-  );
-  await database.query(
-    `delete from validation_errors where import_row_id in (select r.id from import_rows r inner join import_batches b on b.id = r.import_batch_id where b.original_filename like $1)`,
-    [`${prefix}%`],
-  );
-  await database.query(
-    `delete from import_rows where import_batch_id in (select id from import_batches where original_filename like $1)`,
-    [`${prefix}%`],
-  );
-  await database.query(
-    `delete from import_source_files where import_batch_id in (select id from import_batches where original_filename like $1)`,
-    [`${prefix}%`],
-  );
-  await database.query(`delete from authorization_items where numero_autorizacion like $1`, [
-    `${prefix}%`,
-  ]);
-  await database.query(`delete from import_batches where original_filename like $1`, [
-    `${prefix}%`,
-  ]);
-  await database.query(`delete from tariff_annex_products where codigo_producto like $1`, [
-    `${prefix}%`,
-  ]);
+  // Desde la migración 0033, los snapshots tarifarios y su provenance son
+  // append-only. Este gate usa un prefijo único por ejecución, por lo que no
+  // debe destruir authorization_items ni productos que ya tengan lineage.
+  // En CI la base completa se descarta al finalizar el job.
 }
 
 describe('ADR-027 errores por registro en cargas masivas', () => {

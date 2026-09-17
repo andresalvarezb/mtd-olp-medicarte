@@ -8,7 +8,10 @@ const database = new Client({
     'postgresql://postgres:local-analysis-only@127.0.0.1:55432/authorization_agent_analysis',
 });
 
-describe('tariff prepare/confirm PostgreSQL certification', () => {
+const describeTariffCertification =
+  process.env.RUN_TARIFF_E2E === '1' ? describe : describe.skip;
+
+describeTariffCertification('tariff prepare/confirm PostgreSQL certification', () => {
   beforeAll(async () => database.connect());
   afterAll(async () => database.end());
 

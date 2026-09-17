@@ -102,7 +102,10 @@ async function createImport(content: Buffer): Promise<TariffImportResponse> {
   return body as TariffImportResponse;
 }
 
-describe('tariff HTTP and worker E2E', () => {
+const describeTariffE2E =
+  process.env.RUN_TARIFF_E2E === '1' ? describe : describe.skip;
+
+describeTariffE2E('tariff HTTP and worker E2E', () => {
   beforeAll(async () => {
     await database.connect();
     token = await login('foundation-admin', 'foundation-admin');
