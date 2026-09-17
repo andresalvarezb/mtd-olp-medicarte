@@ -113,7 +113,7 @@ describe('tariff HTTP and worker E2E', () => {
   });
 
   it('runs prepare, confirm, outbox and worker for normal import', async () => {
-    const code = `E2E-SNAPSHOT-${randomUUID().slice(0, 8)}`;
+    const code = `E2E-SNAPSHOT-${randomUUID().slice(0, 8)}`.toUpperCase();
     const prepared = await createImport(file(code, 1234));
 
     expect(prepared.status).toBe('PREPARED');
@@ -359,7 +359,7 @@ describe('tariff HTTP and worker E2E', () => {
   });
 
   it('blocks anomaly over HTTP and applies it only with explicit override', async () => {
-    const code = `E2E-ANOMALY-${randomUUID().slice(0, 8)}`;
+    const code = `E2E-ANOMALY-${randomUUID().slice(0, 8)}`.toUpperCase();
 
     const baseline = await createImport(
       file(code, 7420, randomUUID()),
