@@ -111,8 +111,26 @@ export function derivePrescripcion(value: unknown): DerivedPrescripcion | null {
   };
 }
 
+/**
+ * Clasificación provisional usada durante staging, antes de consultar
+ * el Anexo Tarifario. NUMERO_PRESCRIPCION no es fuente autoritativa
+ * para determinar PBS/NO_PBS.
+ */
 export function deriveCoverageType(prescripcionNormalized: string): 'PBS' | 'NO_PBS' {
   return prescripcionNormalized === '' ? 'PBS' : 'NO_PBS';
+}
+
+/**
+ * Fuente autoritativa de cobertura: tipo_inclusion del Anexo Tarifario.
+ * La existencia de una prescripción/MIPRES no modifica esta clasificación.
+ */
+export function deriveTariffCoverageType(
+  tipoInclusion: unknown,
+): 'PBS' | 'NO_PBS' | null {
+  const normalized = normalizeSourceText(tipoInclusion).replace(/[\s_-]+/g, '');
+  if (normalized === 'PBS') return 'PBS';
+  if (normalized === 'NOPBS') return 'NO_PBS';
+  return null;
 }
 
 /** La cobertura de la autorización debe coincidir con el Anexo Tarifario. */
@@ -120,9 +138,7 @@ export function isTariffCoverageConsistent(
   coverageType: 'PBS' | 'NO_PBS',
   tipoInclusion: unknown,
 ): boolean {
-  const normalized = normalizeSourceText(tipoInclusion).replace(/\s+/g, '');
-  return (coverageType === 'PBS' && normalized === 'PBS') ||
-    (coverageType === 'NO_PBS' && normalized === 'NOPBS');
+  return deriveTariffCoverageType(tipoInclusion) === coverageType;
 }
 
 export function deriveDirectionStatus(

@@ -136,7 +136,10 @@ async function waitForReady(itemId: string): Promise<void> {
   throw new Error(`Item never became READY_TO_DISPENSE: ${itemId}`);
 }
 
-async function createTariffProduct(code: string): Promise<Response> {
+async function createTariffProduct(
+  code: string,
+  tipoInclusion?: 'PBS' | 'NO PBS',
+): Promise<Response> {
   return fetch(`${apiUrl}/api/v1/admin/tariff-annex/products`, {
     method: 'POST',
     headers: {
@@ -145,7 +148,10 @@ async function createTariffProduct(code: string): Promise<Response> {
       'idempotency-key': randomUUID(),
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ codigoProducto: code }),
+    body: JSON.stringify({
+      codigoProducto: code,
+      ...(tipoInclusion ? { tipoInclusion } : {}),
+    }),
   });
 }
 
@@ -509,7 +515,7 @@ describe('Gate F8 — Anexo Tarifario', () => {
     expect(exportResponse.status).toBe(200);
     expect(await xlsxText(exportResponse)).toContain('PRODUCT_NOT_IN_TARIFF_ANNEX');
 
-    const productResponse = await createTariffProduct(code);
+    const productResponse = await createTariffProduct(code, 'PBS');
     expect(productResponse.status).toBe(201);
     await waitForReady(blocked.id);
 
@@ -580,6 +586,76 @@ describe('Gate F8 — Anexo Tarifario', () => {
       [pbs.id],
     );
     expect(Number(pbsChecks.rows[0]?.count ?? 0)).toBe(0);
+
+    // Regresión 2026-09-17:
+    // El Anexo Tarifario es la fuente autoritativa de PBS/NO PBS.
+    // Un NUMERO_PRESCRIPCION/MIPRES presente no convierte un producto PBS
+    // en NO_PBS ni debe generar CLS_002.
+    const pbsWithMipresAuthorization =
+      `AUTH-F8-PBS-MIPRES-${randomUUID()}`;
+    const pbsWithMipresPrescription = '20260915000000000456';
+
+    const pbsWithMipresBatch = await createAuthorizationImport(
+      authorizationCsv({
+        authorization: pbsWithMipresAuthorization,
+        medication: pbsCode,
+        prescription: pbsWithMipresPrescription,
+      }),
+    );
+
+    await waitForAuthorizationImport(pbsWithMipresBatch.id);
+    await confirmAuthorizationImport(pbsWithMipresBatch.id);
+
+    const pbsWithMipres = await waitForItem(
+      `${pbsWithMipresAuthorization.toUpperCase()}:${pbsCode.toUpperCase()}`,
+    );
+
+    const pbsWithMipresState = await database.query<{
+      coverage_type: string;
+      direction_status: string;
+      operation_status: string | null;
+      source_prescripcion_normalized: string;
+      no_prescripcion: string;
+    }>(
+      `select
+         coverage_type,
+         direction_status,
+         operation_status,
+         source_prescripcion_normalized,
+         no_prescripcion
+       from authorization_items
+       where id = $1`,
+      [pbsWithMipres.id],
+    );
+
+    expect(pbsWithMipresState.rows[0]).toEqual({
+      coverage_type: 'PBS',
+      direction_status: 'NOT_APPLICABLE',
+      operation_status: 'READY_TO_DISPENSE',
+      source_prescripcion_normalized: pbsWithMipresPrescription,
+      no_prescripcion: pbsWithMipresPrescription.slice(0, -3),
+    });
+
+    const cls002 = await database.query<{ count: string }>(
+      `select count(*)::text as count
+       from novelties
+       where import_batch_id = $1
+         and code = 'CLS_002'`,
+      [pbsWithMipresBatch.id],
+    );
+
+    expect(Number(cls002.rows[0]?.count ?? '0')).toBe(0);
+
+    const pbsWithMipresChecks = await database.query<{ count: string }>(
+      `select count(*)::text as count
+       from mipres_checks
+       where authorization_item_id = $1`,
+      [pbsWithMipres.id],
+    );
+
+    expect(
+      Number(pbsWithMipresChecks.rows[0]?.count ?? '0'),
+    ).toBe(0);
 
     const noPbsAuthorization = `AUTH-F8-NO-PBS-${randomUUID()}`;
     const noPbsBatch = await createAuthorizationImport(

@@ -7,6 +7,7 @@ import {
   deriveEarlyProcessStatus,
   deriveEpsNovedadCausales,
   deriveOperationStatus,
+  deriveTariffCoverageType,
   TARIFF_ANNEX_RULE_VERSION,
 } from '@authorization/domain';
 import { resolveNovelties, type createDatabase } from '@authorization/database';
@@ -61,16 +62,26 @@ export class TariffRevalidationProcessor {
     const product = await this.database.pool.query<{
       id: string;
       codigo_producto: string;
+      tipo_inclusion: string | null;
       active: boolean;
-    }>('select id, codigo_producto, active from tariff_annex_products where id = $1', [
-      job.payload.tariffProductId,
-    ]);
+    }>(
+      `select id, codigo_producto, tipo_inclusion, active
+       from tariff_annex_products
+       where id = $1`,
+      [job.payload.tariffProductId],
+    );
     const productRow = product.rows[0];
     if (!productRow) {
       return this.skipped(job, 'PRODUCT_NOT_FOUND');
     }
     if (!productRow.active) {
       return this.skipped(job, 'PRODUCT_INACTIVE');
+    }
+    const tariffCoverageType =
+      deriveTariffCoverageType(productRow.tipo_inclusion);
+
+    if (!tariffCoverageType) {
+      return this.skipped(job, 'INVALID_TIPO_INCLUSION');
     }
 
     const candidates = await this.database.pool.query<{ id: string }>(
@@ -83,7 +94,11 @@ export class TariffRevalidationProcessor {
     let revalidatedItems = 0;
     let becameReadyItems = 0;
     for (const candidate of candidates.rows) {
-      const outcome = await this.revalidateItem(candidate.id, job);
+      const outcome = await this.revalidateItem(
+        candidate.id,
+        job,
+        tariffCoverageType,
+      );
       if (outcome.revalidated) revalidatedItems += 1;
       if (outcome.becameReady) becameReadyItems += 1;
     }
@@ -101,6 +116,7 @@ export class TariffRevalidationProcessor {
   private async revalidateItem(
     itemId: string,
     job: ReturnType<typeof tariffAnnexRevalidationJobSchema.parse>,
+    tariffCoverageType: 'PBS' | 'NO_PBS',
   ): Promise<{ revalidated: boolean; becameReady: boolean }> {
     const client = await this.database.pool.connect();
     try {
@@ -128,6 +144,15 @@ export class TariffRevalidationProcessor {
         await client.query('commit');
         return { revalidated: false, becameReady: false };
       }
+      const previousCoverageType = item.coverage_type;
+
+      const effectiveDirectionStatus =
+        tariffCoverageType === 'PBS'
+          ? 'NOT_APPLICABLE'
+          : previousCoverageType === 'NO_PBS' &&
+              item.direction_status !== 'NOT_APPLICABLE'
+            ? item.direction_status
+            : 'PENDING';
       const today = currentBogotaDate();
       await client.query(
         `insert into audit_events
@@ -147,10 +172,19 @@ export class TariffRevalidationProcessor {
       );
       await client.query(
         `update authorization_items
-         set tariff_membership_status = 'LISTED', tariff_membership_evaluated_at = now(),
-             tariff_rule_version = $2, updated_at = now()
+         set tariff_membership_status = 'LISTED',
+             tariff_membership_evaluated_at = now(),
+             tariff_rule_version = $2,
+             coverage_type = $3,
+             direction_status = $4,
+             updated_at = now()
          where id = $1`,
-        [item.id, TARIFF_ANNEX_RULE_VERSION],
+        [
+          item.id,
+          TARIFF_ANNEX_RULE_VERSION,
+          tariffCoverageType,
+          effectiveDirectionStatus,
+        ],
       );
       await client.query(
         `insert into authorization_tariff_snapshots
@@ -173,8 +207,8 @@ export class TariffRevalidationProcessor {
       });
       const operationStatus = deriveOperationStatus({
         enablementStatus: item.enablement_status,
-        coverageType: item.coverage_type,
-        directionStatus: item.direction_status,
+        coverageType: tariffCoverageType,
+        directionStatus: effectiveDirectionStatus,
         productInTariffAnnex: true,
         fechaFinalVigencia: item.fecha_final_vigencia,
         today,
@@ -182,18 +216,22 @@ export class TariffRevalidationProcessor {
       const remainingCausales = deriveEpsNovedadCausales({
         enablementStatus: item.enablement_status,
         operationStatus,
-        coverageType: item.coverage_type,
-        directionStatus: item.direction_status,
+        coverageType: tariffCoverageType,
+        directionStatus: effectiveDirectionStatus,
         tariffMembershipStatus: 'LISTED',
         fechaFinalVigencia: item.fecha_final_vigencia,
         today,
       });
       let becameReady = false;
-      if (operationStatus !== item.operation_status) {
+      if (
+        operationStatus !== item.operation_status ||
+        tariffCoverageType !== item.coverage_type ||
+        effectiveDirectionStatus !== item.direction_status
+      ) {
         const processStatus = deriveEarlyProcessStatus({
           operationStatus,
-          coverageType: item.coverage_type,
-          directionStatus: item.direction_status,
+          coverageType: tariffCoverageType,
+          directionStatus: effectiveDirectionStatus,
         });
         const materialized = await client.query<{ version: number }>(
           `update authorization_items set operation_status = $2, process_status = $3, version = version + 1, updated_at = now()

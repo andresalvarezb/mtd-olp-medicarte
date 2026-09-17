@@ -10,6 +10,7 @@ export {
   deriveAuthorizationClassification,
   deriveCoverageType,
   deriveDirectionStatus,
+  deriveTariffCoverageType,
   deriveEnablementStatus,
   isTariffCoverageConsistent,
   deriveOperationStatus,

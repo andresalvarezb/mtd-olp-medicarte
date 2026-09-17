@@ -31,6 +31,8 @@ import {
   deriveEarlyProcessStatus,
   deriveEpsNovedadCausales,
   deriveOperationStatus,
+  deriveDirectionStatus,
+  deriveTariffCoverageType,
   deriveTariffMembershipStatus,
   epsNovedadCausalMessages,
   EPS_CAUSAL_TO_NOVELTY,
@@ -498,14 +500,56 @@ export class AuthorizationItemsService {
       if (!previousEvidenceRow) throw new Error('Previous source evidence was not found');
 
       const rawSource = (row.raw_data ?? {}) as Record<string, unknown>;
+
+      const tariffProduct = await client.query<{
+        tipo_inclusion: string | null;
+      }>(
+        `select tipo_inclusion
+         from tariff_annex_products
+         where organization_id = coalesce(
+           (select id from organizations
+            where code = 'MTD' and active = true limit 1),
+           $1::uuid
+         )
+           and codigo_producto = $2
+           and active = true
+         order by version desc
+         limit 1`,
+        [input.scope.organizationId, item.codigo_medicamento],
+      );
+
+      const productInTariffAnnex =
+        tariffProduct.rows.length > 0;
+
+      const tariffCoverageType = productInTariffAnnex
+        ? deriveTariffCoverageType(
+            tariffProduct.rows[0]?.tipo_inclusion,
+          )
+        : null;
+
+      if (productInTariffAnnex && !tariffCoverageType) {
+        throw new Error(
+          `Active tariff product ${item.codigo_medicamento} has invalid tipo_inclusion`,
+        );
+      }
+
+      // El Anexo Tarifario determina PBS/NO_PBS.
+      // NUMERO_PRESCRIPCION no modifica la cobertura.
+      const effectiveCoverageType =
+        tariffCoverageType ?? classification.data.coverageType;
+
+      const effectiveDirectionStatus =
+        deriveDirectionStatus(effectiveCoverageType);
+
       const operationStatus = deriveOperationStatus({
         enablementStatus: classification.data.enablementStatus,
-        coverageType: classification.data.coverageType,
-        directionStatus: classification.data.directionStatus,
-        productInTariffAnnex: item.tariff_membership_status === 'LISTED',
+        coverageType: effectiveCoverageType,
+        directionStatus: effectiveDirectionStatus,
+        productInTariffAnnex,
         fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
         today: currentBogotaDate(),
       });
+
       const updated = await client.query<ItemRow>(
         `update authorization_items set
            source_data = $2::jsonb, source_status_normalized = $3, source_prescripcion_normalized = $4,
@@ -525,19 +569,23 @@ export class AuthorizationItemsService {
           classification.data.prescripcionNormalized,
           classification.data.noPrescripcion,
           classification.data.enablementStatus,
-          classification.data.coverageType,
-          classification.data.directionStatus,
+          effectiveCoverageType,
+          effectiveDirectionStatus,
           operationStatus,
           input.expectedVersion,
         ],
       );
+
       const changed = updated.rows[0];
       if (!changed)
         throw new ConflictException({
           code: 'VERSION_CONFLICT',
           message: 'Authorization item version has changed',
         });
-      const sourceValue = rawText(sourceDataRecord(row.raw_data)?.NUMERO_PRESCRIPCION);
+
+      const sourceValue =
+        rawText(sourceDataRecord(row.raw_data)?.NUMERO_PRESCRIPCION);
+
       await client.query(
         `insert into coverage_evaluations
            (authorization_item_id, evaluation_version, source_value, normalized_value, coverage_type, rule_version)
@@ -547,27 +595,31 @@ export class AuthorizationItemsService {
           changed.version,
           sourceValue,
           classification.data.prescripcionNormalized,
-          classification.data.coverageType,
+          effectiveCoverageType,
         ],
       );
+
       await client.query(
         `update import_rows set result_code = 'ITEM_UPDATED', result_message = $2, confirmable = false where id = $1`,
         [rowId, importRowResultMessages.ITEM_UPDATED],
       );
+
       const processStatus = deriveEarlyProcessStatus({
         operationStatus,
-        coverageType: classification.data.coverageType,
-        directionStatus: classification.data.directionStatus,
+        coverageType: effectiveCoverageType,
+        directionStatus: effectiveDirectionStatus,
       });
+
       await client.query(
         `update authorization_items set process_status = $2, updated_by = $3 where id = $1`,
         [itemId, processStatus, input.scope.userId],
       );
+
       const remainingCausales = deriveEpsNovedadCausales({
         enablementStatus: classification.data.enablementStatus,
         operationStatus,
-        coverageType: classification.data.coverageType,
-        directionStatus: classification.data.directionStatus,
+        coverageType: effectiveCoverageType,
+        directionStatus: effectiveDirectionStatus,
         tariffMembershipStatus: item.tariff_membership_status,
         fechaFinalVigencia: rawSource.FECHA_FINAL_VIGENCIA,
         today: currentBogotaDate(),
@@ -752,67 +804,122 @@ export class AuthorizationItemsService {
           message: 'El registro ya avanzó a una etapa operacional o de auditoría.',
         });
       }
-      const sourceData = (item.source_data ?? {}) as Record<string, unknown>;
-      const product = await client.query<{ version: number }>(
-        `select version from tariff_annex_products
-          where organization_id = $1 and codigo_producto = $2 and active = true
-          order by version desc limit 1`,
+      const sourceData =
+        (item.source_data ?? {}) as Record<string, unknown>;
+
+      const product = await client.query<{
+        version: number;
+        tipo_inclusion: string | null;
+      }>(
+        `select version, tipo_inclusion
+         from tariff_annex_products
+         where organization_id = $1
+           and codigo_producto = $2
+           and active = true
+         order by version desc
+         limit 1`,
         [input.scope.organizationId, item.codigo_medicamento],
       );
+
       const productInTariffAnnex = product.rows.length > 0;
-      const tariffMembershipStatus = deriveTariffMembershipStatus(productInTariffAnnex);
-      const today = currentBogotaDate();
-      const operationStatus = deriveOperationStatus({
-        enablementStatus: item.enablement_status as 'ENABLED' | 'BLOCKED_SOURCE_STATUS',
-        coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
-        directionStatus: item.direction_status as
+      const tariffMembershipStatus =
+        deriveTariffMembershipStatus(productInTariffAnnex);
+
+      const previousCoverageType =
+        item.coverage_type as 'PBS' | 'NO_PBS';
+
+      const previousDirectionStatus =
+        item.direction_status as
           | 'NOT_APPLICABLE'
           | 'PENDING'
           | 'CONFIRMED'
-          | 'QUERY_ERROR',
+          | 'QUERY_ERROR';
+
+      const tariffCoverageType = productInTariffAnnex
+        ? deriveTariffCoverageType(product.rows[0]?.tipo_inclusion)
+        : null;
+
+      if (productInTariffAnnex && !tariffCoverageType) {
+        throw new Error(
+          `Active tariff product ${item.codigo_medicamento} has invalid tipo_inclusion`,
+        );
+      }
+
+      const effectiveCoverageType =
+        tariffCoverageType ?? previousCoverageType;
+
+      const effectiveDirectionStatus =
+        effectiveCoverageType === 'PBS'
+          ? 'NOT_APPLICABLE'
+          : previousCoverageType === 'NO_PBS' &&
+              previousDirectionStatus !== 'NOT_APPLICABLE'
+            ? previousDirectionStatus
+            : 'PENDING';
+
+      const today = currentBogotaDate();
+
+      const operationStatus = deriveOperationStatus({
+        enablementStatus:
+          item.enablement_status as
+            | 'ENABLED'
+            | 'BLOCKED_SOURCE_STATUS',
+        coverageType: effectiveCoverageType,
+        directionStatus: effectiveDirectionStatus,
         productInTariffAnnex,
         fechaFinalVigencia: sourceData.FECHA_FINAL_VIGENCIA,
         today,
       });
+
       const processStatus = deriveEarlyProcessStatus({
         operationStatus,
-        coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
-        directionStatus: item.direction_status as
-          | 'NOT_APPLICABLE'
-          | 'PENDING'
-          | 'CONFIRMED'
-          | 'QUERY_ERROR',
+        coverageType: effectiveCoverageType,
+        directionStatus: effectiveDirectionStatus,
       });
+
       const changed =
         item.tariff_membership_status !== tariffMembershipStatus ||
+        item.coverage_type !== effectiveCoverageType ||
+        item.direction_status !== effectiveDirectionStatus ||
         item.operation_status !== operationStatus ||
         item.process_status !== processStatus;
+
       if (changed) {
         await client.query(
           `update authorization_items
-             set tariff_membership_status = $2, tariff_membership_evaluated_at = now(),
-                 tariff_rule_version = $3, operation_status = $4, process_status = $5,
-                 version = version + 1, updated_at = now(), updated_by = $6
+             set tariff_membership_status = $2,
+                 tariff_membership_evaluated_at = now(),
+                 tariff_rule_version = $3,
+                 coverage_type = $4,
+                 direction_status = $5,
+                 operation_status = $6,
+                 process_status = $7,
+                 version = version + 1,
+                 updated_at = now(),
+                 updated_by = $8
            where id = $1`,
           [
             itemId,
             tariffMembershipStatus,
-            `${TARIFF_ANNEX_RULE_VERSION}:${Number(product.rows[0]?.version ?? 0)}`,
+            `${TARIFF_ANNEX_RULE_VERSION}:${Number(
+              product.rows[0]?.version ?? 0,
+            )}`,
+            effectiveCoverageType,
+            effectiveDirectionStatus,
             operationStatus,
             processStatus,
             input.scope.userId,
           ],
         );
       }
+
       const remainingCausales = deriveEpsNovedadCausales({
-        enablementStatus: item.enablement_status as 'ENABLED' | 'BLOCKED_SOURCE_STATUS',
+        enablementStatus:
+          item.enablement_status as
+            | 'ENABLED'
+            | 'BLOCKED_SOURCE_STATUS',
         operationStatus,
-        coverageType: item.coverage_type as 'PBS' | 'NO_PBS',
-        directionStatus: item.direction_status as
-          | 'NOT_APPLICABLE'
-          | 'PENDING'
-          | 'CONFIRMED'
-          | 'QUERY_ERROR',
+        coverageType: effectiveCoverageType,
+        directionStatus: effectiveDirectionStatus,
         tariffMembershipStatus,
         fechaFinalVigencia: sourceData.FECHA_FINAL_VIGENCIA,
         today,
