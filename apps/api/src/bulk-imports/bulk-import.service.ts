@@ -19,6 +19,7 @@ import {
   canConfirmBulkImportJob,
   canResumeBulkImportJob,
   canRetryFailedBulkImportJob,
+  currentBogotaDate,
   initialExecutionStatus,
   phiSafeBulkImportLog,
   PointAccessDeniedError,
@@ -85,7 +86,10 @@ export class BulkImportService {
       throw error;
     }
     if (parsed.rows.length === 0) {
-      throw new BadRequestException({ code: 'EMPTY_FILE', message: 'The XLSX file has no data rows' });
+      throw new BadRequestException({
+        code: 'EMPTY_FILE',
+        message: 'The XLSX file has no data rows',
+      });
     }
     const classified = await this.classifier.classifyParsedRows(parsed.rows, input.actor);
     const rows: BulkImportRowInsert[] = classified.map((row) => ({
@@ -148,15 +152,18 @@ export class BulkImportService {
         message: 'The XLSX file has no data rows',
       });
     }
-    const commercialCodes = [...new Set(
-      parsed.rows
-        .map((row) => textValue(row.values.CODIGO_COMERCIAL))
-        .filter((value): value is string => Boolean(value)),
-    )];
-    const activeTariffCodes = await this.repository.findActiveTariffAnnexProductCodes(
+    const commercialCodes = [
+      ...new Set(
+        parsed.rows
+          .map((row) => textValue(row.values.CODIGO_COMERCIAL))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ];
+    const activeTariffProducts = await this.repository.findActiveTariffAnnexProducts(
       input.actor.organizationId,
       commercialCodes,
     );
+    const todayBogota = currentBogotaDate();
     const rows: BulkImportRowInsert[] = parsed.rows.map((row) => {
       const payload = Object.fromEntries(
         Object.entries(row.values).map(([key, value]) => [
@@ -166,19 +173,35 @@ export class BulkImportService {
             : textValue(value),
         ]),
       );
-      const required = ['NUMERO_AUTORIZACION', 'CODIGO_COMERCIAL', 'CANTIDAD', 'FECHA_ASIGNACION'];
+      const required = [
+        'NUMERO_AUTORIZACION',
+        'CODIGO_COMERCIAL',
+        'CANTIDAD',
+        'FECHA_ASIGNACION',
+        'FECHA_FINAL_VIGENCIA',
+      ];
       const missing = required.filter((key) => !payload[key]);
       const quantity = Number(payload.CANTIDAD);
       const assignmentDate = payload.FECHA_ASIGNACION;
-      const commercialCode = typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null;
-      const tariffMatch = commercialCode ? activeTariffCodes.has(commercialCode) : false;
+      const expirationDate = payload.FECHA_FINAL_VIGENCIA;
+      const expirationIsValid =
+        typeof expirationDate === 'string' &&
+        isIsoDate(expirationDate) &&
+        expirationDate >= todayBogota;
+      const commercialCode =
+        typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null;
+      const tariffProduct = commercialCode ? activeTariffProducts.get(commercialCode) : undefined;
+      const tariffMatch = tariffProduct !== undefined;
+      const tariffInclusion = tariffProduct?.tipoInclusion?.trim().toUpperCase() ?? '';
+      const tariffIsPbs = tariffMatch && tariffInclusion === 'PBS';
       const valid =
         missing.length === 0 &&
         Number.isInteger(quantity) &&
         quantity > 0 &&
         typeof assignmentDate === 'string' &&
         isIsoDate(assignmentDate) &&
-        tariffMatch;
+        expirationIsValid &&
+        tariffIsPbs;
       return {
         rowNumber: row.rowNumber,
         rawPayload: row.rawData,
@@ -188,18 +211,40 @@ export class BulkImportService {
           ? null
           : !tariffMatch
             ? 'TARIFF_ANNEX_PRODUCT_NOT_FOUND'
-            : 'INVALID_AUTHORIZATION_ROW',
+            : !tariffIsPbs
+              ? tariffInclusion === 'NO_PBS'
+                ? 'TARIFF_ANNEX_PRODUCT_NO_PBS'
+                : 'TARIFF_ANNEX_PRODUCT_INCLUSION_INVALID'
+              : missing.includes('FECHA_FINAL_VIGENCIA') ||
+                  typeof expirationDate !== 'string' ||
+                  !isIsoDate(expirationDate)
+                ? 'AUTHORIZATION_EXPIRATION_INVALID'
+                : expirationDate < todayBogota
+                  ? 'AUTHORIZATION_EXPIRED'
+                  : 'INVALID_AUTHORIZATION_ROW',
         errorMessage: valid
           ? null
           : !tariffMatch
             ? `El código comercial ${commercialCode ?? '(vacío)'} no existe en el anexo tarifario activo`
-            : `Missing or invalid fields: ${missing.join(', ') || 'CANTIDAD or FECHA_ASIGNACION'}`,
+            : !tariffIsPbs
+              ? tariffInclusion === 'NO_PBS'
+                ? `El código comercial ${commercialCode ?? '(vacío)'} está clasificado NO_PBS en el anexo tarifario activo`
+                : `El código comercial ${commercialCode ?? '(vacío)'} no tiene una clasificación PBS válida en el anexo tarifario activo`
+              : missing.includes('FECHA_FINAL_VIGENCIA') ||
+                  typeof expirationDate !== 'string' ||
+                  !isIsoDate(expirationDate)
+                ? 'FECHA_FINAL_VIGENCIA es obligatoria y debe ser una fecha válida'
+                : expirationDate < todayBogota
+                  ? `La autorización venció el ${expirationDate}; fecha actual America/Bogota: ${todayBogota}`
+                  : `Missing or invalid fields: ${missing.join(', ') || 'CANTIDAD or FECHA_ASIGNACION'}`,
         errorColumn: null,
         executionStatus: initialExecutionStatus(valid ? 'VALID' : 'INVALID'),
-        authorizationNumber: typeof payload.NUMERO_AUTORIZACION === 'string' ? payload.NUMERO_AUTORIZACION : null,
+        authorizationNumber:
+          typeof payload.NUMERO_AUTORIZACION === 'string' ? payload.NUMERO_AUTORIZACION : null,
         commercialCode,
         dispensingPointCode: null,
-        assignmentDate: typeof payload.FECHA_ASIGNACION === 'string' ? payload.FECHA_ASIGNACION : null,
+        assignmentDate:
+          typeof payload.FECHA_ASIGNACION === 'string' ? payload.FECHA_ASIGNACION : null,
         quantity: valid ? quantity : null,
       };
     });
@@ -318,7 +363,7 @@ export class BulkImportService {
       if (!claimed) break;
       if (claimed.reclaimed) {
         await this.repository.recordAudit(actor, 'BULK_IMPORT_ROW_RECLAIMED', jobId, {
-           importType: 'AUTHORIZATIONS',
+          importType: 'AUTHORIZATIONS',
           rowNumber: claimed.rowNumber,
           claimGeneration: claimed.claimGeneration,
         });
@@ -341,7 +386,11 @@ export class BulkImportService {
                     scheduledDate: textValue(payload.scheduledDate) ?? '',
                     quantity: Number(payload.quantity),
                     ...(payload.lateHandling
-                      ? { lateHandling: payload.lateHandling as 'COMPLEMENTARY_PURCHASE_ORDER' | 'NEXT_PERIOD' }
+                      ? {
+                          lateHandling: payload.lateHandling as
+                            | 'COMPLEMENTARY_PURCHASE_ORDER'
+                            | 'NEXT_PERIOD',
+                        }
                       : {}),
                   },
                 })
@@ -442,7 +491,11 @@ function jobNotFound(): NotFoundException {
 }
 
 function isBulkDomainFailure(error: unknown): boolean {
-  return error instanceof HttpException || error instanceof PointAccessDeniedError || isScheduleDuplicateError(error);
+  return (
+    error instanceof HttpException ||
+    error instanceof PointAccessDeniedError ||
+    isScheduleDuplicateError(error)
+  );
 }
 
 function textValue(value: unknown): string | null {

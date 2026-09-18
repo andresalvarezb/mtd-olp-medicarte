@@ -1,12 +1,18 @@
 import * as XLSX from 'xlsx';
 import { describe, expect, it, vi } from 'vitest';
-import { AUTHORIZATION_IMPORT_COLUMNS, ESP014_AUTHORIZATIONS_TEMPLATE_VERSION } from '@authorization/contracts';
+import {
+  AUTHORIZATION_IMPORT_COLUMNS,
+  ESP014_AUTHORIZATIONS_TEMPLATE_VERSION,
+} from '@authorization/contracts';
 import { BulkImportService } from './bulk-import.service';
 import type { BulkImportRepository } from './bulk-import.repository';
 import type { ApiConfig } from '@authorization/config';
 import type { Scope } from '../common/request-scope';
 
-function buildAuthorizationWorkbook(codes: readonly string[]): Buffer {
+function buildAuthorizationWorkbook(
+  codes: readonly string[],
+  expirationDate = '2099-12-31',
+): Buffer {
   const workbook = XLSX.utils.book_new();
   const header = [...AUTHORIZATION_IMPORT_COLUMNS];
   const rows = codes.map((code, index) =>
@@ -15,6 +21,7 @@ function buildAuthorizationWorkbook(codes: readonly string[]): Buffer {
       if (column === 'NUMERO_AUTORIZACION') return `AUTH-${index + 1}`;
       if (column === 'CANTIDAD') return 2;
       if (column === 'FECHA_ASIGNACION') return '2026-09-16';
+      if (column === 'FECHA_FINAL_VIGENCIA') return expirationDate;
       return `${column}-${index + 1}`;
     }),
   );
@@ -37,7 +44,9 @@ function buildAuthorizationWorkbook(codes: readonly string[]): Buffer {
 
 function createService() {
   const repository = {
-    findActiveTariffAnnexProductCodes: vi.fn().mockResolvedValue(new Set(['TAR-001'])),
+    findActiveTariffAnnexProducts: vi
+      .fn()
+      .mockResolvedValue(new Map([['TAR-001', { tipoInclusion: 'PBS' }]])),
     hasDuplicateHash: vi.fn().mockResolvedValue(false),
     createJob: vi.fn().mockResolvedValue({ id: 'job-1' }),
     findJob: vi.fn().mockResolvedValue({ id: 'job-1', status: 'READY' }),
@@ -67,7 +76,7 @@ describe('BulkImportService', () => {
         correlationId: '11111111-1111-1111-1111-111111111111',
       } as unknown as Scope,
     });
-    expect(repository.findActiveTariffAnnexProductCodes).toHaveBeenCalledWith('org-1', [
+    expect(repository.findActiveTariffAnnexProducts).toHaveBeenCalledWith('org-1', [
       'TAR-001',
       'TAR-999',
     ]);
@@ -84,6 +93,195 @@ describe('BulkImportService', () => {
       validationStatus: 'INVALID',
       errorCode: 'TARIFF_ANNEX_PRODUCT_NOT_FOUND',
       commercialCode: 'TAR-999',
+    });
+  });
+
+  it('rechaza producto NO_PBS del anexo tarifario activo', async () => {
+    const { service, repository } = createService();
+    repository.findActiveTariffAnnexProducts.mockResolvedValue(
+      new Map([['TAR-001', { tipoInclusion: 'NO_PBS' }]]),
+    );
+
+    await service.uploadAuthorizations({
+      file: {
+        buffer: buildAuthorizationWorkbook(['TAR-001']),
+        originalname: 'autorizaciones-no-pbs.xlsx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: 1,
+      },
+      actor: {
+        organizationId: 'org-1',
+        userId: 'user-1',
+        correlationId: '11111111-1111-1111-1111-111111111111',
+      } as unknown as Scope,
+    });
+
+    const input = repository.createJob.mock.calls[0]?.[0] as {
+      rows: Array<Record<string, unknown>>;
+    };
+
+    expect(input.rows[0]).toMatchObject({
+      validationStatus: 'INVALID',
+      errorCode: 'TARIFF_ANNEX_PRODUCT_NO_PBS',
+    });
+  });
+
+  it('rechaza producto activo sin clasificación PBS válida', async () => {
+    const { service, repository } = createService();
+    repository.findActiveTariffAnnexProducts.mockResolvedValue(
+      new Map([['TAR-001', { tipoInclusion: null }]]),
+    );
+
+    await service.uploadAuthorizations({
+      file: {
+        buffer: buildAuthorizationWorkbook(['TAR-001']),
+        originalname: 'autorizaciones-sin-clasificacion.xlsx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: 1,
+      },
+      actor: {
+        organizationId: 'org-1',
+        userId: 'user-1',
+        correlationId: '11111111-1111-1111-1111-111111111111',
+      } as unknown as Scope,
+    });
+
+    const input = repository.createJob.mock.calls[0]?.[0] as {
+      rows: Array<Record<string, unknown>>;
+    };
+
+    expect(input.rows[0]).toMatchObject({
+      validationStatus: 'INVALID',
+      errorCode: 'TARIFF_ANNEX_PRODUCT_INCLUSION_INVALID',
+    });
+  });
+
+  it('acepta autorización cuya FECHA_FINAL_VIGENCIA es hoy en America/Bogota', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-02-01T03:30:00.000Z'));
+
+    try {
+      const { service, repository } = createService();
+
+      await service.uploadAuthorizations({
+        file: {
+          buffer: buildAuthorizationWorkbook(['TAR-001'], '2030-01-31'),
+          originalname: 'autorizaciones-vigencia-hoy.xlsx',
+          mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          size: 1,
+        },
+        actor: {
+          organizationId: 'org-1',
+          userId: 'user-1',
+          correlationId: '11111111-1111-1111-1111-111111111111',
+        } as unknown as Scope,
+      });
+
+      const input = repository.createJob.mock.calls[0]?.[0] as {
+        rows: Array<Record<string, unknown>>;
+      };
+
+      expect(input.rows[0]).toMatchObject({
+        validationStatus: 'VALID',
+        errorCode: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('acepta autorización con FECHA_FINAL_VIGENCIA posterior a hoy en America/Bogota', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-02-01T03:30:00.000Z'));
+
+    try {
+      const { service, repository } = createService();
+
+      await service.uploadAuthorizations({
+        file: {
+          buffer: buildAuthorizationWorkbook(['TAR-001'], '2030-02-01'),
+          originalname: 'autorizaciones-vigencia-futura.xlsx',
+          mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          size: 1,
+        },
+        actor: {
+          organizationId: 'org-1',
+          userId: 'user-1',
+          correlationId: '11111111-1111-1111-1111-111111111111',
+        } as unknown as Scope,
+      });
+
+      const input = repository.createJob.mock.calls[0]?.[0] as {
+        rows: Array<Record<string, unknown>>;
+      };
+
+      expect(input.rows[0]).toMatchObject({
+        validationStatus: 'VALID',
+        errorCode: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rechaza autorización cuya FECHA_FINAL_VIGENCIA es anterior a hoy en America/Bogota', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-02-01T06:30:00.000Z'));
+
+    try {
+      const { service, repository } = createService();
+
+      await service.uploadAuthorizations({
+        file: {
+          buffer: buildAuthorizationWorkbook(['TAR-001'], '2030-01-31'),
+          originalname: 'autorizaciones-vencidas.xlsx',
+          mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          size: 1,
+        },
+        actor: {
+          organizationId: 'org-1',
+          userId: 'user-1',
+          correlationId: '11111111-1111-1111-1111-111111111111',
+        } as unknown as Scope,
+      });
+
+      const input = repository.createJob.mock.calls[0]?.[0] as {
+        rows: Array<Record<string, unknown>>;
+      };
+
+      expect(input.rows[0]).toMatchObject({
+        validationStatus: 'INVALID',
+        errorCode: 'AUTHORIZATION_EXPIRED',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rechaza autorización sin FECHA_FINAL_VIGENCIA válida', async () => {
+    const { service, repository } = createService();
+
+    await service.uploadAuthorizations({
+      file: {
+        buffer: buildAuthorizationWorkbook(['TAR-001'], ''),
+        originalname: 'autorizaciones-sin-vigencia.xlsx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: 1,
+      },
+      actor: {
+        organizationId: 'org-1',
+        userId: 'user-1',
+        correlationId: '11111111-1111-1111-1111-111111111111',
+      } as unknown as Scope,
+    });
+
+    const input = repository.createJob.mock.calls[0]?.[0] as {
+      rows: Array<Record<string, unknown>>;
+    };
+
+    expect(input.rows[0]).toMatchObject({
+      validationStatus: 'INVALID',
+      errorCode: 'AUTHORIZATION_EXPIRATION_INVALID',
     });
   });
 

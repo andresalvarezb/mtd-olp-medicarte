@@ -49,6 +49,18 @@ export class BulkImportController {
     response.send(buffer);
   }
 
+  @Post('authorizations/upload')
+  @HttpCode(202)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: BULK_IMPORT_MAX_FILE_BYTES } }))
+  async uploadAuthorizations(
+    @UploadedFile() file: BulkImportUploadFile | undefined,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const actor = await this.scope(organizationId, request, 'bulk_imports.manage');
+    return this.bulk.uploadAuthorizations({ file, actor });
+  }
+
   @Post('scheduling/upload')
   @HttpCode(202)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: BULK_IMPORT_MAX_FILE_BYTES } }))
