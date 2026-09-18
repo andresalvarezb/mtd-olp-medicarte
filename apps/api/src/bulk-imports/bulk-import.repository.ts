@@ -630,7 +630,7 @@ export class BulkImportRepository {
     /*
      * Macro 2 / 2D - PO LOCK.
      *
-     * No usa authorization_items.orden_compra.
+     * No usa la referencia histórica directa de OC almacenada en la autorización.
      *
      * Ruta moderna:
      * authorization_item
