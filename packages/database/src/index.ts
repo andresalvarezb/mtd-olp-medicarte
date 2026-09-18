@@ -11,3 +11,4 @@ export function createDatabase(databaseUrl: string) {
 }
 
 export * from './schema';
+export * from './novelties';

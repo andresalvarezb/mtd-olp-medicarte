@@ -69,6 +69,9 @@ import { AnalyticsService } from './analytics/analytics.service';
 import { BulkImportController } from './bulk-imports/bulk-import.controller';
 import { BulkImportRepository } from './bulk-imports/bulk-import.repository';
 import { BulkImportService } from './bulk-imports/bulk-import.service';
+import { TariffAnnexRepository } from './tariff-annex/tariff-annex.repository';
+import { TariffAnnexService } from './tariff-annex/tariff-annex.service';
+import { TariffAnnexController } from './tariff-annex/tariff-annex.controller';
 import { AccessScopeController } from './access-scopes/access-scope.controller';
 import { OperationalAccessScopeService } from './access-scopes/operational-access-scope.service';
 import { LegacyAuthorizationHistoryRepository } from './legacy/legacy-authorization-history.repository';
@@ -150,6 +153,7 @@ new Gauge({
     PatientApplicationAuditController,
     AnalyticsController,
     BulkImportController,
+    TariffAnnexController,
     AccessScopeController,
     ReconciliationController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
@@ -191,6 +195,8 @@ new Gauge({
     AnalyticsService,
     BulkImportRepository,
     BulkImportService,
+    TariffAnnexRepository,
+    TariffAnnexService,
     OperationalAccessScopeService,
     ReconciliationRepository,
     ReconciliationService,
