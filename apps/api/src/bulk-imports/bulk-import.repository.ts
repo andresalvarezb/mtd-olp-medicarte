@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type {
   BulkImportJobResponse,
@@ -11,6 +11,7 @@ import type { createDatabase } from '@authorization/database';
 import {
   BULK_IMPORT_ROW_CLAIM_LEASE_SECONDS,
   POINT_ACCESS_DENIED,
+  currentBogotaDate,
   decideBulkImportCompletion,
   rowIdempotencyKey,
 } from '@authorization/domain';
@@ -123,19 +124,29 @@ export class BulkImportRepository {
     return Number(result.rows[0]?.n ?? 0) > 0;
   }
 
-  async findActiveTariffAnnexProductCodes(
+  async findActiveTariffAnnexProducts(
     organizationId: string,
     codes: readonly string[],
-  ): Promise<Set<string>> {
-    if (codes.length === 0) return new Set();
-    const result = await this.database.db.execute<{ codigo_producto: string }>(sql`
-      select codigo_producto
+  ): Promise<Map<string, { tipoInclusion: string | null }>> {
+    if (codes.length === 0) return new Map();
+
+    const result = await this.database.db.execute<{
+      codigo_producto: string;
+      tipo_inclusion: string | null;
+    }>(sql`
+      select codigo_producto, tipo_inclusion
       from tariff_annex_products
       where organization_id = ${organizationId}
         and active = true
-        and codigo_producto in (${sql.join(codes.map((code) => sql`${code}`), sql`, `)})
+        and codigo_producto in (${sql.join(
+          codes.map((code) => sql`${code}`),
+          sql`, `,
+        )})
     `);
-    return new Set(result.rows.map((row) => row.codigo_producto));
+
+    return new Map(
+      result.rows.map((row) => [row.codigo_producto, { tipoInclusion: row.tipo_inclusion }]),
+    );
   }
 
   async createJob(input: {
@@ -274,10 +285,12 @@ export class BulkImportRepository {
         attemptCount: Number(row.attempt_count),
         authorizationNumber:
           typeof payload.NUMERO_AUTORIZACION === 'string' ? payload.NUMERO_AUTORIZACION : null,
-          commercialCode: typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null,
+        commercialCode:
+          typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null,
         dispensingPointCode:
           typeof payload.dispensingPointCode === 'string' ? payload.dispensingPointCode : null,
-        assignmentDate: typeof payload.FECHA_ASIGNACION === 'string' ? payload.FECHA_ASIGNACION : null,
+        assignmentDate:
+          typeof payload.FECHA_ASIGNACION === 'string' ? payload.FECHA_ASIGNACION : null,
         quantity: typeof quantityRaw === 'number' ? quantityRaw : Number(quantityRaw) || null,
       };
     });
@@ -388,45 +401,323 @@ export class BulkImportRepository {
     input: { actor: Scope; payload: Record<string, unknown>; jobId: string },
   ): Promise<{ id: string }> {
     const batch = await tx.execute<{ authorization_import_batch_id: string | null }>(sql`
-      select authorization_import_batch_id from bulk_import_jobs where id = ${input.jobId} for share
+      select authorization_import_batch_id
+      from bulk_import_jobs
+      where id = ${input.jobId}
+      for share
     `);
+
     const batchId = batch.rows[0]?.authorization_import_batch_id;
-    if (!batchId) throw new Error('AUTHORIZATION_IMPORT_BATCH_NOT_FOUND');
+
+    if (!batchId) {
+      throw new Error('AUTHORIZATION_IMPORT_BATCH_NOT_FOUND');
+    }
+
     const p = input.payload;
+
     const text = (key: string): string => {
       const value = p[key];
+
       return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
         ? String(value)
         : '';
     };
-    const result = await tx.execute<{ id: string }>(sql`
+
+    const authorizationNumber = text('NUMERO_AUTORIZACION');
+    const commercialCode = text('CODIGO_COMERCIAL');
+    const sourceStatus = text('ESTADO_AUTORIZACION');
+    const prescriptionNumber = text('NUMERO_PRESCRIPCION');
+    const expirationDate = text('FECHA_FINAL_VIGENCIA');
+    const serializedPayload = JSON.stringify(p);
+
+    /*
+     * Macro 2 / 2B:
+     * La vigencia se vuelve a validar dentro de la transacción de confirmación.
+     * Upload válido no garantiza que la fila siga siendo válida al materializar.
+     */
+    const expirationInstant = new Date(`${expirationDate}T00:00:00Z`);
+    const validExpiration =
+      /^\d{4}-\d{2}-\d{2}$/.test(expirationDate) &&
+      !Number.isNaN(expirationInstant.getTime()) &&
+      expirationInstant.toISOString().slice(0, 10) === expirationDate;
+
+    if (!validExpiration) {
+      throw new BadRequestException({
+        code: 'AUTHORIZATION_EXPIRATION_INVALID',
+        message: 'FECHA_FINAL_VIGENCIA es obligatoria y debe ser una fecha válida',
+      });
+    }
+
+    const todayBogota = currentBogotaDate();
+
+    if (expirationDate < todayBogota) {
+      throw new BadRequestException({
+        code: 'AUTHORIZATION_EXPIRED',
+        message: `La autorización venció el ${expirationDate}`,
+      });
+    }
+
+    /*
+     * Macro 2 / 2A:
+     * AT activo y PBS se revalidan dentro de la misma transacción que
+     * materializa INSERT/UPDATE. El dato cargado en el XLSX no es fuente
+     * de verdad para coverage_type.
+     */
+    const tariff = await tx.execute<{ tipo_inclusion: string | null }>(sql`
+      select tipo_inclusion
+      from tariff_annex_products
+      where organization_id = ${input.actor.organizationId}
+        and codigo_producto = ${commercialCode}
+        and active = true
+      for share
+    `);
+
+    const tariffInclusion = tariff.rows[0]?.tipo_inclusion?.trim().toUpperCase() ?? '';
+
+    if (tariff.rows.length === 0) {
+      throw new BadRequestException({
+        code: 'TARIFF_ANNEX_PRODUCT_NOT_FOUND',
+        message: `El código comercial ${commercialCode || '(vacío)'} no existe en el anexo tarifario activo`,
+      });
+    }
+
+    if (tariffInclusion !== 'PBS') {
+      throw new BadRequestException({
+        code:
+          tariffInclusion === 'NO_PBS'
+            ? 'TARIFF_ANNEX_PRODUCT_NO_PBS'
+            : 'TARIFF_ANNEX_PRODUCT_INCLUSION_INVALID',
+        message:
+          tariffInclusion === 'NO_PBS'
+            ? `El código comercial ${commercialCode || '(vacío)'} está clasificado NO_PBS en el anexo tarifario activo`
+            : `El código comercial ${commercialCode || '(vacío)'} no tiene una clasificación PBS válida en el anexo tarifario activo`,
+      });
+    }
+
+    const enablementStatus = ['VIGENTE', 'ACTIVA', 'AUTORIZADA'].includes(
+      sourceStatus.trim().toUpperCase(),
+    )
+      ? 'ENABLED'
+      : 'BLOCKED_SOURCE_STATUS';
+
+    const linkOrganization = async (authorizationItemId: string): Promise<void> => {
+      await tx.execute(sql`
+        insert into authorization_item_organizations
+          (authorization_item_id, organization_id)
+        values
+          (${authorizationItemId}, ${input.actor.organizationId})
+        on conflict do nothing
+      `);
+    };
+
+    /*
+     * Macro 2 / 2C - INSERT.
+     *
+     * Primero intentamos la inserción de la identidad operacional.
+     * ON CONFLICT no actualiza nada: la decisión NO_OP/UPDATE se toma
+     * explícitamente después, bajo lock de la fila existente.
+     */
+    const inserted = await tx.execute<{ id: string; version: number }>(sql`
       insert into authorization_items
-        (numero_autorizacion, codigo_medicamento, authorization_key, source_data,
-         source_status_normalized, source_prescripcion_normalized, no_prescripcion,
-         enablement_status, coverage_type, direction_status, coverage_rule_version,
-         created_from_batch_id, updated_by, last_load_id)
+        (
+          numero_autorizacion,
+          codigo_medicamento,
+          authorization_key,
+          source_data,
+          source_status_normalized,
+          source_prescripcion_normalized,
+          no_prescripcion,
+          enablement_status,
+          coverage_type,
+          direction_status,
+          coverage_rule_version,
+          created_from_batch_id,
+          updated_by,
+          last_load_id
+        )
       values
-        (${text('NUMERO_AUTORIZACION')}, ${text('CODIGO_COMERCIAL')},
-         ${`${text('NUMERO_AUTORIZACION')}|${text('CODIGO_COMERCIAL')}`},
-         ${JSON.stringify(p)}::jsonb, ${text('ESTADO_AUTORIZACION')},
-         ${text('NUMERO_PRESCRIPCION')}, ${text('NUMERO_PRESCRIPCION')},
-         case when upper(${text('ESTADO_AUTORIZACION')}) in ('VIGENTE', 'ACTIVA', 'AUTORIZADA') then 'ENABLED' else 'BLOCKED_SOURCE_STATUS' end,
-         'PBS', 'NOT_APPLICABLE', 'AUTHORIZATIONS_V1', ${batchId}, ${input.actor.userId}, ${batchId})
-      on conflict (numero_autorizacion, codigo_medicamento) do update
-        set source_data = excluded.source_data,
-            source_status_normalized = excluded.source_status_normalized,
-            enablement_status = excluded.enablement_status,
-            last_load_id = excluded.last_load_id,
-            updated_by = excluded.updated_by,
-            updated_at = now(), version = authorization_items.version + 1
-      returning id
+        (
+          ${authorizationNumber},
+          ${commercialCode},
+          ${`${authorizationNumber}|${commercialCode}`},
+          ${serializedPayload}::jsonb,
+          ${sourceStatus},
+          ${prescriptionNumber},
+          ${prescriptionNumber},
+          ${enablementStatus},
+          ${tariffInclusion},
+          'NOT_APPLICABLE',
+          'AUTHORIZATIONS_V1',
+          ${batchId},
+          ${input.actor.userId},
+          ${batchId}
+        )
+      on conflict (numero_autorizacion, codigo_medicamento) do nothing
+      returning id, version
     `);
-    const id = result.rows[0]!.id;
-    await tx.execute(sql`
-      insert into authorization_item_organizations (authorization_item_id, organization_id)
-      values (${id}, ${input.actor.organizationId}) on conflict do nothing
+
+    const insertedRow = inserted.rows[0];
+
+    if (insertedRow) {
+      await linkOrganization(insertedRow.id);
+
+      await this.audit(tx, input.actor, 'AUTHORIZATION_SMART_RELOAD_INSERTED', input.jobId, {
+        authorizationItemId: insertedRow.id,
+        version: insertedRow.version,
+        result: 'INSERT',
+      });
+
+      return { id: insertedRow.id };
+    }
+
+    /*
+     * La identidad ya existe. Se bloquea la fila para serializar dos
+     * recargas concurrentes de la misma autorización/producto.
+     *
+     * El fingerprint semántico se basa en el normalized payload de la fila
+     * y en los campos derivados que este import controla. filename, job,
+     * batch, last_load_id, timestamps y evidencia externa no participan.
+     */
+    const existing = await tx.execute<{
+      id: string;
+      version: number;
+      semantic_same: boolean;
+    }>(sql`
+      select
+        id,
+        version,
+        (
+          source_data = ${serializedPayload}::jsonb
+          and source_status_normalized = ${sourceStatus}
+          and coalesce(source_prescripcion_normalized, '') = ${prescriptionNumber}
+          and coalesce(no_prescripcion, '') = ${prescriptionNumber}
+          and enablement_status = ${enablementStatus}
+          and coverage_type = ${tariffInclusion}
+          and direction_status = 'NOT_APPLICABLE'
+          and coverage_rule_version = 'AUTHORIZATIONS_V1'
+        ) as semantic_same
+      from authorization_items
+      where numero_autorizacion = ${authorizationNumber}
+        and codigo_medicamento = ${commercialCode}
+      for update
     `);
-    return { id };
+
+    const existingRow = existing.rows[0];
+
+    if (!existingRow) {
+      throw new Error('AUTHORIZATION_CONCURRENT_UPSERT_NOT_FOUND');
+    }
+
+    /*
+     * Macro 2 / 2C - NO_OP real.
+     *
+     * No cambia version, updated_at, updated_by ni last_load_id.
+     * Solo se asegura el vínculo organizacional, que puede faltar en datos
+     * históricos compartidos.
+     */
+    if (existingRow.semantic_same) {
+      await linkOrganization(existingRow.id);
+
+      await this.audit(tx, input.actor, 'AUTHORIZATION_SMART_RELOAD_NO_OP', input.jobId, {
+        authorizationItemId: existingRow.id,
+        version: existingRow.version,
+        result: 'NO_OP',
+      });
+
+      return { id: existingRow.id };
+    }
+
+    /*
+     * Macro 2 / 2D - PO LOCK.
+     *
+     * No usa authorization_items.orden_compra.
+     *
+     * Ruta moderna:
+     * authorization_item
+     *   -> demand_sources
+     *   -> projected_demand_line
+     *   -> purchase_order_demand_allocations
+     *   -> purchase_order_line
+     *   -> purchase_order
+     *
+     * Cualquier asignación positiva en una OC no terminal-rechazada bloquea
+     * el UPDATE. REJECTED/CANCELLED liberan la autorización porque su
+     * cobertura efectiva deja de comprometer demanda.
+     */
+    const blockingPurchaseOrder = await tx.execute<{
+      id: string;
+      status: string;
+      purchase_order_code: string | null;
+    }>(sql`
+      select distinct
+        po.id,
+        po.status,
+        po.purchase_order_code
+      from demand_sources ds
+      join purchase_order_demand_allocations allocation
+        on allocation.projected_demand_line_id = ds.projected_demand_line_id
+      join purchase_order_lines pol
+        on pol.id = allocation.purchase_order_line_id
+      join purchase_orders po
+        on po.id = pol.purchase_order_id
+      where ds.authorization_item_id = ${existingRow.id}
+        and allocation.allocated_quantity > 0
+        and po.status not in ('REJECTED', 'CANCELLED')
+      order by po.id
+      limit 1
+    `);
+
+    const blockingOrder = blockingPurchaseOrder.rows[0];
+
+    if (blockingOrder) {
+      throw new BadRequestException({
+        code: 'AUTHORIZATION_PURCHASE_ORDER_LOCKED',
+        message: `La autorización no puede actualizarse porque tiene demanda comprometida en una orden de compra con estado ${blockingOrder.status}`,
+      });
+    }
+
+    /*
+     * Macro 2 / 2C - UPDATE.
+     *
+     * Solo ocurre cuando cambió el estado semántico y 2D confirmó que la
+     * autorización continúa libre. Los estados operacionales downstream
+     * (aplicación, auditoría, admisión, etc.) no se sobrescriben.
+     */
+    const updated = await tx.execute<{ id: string; version: number }>(sql`
+      update authorization_items
+      set
+        source_data = ${serializedPayload}::jsonb,
+        source_status_normalized = ${sourceStatus},
+        source_prescripcion_normalized = ${prescriptionNumber},
+        no_prescripcion = ${prescriptionNumber},
+        enablement_status = ${enablementStatus},
+        coverage_type = ${tariffInclusion},
+        direction_status = 'NOT_APPLICABLE',
+        coverage_rule_version = 'AUTHORIZATIONS_V1',
+        last_load_id = ${batchId},
+        updated_by = ${input.actor.userId},
+        updated_at = now(),
+        version = version + 1
+      where id = ${existingRow.id}
+      returning id, version
+    `);
+
+    const updatedRow = updated.rows[0];
+
+    if (!updatedRow) {
+      throw new Error('AUTHORIZATION_SMART_RELOAD_UPDATE_FAILED');
+    }
+
+    await linkOrganization(updatedRow.id);
+
+    await this.audit(tx, input.actor, 'AUTHORIZATION_SMART_RELOAD_UPDATED', input.jobId, {
+      authorizationItemId: updatedRow.id,
+      previousVersion: existingRow.version,
+      version: updatedRow.version,
+      result: 'UPDATE',
+    });
+
+    return { id: updatedRow.id };
   }
 
   async executeClaimedRow<TCreated extends { id: string }>(input: {
