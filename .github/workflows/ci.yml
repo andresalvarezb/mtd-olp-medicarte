@@ -23,7 +23,7 @@ jobs:
       - run: docker compose up -d --wait postgres redis
       - run: pnpm db:migrate
         env:
-          DATABASE_URL: postgresql://authorization:authorization@localhost:15432/authorization
+          DATABASE_URL: postgresql://authorization:authorization@localhost:15432/authorization_test_integration
       - run: docker compose up -d --build --wait api worker web
       - run: pnpm test:integration
       - if: always()

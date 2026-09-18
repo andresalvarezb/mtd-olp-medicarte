@@ -7,6 +7,7 @@ import {
   foreignKey,
   index,
   integer,
+  numeric,
   jsonb,
   pgTable,
   primaryKey,
@@ -1865,6 +1866,7 @@ export const tariffAnnexProducts = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     codigoProducto: varchar('codigo_producto', { length: 255 }).notNull(),
     tarifaUnidad: varchar('tarifa_unidad', { length: 255 }),
+    tarifaUnidadCanonical: numeric('tarifa_unidad_canonical', { precision: 18, scale: 4 }),
     numeroExpedienteInvima: varchar('numero_expediente_invima', { length: 255 }),
     consecutivoInvimaPresentacion: varchar('consecutivo_invima_presentacion', { length: 255 }),
     descripcionGenerica: text('descripcion_generica'),
@@ -1906,6 +1908,13 @@ export const tariffAnnexImports = pgTable(
     sizeBytes: integer('size_bytes').notNull(),
     sha256: varchar('sha256', { length: 64 }).notNull(),
     status: varchar('status', { length: 30 }).notNull().default('UPLOADED'),
+    preview: jsonb('preview'),
+    previewTotal: integer('preview_total').notNull().default(0),
+    previewUnchanged: integer('preview_unchanged').notNull().default(0),
+    previewChanged: integer('preview_changed').notNull().default(0),
+    previewAnomalous: integer('preview_anomalous').notNull().default(0),
+    previewRejected: integer('preview_rejected').notNull().default(0),
+    previewScalePatternDetected: boolean('preview_scale_pattern_detected').notNull().default(false),
     totalRows: integer('total_rows').notNull().default(0),
     createdRows: integer('created_rows').notNull().default(0),
     reactivatedRows: integer('reactivated_rows').notNull().default(0),
@@ -1915,6 +1924,9 @@ export const tariffAnnexImports = pgTable(
     lastErrorCode: varchar('last_error_code', { length: 80 }),
     correlationId: uuid('correlation_id').notNull(),
     idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    confirmedBy: uuid('confirmed_by').references(() => users.id, { onDelete: 'restrict' }),
+    overrideReason: text('override_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
@@ -1928,7 +1940,24 @@ export const tariffAnnexImports = pgTable(
     ),
     check(
       'tariff_annex_imports_status_check',
-      sql`${table.status} IN ('UPLOADED', 'VALIDATING', 'COMPLETED', 'FAILED')`,
+      sql`${table.status} IN ('PREPARED', 'CONFIRMING', 'UPLOADED', 'VALIDATING', 'COMPLETED', 'FAILED', 'CANCELLED')`,
+    ),
+    check('tariff_annex_imports_preview_total_check', sql`${table.previewTotal} >= 0`),
+    check('tariff_annex_imports_preview_unchanged_check', sql`${table.previewUnchanged} >= 0`),
+    check('tariff_annex_imports_preview_changed_check', sql`${table.previewChanged} >= 0`),
+    check('tariff_annex_imports_preview_anomalous_check', sql`${table.previewAnomalous} >= 0`),
+    check('tariff_annex_imports_preview_rejected_check', sql`${table.previewRejected} >= 0`),
+    check(
+      'tariff_annex_imports_preview_consistency_check',
+      sql`${table.previewTotal} = ${table.previewUnchanged} + ${table.previewChanged} + ${table.previewAnomalous} + ${table.previewRejected}`,
+    ),
+    check(
+      'tariff_annex_imports_confirmation_check',
+      sql`${table.status} <> 'CONFIRMING' OR (${table.confirmedAt} IS NOT NULL AND ${table.confirmedBy} IS NOT NULL)`,
+    ),
+    check(
+      'tariff_annex_imports_anomaly_override_check',
+      sql`${table.previewAnomalous} = 0 OR ${table.status} NOT IN ('CONFIRMING', 'COMPLETED') OR length(btrim(coalesce(${table.overrideReason}, ''))) > 0`,
     ),
   ],
 );
@@ -1972,6 +2001,10 @@ export const tariffAnnexImportRows = pgTable(
     productId: uuid('product_id').references(() => tariffAnnexProducts.id, {
       onDelete: 'restrict',
     }),
+    tarifaUnidadRaw: text('tarifa_unidad_raw'),
+    tarifaUnidadCanonical: numeric('tarifa_unidad_canonical', { precision: 18, scale: 4 }),
+    anomalyCode: varchar('anomaly_code', { length: 80 }),
+    provenance: jsonb('provenance'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -1984,7 +2017,81 @@ export const tariffAnnexImportRows = pgTable(
     check('tariff_annex_import_rows_row_number_check', sql`${table.rowNumber} > 0`),
     check(
       'tariff_annex_import_rows_result_code_check',
-      sql`${table.resultCode} IN ('PRODUCT_CREATED', 'PRODUCT_REACTIVATED', 'PRODUCT_EXISTING', 'INVALID_PRODUCT_CODE', 'DUPLICATE_IN_FILE', 'INVALID_FILE_FORMAT', 'PROCESSING_ERROR')`,
+      sql`${table.resultCode} IN (
+        'PREVIEW_NEW',
+        'PREVIEW_UNCHANGED',
+        'PREVIEW_CHANGED',
+        'PREVIEW_ANOMALOUS',
+        'PREVIEW_REJECTED',
+        'PRODUCT_CREATED',
+        'PRODUCT_REACTIVATED',
+        'PRODUCT_EXISTING',
+        'INVALID_PRODUCT_CODE',
+        'DUPLICATE_IN_FILE',
+        'INVALID_FILE_FORMAT',
+        'PROCESSING_ERROR'
+      )`,
+    ),
+  ],
+);
+
+export const tariffProductRevisions = pgTable(
+  'tariff_product_revisions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => tariffAnnexProducts.id, { onDelete: 'restrict' }),
+    codigoProducto: varchar('codigo_producto', { length: 255 }).notNull(),
+    revision: integer('revision').notNull(),
+    importId: uuid('import_id').references(() => tariffAnnexImports.id, { onDelete: 'restrict' }),
+    importRowId: uuid('import_row_id').references(() => tariffAnnexImportRows.id, {
+      onDelete: 'restrict',
+    }),
+    tarifaUnidadRaw: text('tarifa_unidad_raw'),
+    tarifaUnidadCanonical: numeric('tarifa_unidad_canonical', { precision: 18, scale: 4 }),
+    tipoInclusion: varchar('tipo_inclusion', { length: 100 }),
+    commercialSnapshot: jsonb('commercial_snapshot').notNull(),
+    validFrom: timestamp('valid_from', { withTimezone: true }).notNull(),
+    validTo: timestamp('valid_to', { withTimezone: true }),
+    changedBy: uuid('changed_by').references(() => users.id, { onDelete: 'restrict' }),
+    provenance: text('provenance').notNull(),
+  },
+  (table) => [
+    unique('tariff_product_revisions_product_revision_unique').on(table.productId, table.revision),
+    index('tariff_product_revisions_code_idx').on(table.codigoProducto, table.validFrom),
+  ],
+);
+
+export const authorizationTariffSnapshots = pgTable(
+  'authorization_tariff_snapshots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    productId: uuid('product_id').references(() => tariffAnnexProducts.id, {
+      onDelete: 'restrict',
+    }),
+    productRevisionId: uuid('product_revision_id').references(() => tariffProductRevisions.id, {
+      onDelete: 'restrict',
+    }),
+    importId: uuid('import_id').references(() => tariffAnnexImports.id, { onDelete: 'restrict' }),
+    codigoProducto: varchar('codigo_producto', { length: 255 }).notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('UNRESOLVED'),
+    tarifaUnidadRaw: text('tarifa_unidad_raw'),
+    tarifaUnidadCanonical: numeric('tarifa_unidad_canonical', { precision: 18, scale: 4 }),
+    tipoInclusion: varchar('tipo_inclusion', { length: 100 }),
+    snapshotAt: timestamp('snapshot_at', { withTimezone: true }).notNull().defaultNow(),
+    provenance: text('provenance').notNull(),
+    unresolvedReason: text('unresolved_reason'),
+  },
+  (table) => [
+    unique('authorization_tariff_snapshots_item_unique').on(table.authorizationItemId),
+    index('authorization_tariff_snapshots_import_idx').on(table.importId),
+    check(
+      'authorization_tariff_snapshots_status_check',
+      sql`${table.status} IN ('RESOLVED', 'UNRESOLVED', 'NOT_APPLICABLE')`,
     ),
   ],
 );
@@ -2024,6 +2131,7 @@ export const novelties = pgTable(
       }),
     stage: varchar('stage', { length: 60 }).notNull(),
     field: varchar('field', { length: 160 }),
+    logicalKey: varchar('logical_key', { length: 500 }).notNull(),
     receivedValue: text('received_value'),
     description: text('description').notNull(),
     active: boolean('active').notNull().default(true),
@@ -2040,6 +2148,9 @@ export const novelties = pgTable(
     index('novelties_code_idx').on(table.code, table.processedAt),
     index('novelties_batch_idx').on(table.importBatchId, table.bulkUpdateBatchId),
     index('novelties_attempt_idx').on(table.code, table.authorizationItemId, table.attemptNumber),
+    index('novelties_logical_idx').on(table.logicalKey),
+    index('novelties_logical_attempt_idx').on(table.logicalKey, table.attemptNumber),
+    index('novelties_logical_active_idx').on(table.logicalKey, table.active),
     check('novelties_attempt_number_check', sql`${table.attemptNumber} > 0`),
   ],
 );
@@ -2055,9 +2166,12 @@ export const bulkImportJobs = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     importType: varchar('import_type', { length: 40 }).notNull(),
-    authorizationImportBatchId: uuid('authorization_import_batch_id').references(() => importBatches.id, {
-      onDelete: 'restrict',
-    }),
+    authorizationImportBatchId: uuid('authorization_import_batch_id').references(
+      () => importBatches.id,
+      {
+        onDelete: 'restrict',
+      },
+    ),
     templateVersion: varchar('template_version', { length: 80 }).notNull(),
     status: varchar('status', { length: 30 }).notNull().default('UPLOADED'),
     originalFilename: varchar('original_filename', { length: 255 }).notNull(),
@@ -2092,7 +2206,10 @@ export const bulkImportJobs = pgTable(
       table.createdAt,
     ),
     index('bulk_import_jobs_hash_idx').on(table.createdBy, table.fileHash),
-    check('bulk_import_jobs_type_check', sql`${table.importType} IN ('AUTHORIZATIONS', 'SCHEDULING')`),
+    check(
+      'bulk_import_jobs_type_check',
+      sql`${table.importType} IN ('AUTHORIZATIONS', 'SCHEDULING')`,
+    ),
     check(
       'bulk_import_jobs_status_check',
       sql`${table.status} IN ('UPLOADED', 'VALIDATING', 'READY', 'INVALID', 'PROCESSING', 'COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED')`,
