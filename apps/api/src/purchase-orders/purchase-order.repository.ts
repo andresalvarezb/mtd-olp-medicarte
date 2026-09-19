@@ -274,6 +274,23 @@ export class PurchaseOrderRepository {
       candidate as (
         select pdl.*
         from projected_demand_lines pdl
+        join tariff_annex_products tap
+          on tap.codigo_producto =
+             pdl.commercial_code
+         and tap.active = true
+         and regexp_replace(
+               upper(
+                 trim(
+                   coalesce(
+                     tap.tipo_inclusion,
+                     ''
+                   )
+                 )
+               ),
+               '\s+',
+               '_',
+               'g'
+             ) = 'PBS'
         cross join period_mode pm
         where pdl.planning_period_id = ${planningPeriodId}
           and (
@@ -541,7 +558,42 @@ export class PurchaseOrderRepository {
         throw new Error('PROJECTED_DEMAND_REVISION_CONFLICT');
       }
 
-      if (!demand.tarifa_unidad) {
+      /*
+       * Macro 4A.
+       *
+       * La elegibilidad de una compra nueva se vuelve a validar
+       * contra el Anexo Tarifario vigente dentro de la misma
+       * transacción que materializa la OC.
+       *
+       * FOR SHARE serializa este punto contra CONFIRM del AT,
+       * que bloquea la fila del producto con FOR UPDATE.
+       */
+      const currentTariff = await tx.execute<{
+        tarifa_unidad: string | null;
+        tipo_inclusion: string | null;
+      }>(sql`
+        select
+          tarifa_unidad,
+          tipo_inclusion
+        from tariff_annex_products
+        where codigo_producto =
+              ${demand.commercial_code}
+          and active = true
+        for share
+      `);
+
+      const currentTariffRow = currentTariff.rows[0];
+
+      const currentTariffInclusion = (currentTariffRow?.tipo_inclusion ?? '')
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, '_');
+
+      if (!currentTariffRow || currentTariffInclusion !== 'PBS') {
+        throw new Error('PURCHASE_ORDER_TARIFF_NOT_PBS');
+      }
+
+      if (!currentTariffRow.tarifa_unidad) {
         throw new Error('TARIFF_RATE_NOT_FOUND');
       }
 
@@ -691,7 +743,7 @@ export class PurchaseOrderRepository {
         descripcion_generica: string | null;
         consecutivo_invima_presentacion: string | null;
       }>(
-        sql`select pdl.commercial_code, pdl.dispensing_point_id, tap.tarifa_unidad, tap.descripcion_generica, tap.consecutivo_invima_presentacion from projected_demand_lines pdl join tariff_annex_products tap on tap.codigo_producto = pdl.commercial_code and tap.active = true where pdl.id = ${line.projectedDemandLineId}`,
+        sql`select pdl.commercial_code, pdl.dispensing_point_id, tap.tarifa_unidad, tap.descripcion_generica, tap.consecutivo_invima_presentacion from projected_demand_lines pdl join tariff_annex_products tap on tap.codigo_producto = pdl.commercial_code and tap.active = true and regexp_replace(upper(trim(coalesce(tap.tipo_inclusion, ''))), '\\s+', '_', 'g') = 'PBS' where pdl.id = ${line.projectedDemandLineId}`,
       );
       const d = demand.rows[0]!;
       const dispensingPointId = line.dispensingPointId ?? d.dispensing_point_id ?? null;
