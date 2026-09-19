@@ -2,8 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
 import {
-  DemandConsolidationError,
-  resolveEffectiveSchedulePeriod,
+  currentBogotaDate,
   sumDemandQuantities,
   type DemandSourceClassification,
 } from '@authorization/domain';
@@ -28,18 +27,6 @@ export type ConsolidateOutcome =
   | { outcome: 'consolidated'; summary: ConsolidateProjectedDemandResponse }
   | { outcome: 'period_not_found' };
 
-type ActiveScheduleRow = Readonly<{
-  id: string;
-  quantity: number;
-  revision: number;
-  schedule_timing: 'ON_TIME' | 'LATE';
-  late_handling: 'COMPLEMENTARY_PURCHASE_ORDER' | 'NEXT_PERIOD' | null;
-  planning_period_id: string;
-  deferred_planning_period_id: string | null;
-  dispensing_point_id: string;
-  commercial_code: string;
-}>;
-
 type LoadedAuthorizationRow = Readonly<{
   id: string;
   quantity: number;
@@ -48,12 +35,10 @@ type LoadedAuthorizationRow = Readonly<{
 }>;
 
 type DesiredSource = Readonly<{
-  patientScheduleId?: string;
-  scheduleRevision?: number;
-  authorizationItemId?: string;
+  authorizationItemId: string;
   quantity: number;
-  scheduleTiming: 'ON_TIME' | 'LATE';
-  lateHandling: 'COMPLEMENTARY_PURCHASE_ORDER' | 'NEXT_PERIOD' | null;
+  scheduleTiming: 'ON_TIME';
+  lateHandling: null;
   classification: DemandSourceClassification;
   loadedAt: string;
 }>;
@@ -148,8 +133,9 @@ const DEMAND_LINE_COLUMNS = sql`
  *   BEGIN
  *   → FOR UPDATE del planning_period: serializa consolidaciones concurrentes
  *     del mismo período; períodos distintos corren independientes.
- *   → Lectura de schedules vigentes para ESP-004; cuando no hay schedules
- *     efectivos en el período, se usa el cargue de autorizaciones de ESP-016.
+ *   → Macro 3A: la demanda de compra nace exclusivamente de autorizaciones
+ *     vigentes y elegibles. La programación de MEDICARTE queda fuera de la
+ *     decisión de cantidad, punto y fecha para comprar.
  *   → Reconciliación de projected_demand_lines y demand_sources con guardas
  *     de cambio (idempotencia: nada se acumula ni duplica, y consolidar dos
  *     veces sin cambios no reescribe).
@@ -179,96 +165,69 @@ export class ProjectedDemandRepository {
       `);
       if (!period.rows[0]) return { outcome: 'period_not_found' as const };
 
-      // 2. ESP-004 historical source selection. Schedules take precedence for
-      // a period; authorization imports are the fallback for newer periods.
-      const schedules = await tx.execute<ActiveScheduleRow>(sql`
-        select ps.id, ps.quantity, ps.revision, ps.schedule_timing,
-               ps.late_handling, ps.planning_period_id,
-               ps.deferred_planning_period_id, ps.dispensing_point_id,
-               ps.commercial_code
-        from patient_schedules ps
-        where ps.status in ('SCHEDULED', 'RESCHEDULED')
-      `);
+      // 2. Macro 3A: la fuente de verdad para la demanda de compra es
+      // authorization_items. MEDICARTE/patient_schedules no determina
+      // cantidad, punto, fecha ni elegibilidad de compra.
+      //
+      // planning_period_id identifica este snapshot operativo de demanda;
+      // FECHA_ASIGNACION no limita la compra: una autorización cargada antes
+      // sigue participando mientras continúe vigente y elegible.
+      const todayBogota = currentBogotaDate();
+
+      const authorizations = await tx.execute<LoadedAuthorizationRow>(sql`
+          select
+            ai.id,
+            (ai.source_data->>'CANTIDAD')::int as quantity,
+            ai.codigo_medicamento as commercial_code,
+            to_char(
+              ai.created_at at time zone 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+            ) as loaded_at
+          from authorization_items ai
+          join import_batches ib
+            on ib.id = ai.created_from_batch_id
+           and ib.organization_id = ${input.actor.organizationId}
+          join tariff_annex_products tap
+            on tap.codigo_producto = ai.codigo_medicamento
+           and tap.organization_id = ${input.actor.organizationId}
+           and tap.active = true
+           and tap.tipo_inclusion = 'PBS'
+          where ai.enablement_status = 'ENABLED'
+            and (ai.source_data->>'CANTIDAD') ~ '^[1-9][0-9]*$'
+            and (ai.source_data->>'FECHA_FINAL_VIGENCIA')
+                  ~ '^\\d{4}-\\d{2}-\\d{2}$'
+            and (ai.source_data->>'FECHA_FINAL_VIGENCIA')
+                  >= ${todayBogota}
+        `);
 
       const desiredByLine = new Map<string, DesiredLine>();
-      for (const schedule of schedules.rows) {
-        if (schedule.quantity <= 0) {
-          throw new DemandConsolidationError(
-            schedule.id,
-            `Active schedule ${schedule.id} has a non-positive quantity`,
-          );
-        }
-        const effective = resolveEffectiveSchedulePeriod({
-          scheduleTiming: schedule.schedule_timing,
-          lateHandling: schedule.late_handling,
-          planningPeriodId: schedule.planning_period_id,
-          deferredPlanningPeriodId: schedule.deferred_planning_period_id,
-        });
-        if (effective.effectivePeriodId !== input.periodId) continue;
-        const identity = `${schedule.dispensing_point_id}|${schedule.commercial_code}`;
+
+      for (const authorization of authorizations.rows) {
+        const identity = authorization.commercial_code;
+
         const line = desiredByLine.get(identity) ?? {
-          dispensingPointId: schedule.dispensing_point_id,
-          commercialCode: schedule.commercial_code,
+          dispensingPointId: null,
+          commercialCode: authorization.commercial_code,
           regularQuantity: 0,
           lateQuantity: 0,
           projectedQuantity: 0,
           sources: [] as DesiredSource[],
         };
+
         line.sources.push({
-          patientScheduleId: schedule.id,
-          scheduleRevision: schedule.revision,
-          quantity: schedule.quantity,
-          scheduleTiming: schedule.schedule_timing,
-          lateHandling: schedule.late_handling,
-          classification: effective.classification,
-          loadedAt: '',
+          authorizationItemId: authorization.id,
+          quantity: authorization.quantity,
+          scheduleTiming: 'ON_TIME',
+          lateHandling: null,
+          classification: 'REGULAR',
+          loadedAt: authorization.loaded_at,
         });
+
         desiredByLine.set(identity, line);
       }
 
-      if (desiredByLine.size === 0) {
-        const authorizations = await tx.execute<LoadedAuthorizationRow>(sql`
-          select ai.id,
-                 (ai.source_data->>'CANTIDAD')::int as quantity,
-                 ai.codigo_medicamento as commercial_code,
-                 to_char(ai.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as loaded_at
-          from authorization_items ai
-          join planning_periods pp
-            on case when (ai.source_data->>'FECHA_ASIGNACION') ~ '^\\d{4}-\\d{2}-\\d{2}$'
-                    then to_date(ai.source_data->>'FECHA_ASIGNACION', 'YYYY-MM-DD') end
-                between pp.start_date and pp.end_date
-          where ai.enablement_status = 'ENABLED'
-            and (ai.source_data->>'CANTIDAD') ~ '^[1-9][0-9]*$'
-            and pp.id = ${input.periodId}
-        `);
-        // Imported authorizations have no schedule or dispensing point.
-        for (const authorization of authorizations.rows) {
-          const identity = authorization.commercial_code;
-          const line = desiredByLine.get(identity) ?? {
-            dispensingPointId: null,
-            commercialCode: authorization.commercial_code,
-            regularQuantity: 0,
-            lateQuantity: 0,
-            projectedQuantity: 0,
-            sources: [] as DesiredSource[],
-          };
-          line.sources.push({
-            authorizationItemId: authorization.id,
-            quantity: authorization.quantity,
-            scheduleTiming: 'ON_TIME',
-            lateHandling: null,
-            classification: 'REGULAR',
-            loadedAt: authorization.loaded_at,
-          });
-          desiredByLine.set(identity, line);
-        }
-      }
       for (const line of desiredByLine.values()) {
-        line.sources.sort((a, b) =>
-          (a.patientScheduleId ?? a.authorizationItemId!).localeCompare(
-            b.patientScheduleId ?? b.authorizationItemId!,
-          ),
-        );
+        line.sources.sort((a, b) => a.authorizationItemId.localeCompare(b.authorizationItemId));
         const sums = sumDemandQuantities(
           line.sources.map((source) => ({
             quantity: source.quantity,
@@ -303,15 +262,21 @@ export class ProjectedDemandRepository {
       }>(sql`
         select
           (select count(*)::int from projected_demand_lines
-             where planning_period_id = ${input.periodId}) as line_count,
+             where planning_period_id = ${input.periodId}
+               and dispensing_point_id is null) as line_count,
           (select count(*)::int from demand_sources
              where projected_demand_line_id in (
-               select id from projected_demand_lines where planning_period_id = ${input.periodId}
+               select id
+               from projected_demand_lines
+               where planning_period_id = ${input.periodId}
+                 and dispensing_point_id is null
              )) as source_count,
           (select coalesce(sum(regular_quantity), 0)::int from projected_demand_lines
-             where planning_period_id = ${input.periodId}) as regular_quantity,
+             where planning_period_id = ${input.periodId}
+               and dispensing_point_id is null) as regular_quantity,
           (select coalesce(sum(late_quantity), 0)::int from projected_demand_lines
-             where planning_period_id = ${input.periodId}) as late_quantity
+             where planning_period_id = ${input.periodId}
+               and dispensing_point_id is null) as late_quantity
       `);
       const totalsRow = totals.rows[0]!;
       const summary: ConsolidateProjectedDemandResponse = {
@@ -332,6 +297,8 @@ export class ProjectedDemandRepository {
     const filters = [sql`pdl.planning_period_id = ${query.planningPeriodId}`];
     if (query.dispensingPointId !== undefined) {
       filters.push(sql`pdl.dispensing_point_id = ${query.dispensingPointId}`);
+    } else {
+      filters.push(sql`pdl.dispensing_point_id is null`);
     }
     if (query.commercialCode !== undefined) {
       filters.push(sql`pdl.commercial_code = ${query.commercialCode}`);
@@ -399,14 +366,14 @@ export class ProjectedDemandRepository {
              regular_quantity, late_quantity, projected_quantity, revision
       from projected_demand_lines
       where planning_period_id = ${input.periodId}
+        and dispensing_point_id is null
       for update
     `);
-    const existingLineByKey = new Map(
-      existingLines.rows.map((row) => [
-        `${row.dispensing_point_id ?? ''}|${row.commercial_code}`,
-        row,
-      ]),
-    );
+    // Macro 3A: la identidad viva de demanda es período + código comercial.
+    // El punto deja de formar parte de la decisión de compra. Las líneas
+    // históricas que todavía tienen punto quedan fuera de esta reconciliación
+    // y se conservan únicamente como historia del modelo anterior.
+    const existingLineByKey = new Map(existingLines.rows.map((row) => [row.commercial_code, row]));
 
     const existingSources = await tx.execute<ExistingSourceRow>(sql`
        select ds.projected_demand_line_id,
@@ -420,6 +387,7 @@ export class ProjectedDemandRepository {
       from demand_sources ds
       join projected_demand_lines pdl on pdl.id = ds.projected_demand_line_id
       where pdl.planning_period_id = ${input.periodId}
+        and pdl.dispensing_point_id is null
     `);
     const sourcesByLine = new Map<string, Map<string, ExistingSourceRow>>();
     for (const source of existingSources.rows) {
@@ -461,15 +429,19 @@ export class ProjectedDemandRepository {
 
       const lineId = existingLine.id;
       const currentSources = sourcesByLine.get(lineId) ?? new Map<string, ExistingSourceRow>();
+
+      const pointChanged = existingLine.dispensing_point_id !== desired.dispensingPointId;
+
       const sourcesChanged =
+        pointChanged ||
         fingerprint(desired.sources) !==
-        [...currentSources.values()]
-          .map(
-            (source) =>
-              `${sourceKey(source)}|${source.quantity}|${source.schedule_timing}|${source.late_handling}|${source.loaded_at ?? ''}`,
-          )
-          .sort()
-          .join(',');
+          [...currentSources.values()]
+            .map(
+              (source) =>
+                `${sourceKey(source)}|${source.quantity}|${source.schedule_timing}|${source.late_handling}`,
+            )
+            .sort()
+            .join(',');
       if (sourcesChanged) {
         await tx.execute(sql`
           delete from demand_sources where projected_demand_line_id = ${lineId}
@@ -486,7 +458,8 @@ export class ProjectedDemandRepository {
       if (quantitiesChanged || sourcesChanged) {
         await tx.execute(sql`
           update projected_demand_lines
-          set regular_quantity = ${desired.regularQuantity},
+          set dispensing_point_id = ${desired.dispensingPointId},
+              regular_quantity = ${desired.regularQuantity},
               late_quantity = ${desired.lateQuantity},
               projected_quantity = ${desired.projectedQuantity},
               revision = revision + 1,
@@ -499,11 +472,10 @@ export class ProjectedDemandRepository {
       reconciledLineIds.add(lineId);
     }
 
-    // Líneas del período que ya no tienen fuentes deseadas: sus fuentes
-    // quedaron desactualizadas (cancelación / cambio de punto / NEXT_PERIOD /
-    // cambio de período) y una línea vacía violaría projected_quantity > 0.
-    // Se borran fuentes desactualizadas + la línea (reconciliación completa,
-    // sin dejar residuos silenciosos).
+    // Líneas vivas authorization-based que ya no tienen fuentes elegibles:
+    // se eliminan junto con sus fuentes. existingLines contiene únicamente
+    // dispensing_point_id IS NULL, por lo que las líneas históricas del
+    // modelo basado en programación/punto nunca se eliminan aquí.
     for (const row of existingLines.rows) {
       if (reconciledLineIds.has(row.id)) continue;
       await tx.execute(sql`
@@ -527,40 +499,33 @@ export class ProjectedDemandRepository {
     desired: DesiredLine,
   ): Promise<void> {
     for (const source of desired.sources) {
-      if (source.patientScheduleId) {
-        await tx.execute(sql`
-          insert into demand_sources
-            (projected_demand_line_id, patient_schedule_id, schedule_revision, quantity,
-             planning_period_id, dispensing_point_id, commercial_code, schedule_timing,
-             late_handling, demand_bucket)
-          select ${lineId}, ps.id, ps.revision, hsh.quantity, ${periodId},
-                 ${desired.dispensingPointId}, ${desired.commercialCode}, ps.schedule_timing,
-                 ps.late_handling, ${source.classification}
-          from patient_schedules ps
-          join patient_schedule_history hsh
-            on hsh.patient_schedule_id = ps.id and hsh.revision = ps.revision
-          where ps.id = ${source.patientScheduleId} and ps.revision = ${source.scheduleRevision}
-        `);
-        continue;
-      }
       await tx.execute(sql`
         insert into demand_sources
-           (projected_demand_line_id, authorization_item_id, quantity,
-            planning_period_id, dispensing_point_id, commercial_code, schedule_timing,
-             late_handling, demand_bucket, loaded_at)
-         select
-           ${lineId},
-           ai.id,
-           ${source.quantity},
-           ${periodId},
-           ${desired.dispensingPointId},
-           ${desired.commercialCode},
-           'ON_TIME',
-           null,
-            ${source.classification},
-            ${source.loadedAt}
-         from authorization_items ai
-         where ai.id = ${source.authorizationItemId}
+          (
+            projected_demand_line_id,
+            authorization_item_id,
+            quantity,
+            planning_period_id,
+            dispensing_point_id,
+            commercial_code,
+            schedule_timing,
+            late_handling,
+            demand_bucket,
+            loaded_at
+          )
+        select
+          ${lineId},
+          ai.id,
+          ${source.quantity},
+          ${periodId},
+          null,
+          ${desired.commercialCode},
+          'ON_TIME',
+          null,
+          ${source.classification},
+          ${source.loadedAt}
+        from authorization_items ai
+        where ai.id = ${source.authorizationItemId}
       `);
     }
   }
@@ -649,11 +614,18 @@ export class ProjectedDemandRepository {
   }
 }
 
+/**
+ * Identidad semántica de las fuentes que determinan la demanda.
+ *
+ * loadedAt se conserva como trazabilidad documental, pero no modifica
+ * cantidad, autorización ni clasificación de compra; por tanto no debe
+ * provocar una nueva revisión de projected_demand_lines.
+ */
 function fingerprint(sources: readonly DesiredSource[]): string {
   return sources
     .map(
       (source) =>
-        `${sourceKey(source)}|${source.quantity}|${source.scheduleTiming}|${source.lateHandling}|${source.loadedAt}`,
+        `${sourceKey(source)}|${source.quantity}|${source.scheduleTiming}|${source.lateHandling}`,
     )
     .sort()
     .join(',');

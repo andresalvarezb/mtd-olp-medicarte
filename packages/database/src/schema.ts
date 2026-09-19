@@ -596,10 +596,27 @@ export const projectedDemandLines = pgTable(
   },
   (table) => [
     /**
-     * ESP-004: identidad de consolidación por período y código comercial.
-     * El punto se selecciona en la orden de compra.
+     * Identidad histórica del modelo ESP-004. Se conserva para que las
+     * líneas antiguas separadas por punto sigan siendo válidas.
      */
-    unique('projected_demand_lines_period_code_unique').on(
+    unique('projected_demand_lines_identity_unique').on(
+      table.planningPeriodId,
+      table.dispensingPointId,
+      table.commercialCode,
+    ),
+    /**
+     * Macro 3A: identidad viva de compra. Las líneas authorization-based
+     * no tienen punto y son únicas por período + código comercial.
+     */
+    uniqueIndex('projected_demand_lines_live_period_code_unique')
+      .on(table.planningPeriodId, table.commercialCode)
+      .where(sql`${table.dispensingPointId} IS NULL`),
+    /**
+     * Clave candidata usada por demand_sources para validar que la fuente
+     * conserva line_id + período + código, sin depender del punto histórico.
+     */
+    unique('projected_demand_lines_source_identity_unique').on(
+      table.id,
       table.planningPeriodId,
       table.commercialCode,
     ),
@@ -663,6 +680,15 @@ export const demandSources = pgTable(
     uniqueIndex('demand_sources_authorization_item_unique')
       .on(table.projectedDemandLineId, table.authorizationItemId)
       .where(sql`${table.authorizationItemId} IS NOT NULL`),
+    foreignKey({
+      columns: [table.projectedDemandLineId, table.planningPeriodId, table.commercialCode],
+      foreignColumns: [
+        projectedDemandLines.id,
+        projectedDemandLines.planningPeriodId,
+        projectedDemandLines.commercialCode,
+      ],
+      name: 'demand_sources_line_identity_fk',
+    }),
     index('demand_sources_demand_line_idx').on(table.projectedDemandLineId, table.createdAt),
     check(
       'demand_sources_schedule_revision_check',
