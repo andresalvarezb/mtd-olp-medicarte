@@ -472,7 +472,8 @@ export class BulkImportRepository {
       for share
     `);
 
-    const tariffInclusion = tariff.rows[0]?.tipo_inclusion?.trim().toUpperCase() ?? '';
+    const tariffInclusion =
+      tariff.rows[0]?.tipo_inclusion?.trim().toUpperCase().replace(/\s+/g, '_') ?? '';
 
     if (tariff.rows.length === 0) {
       throw new BadRequestException({
@@ -632,17 +633,16 @@ export class BulkImportRepository {
      *
      * No usa la referencia histórica directa de OC almacenada en la autorización.
      *
-     * Ruta moderna:
+     * Ruta moderna e inmutable:
      * authorization_item
-     *   -> demand_sources
-     *   -> projected_demand_line
-     *   -> purchase_order_demand_allocations
+     *   -> purchase_order_authorization_sources
      *   -> purchase_order_line
      *   -> purchase_order
      *
-     * Cualquier asignación positiva en una OC no terminal-rechazada bloquea
-     * el UPDATE. REJECTED/CANCELLED liberan la autorización porque su
-     * cobertura efectiva deja de comprometer demanda.
+     * demand_sources es estado vivo y puede ser reconciliado o eliminado.
+     * El snapshot de provenance de la OC preserva el vínculo histórico.
+     *
+     * Una OC distinta de REJECTED/CANCELLED bloquea el UPDATE.
      */
     const blockingPurchaseOrder = await tx.execute<{
       id: string;
@@ -653,15 +653,12 @@ export class BulkImportRepository {
         po.id,
         po.status,
         po.purchase_order_code
-      from demand_sources ds
-      join purchase_order_demand_allocations allocation
-        on allocation.projected_demand_line_id = ds.projected_demand_line_id
+      from purchase_order_authorization_sources source
       join purchase_order_lines pol
-        on pol.id = allocation.purchase_order_line_id
+        on pol.id = source.purchase_order_line_id
       join purchase_orders po
         on po.id = pol.purchase_order_id
-      where ds.authorization_item_id = ${existingRow.id}
-        and allocation.allocated_quantity > 0
+      where source.authorization_item_id = ${existingRow.id}
         and po.status not in ('REJECTED', 'CANCELLED')
       order by po.id
       limit 1

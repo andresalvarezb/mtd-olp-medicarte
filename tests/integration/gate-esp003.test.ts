@@ -1071,7 +1071,8 @@ describe('Gate ESP-003 — programación de pacientes', () => {
     const tables = await database.query<{ table_name: string }>(
       `select table_name from information_schema.tables
         where table_schema = 'public'
-           and table_name in ('inventory', 'inventory_items', 'inventory_stock', 'inventory_lots', 'inventory_movements')`,
+           and table_name in ('inventory', 'inventory_items', 'inventory_stock', 'inventory_lots', 'inventory_movements')
+           order by table_name`,
     );
     expect(tables.rows.map((row) => row.table_name)).toEqual([
       'inventory_lots',

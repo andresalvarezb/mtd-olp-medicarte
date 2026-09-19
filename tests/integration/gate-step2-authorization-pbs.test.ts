@@ -319,12 +319,12 @@ beforeAll(async () => {
 
   await seedTariffProduct({
     code: CODE_PBS,
-    tipoInclusion: 'PBS',
+    tipoInclusion: ' pbs ',
   });
 
   await seedTariffProduct({
     code: CODE_NO_PBS,
-    tipoInclusion: 'NO_PBS',
+    tipoInclusion: ' no pbs ',
   });
 
   await seedTariffProduct({
@@ -487,7 +487,7 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
 
     await database.query(
       `update tariff_annex_products
-          set tipo_inclusion = 'NO_PBS',
+          set tipo_inclusion = 'NO PBS',
               version = version + 1,
               updated_by = $2,
               updated_at = now()

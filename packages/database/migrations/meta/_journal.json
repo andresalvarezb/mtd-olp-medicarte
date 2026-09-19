@@ -428,6 +428,55 @@
       "when": 1790550442663,
       "tag": "0060_tariff_preview_result_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1790550443663,
+      "tag": "0061_authorization_demand_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1790550443664,
+      "tag": "0062_purchase_order_optional_logistics",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1790550443665,
+      "tag": "0063_purchase_order_authorization_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1790550443666,
+      "tag": "0064_inventory_locations",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1790550443667,
+      "tag": "0065_inventory_lot_location_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1790550443668,
+      "tag": "0066_inventory_location_bridge",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1790550443669,
+      "tag": "0067_procurement_fungible_netting",
+      "breakpoints": true
     }
   ]
 }

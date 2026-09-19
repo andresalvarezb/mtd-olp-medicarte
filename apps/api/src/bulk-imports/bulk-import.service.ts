@@ -192,7 +192,8 @@ export class BulkImportService {
         typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null;
       const tariffProduct = commercialCode ? activeTariffProducts.get(commercialCode) : undefined;
       const tariffMatch = tariffProduct !== undefined;
-      const tariffInclusion = tariffProduct?.tipoInclusion?.trim().toUpperCase() ?? '';
+      const tariffInclusion =
+        tariffProduct?.tipoInclusion?.trim().toUpperCase().replace(/\s+/g, '_') ?? '';
       const tariffIsPbs = tariffMatch && tariffInclusion === 'PBS';
       const valid =
         missing.length === 0 &&

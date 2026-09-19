@@ -212,19 +212,94 @@ export class StockTransferRepository {
           sql`select id,commercial_code,lot_number,expiration_date::text,quantity from stock_transfer_lines where stock_transfer_id=${id} order by id for update`,
         )
       ).rows;
+
+      // Transitional bridge for legacy point creation after migration 0064.
+      await tx.execute(sql`
+        insert into inventory_locations (
+          organization_id,
+          code,
+          name,
+          active,
+          legacy_dispensing_point_id,
+          created_by,
+          updated_by
+        )
+        select
+          dp.organization_id,
+          dp.code,
+          dp.name,
+          dp.active,
+          dp.id,
+          dp.created_by,
+          dp.created_by
+        from dispensing_points dp
+        where dp.id = ${transfer.destination_dispensing_point_id}
+        on conflict do nothing
+      `);
+
+      const destinationLocation = await tx.execute<{ id: string }>(sql`
+        select id
+        from inventory_locations
+        where legacy_dispensing_point_id = ${transfer.destination_dispensing_point_id}
+        limit 1
+      `);
+
+      const destinationInventoryLocationId = destinationLocation.rows[0]?.id;
+
+      if (!destinationInventoryLocationId) {
+        throw new Error('STOCK_TRANSFER_DESTINATION_LOCATION_NOT_FOUND');
+      }
+
       for (const line of lines) {
-        const lot =
-          (
-            await tx.execute<{ id: string }>(
-              sql`insert into inventory_lots (commercial_code,dispensing_point_id,lot_number,expiration_date) values (${line.commercial_code},${transfer.destination_dispensing_point_id},${line.lot_number},${line.expiration_date}) on conflict (commercial_code,dispensing_point_id,lot_number,expiration_date) do nothing returning id`,
+        const destinationLotLockKey = [
+          'INVENTORY_LOT',
+          destinationInventoryLocationId,
+          line.commercial_code,
+          line.lot_number,
+          line.expiration_date,
+        ].join(':');
+
+        await tx.execute(sql`
+          select pg_advisory_xact_lock(
+            hashtextextended(
+              ${destinationLotLockKey},
+              0
             )
-          ).rows[0] ??
-          (
-            await tx.execute<{ id: string }>(
-              sql`select id from inventory_lots where commercial_code=${line.commercial_code} and dispensing_point_id=${transfer.destination_dispensing_point_id} and lot_number=${line.lot_number} and expiration_date=${line.expiration_date} for update`,
-            )
-          ).rows[0];
-        if (!lot) throw new Error('STOCK_TRANSFER_DESTINATION_LOT_FAILED');
+          )
+        `);
+
+        await tx.execute(
+          sql`insert into inventory_lots (commercial_code,inventory_location_id,dispensing_point_id,lot_number,expiration_date) values (${line.commercial_code},${destinationInventoryLocationId},${transfer.destination_dispensing_point_id},${line.lot_number},${line.expiration_date}) on conflict (commercial_code,dispensing_point_id,lot_number,expiration_date) do nothing`,
+        );
+
+        // Transitional compatibility for a legacy lot that existed before
+        // inventory_location_id became canonical.
+        await tx.execute(sql`
+          update inventory_lots
+          set inventory_location_id = ${destinationInventoryLocationId}
+          where commercial_code = ${line.commercial_code}
+            and dispensing_point_id = ${transfer.destination_dispensing_point_id}
+            and lot_number = ${line.lot_number}
+            and expiration_date = ${line.expiration_date}
+            and inventory_location_id is null
+        `);
+
+        const lot = (
+          await tx.execute<{
+            id: string;
+            inventory_location_id: string | null;
+          }>(
+            sql`select id,inventory_location_id from inventory_lots where commercial_code=${line.commercial_code} and dispensing_point_id=${transfer.destination_dispensing_point_id} and lot_number=${line.lot_number} and expiration_date=${line.expiration_date} for update`,
+          )
+        ).rows[0];
+
+        if (!lot) {
+          throw new Error('STOCK_TRANSFER_DESTINATION_LOT_FAILED');
+        }
+
+        if (lot.inventory_location_id !== destinationInventoryLocationId) {
+          throw new Error('STOCK_TRANSFER_DESTINATION_LOCATION_MISMATCH');
+        }
         await tx.execute(
           sql`insert into inventory_movements (inventory_lot_id,movement_type,quantity_delta,source_type,source_id,occurred_at,created_by,metadata) values (${lot.id},'TRANSFER_IN',${line.quantity},'TRANSFER_LINE',${line.id},now(),${scope.userId},${JSON.stringify({ stockTransferId: id })}::jsonb) on conflict (movement_type,source_type,source_id) do nothing`,
         );

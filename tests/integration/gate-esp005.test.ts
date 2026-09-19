@@ -44,8 +44,8 @@ describe('Gate ESP-005 - consolidated purchase orders', () => {
     periodId = period.rows[0]!.id;
     const point = await database.query<{ id: string }>('insert into dispensing_points (organization_id,code,name,created_by) values ($1,$2,$2,$3) returning id', [ORGANIZATION_IDS.MTD, pointCode, foundationUserId]);
     pointId = point.rows[0]!.id;
-    await database.query(`insert into tariff_annex_products (codigo_producto, tarifa_unidad, descripcion_generica, consecutivo_invima_presentacion, organization_id, created_by) values ($1,'123.45','Producto ESP-005','PRESENTACION-ESP5',$2,$3)`, [code, ORGANIZATION_IDS.MTD, foundationUserId]);
-    await database.query(`insert into tariff_annex_products (codigo_producto, tarifa_unidad, descripcion_generica, consecutivo_invima_presentacion, organization_id, created_by) values ($1,'55.00','Producto ESP-005 B','PRESENTACION-ESP5-B',$2,$3)`, [code2, ORGANIZATION_IDS.MTD, foundationUserId]);
+    await database.query(`insert into tariff_annex_products (codigo_producto, tarifa_unidad, descripcion_generica, consecutivo_invima_presentacion, tipo_inclusion, organization_id, created_by) values ($1,'123.45','Producto ESP-005','PRESENTACION-ESP5','PBS',$2,$3)`, [code, ORGANIZATION_IDS.MTD, foundationUserId]);
+    await database.query(`insert into tariff_annex_products (codigo_producto, tarifa_unidad, descripcion_generica, consecutivo_invima_presentacion, tipo_inclusion, organization_id, created_by) values ($1,'55.00','Producto ESP-005 B','PRESENTACION-ESP5-B','PBS',$2,$3)`, [code2, ORGANIZATION_IDS.MTD, foundationUserId]);
     const demand = await createScenarioDemand(20);
     demandId = demand.rows[0]!.id;
     const demand2 = await database.query<{ id: string }>(`insert into projected_demand_lines (planning_period_id,dispensing_point_id,commercial_code,projected_quantity,regular_quantity,late_quantity,created_by,updated_by) values ($1,$2,$3,10,10,0,$4,$4) returning id`, [periodId, pointId, code2, foundationUserId]);

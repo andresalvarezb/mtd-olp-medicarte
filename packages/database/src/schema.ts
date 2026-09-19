@@ -329,6 +329,57 @@ export const dispensingPoints = pgTable(
   ],
 );
 
+export const inventoryLocations = pgTable(
+  'inventory_locations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+
+    code: varchar('code', { length: 80 }).notNull(),
+    name: varchar('name', { length: 160 }).notNull(),
+
+    active: boolean('active').notNull().default(true),
+
+    legacyDispensingPointId: uuid('legacy_dispensing_point_id').references(
+      () => dispensingPoints.id,
+      { onDelete: 'set null' },
+    ),
+
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('inventory_locations_organization_code_idx').on(table.organizationId, table.code),
+
+    uniqueIndex('inventory_locations_legacy_point_idx')
+      .on(table.legacyDispensingPointId)
+      .where(sql`${table.legacyDispensingPointId} IS NOT NULL`),
+
+    uniqueIndex('inventory_locations_id_legacy_point_idx').on(
+      table.id,
+
+      table.legacyDispensingPointId,
+    ),
+
+    index('inventory_locations_active_idx').on(table.organizationId, table.active, table.code),
+
+    check('inventory_locations_code_not_blank_check', sql`length(btrim(${table.code})) > 0`),
+
+    check('inventory_locations_name_not_blank_check', sql`length(btrim(${table.name})) > 0`),
+  ],
+);
+
 /**
  * ESP-015: data authorization by dispensing point. Independent of RBAC.
  * Active grants are unique per (user, point). Revoked rows remain for audit.
@@ -596,10 +647,27 @@ export const projectedDemandLines = pgTable(
   },
   (table) => [
     /**
-     * ESP-004: identidad de consolidación por período y código comercial.
-     * El punto se selecciona en la orden de compra.
+     * Identidad histórica del modelo ESP-004. Se conserva para que las
+     * líneas antiguas separadas por punto sigan siendo válidas.
      */
-    unique('projected_demand_lines_period_code_unique').on(
+    unique('projected_demand_lines_identity_unique').on(
+      table.planningPeriodId,
+      table.dispensingPointId,
+      table.commercialCode,
+    ),
+    /**
+     * Macro 3A: identidad viva de compra. Las líneas authorization-based
+     * no tienen punto y son únicas por período + código comercial.
+     */
+    uniqueIndex('projected_demand_lines_live_period_code_unique')
+      .on(table.planningPeriodId, table.commercialCode)
+      .where(sql`${table.dispensingPointId} IS NULL`),
+    /**
+     * Clave candidata usada por demand_sources para validar que la fuente
+     * conserva line_id + período + código, sin depender del punto histórico.
+     */
+    unique('projected_demand_lines_source_identity_unique').on(
+      table.id,
       table.planningPeriodId,
       table.commercialCode,
     ),
@@ -663,6 +731,15 @@ export const demandSources = pgTable(
     uniqueIndex('demand_sources_authorization_item_unique')
       .on(table.projectedDemandLineId, table.authorizationItemId)
       .where(sql`${table.authorizationItemId} IS NOT NULL`),
+    foreignKey({
+      columns: [table.projectedDemandLineId, table.planningPeriodId, table.commercialCode],
+      foreignColumns: [
+        projectedDemandLines.id,
+        projectedDemandLines.planningPeriodId,
+        projectedDemandLines.commercialCode,
+      ],
+      name: 'demand_sources_line_identity_fk',
+    }),
     index('demand_sources_demand_line_idx').on(table.projectedDemandLineId, table.createdAt),
     check(
       'demand_sources_schedule_revision_check',
@@ -733,12 +810,14 @@ export const purchaseOrderLines = pgTable(
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
     productDescription: text('product_description'),
     presentation: text('presentation'),
-    dispensingPointId: uuid('dispensing_point_id')
-      .notNull()
-      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    // Optional at purchase time. A purchase order may be generated from
+    // authorization-driven demand before a physical logistics point exists.
+    dispensingPointId: uuid('dispensing_point_id').references(() => dispensingPoints.id, {
+      onDelete: 'restrict',
+    }),
     requestedQuantity: integer('requested_quantity').notNull(),
     acceptedQuantity: integer('accepted_quantity'),
-    requestedDeliveryDate: date('requested_delivery_date').notNull(),
+    requestedDeliveryDate: date('requested_delivery_date'),
     compensarUnitRateSnapshot: varchar('compensar_unit_rate_snapshot', { length: 255 }).notNull(),
     supplierUnitCost: varchar('supplier_unit_cost', { length: 255 }),
     // Historical identifier only: ESP-004 may delete a superseded live projection.
@@ -793,6 +872,44 @@ export const purchaseOrderDemandAllocations = pgTable(
     check(
       'purchase_order_demand_allocations_bucket_check',
       sql`${table.demandBucket} IN ('REGULAR', 'LATE')`,
+    ),
+  ],
+);
+
+export const purchaseOrderAuthorizationSources = pgTable(
+  'purchase_order_authorization_sources',
+  {
+    purchaseOrderLineId: uuid('purchase_order_line_id')
+      .notNull()
+      .references(() => purchaseOrderLines.id, { onDelete: 'cascade' }),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    projectedDemandLineId: uuid('projected_demand_line_id').notNull(),
+    projectedDemandRevision: integer('projected_demand_revision').notNull(),
+    sourceQuantitySnapshot: integer('source_quantity_snapshot').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'purchase_order_authorization_sources_pk',
+      columns: [table.purchaseOrderLineId, table.authorizationItemId],
+    }),
+    index('purchase_order_authorization_sources_authorization_idx').on(
+      table.authorizationItemId,
+      table.purchaseOrderLineId,
+    ),
+    index('purchase_order_authorization_sources_demand_idx').on(
+      table.projectedDemandLineId,
+      table.projectedDemandRevision,
+    ),
+    check(
+      'purchase_order_authorization_sources_revision_check',
+      sql`${table.projectedDemandRevision} > 0`,
+    ),
+    check(
+      'purchase_order_authorization_sources_quantity_check',
+      sql`${table.sourceQuantitySnapshot} > 0`,
     ),
   ],
 );
@@ -899,6 +1016,10 @@ export const inventoryLots = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+
+    inventoryLocationId: uuid('inventory_location_id').references(() => inventoryLocations.id, {
+      onDelete: 'restrict',
+    }),
     dispensingPointId: uuid('dispensing_point_id')
       .notNull()
       .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
@@ -907,12 +1028,26 @@ export const inventoryLots = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    uniqueIndex('inventory_lots_location_identity_unique')
+      .on(table.commercialCode, table.inventoryLocationId, table.lotNumber, table.expirationDate)
+      .where(sql`${table.inventoryLocationId} IS NOT NULL`),
+
+    foreignKey({
+      columns: [table.inventoryLocationId, table.dispensingPointId],
+      foreignColumns: [inventoryLocations.id, inventoryLocations.legacyDispensingPointId],
+      name: 'inventory_lots_location_point_fk',
+    }),
+
     unique('inventory_lots_identity_unique').on(
       table.commercialCode,
       table.dispensingPointId,
       table.lotNumber,
       table.expirationDate,
     ),
+    index('inventory_lots_location_product_idx')
+      .on(table.inventoryLocationId, table.commercialCode)
+      .where(sql`${table.inventoryLocationId} IS NOT NULL`),
+
     index('inventory_lots_point_product_idx').on(table.dispensingPointId, table.commercialCode),
     check('inventory_lots_commercial_code_check', sql`length(btrim(${table.commercialCode})) > 0`),
     check('inventory_lots_number_check', sql`length(btrim(${table.lotNumber})) > 0`),

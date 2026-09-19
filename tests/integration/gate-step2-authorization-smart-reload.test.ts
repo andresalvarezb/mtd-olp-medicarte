@@ -520,6 +520,24 @@ async function createPurchaseOrderFixture(input: {
     [orderLineId, demandLineId],
   );
 
+  await database.query(
+    `insert into purchase_order_authorization_sources (
+       purchase_order_line_id,
+       authorization_item_id,
+       projected_demand_line_id,
+       projected_demand_revision,
+       source_quantity_snapshot
+     )
+     values (
+       $1,
+       $2,
+       $3,
+       1,
+       2
+     )`,
+    [orderLineId, input.authorizationItemId, demandLineId],
+  );
+
   return orderId;
 }
 
@@ -745,6 +763,54 @@ describe('Macro 2 / 2C + 2D — smart reload + purchase order lock', () => {
       month: 7,
       status: 'DRAFT',
     });
+
+    const lineageBefore = await database.query<{ count: number }>(
+      `select count(*)::int count
+       from purchase_order_authorization_sources source
+       join purchase_order_lines pol
+         on pol.id = source.purchase_order_line_id
+       where source.authorization_item_id = $1
+         and pol.purchase_order_id = $2`,
+      [before.id, orderId],
+    );
+
+    expect(lineageBefore.rows[0]?.count).toBe(1);
+
+    const liveDemand = await database.query<{
+      projected_demand_line_id: string;
+    }>(
+      `select projected_demand_line_id
+       from purchase_order_lines
+       where purchase_order_id = $1
+       limit 1`,
+      [orderId],
+    );
+
+    const liveDemandLineId = liveDemand.rows[0]!.projected_demand_line_id;
+
+    await database.query(
+      `delete from demand_sources
+       where projected_demand_line_id = $1`,
+      [liveDemandLineId],
+    );
+
+    await database.query(
+      `delete from projected_demand_lines
+       where id = $1`,
+      [liveDemandLineId],
+    );
+
+    const lineageAfter = await database.query<{ count: number }>(
+      `select count(*)::int count
+       from purchase_order_authorization_sources source
+       join purchase_order_lines pol
+         on pol.id = source.purchase_order_line_id
+       where source.authorization_item_id = $1
+         and pol.purchase_order_id = $2`,
+      [before.id, orderId],
+    );
+
+    expect(lineageAfter.rows[0]?.count).toBe(1);
 
     for (const status of BLOCKING_PO_STATUSES) {
       await database.query(

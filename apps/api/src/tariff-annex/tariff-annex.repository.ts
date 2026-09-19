@@ -523,6 +523,159 @@ export class TariffAnnexRepository {
       changedBy: input.actor.userId,
       provenance: 'CONFIRM:tariff_annex_import:product_update',
     });
+
+    await this.revalidateUncommittedAuthorizationsForTariffChange(tx, {
+      commercialCode: updated.codigo_producto,
+      previousInclusion: current.tipo_inclusion,
+      nextInclusion: updated.tipo_inclusion,
+      actor: input.actor,
+    });
+  }
+
+  private async revalidateUncommittedAuthorizationsForTariffChange(
+    tx: Transaction,
+    input: {
+      commercialCode: string;
+      previousInclusion: string | null;
+      nextInclusion: string | null;
+      actor: TariffAnnexActor;
+    },
+  ): Promise<void> {
+    const normalizeInclusion = (value: string | null): string =>
+      (value ?? '').trim().toUpperCase().replace(/\s+/g, '_');
+
+    const previous = normalizeInclusion(input.previousInclusion);
+    const next = normalizeInclusion(input.nextInclusion);
+
+    if (previous === next) {
+      return;
+    }
+
+    if (next !== 'PBS' && next !== 'NO_PBS') {
+      return;
+    }
+
+    const coverageType: 'PBS' | 'NO_PBS' = next;
+
+    const directionStatus = coverageType === 'PBS' ? 'NOT_APPLICABLE' : 'PENDING';
+
+    const candidates = await tx.execute<{
+      id: string;
+      coverage_type: 'PBS' | 'NO_PBS';
+      direction_status: 'NOT_APPLICABLE' | 'PENDING' | 'CONFIRMED' | 'QUERY_ERROR';
+    }>(sql`
+        select
+          ai.id,
+          ai.coverage_type,
+          ai.direction_status
+        from authorization_items ai
+        where
+          ai.codigo_medicamento =
+            ${input.commercialCode}
+
+          and not exists (
+            select 1
+            from
+              purchase_order_authorization_sources source
+
+            join purchase_order_lines pol
+              on pol.id =
+                 source.purchase_order_line_id
+
+            join purchase_orders po
+              on po.id =
+                 pol.purchase_order_id
+
+            where
+              source.authorization_item_id =
+                ai.id
+
+              and po.status not in (
+                'REJECTED',
+                'CANCELLED'
+              )
+          )
+
+        order by ai.id
+        for update of ai
+      `);
+
+    for (const item of candidates.rows) {
+      const semanticallyChanged =
+        item.coverage_type !== coverageType || item.direction_status !== directionStatus;
+
+      if (!semanticallyChanged) {
+        continue;
+      }
+
+      await tx.execute(sql`
+        update authorization_items
+        set
+          coverage_type =
+            ${coverageType},
+
+          direction_status =
+            ${directionStatus},
+
+          tariff_membership_status =
+            'LISTED',
+
+          tariff_membership_evaluated_at =
+            now(),
+
+          tariff_rule_version =
+            'TARIFF-ANNEX-1',
+
+          version =
+            version + 1,
+
+          updated_by =
+            ${input.actor.userId},
+
+          updated_at =
+            now()
+
+        where id = ${item.id}
+      `);
+
+      await tx.execute(sql`
+        insert into audit_events (
+          actor_type,
+          actor_id,
+          organization_id,
+          action,
+          resource_type,
+          resource_id,
+          before,
+          after,
+          correlation_id,
+          request_id,
+          result
+        )
+        values (
+          'USER',
+          ${input.actor.userId},
+          ${input.actor.organizationId},
+          'AUTHORIZATION_TARIFF_REVALIDATED',
+          'authorization_item',
+          ${item.id},
+          ${JSON.stringify({
+            coverageType: item.coverage_type,
+            directionStatus: item.direction_status,
+            tariffInclusion: previous,
+          })}::jsonb,
+          ${JSON.stringify({
+            coverageType,
+            directionStatus,
+            tariffInclusion: next,
+            purchaseCommitted: false,
+          })}::jsonb,
+          ${input.actor.correlationId},
+          ${input.actor.correlationId},
+          'SUCCESS'
+        )
+      `);
+    }
   }
 
   private async insertRevision(

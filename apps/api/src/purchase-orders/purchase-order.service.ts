@@ -101,6 +101,7 @@ export class PurchaseOrderService {
         PURCHASE_ORDER_BUCKET_MISMATCH: [400, 'Order type and demand bucket do not match'],
         PURCHASE_ORDER_INVALID_TRANSITION: [409, 'Invalid purchase order transition'],
         TARIFF_RATE_NOT_FOUND: [400, 'No active COMPENSAR tariff exists for the product'],
+        PURCHASE_ORDER_TARIFF_NOT_PBS: [409, 'Product is no longer PBS in the active tariff annex'],
         PURCHASE_ORDER_NOT_REVIEWABLE: [409, 'Purchase order is not under supplier review'],
         PURCHASE_ORDER_REVIEW_INCOMPLETE: [409, 'All lines must be reviewed'],
       };
