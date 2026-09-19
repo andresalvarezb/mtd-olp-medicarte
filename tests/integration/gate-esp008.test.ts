@@ -624,9 +624,19 @@ describe('Gate ESP-008 - operational inventory ledger', () => {
       `select constraint_name from information_schema.table_constraints where table_name='inventory_movements' and constraint_name='inventory_movements_source_semantics_unique'`,
     );
     expect(constraint.rows).toHaveLength(1);
-    const fk = await database.query<{ constraint_name: string }>(
-      `select constraint_name from information_schema.table_constraints where table_name='inventory_lots' and constraint_type='FOREIGN KEY'`,
+    const fk = await database.query<{ conname: string }>(
+      `select c.conname
+       from pg_constraint c
+       join pg_class t
+         on t.oid = c.conrelid
+       where t.relname = 'inventory_lots'
+         and c.contype = 'f'
+         and pg_get_constraintdef(c.oid)
+             like 'FOREIGN KEY (dispensing_point_id) REFERENCES dispensing_points%'`,
     );
+
+    // ESP-008's original point FK remains present. Later inventory-location
+    // migrations may add additional FKs without invalidating this invariant.
     expect(fk.rows).toHaveLength(1);
   });
 });

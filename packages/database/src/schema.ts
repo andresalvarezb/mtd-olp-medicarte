@@ -345,7 +345,7 @@ export const inventoryLocations = pgTable(
 
     legacyDispensingPointId: uuid('legacy_dispensing_point_id').references(
       () => dispensingPoints.id,
-      { onDelete: 'restrict' },
+      { onDelete: 'set null' },
     ),
 
     createdBy: uuid('created_by')
@@ -365,6 +365,12 @@ export const inventoryLocations = pgTable(
     uniqueIndex('inventory_locations_legacy_point_idx')
       .on(table.legacyDispensingPointId)
       .where(sql`${table.legacyDispensingPointId} IS NOT NULL`),
+
+    uniqueIndex('inventory_locations_id_legacy_point_idx').on(
+      table.id,
+
+      table.legacyDispensingPointId,
+    ),
 
     index('inventory_locations_active_idx').on(table.organizationId, table.active, table.code),
 
@@ -1010,6 +1016,10 @@ export const inventoryLots = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+
+    inventoryLocationId: uuid('inventory_location_id').references(() => inventoryLocations.id, {
+      onDelete: 'restrict',
+    }),
     dispensingPointId: uuid('dispensing_point_id')
       .notNull()
       .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
@@ -1018,12 +1028,26 @@ export const inventoryLots = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    uniqueIndex('inventory_lots_location_identity_unique')
+      .on(table.commercialCode, table.inventoryLocationId, table.lotNumber, table.expirationDate)
+      .where(sql`${table.inventoryLocationId} IS NOT NULL`),
+
+    foreignKey({
+      columns: [table.inventoryLocationId, table.dispensingPointId],
+      foreignColumns: [inventoryLocations.id, inventoryLocations.legacyDispensingPointId],
+      name: 'inventory_lots_location_point_fk',
+    }),
+
     unique('inventory_lots_identity_unique').on(
       table.commercialCode,
       table.dispensingPointId,
       table.lotNumber,
       table.expirationDate,
     ),
+    index('inventory_lots_location_product_idx')
+      .on(table.inventoryLocationId, table.commercialCode)
+      .where(sql`${table.inventoryLocationId} IS NOT NULL`),
+
     index('inventory_lots_point_product_idx').on(table.dispensingPointId, table.commercialCode),
     check('inventory_lots_commercial_code_check', sql`length(btrim(${table.commercialCode})) > 0`),
     check('inventory_lots_number_check', sql`length(btrim(${table.lotNumber})) > 0`),

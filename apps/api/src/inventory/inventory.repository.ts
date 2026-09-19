@@ -40,14 +40,91 @@ export class InventoryRepository {
       where rl.receipt_id=${receiptId} and rl.accepted_quantity > 0 for update`);
 
     for (const line of lines.rows) {
+      // Transitional bridge: dispensing points can still be created by
+      // historical flows after migration 0064. Materialize their inventory
+      // location lazily before writing canonical inventory.
+      await tx.execute(sql`
+        insert into inventory_locations (
+          organization_id,
+          code,
+          name,
+          active,
+          legacy_dispensing_point_id,
+          created_by,
+          updated_by
+        )
+        select
+          dp.organization_id,
+          dp.code,
+          dp.name,
+          dp.active,
+          dp.id,
+          dp.created_by,
+          dp.created_by
+        from dispensing_points dp
+        where dp.id = ${line.dispensing_point_id}
+        on conflict do nothing
+      `);
+
+      const location = await tx.execute<{ id: string }>(sql`
+        select id
+        from inventory_locations
+        where legacy_dispensing_point_id = ${line.dispensing_point_id}
+        limit 1
+      `);
+
+      const inventoryLocationId = location.rows[0]?.id;
+
+      if (!inventoryLocationId) {
+        throw new Error('INVENTORY_LOCATION_NOT_FOUND');
+      }
+
+      const inventoryLotLockKey = [
+        'INVENTORY_LOT',
+        inventoryLocationId,
+        line.commercial_code,
+        line.received_lot_number,
+        line.received_expiration_date,
+      ].join(':');
+
+      await tx.execute(sql`
+        select pg_advisory_xact_lock(
+          hashtextextended(
+            ${inventoryLotLockKey},
+            0
+          )
+        )
+      `);
+
       await tx.execute(sql`insert into inventory_lots
-        (commercial_code,dispensing_point_id,lot_number,expiration_date)
-        values (${line.commercial_code},${line.dispensing_point_id},${line.received_lot_number},${line.received_expiration_date})
+        (commercial_code,inventory_location_id,dispensing_point_id,lot_number,expiration_date)
+        values (${line.commercial_code},${inventoryLocationId},${line.dispensing_point_id},${line.received_lot_number},${line.received_expiration_date})
         on conflict (commercial_code,dispensing_point_id,lot_number,expiration_date) do nothing`);
-      const lot = await tx.execute<{ id: string }>(sql`select id from inventory_lots
+
+      // Transitional compatibility: historical/direct fixtures may have
+      // created the legacy lot without inventory_location_id.
+      await tx.execute(sql`
+        update inventory_lots
+        set inventory_location_id = ${inventoryLocationId}
+        where commercial_code = ${line.commercial_code}
+          and dispensing_point_id = ${line.dispensing_point_id}
+          and lot_number = ${line.received_lot_number}
+          and expiration_date = ${line.received_expiration_date}
+          and inventory_location_id is null
+      `);
+
+      const lot = await tx.execute<{
+        id: string;
+        inventory_location_id: string | null;
+      }>(sql`select id, inventory_location_id from inventory_lots
         where commercial_code=${line.commercial_code} and dispensing_point_id=${line.dispensing_point_id}
           and lot_number=${line.received_lot_number} and expiration_date=${line.received_expiration_date}`);
+
       if (!lot.rows[0]) throw new Error('INVENTORY_LOT_NOT_CREATED');
+
+      if (lot.rows[0].inventory_location_id !== inventoryLocationId) {
+        throw new Error('INVENTORY_LOT_LOCATION_MISMATCH');
+      }
       const movement = await tx.execute<{ id: string }>(sql`insert into inventory_movements
         (inventory_lot_id,movement_type,quantity_delta,source_type,source_id,occurred_at,created_by,metadata)
         values (${lot.rows[0].id},'RECEIPT',${line.accepted_quantity},'RECEIPT_LINE',${line.id},now(),${scope.userId},${JSON.stringify({ receiptId, acceptedQuantity: line.accepted_quantity })}::jsonb)

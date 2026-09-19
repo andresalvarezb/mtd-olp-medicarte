@@ -196,7 +196,7 @@ describe('Macro 3C W1 — inventory location foundation', () => {
     expect(forbidden.rows[0]?.count).toBe(0);
   });
 
-  it('does not change inventory lot identity in W1', async () => {
+  it('retains legacy point compatibility after canonical inventory location is introduced', async () => {
     const result = await database.query<{
       inventory_location_id: number;
       dispensing_point_id: number;
@@ -220,7 +220,7 @@ describe('Macro 3C W1 — inventory location foundation', () => {
     );
 
     expect(result.rows[0]).toEqual({
-      inventory_location_id: 0,
+      inventory_location_id: 1,
       dispensing_point_id: 1,
     });
   });
