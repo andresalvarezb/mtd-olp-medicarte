@@ -472,7 +472,8 @@ export class BulkImportRepository {
       for share
     `);
 
-    const tariffInclusion = tariff.rows[0]?.tipo_inclusion?.trim().toUpperCase() ?? '';
+    const tariffInclusion =
+      tariff.rows[0]?.tipo_inclusion?.trim().toUpperCase().replace(/\s+/g, '_') ?? '';
 
     if (tariff.rows.length === 0) {
       throw new BadRequestException({

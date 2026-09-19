@@ -25,8 +25,8 @@ const TARIFF_PRODUCTS = [
   { code: CODE_A, tipoInclusion: 'PBS' },
   { code: CODE_B, tipoInclusion: 'PBS' },
   { code: CODE_BLOCKED, tipoInclusion: 'PBS' },
-  { code: CODE_STALE_COVERAGE, tipoInclusion: 'PBS' },
-  { code: CODE_NO_PBS, tipoInclusion: 'NO_PBS' },
+  { code: CODE_STALE_COVERAGE, tipoInclusion: ' pbs ' },
+  { code: CODE_NO_PBS, tipoInclusion: ' no pbs ' },
   { code: CODE_EXPIRED, tipoInclusion: 'PBS' },
 ] as const;
 

@@ -191,7 +191,12 @@ export class ProjectedDemandRepository {
             on tap.codigo_producto = ai.codigo_medicamento
            and tap.organization_id = ${input.actor.organizationId}
            and tap.active = true
-           and tap.tipo_inclusion = 'PBS'
+           and regexp_replace(
+             upper(trim(coalesce(tap.tipo_inclusion, ''))),
+             '\\s+',
+             '_',
+             'g'
+           ) = 'PBS'
           where ai.enablement_status = 'ENABLED'
             and (ai.source_data->>'CANTIDAD') ~ '^[1-9][0-9]*$'
             and (ai.source_data->>'FECHA_FINAL_VIGENCIA')
