@@ -153,7 +153,13 @@ export function SupplierDeliveriesView() {
           <p>Crear DRAFT contra una línea aceptada:</p>
            {canManage && (orders.data?.items ?? []).flatMap((order) =>
             order.lines
-              .filter((line) => (line.acceptedQuantity ?? 0) > 0)
+              .filter(
+                (line) =>
+                  (line.acceptedQuantity ?? 0) > 0 &&
+                  line.dispensingPointId !== null &&
+                  line.dispensingPointCode !== null &&
+                  line.dispensingPointName !== null,
+              )
               .map((line) => (
                 <button
                   className="button primary"
@@ -171,9 +177,9 @@ export function SupplierDeliveriesView() {
                       commercialCode: line.commercialCode,
                       productDescription: line.productDescription,
                       presentation: line.presentation,
-                      dispensingPointId: line.dispensingPointId,
-                      dispensingPointCode: line.dispensingPointCode,
-                      dispensingPointName: line.dispensingPointName,
+                      dispensingPointId: line.dispensingPointId!,
+                      dispensingPointCode: line.dispensingPointCode!,
+                      dispensingPointName: line.dispensingPointName!,
                     })
                   }
                 >

@@ -759,12 +759,14 @@ export const purchaseOrderLines = pgTable(
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
     productDescription: text('product_description'),
     presentation: text('presentation'),
-    dispensingPointId: uuid('dispensing_point_id')
-      .notNull()
-      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+    // Optional at purchase time. A purchase order may be generated from
+    // authorization-driven demand before a physical logistics point exists.
+    dispensingPointId: uuid('dispensing_point_id').references(() => dispensingPoints.id, {
+      onDelete: 'restrict',
+    }),
     requestedQuantity: integer('requested_quantity').notNull(),
     acceptedQuantity: integer('accepted_quantity'),
-    requestedDeliveryDate: date('requested_delivery_date').notNull(),
+    requestedDeliveryDate: date('requested_delivery_date'),
     compensarUnitRateSnapshot: varchar('compensar_unit_rate_snapshot', { length: 255 }).notNull(),
     supplierUnitCost: varchar('supplier_unit_cost', { length: 255 }),
     // Historical identifier only: ESP-004 may delete a superseded live projection.
@@ -819,6 +821,44 @@ export const purchaseOrderDemandAllocations = pgTable(
     check(
       'purchase_order_demand_allocations_bucket_check',
       sql`${table.demandBucket} IN ('REGULAR', 'LATE')`,
+    ),
+  ],
+);
+
+export const purchaseOrderAuthorizationSources = pgTable(
+  'purchase_order_authorization_sources',
+  {
+    purchaseOrderLineId: uuid('purchase_order_line_id')
+      .notNull()
+      .references(() => purchaseOrderLines.id, { onDelete: 'cascade' }),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    projectedDemandLineId: uuid('projected_demand_line_id').notNull(),
+    projectedDemandRevision: integer('projected_demand_revision').notNull(),
+    sourceQuantitySnapshot: integer('source_quantity_snapshot').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'purchase_order_authorization_sources_pk',
+      columns: [table.purchaseOrderLineId, table.authorizationItemId],
+    }),
+    index('purchase_order_authorization_sources_authorization_idx').on(
+      table.authorizationItemId,
+      table.purchaseOrderLineId,
+    ),
+    index('purchase_order_authorization_sources_demand_idx').on(
+      table.projectedDemandLineId,
+      table.projectedDemandRevision,
+    ),
+    check(
+      'purchase_order_authorization_sources_revision_check',
+      sql`${table.projectedDemandRevision} > 0`,
+    ),
+    check(
+      'purchase_order_authorization_sources_quantity_check',
+      sql`${table.sourceQuantitySnapshot} > 0`,
     ),
   ],
 );

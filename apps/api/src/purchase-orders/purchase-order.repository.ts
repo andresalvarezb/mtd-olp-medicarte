@@ -262,7 +262,15 @@ export class PurchaseOrderRepository {
        join purchase_order_lines pol on pol.id = a.purchase_order_line_id
        join purchase_orders po on po.id = pol.purchase_order_id
        where po.planning_period_id = ${planningPeriodId}
-        group by a.projected_demand_line_id, pol.commercial_code, po.planning_period_id, a.demand_bucket
+       group by a.projected_demand_line_id, pol.commercial_code, po.planning_period_id, a.demand_bucket
+    ),
+    period_mode as (
+      select exists (
+        select 1
+        from projected_demand_lines live
+        where live.planning_period_id = ${planningPeriodId}
+          and live.dispensing_point_id is null
+      ) as has_live_authorization_demand
     )
      select pdl.id, pdl.commercial_code as "commercialCode", pdl.revision,
       pdl.regular_quantity as "regularQuantity", pdl.late_quantity as "lateQuantity",
@@ -271,9 +279,15 @@ export class PurchaseOrderRepository {
       greatest(coalesce(r.effective_coverage, 0) - pdl.regular_quantity, 0)::int as "regularOverOrdered",
       greatest(coalesce(l.effective_coverage, 0) - pdl.late_quantity, 0)::int as "lateOverOrdered"
     from projected_demand_lines pdl
+      cross join period_mode pm
       left join ordered r on r.projected_demand_line_id = pdl.id and r.demand_bucket = 'REGULAR'
       left join ordered l on l.projected_demand_line_id = pdl.id and l.demand_bucket = 'LATE'
-    where pdl.planning_period_id = ${planningPeriodId} order by pdl.commercial_code`);
+    where pdl.planning_period_id = ${planningPeriodId}
+      and (
+        pdl.dispensing_point_id is null
+        or not pm.has_live_authorization_demand
+      )
+    order by pdl.commercial_code`);
     return rows.rows;
   }
 
@@ -288,7 +302,7 @@ export class PurchaseOrderRepository {
     const locked = await tx.execute<{
       id: string;
       planning_period_id: string;
-      dispensing_point_id: string;
+      dispensing_point_id: string | null;
       commercial_code: string;
       revision: number;
       regular_quantity: number;
@@ -303,6 +317,21 @@ export class PurchaseOrderRepository {
       )}) order by pdl.id for update of pdl`,
     );
     if (locked.rows.length !== ids.length) throw new Error('PROJECTED_DEMAND_LINE_NOT_FOUND');
+
+    // demand_sources is live reconciled state. Hold a shared lock while
+    // the purchase order snapshots its authorization provenance so a
+    // concurrent consolidation cannot replace/delete those sources midway.
+    await tx.execute(sql`
+      select id
+      from demand_sources
+      where projected_demand_line_id in (${sql.join(
+        ids.map((id) => sql`${id}`),
+        sql`, `,
+      )})
+      order by id
+      for share
+    `);
+
     for (const line of lines) {
       const demand = locked.rows.find((item) => item.id === line.projectedDemandLineId)!;
       if (demand.planning_period_id !== planningPeriodId)
@@ -310,7 +339,22 @@ export class PurchaseOrderRepository {
       if (demand.revision !== line.expectedDemandRevision)
         throw new Error('PROJECTED_DEMAND_REVISION_CONFLICT');
       if (!demand.tarifa_unidad) throw new Error('TARIFF_RATE_NOT_FOUND');
-      const dispensingPointId = line.dispensingPointId ?? demand.dispensing_point_id;
+      const dispensingPointId = line.dispensingPointId ?? demand.dispensing_point_id ?? null;
+
+      if (
+        demand.dispensing_point_id !== null &&
+        line.dispensingPointId !== undefined &&
+        line.dispensingPointId !== demand.dispensing_point_id
+      )
+        throw new Error('PURCHASE_ORDER_DEMAND_POINT_MISMATCH');
+
+      if (dispensingPointId !== null) {
+        const point = await tx.execute<{ id: string }>(
+          sql`select id from dispensing_points where id = ${dispensingPointId} and active = true`,
+        );
+        if (!point.rows[0]) throw new Error('DISPENSING_POINT_NOT_FOUND');
+      }
+
       const available =
         line.demandBucket === 'REGULAR' ? demand.regular_quantity : demand.late_quantity;
       const coverage = await tx.execute<{ quantity: number }>(sql`select coalesce(sum(case
@@ -318,12 +362,6 @@ export class PurchaseOrderRepository {
          when po.status in ('REJECTED', 'CANCELLED') then 0
          else coalesce(pol.accepted_quantity, 0)
          end), 0)::int quantity from purchase_order_demand_allocations a join purchase_order_lines pol on pol.id = a.purchase_order_line_id join purchase_orders po on po.id = pol.purchase_order_id where a.projected_demand_line_id = ${demand.id} and a.demand_bucket = ${line.demandBucket}`);
-      const point = await tx.execute<{ id: string }>(
-         sql`select id from dispensing_points where id = ${dispensingPointId} and active = true`,
-      );
-      if (!point.rows[0]) throw new Error('DISPENSING_POINT_NOT_FOUND');
-       if (dispensingPointId !== demand.dispensing_point_id)
-        throw new Error('PURCHASE_ORDER_DEMAND_POINT_MISMATCH');
       if (line.requestedQuantity > available - (coverage.rows[0]?.quantity ?? 0))
         throw new Error('PURCHASE_ORDER_DEMAND_EXCEEDS_AVAILABLE');
     }
@@ -338,19 +376,46 @@ export class PurchaseOrderRepository {
     for (const line of lines) {
       const demand = await tx.execute<{
         commercial_code: string;
+        dispensing_point_id: string | null;
         tarifa_unidad: string;
         descripcion_generica: string | null;
         consecutivo_invima_presentacion: string | null;
       }>(
-        sql`select pdl.commercial_code, tap.tarifa_unidad, tap.descripcion_generica, tap.consecutivo_invima_presentacion from projected_demand_lines pdl join tariff_annex_products tap on tap.codigo_producto = pdl.commercial_code and tap.active = true where pdl.id = ${line.projectedDemandLineId}`,
+        sql`select pdl.commercial_code, pdl.dispensing_point_id, tap.tarifa_unidad, tap.descripcion_generica, tap.consecutivo_invima_presentacion from projected_demand_lines pdl join tariff_annex_products tap on tap.codigo_producto = pdl.commercial_code and tap.active = true where pdl.id = ${line.projectedDemandLineId}`,
       );
       const d = demand.rows[0]!;
+      const dispensingPointId = line.dispensingPointId ?? d.dispensing_point_id ?? null;
+
       const inserted = await tx.execute<{ id: string }>(
-         sql`insert into purchase_order_lines (purchase_order_id, commercial_code, product_description, presentation, dispensing_point_id, requested_quantity, requested_delivery_date, compensar_unit_rate_snapshot, projected_demand_line_id, projected_demand_revision, demand_bucket) values (${orderId}, ${d.commercial_code}, ${d.descripcion_generica}, ${d.consecutivo_invima_presentacion}, (select dispensing_point_id from projected_demand_lines where id = ${line.projectedDemandLineId}), ${line.requestedQuantity}, ${line.requestedDeliveryDate}, ${d.tarifa_unidad}, ${line.projectedDemandLineId}, ${line.expectedDemandRevision}, ${line.demandBucket}) returning id`,
+        sql`insert into purchase_order_lines (purchase_order_id, commercial_code, product_description, presentation, dispensing_point_id, requested_quantity, requested_delivery_date, compensar_unit_rate_snapshot, projected_demand_line_id, projected_demand_revision, demand_bucket) values (${orderId}, ${d.commercial_code}, ${d.descripcion_generica}, ${d.consecutivo_invima_presentacion}, ${dispensingPointId}, ${line.requestedQuantity}, ${line.requestedDeliveryDate ?? null}, ${d.tarifa_unidad}, ${line.projectedDemandLineId}, ${line.expectedDemandRevision}, ${line.demandBucket}) returning id`,
       );
       await tx.execute(
         sql`insert into purchase_order_demand_allocations (purchase_order_line_id, projected_demand_line_id, projected_demand_revision, demand_bucket, allocated_quantity) values (${inserted.rows[0]!.id}, ${line.projectedDemandLineId}, ${line.expectedDemandRevision}, ${line.demandBucket}, ${line.requestedQuantity})`,
       );
+
+      await tx.execute(sql`
+        insert into purchase_order_authorization_sources (
+          purchase_order_line_id,
+          authorization_item_id,
+          projected_demand_line_id,
+          projected_demand_revision,
+          source_quantity_snapshot
+        )
+        select
+          ${inserted.rows[0]!.id},
+          ds.authorization_item_id,
+          ${line.projectedDemandLineId},
+          ${line.expectedDemandRevision},
+          ds.quantity
+        from demand_sources ds
+        where ds.projected_demand_line_id = ${line.projectedDemandLineId}
+          and ds.authorization_item_id is not null
+        on conflict (
+          purchase_order_line_id,
+          authorization_item_id
+        ) do nothing
+      `);
+
       if (orderType === 'STANDARD' && line.demandBucket !== 'REGULAR')
         throw new Error('PURCHASE_ORDER_BUCKET_MISMATCH');
     }
