@@ -329,6 +329,51 @@ export const dispensingPoints = pgTable(
   ],
 );
 
+export const inventoryLocations = pgTable(
+  'inventory_locations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+
+    code: varchar('code', { length: 80 }).notNull(),
+    name: varchar('name', { length: 160 }).notNull(),
+
+    active: boolean('active').notNull().default(true),
+
+    legacyDispensingPointId: uuid('legacy_dispensing_point_id').references(
+      () => dispensingPoints.id,
+      { onDelete: 'restrict' },
+    ),
+
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('inventory_locations_organization_code_idx').on(table.organizationId, table.code),
+
+    uniqueIndex('inventory_locations_legacy_point_idx')
+      .on(table.legacyDispensingPointId)
+      .where(sql`${table.legacyDispensingPointId} IS NOT NULL`),
+
+    index('inventory_locations_active_idx').on(table.organizationId, table.active, table.code),
+
+    check('inventory_locations_code_not_blank_check', sql`length(btrim(${table.code})) > 0`),
+
+    check('inventory_locations_name_not_blank_check', sql`length(btrim(${table.name})) > 0`),
+  ],
+);
+
 /**
  * ESP-015: data authorization by dispensing point. Independent of RBAC.
  * Active grants are unique per (user, point). Revoked rows remain for audit.
