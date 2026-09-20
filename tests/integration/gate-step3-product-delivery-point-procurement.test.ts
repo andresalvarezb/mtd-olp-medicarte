@@ -44,8 +44,6 @@ let secondPointId = '';
 let firstOrderId = '';
 let firstOrderVersion = 0;
 
-let secondOrderId = '';
-
 function workbook(): Buffer {
   const book = XLSX.utils.book_new();
 
@@ -600,8 +598,6 @@ describe('Wave 2A — product delivery point procurement', () => {
         dispensingPointCode: string | null;
       }>;
     };
-
-    secondOrderId = secondBody.id;
 
     expect(secondBody.lines[0]).toMatchObject({
       dispensingPointId: secondPointId,

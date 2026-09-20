@@ -1,5 +1,9 @@
 function text(value: unknown): string {
-  return String(value ?? '').trim();
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+    return '';
+  }
+
+  return String(value).trim();
 }
 
 /**

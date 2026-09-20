@@ -36,7 +36,11 @@ export type AuthorizationPurchaseEligibility = Readonly<{
  * demanda ni compra.
  */
 export function isAuthorizationSourceEnabled(value: unknown): boolean {
-  return String(value ?? '').trim() === '5';
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+    return false;
+  }
+
+  return String(value).trim() === '5';
 }
 
 /**

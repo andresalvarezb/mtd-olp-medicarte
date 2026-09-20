@@ -32,6 +32,10 @@ function text(value: unknown): string {
     return '';
   }
 
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+    return '';
+  }
+
   return String(value).trim();
 }
 
