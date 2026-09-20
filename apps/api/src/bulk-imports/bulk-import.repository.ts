@@ -13,6 +13,7 @@ import {
   POINT_ACCESS_DENIED,
   currentBogotaDate,
   decideBulkImportCompletion,
+  isAuthorizationSourceEnabled,
   rowIdempotencyKey,
 } from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
@@ -427,12 +428,34 @@ export class BulkImportRepository {
     const commercialCode = text('CODIGO_COMERCIAL');
     const sourceStatus = text('ESTADO_AUTORIZACION');
     const prescriptionNumber = text('NUMERO_PRESCRIPCION');
+    const assignmentDate = text('FECHA_ASIGNACION');
     const expirationDate = text('FECHA_FINAL_VIGENCIA');
     const serializedPayload = JSON.stringify(p);
 
     /*
+     * Wave 1:
+     * FECHA_ASIGNACION se conserva como inicio de vigencia operativa de la AUTO.
+     * Una fecha perteneciente a un mes futuro NO impide persistir la AUTO:
+     * la frontera mensual se aplica al consolidar demanda.
+     *
+     * Sí se exige que el dato tenga formato de fecha válido.
+     */
+    const assignmentInstant = new Date(`${assignmentDate}T00:00:00Z`);
+    const validAssignment =
+      /^\d{4}-\d{2}-\d{2}$/.test(assignmentDate) &&
+      !Number.isNaN(assignmentInstant.getTime()) &&
+      assignmentInstant.toISOString().slice(0, 10) === assignmentDate;
+
+    if (!validAssignment) {
+      throw new BadRequestException({
+        code: 'AUTHORIZATION_ASSIGNMENT_INVALID',
+        message: 'FECHA_ASIGNACION es obligatoria y debe ser una fecha válida',
+      });
+    }
+
+    /*
      * Macro 2 / 2B:
-     * La vigencia se vuelve a validar dentro de la transacción de confirmación.
+     * La vigencia final se vuelve a validar dentro de la transacción de confirmación.
      * Upload válido no garantiza que la fila siga siendo válida al materializar.
      */
     const expirationInstant = new Date(`${expirationDate}T00:00:00Z`);
@@ -495,9 +518,13 @@ export class BulkImportRepository {
       });
     }
 
-    const enablementStatus = ['VIGENTE', 'ACTIVA', 'AUTORIZADA'].includes(
-      sourceStatus.trim().toUpperCase(),
-    )
+    /*
+     * Wave 1:
+     * La fuente real usa ESTADO_AUTORIZACION=5.
+     * Es el único valor habilitante. Los demás estados se preservan en
+     * source_data/source_status_normalized, pero no habilitan compra.
+     */
+    const enablementStatus = isAuthorizationSourceEnabled(sourceStatus)
       ? 'ENABLED'
       : 'BLOCKED_SOURCE_STATUS';
 

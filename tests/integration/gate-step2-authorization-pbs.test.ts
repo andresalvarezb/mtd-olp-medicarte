@@ -98,7 +98,9 @@ function bogotaDateForGate(now: Date = new Date()): string {
 function buildAuthorizationWorkbook(input: {
   authorizationNumber: string;
   commercialCode: string;
+  assignmentDate?: string;
   expirationDate?: string;
+  sourceStatus?: string;
 }): Buffer {
   const workbook = XLSX.utils.book_new();
 
@@ -121,9 +123,9 @@ function buildAuthorizationWorkbook(input: {
     CUPS_AUTORIZADO: 'CUPS AUTORIZADO',
     CANTIDAD: 2,
     DOSIS: '1',
-    FECHA_ASIGNACION: '2026-09-18',
+    FECHA_ASIGNACION: input.assignmentDate ?? `${bogotaDateForGate().slice(0, 7)}-01`,
     FECHA_FINAL_VIGENCIA: input.expirationDate ?? '2099-12-31',
-    ESTADO_AUTORIZACION: 'VIGENTE',
+    ESTADO_AUTORIZACION: input.sourceStatus ?? '5',
     OBS_AUTORIZACION: '',
     MEDICO_REMITENTE: 'MEDICO TEST',
     CMNT: '',
@@ -162,14 +164,18 @@ async function uploadAuthorization(input: {
   authorizationNumber: string;
   commercialCode: string;
   filename: string;
+  assignmentDate?: string;
   expirationDate?: string;
+  sourceStatus?: string;
 }): Promise<Response> {
   const form = new FormData();
 
   const buffer = buildAuthorizationWorkbook({
     authorizationNumber: input.authorizationNumber,
     commercialCode: input.commercialCode,
+    assignmentDate: input.assignmentDate,
     expirationDate: input.expirationDate,
+    sourceStatus: input.sourceStatus,
   });
 
   form.append(
@@ -392,12 +398,16 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
     expect(confirmed.failedRows).toBe(0);
 
     const item = await database.query<{
+      source_status_normalized: string;
+      enablement_status: string;
       coverage_type: string;
       direction_status: string;
       coverage_rule_version: string;
       source_data: Record<string, unknown>;
     }>(
       `select
+         source_status_normalized,
+         enablement_status,
          coverage_type,
          direction_status,
          coverage_rule_version,
@@ -409,6 +419,8 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
     );
 
     expect(item.rows).toHaveLength(1);
+    expect(item.rows[0]?.source_status_normalized).toBe('5');
+    expect(item.rows[0]?.enablement_status).toBe('ENABLED');
     expect(item.rows[0]?.coverage_type).toBe('PBS');
     expect(item.rows[0]?.direction_status).toBe('NOT_APPLICABLE');
     expect(item.rows[0]?.coverage_rule_version).toBe('AUTHORIZATIONS_V1');

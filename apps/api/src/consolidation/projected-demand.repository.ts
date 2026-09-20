@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
 import {
+  authorizationPurchaseMonthEnd,
   currentBogotaDate,
   sumDemandQuantities,
   type DemandSourceClassification,
@@ -169,10 +170,17 @@ export class ProjectedDemandRepository {
       // authorization_items. MEDICARTE/patient_schedules no determina
       // cantidad, punto, fecha ni elegibilidad de compra.
       //
-      // planning_period_id identifica este snapshot operativo de demanda;
-      // FECHA_ASIGNACION no limita la compra: una autorización cargada antes
-      // sigue participando mientras continúe vigente y elegible.
+      // planning_period_id identifica este snapshot operativo de demanda.
+      //
+      // Wave 1:
+      // FECHA_ASIGNACION representa el inicio de vigencia operativa de la AUTO.
+      // Una AUTO participa si su inicio pertenece al mes operativo actual
+      // o a un mes anterior. No se anticipan compras de meses futuros.
+      //
+      // No se exige FECHA_ASIGNACION <= hoy: una autorización que inicia
+      // posteriormente dentro del mismo mes actual sí puede participar.
       const todayBogota = currentBogotaDate();
+      const currentMonthEnd = authorizationPurchaseMonthEnd(todayBogota);
 
       const authorizations = await tx.execute<LoadedAuthorizationRow>(sql`
           select
@@ -199,6 +207,10 @@ export class ProjectedDemandRepository {
            ) = 'PBS'
           where ai.enablement_status = 'ENABLED'
             and (ai.source_data->>'CANTIDAD') ~ '^[1-9][0-9]*$'
+            and (ai.source_data->>'FECHA_ASIGNACION')
+                  ~ '^\\d{4}-\\d{2}-\\d{2}$'
+            and (ai.source_data->>'FECHA_ASIGNACION')
+                  <= ${currentMonthEnd}
             and (ai.source_data->>'FECHA_FINAL_VIGENCIA')
                   ~ '^\\d{4}-\\d{2}-\\d{2}$'
             and (ai.source_data->>'FECHA_FINAL_VIGENCIA')

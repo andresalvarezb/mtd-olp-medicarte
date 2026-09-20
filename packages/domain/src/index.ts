@@ -13,6 +13,16 @@ export type {
   MipresVigenciaEvaluation,
 } from './mipres';
 export {
+  authorizationPurchaseMonthEnd,
+  evaluateAuthorizationPurchaseEligibility,
+  isAuthorizationSourceEnabled,
+} from './authorization-purchase-eligibility';
+export type {
+  AuthorizationPurchaseEligibility,
+  AuthorizationPurchaseEligibilityInput,
+  AuthorizationPurchaseEligibilityReason,
+} from './authorization-purchase-eligibility';
+export {
   LEGACY_OPERATIONAL_FIELDS,
   createClinicalAuthorizationReference,
   isLegacyOperationalField,
