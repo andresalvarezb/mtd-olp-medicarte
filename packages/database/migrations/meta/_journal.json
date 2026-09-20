@@ -477,6 +477,13 @@
       "when": 1790550443669,
       "tag": "0067_procurement_fungible_netting",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1790550443670,
+      "tag": "0068_product_delivery_point_mappings",
+      "breakpoints": true
     }
   ]
 }

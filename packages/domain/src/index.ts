@@ -327,3 +327,10 @@ export type {
   ReconciliationSeverityAlertThreshold,
   ReconciliationTriggerType,
 } from './reconciliation-operations';
+
+export {
+  normalizeDeliveryPointCode,
+  normalizeInvimaComponent,
+  parseCumProductIdentity,
+} from './product-delivery-point';
+export type { CumProductIdentity } from './product-delivery-point';

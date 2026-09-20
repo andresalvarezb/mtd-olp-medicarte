@@ -2028,6 +2028,81 @@ export const tariffAnnexProducts = pgTable(
   ],
 );
 
+export const productDeliveryPointMappings = pgTable(
+  'product_delivery_point_mappings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    invimaRecordNormalized: varchar('invima_record_normalized', {
+      length: 255,
+    }).notNull(),
+
+    invimaPresentationNormalized: varchar('invima_presentation_normalized', {
+      length: 255,
+    }).notNull(),
+
+    sourceCumCode: varchar('source_cum_code', { length: 255 }).notNull(),
+
+    serviceModel: varchar('service_model', { length: 255 }),
+
+    sourceSiteName: varchar('source_site_name', { length: 160 }).notNull(),
+
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, { onDelete: 'restrict' }),
+
+    version: integer('version').notNull().default(1),
+
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('product_delivery_point_mappings_identity_unique').on(
+      table.invimaRecordNormalized,
+      table.invimaPresentationNormalized,
+    ),
+
+    index('product_delivery_point_mappings_point_idx').on(table.dispensingPointId),
+
+    index('product_delivery_point_mappings_identity_idx').on(
+      table.invimaRecordNormalized,
+      table.invimaPresentationNormalized,
+      table.dispensingPointId,
+    ),
+
+    check(
+      'product_delivery_point_mappings_record_check',
+      sql`${table.invimaRecordNormalized} ~ '^[0-9]+$'`,
+    ),
+
+    check(
+      'product_delivery_point_mappings_presentation_check',
+      sql`${table.invimaPresentationNormalized} ~ '^[0-9]+$'`,
+    ),
+
+    check(
+      'product_delivery_point_mappings_cum_check',
+      sql`length(btrim(${table.sourceCumCode})) > 0`,
+    ),
+
+    check(
+      'product_delivery_point_mappings_site_check',
+      sql`length(btrim(${table.sourceSiteName})) > 0`,
+    ),
+
+    check('product_delivery_point_mappings_version_check', sql`${table.version} > 0`),
+  ],
+);
+
 export const tariffAnnexImports = pgTable(
   'tariff_annex_imports',
   {

@@ -19,11 +19,18 @@ const product = `M3D-${suffix}`;
 
 const pointCode = `M3D-POINT-${suffix}`;
 
+const deliveryPointCode = `M3D-MEDICARTE-${suffix}`;
+
+const invimaRecord = `8${suffix.replace(/\D/g, '').padEnd(11, '8').slice(0, 11)}`;
+
+const invimaPresentation = '1';
+
 let adminToken = '';
 let userId = '';
 let periodId = '';
 let demandLineId = '';
 let pointId = '';
+let deliveryPointId = '';
 let locationId = '';
 let currentLotId = '';
 let expiredLotId = '';
@@ -135,6 +142,29 @@ describe('Macro 3D — fungible procurement netting', () => {
       )
     ).rows[0]!.id;
 
+    deliveryPointId = (
+      await database.query<{
+        id: string;
+      }>(
+        `insert into dispensing_points (
+               organization_id,
+               code,
+               name,
+               active,
+               created_by
+             )
+             values (
+               $1,
+               $2,
+               $3,
+               true,
+               $4
+             )
+             returning id`,
+        [ORGANIZATION_IDS.MEDICARTE, deliveryPointCode, `Macro 3D Medicarte ${suffix}`, userId],
+      )
+    ).rows[0]!.id;
+
     locationId = (
       await database.query<{
         id: string;
@@ -185,6 +215,8 @@ describe('Macro 3D — fungible procurement netting', () => {
            codigo_producto,
            tarifa_unidad,
            tarifa_unidad_canonical,
+           numero_expediente_invima,
+           consecutivo_invima_presentacion,
            descripcion_generica,
            descripcion_comercial,
            tipo_inclusion,
@@ -197,15 +229,48 @@ describe('Macro 3D — fungible procurement netting', () => {
            $1,
            '100.00',
            100.0000,
+           $2,
+           $3,
            'Macro 3 product',
            'Macro 3 product',
            'PBS',
            true,
+           $4,
+           $5,
+           $5
+         )`,
+      [product, invimaRecord, invimaPresentation, ORGANIZATION_IDS.MTD, userId],
+    );
+
+    await database.query(
+      `insert into product_delivery_point_mappings (
+           invima_record_normalized,
+           invima_presentation_normalized,
+           source_cum_code,
+           service_model,
+           source_site_name,
+           dispensing_point_id,
+           created_by,
+           updated_by
+         )
+         values (
+           $1,
            $2,
            $3,
-           $3
+           'FIXTURE',
+           $4,
+           $5,
+           $6,
+           $6
          )`,
-      [product, ORGANIZATION_IDS.MTD, userId],
+      [
+        invimaRecord,
+        invimaPresentation,
+        `${invimaRecord}-01`,
+        `Macro 3D Medicarte ${suffix}`,
+        deliveryPointId,
+        userId,
+      ],
     );
 
     currentLotId = (
@@ -414,9 +479,27 @@ describe('Macro 3D — fungible procurement netting', () => {
       );
 
       await database.query(
+        `delete from product_delivery_point_mappings
+           where dispensing_point_id=$1`,
+        [deliveryPointId],
+      );
+
+      await database.query(
         `delete from tariff_annex_products
            where codigo_producto=$1`,
         [product],
+      );
+
+      await database.query(
+        `delete from inventory_locations
+           where legacy_dispensing_point_id=$1`,
+        [deliveryPointId],
+      );
+
+      await database.query(
+        `delete from dispensing_points
+           where id=$1`,
+        [deliveryPointId],
       );
 
       await database.query(

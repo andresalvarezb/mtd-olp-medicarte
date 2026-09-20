@@ -72,6 +72,9 @@ import { BulkImportService } from './bulk-imports/bulk-import.service';
 import { TariffAnnexRepository } from './tariff-annex/tariff-annex.repository';
 import { TariffAnnexService } from './tariff-annex/tariff-annex.service';
 import { TariffAnnexController } from './tariff-annex/tariff-annex.controller';
+import { ProductDeliveryPointController } from './product-delivery-points/product-delivery-point.controller';
+import { ProductDeliveryPointRepository } from './product-delivery-points/product-delivery-point.repository';
+import { ProductDeliveryPointService } from './product-delivery-points/product-delivery-point.service';
 import { AccessScopeController } from './access-scopes/access-scope.controller';
 import { OperationalAccessScopeService } from './access-scopes/operational-access-scope.service';
 import { LegacyAuthorizationHistoryRepository } from './legacy/legacy-authorization-history.repository';
@@ -154,6 +157,7 @@ new Gauge({
     AnalyticsController,
     BulkImportController,
     TariffAnnexController,
+    ProductDeliveryPointController,
     AccessScopeController,
     ReconciliationController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
@@ -197,6 +201,8 @@ new Gauge({
     BulkImportService,
     TariffAnnexRepository,
     TariffAnnexService,
+    ProductDeliveryPointRepository,
+    ProductDeliveryPointService,
     OperationalAccessScopeService,
     ReconciliationRepository,
     ReconciliationService,

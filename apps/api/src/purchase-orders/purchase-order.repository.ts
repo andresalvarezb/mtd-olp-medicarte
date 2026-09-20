@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
+import { normalizeInvimaComponent } from '@authorization/domain';
 import type {
   CreatePurchaseOrderRequest,
   PurchaseOrderListQuery,
@@ -255,6 +256,9 @@ export class PurchaseOrderRepository {
       id: string;
       commercialCode: string;
       dispensingPointId: string | null;
+      dispensingPointCode: string | null;
+      dispensingPointName: string | null;
+      deliveryPointMapped: boolean;
       revision: number;
       regularQuantity: number;
       lateQuantity: number;
@@ -272,7 +276,10 @@ export class PurchaseOrderRepository {
         ) as modern
       ),
       candidate as (
-        select pdl.*
+        select
+          pdl.*,
+          tap.numero_expediente_invima,
+          tap.consecutivo_invima_presentacion
         from projected_demand_lines pdl
         join tariff_annex_products tap
           on tap.codigo_producto =
@@ -346,8 +353,30 @@ export class PurchaseOrderRepository {
       select
         pdl.id,
         pdl.commercial_code as "commercialCode",
-        pdl.dispensing_point_id
-          as "dispensingPointId",
+        case
+          when pdl.dispensing_point_id is null
+            then mapped_point.id
+          else pdl.dispensing_point_id
+        end as "dispensingPointId",
+
+        case
+          when pdl.dispensing_point_id is null
+            then mapped_point.code
+          else historical_point.code
+        end as "dispensingPointCode",
+
+        case
+          when pdl.dispensing_point_id is null
+            then mapped_point.name
+          else historical_point.name
+        end as "dispensingPointName",
+
+        case
+          when pdl.dispensing_point_id is null
+            then mapped_point.id is not null
+          else true
+        end as "deliveryPointMapped",
+
         pdl.revision,
         pdl.regular_quantity
           as "regularQuantity",
@@ -463,6 +492,56 @@ export class PurchaseOrderRepository {
         on opc.commercial_code =
            pdl.commercial_code
 
+      left join dispensing_points historical_point
+        on historical_point.id =
+           pdl.dispensing_point_id
+
+      left join product_delivery_point_mappings mapped
+        on pdl.dispensing_point_id is null
+       and btrim(
+             coalesce(
+               pdl.numero_expediente_invima,
+               ''
+             )
+           ) ~ '^[0-9]+$'
+       and btrim(
+             coalesce(
+               pdl.consecutivo_invima_presentacion,
+               ''
+             )
+           ) ~ '^[0-9]+$'
+       and mapped.invima_record_normalized =
+           coalesce(
+             nullif(
+               ltrim(
+                 btrim(
+                   pdl.numero_expediente_invima
+                 ),
+                 '0'
+               ),
+               ''
+             ),
+             '0'
+           )
+       and mapped.invima_presentation_normalized =
+           coalesce(
+             nullif(
+               ltrim(
+                 btrim(
+                   pdl.consecutivo_invima_presentacion
+                 ),
+                 '0'
+               ),
+               ''
+             ),
+             '0'
+           )
+
+      left join dispensing_points mapped_point
+        on mapped_point.id =
+           mapped.dispensing_point_id
+       and mapped_point.active = true
+
       order by
         pdl.commercial_code,
         pdl.dispensing_point_id nulls first
@@ -494,6 +573,7 @@ export class PurchaseOrderRepository {
       late_quantity: number;
       tarifa_unidad: string | null;
       descripcion_generica: string | null;
+      numero_expediente_invima: string | null;
       consecutivo_invima_presentacion: string | null;
     }>(sql`
         select
@@ -506,6 +586,7 @@ export class PurchaseOrderRepository {
           pdl.late_quantity,
           tap.tarifa_unidad,
           tap.descripcion_generica,
+          tap.numero_expediente_invima,
           tap.consecutivo_invima_presentacion
         from projected_demand_lines pdl
         left join tariff_annex_products tap
@@ -571,10 +652,14 @@ export class PurchaseOrderRepository {
       const currentTariff = await tx.execute<{
         tarifa_unidad: string | null;
         tipo_inclusion: string | null;
+        numero_expediente_invima: string | null;
+        consecutivo_invima_presentacion: string | null;
       }>(sql`
         select
           tarifa_unidad,
-          tipo_inclusion
+          tipo_inclusion,
+          numero_expediente_invima,
+          consecutivo_invima_presentacion
         from tariff_annex_products
         where codigo_producto =
               ${demand.commercial_code}
@@ -601,6 +686,21 @@ export class PurchaseOrderRepository {
         if (line.dispensingPointId !== undefined) {
           throw new Error('PURCHASE_ORDER_MODERN_DEMAND_POINT_NOT_ALLOWED');
         }
+
+        /*
+         * Wave 2A.
+         *
+         * La sede logística no viene del paciente ni del request.
+         * Se deriva del maestro producto/presentación -> sede Medicarte.
+         *
+         * La resolución ocurre dentro de la misma transacción de creación
+         * de OC para impedir usar una relación logística obsoleta.
+         */
+        await this.resolveProductDeliveryPoint(
+          tx,
+          currentTariffRow.numero_expediente_invima,
+          currentTariffRow.consecutivo_invima_presentacion,
+        );
 
         const supply = await tx.execute<{
           usable_stock: number;
@@ -729,6 +829,52 @@ export class PurchaseOrderRepository {
     }
   }
 
+  private async resolveProductDeliveryPoint(
+    tx: Tx,
+    invimaRecordRaw: string | null,
+    invimaPresentationRaw: string | null,
+  ): Promise<{
+    id: string;
+    code: string;
+    name: string;
+  }> {
+    const invimaRecord = normalizeInvimaComponent(invimaRecordRaw);
+
+    const invimaPresentation = normalizeInvimaComponent(invimaPresentationRaw);
+
+    if (!invimaRecord || !invimaPresentation) {
+      throw new Error('DELIVERY_POINT_MAPPING_MISSING');
+    }
+
+    const mapping = await tx.execute<{
+      id: string;
+      code: string;
+      name: string;
+    }>(sql`
+      select
+        dp.id,
+        dp.code,
+        dp.name
+      from product_delivery_point_mappings m
+      join dispensing_points dp
+        on dp.id = m.dispensing_point_id
+       and dp.active = true
+      where m.invima_record_normalized =
+            ${invimaRecord}
+        and m.invima_presentation_normalized =
+            ${invimaPresentation}
+      for share of m, dp
+    `);
+
+    const point = mapping.rows[0];
+
+    if (!point) {
+      throw new Error('DELIVERY_POINT_MAPPING_MISSING');
+    }
+
+    return point;
+  }
+
   private async replaceLines(
     tx: Tx,
     orderId: string,
@@ -741,12 +887,29 @@ export class PurchaseOrderRepository {
         dispensing_point_id: string | null;
         tarifa_unidad: string;
         descripcion_generica: string | null;
+        numero_expediente_invima: string | null;
         consecutivo_invima_presentacion: string | null;
       }>(
-        sql`select pdl.commercial_code, pdl.dispensing_point_id, tap.tarifa_unidad, tap.descripcion_generica, tap.consecutivo_invima_presentacion from projected_demand_lines pdl join tariff_annex_products tap on tap.codigo_producto = pdl.commercial_code and tap.active = true and regexp_replace(upper(trim(coalesce(tap.tipo_inclusion, ''))), '\\s+', '_', 'g') = 'PBS' where pdl.id = ${line.projectedDemandLineId}`,
+        sql`select pdl.commercial_code, pdl.dispensing_point_id, tap.tarifa_unidad, tap.descripcion_generica, tap.numero_expediente_invima, tap.consecutivo_invima_presentacion from projected_demand_lines pdl join tariff_annex_products tap on tap.codigo_producto = pdl.commercial_code and tap.active = true and regexp_replace(upper(trim(coalesce(tap.tipo_inclusion, ''))), '\\s+', '_', 'g') = 'PBS' where pdl.id = ${line.projectedDemandLineId}`,
       );
+
       const d = demand.rows[0]!;
-      const dispensingPointId = line.dispensingPointId ?? d.dispensing_point_id ?? null;
+
+      let dispensingPointId = line.dispensingPointId ?? d.dispensing_point_id ?? null;
+
+      if (d.dispensing_point_id === null) {
+        const mappedPoint = await this.resolveProductDeliveryPoint(
+          tx,
+          d.numero_expediente_invima,
+          d.consecutivo_invima_presentacion,
+        );
+
+        dispensingPointId = mappedPoint.id;
+      }
+
+      if (!dispensingPointId) {
+        throw new Error('DELIVERY_POINT_MAPPING_MISSING');
+      }
 
       const inserted = await tx.execute<{ id: string }>(
         sql`insert into purchase_order_lines (purchase_order_id, commercial_code, product_description, presentation, dispensing_point_id, requested_quantity, requested_delivery_date, compensar_unit_rate_snapshot, projected_demand_line_id, projected_demand_revision, demand_bucket) values (${orderId}, ${d.commercial_code}, ${d.descripcion_generica}, ${d.consecutivo_invima_presentacion}, ${dispensingPointId}, ${line.requestedQuantity}, ${line.requestedDeliveryDate ?? null}, ${d.tarifa_unidad}, ${line.projectedDemandLineId}, ${line.expectedDemandRevision}, ${line.demandBucket}) returning id`,

@@ -21,6 +21,12 @@ const HISTORICAL_CODE = `M3B-HIST-${suffix}`;
 
 const POINT_CODE = `M3B-PT-${suffix}`;
 
+const LIVE_POINT_CODE = `M3B-LIVE-PT-${suffix}`;
+
+const LIVE_INVIMA_RECORD = `9${suffix.replace(/\D/g, '').padEnd(11, '7').slice(0, 11)}`;
+
+const LIVE_INVIMA_PRESENTATION = '1';
+
 const PERIOD_START = '2099-03-01';
 
 const PERIOD_END = '2099-03-07';
@@ -31,6 +37,7 @@ let foundationUserId = '';
 
 let periodId = '';
 let pointId = '';
+let liveDeliveryPointId = '';
 
 let liveDemandId = '';
 let historicalDemandId = '';
@@ -137,8 +144,31 @@ async function cleanup(): Promise<void> {
   );
 
   await database.query(
+    `delete from product_delivery_point_mappings
+      where dispensing_point_id in (
+        select id
+        from dispensing_points
+        where code like 'M3B-LIVE-PT-%'
+      )`,
+  );
+
+  await database.query(
     `delete from tariff_annex_products
       where codigo_producto like 'M3B-%'`,
+  );
+
+  await database.query(
+    `delete from inventory_locations
+      where legacy_dispensing_point_id in (
+        select id
+        from dispensing_points
+        where code like 'M3B-LIVE-PT-%'
+      )`,
+  );
+
+  await database.query(
+    `delete from dispensing_points
+      where code like 'M3B-LIVE-PT-%'`,
   );
 
   await database.query(
@@ -222,6 +252,29 @@ beforeAll(async () => {
 
   pointId = point.rows[0]!.id;
 
+  liveDeliveryPointId = (
+    await database.query<{
+      id: string;
+    }>(
+      `insert into dispensing_points (
+         organization_id,
+         code,
+         name,
+         active,
+         created_by
+       )
+       values (
+         $1,
+         $2,
+         'Macro 3B live Medicarte point',
+         true,
+         $3
+       )
+       returning id`,
+      [ORGANIZATION_IDS.MEDICARTE, LIVE_POINT_CODE, foundationUserId],
+    )
+  ).rows[0]!.id;
+
   for (const [code, rate] of [
     [LIVE_CODE, '123.45'],
     [HISTORICAL_CODE, '77.00'],
@@ -256,6 +309,44 @@ beforeAll(async () => {
       [code, rate, ORGANIZATION_IDS.MTD, foundationUserId],
     );
   }
+
+  await database.query(
+    `update tariff_annex_products
+        set numero_expediente_invima=$1,
+            consecutivo_invima_presentacion=$2
+      where codigo_producto=$3`,
+    [LIVE_INVIMA_RECORD, LIVE_INVIMA_PRESENTATION, LIVE_CODE],
+  );
+
+  await database.query(
+    `insert into product_delivery_point_mappings (
+       invima_record_normalized,
+       invima_presentation_normalized,
+       source_cum_code,
+       service_model,
+       source_site_name,
+       dispensing_point_id,
+       created_by,
+       updated_by
+     )
+     values (
+       $1,
+       $2,
+       $3,
+       'FIXTURE',
+       'Macro 3B live Medicarte point',
+       $4,
+       $5,
+       $5
+     )`,
+    [
+      LIVE_INVIMA_RECORD,
+      LIVE_INVIMA_PRESENTATION,
+      `${LIVE_INVIMA_RECORD}-01`,
+      liveDeliveryPointId,
+      foundationUserId,
+    ],
+  );
 
   const live = await database.query<{
     id: string;
@@ -392,9 +483,8 @@ describe('Macro 3B — demand to purchase order without point/date prerequisite'
 
     expect(order.lines[0]).toMatchObject({
       commercialCode: LIVE_CODE,
-      dispensingPointId: null,
-      dispensingPointCode: null,
-      dispensingPointName: null,
+      dispensingPointId: liveDeliveryPointId,
+      dispensingPointCode: LIVE_POINT_CODE,
       requestedDeliveryDate: null,
       compensarUnitRateSnapshot: '123.45',
       allocatedQuantity: 6,
@@ -413,7 +503,7 @@ describe('Macro 3B — demand to purchase order without point/date prerequisite'
     );
 
     expect(persisted.rows[0]).toEqual({
-      dispensing_point_id: null,
+      dispensing_point_id: liveDeliveryPointId,
       requested_delivery_date: null,
     });
 
@@ -468,7 +558,7 @@ describe('Macro 3B — demand to purchase order without point/date prerequisite'
 
     expect(supplier.lines[0]).toMatchObject({
       id: liveOrderLineId,
-      dispensingPointId: null,
+      dispensingPointId: liveDeliveryPointId,
       requestedDeliveryDate: null,
     });
 

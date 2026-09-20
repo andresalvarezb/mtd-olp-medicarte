@@ -97,6 +97,14 @@ export class PurchaseOrderService {
         PURCHASE_ORDER_DUPLICATE_DEMAND_LINE: [400, 'A purchase order cannot repeat a demand line'],
         PURCHASE_ORDER_DEMAND_PERIOD_MISMATCH: [400, 'Demand belongs to another planning period'],
         PURCHASE_ORDER_DEMAND_POINT_MISMATCH: [400, 'Demand belongs to another dispensing point'],
+        PURCHASE_ORDER_MODERN_DEMAND_POINT_NOT_ALLOWED: [
+          400,
+          'The delivery point for modern authorization demand is derived automatically',
+        ],
+        DELIVERY_POINT_MAPPING_MISSING: [
+          409,
+          'The product does not have an active Medicarte delivery-point mapping',
+        ],
         PROJECTED_DEMAND_REVISION_CONFLICT: [409, 'Projected demand revision changed'],
         PURCHASE_ORDER_BUCKET_MISMATCH: [400, 'Order type and demand bucket do not match'],
         PURCHASE_ORDER_INVALID_TRANSITION: [409, 'Invalid purchase order transition'],
