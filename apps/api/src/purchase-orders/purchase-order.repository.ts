@@ -1,5 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import {
+  authorizationPurchaseMonthEnd,
+  currentBogotaDate,
+  isAuthorizationSourceEnabled,
+} from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
 import { normalizeInvimaComponent } from '@authorization/domain';
 import type {
@@ -687,6 +692,13 @@ export class PurchaseOrderRepository {
           throw new Error('PURCHASE_ORDER_MODERN_DEMAND_POINT_NOT_ALLOWED');
         }
 
+        await this.assertModernDemandIsCurrent(tx, {
+          id: demand.id,
+          commercialCode: demand.commercial_code,
+          regularQuantity: demand.regular_quantity,
+          lateQuantity: demand.late_quantity,
+        });
+
         /*
          * Wave 2A.
          *
@@ -826,6 +838,171 @@ export class PurchaseOrderRepository {
       if (line.requestedQuantity > historicalDemand - Number(coverage.rows[0]?.quantity ?? 0)) {
         throw new Error('PURCHASE_ORDER_DEMAND_EXCEEDS_AVAILABLE');
       }
+    }
+  }
+
+  private async assertModernDemandIsCurrent(
+    tx: Tx,
+    demand: Readonly<{
+      id: string;
+      commercialCode: string;
+      regularQuantity: number;
+      lateQuantity: number;
+    }>,
+  ): Promise<void> {
+    const metadata = await tx.execute<{
+      consolidated_at: string | null;
+    }>(sql`
+        select
+          consolidated_at::text
+            as consolidated_at
+        from projected_demand_lines
+        where id = ${demand.id}
+      `);
+
+    /*
+     * Compatibilidad controlada:
+     *
+     * Las líneas históricas/sintéticas anteriores al reconciliador
+     * moderno pueden no tener consolidated_at. El boundary nuevo
+     * protege las líneas materializadas por consolidación moderna,
+     * que siempre tienen provenance en demand_sources.
+     */
+    if (!metadata.rows[0]?.consolidated_at) {
+      return;
+    }
+
+    const sources = await tx.execute<{
+      authorization_item_id: string | null;
+      quantity: number;
+      demand_bucket: 'REGULAR' | 'LATE';
+    }>(sql`
+        select
+          authorization_item_id,
+          quantity,
+          demand_bucket
+        from demand_sources
+        where projected_demand_line_id =
+              ${demand.id}
+        order by id
+      `);
+
+    if (
+      sources.rows.length === 0 ||
+      sources.rows.some((source) => source.authorization_item_id === null)
+    ) {
+      throw new Error('PURCHASE_ORDER_DEMAND_STALE');
+    }
+
+    const authorizationIds = [
+      ...new Set(sources.rows.map((source) => source.authorization_item_id!)),
+    ].sort();
+
+    const authorizations = await tx.execute<{
+      id: string;
+      commercial_code: string;
+      source_status_normalized: string;
+      enablement_status: string;
+      coverage_type: string;
+      source_quantity: string | null;
+      assignment_date: string | null;
+      expiration_date: string | null;
+    }>(sql`
+        select
+          id,
+          codigo_medicamento
+            as commercial_code,
+          source_status_normalized,
+          enablement_status,
+          coverage_type,
+          source_data->>'CANTIDAD'
+            as source_quantity,
+          source_data->>'FECHA_ASIGNACION'
+            as assignment_date,
+          source_data->>'FECHA_FINAL_VIGENCIA'
+            as expiration_date
+        from authorization_items
+        where id in (
+          ${sql.join(
+            authorizationIds.map((id) => sql`${id}`),
+            sql`, `,
+          )}
+        )
+        order by id
+        for share
+      `);
+
+    if (authorizations.rows.length !== authorizationIds.length) {
+      throw new Error('PURCHASE_ORDER_DEMAND_STALE');
+    }
+
+    const authorizationById = new Map(
+      authorizations.rows.map((authorization) => [authorization.id, authorization]),
+    );
+
+    const todayBogota = currentBogotaDate();
+
+    const monthEnd = authorizationPurchaseMonthEnd(todayBogota);
+
+    const isStrictIsoDate = (value: string | null): value is string => {
+      if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return false;
+      }
+
+      const instant = new Date(`${value}T00:00:00Z`);
+
+      return !Number.isNaN(instant.getTime()) && instant.toISOString().slice(0, 10) === value;
+    };
+
+    let regularSourceQuantity = 0;
+    let lateSourceQuantity = 0;
+
+    for (const source of sources.rows) {
+      const authorization = authorizationById.get(source.authorization_item_id!);
+
+      if (!authorization) {
+        throw new Error('PURCHASE_ORDER_DEMAND_STALE');
+      }
+
+      const sourceQuantity =
+        authorization.source_quantity !== null &&
+        /^[1-9][0-9]*$/.test(authorization.source_quantity)
+          ? Number(authorization.source_quantity)
+          : Number.NaN;
+
+      const assignmentDate = authorization.assignment_date;
+
+      const expirationDate = authorization.expiration_date;
+
+      const eligible =
+        authorization.commercial_code === demand.commercialCode &&
+        isAuthorizationSourceEnabled(authorization.source_status_normalized) &&
+        authorization.enablement_status === 'ENABLED' &&
+        authorization.coverage_type === 'PBS' &&
+        Number.isSafeInteger(sourceQuantity) &&
+        sourceQuantity > 0 &&
+        sourceQuantity === source.quantity &&
+        isStrictIsoDate(assignmentDate) &&
+        assignmentDate <= monthEnd &&
+        isStrictIsoDate(expirationDate) &&
+        expirationDate >= todayBogota;
+
+      if (!eligible) {
+        throw new Error('PURCHASE_ORDER_DEMAND_STALE');
+      }
+
+      if (source.demand_bucket === 'REGULAR') {
+        regularSourceQuantity += source.quantity;
+      } else {
+        lateSourceQuantity += source.quantity;
+      }
+    }
+
+    if (
+      regularSourceQuantity !== demand.regularQuantity ||
+      lateSourceQuantity !== demand.lateQuantity
+    ) {
+      throw new Error('PURCHASE_ORDER_DEMAND_STALE');
     }
   }
 

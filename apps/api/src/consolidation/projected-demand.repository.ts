@@ -4,11 +4,13 @@ import type { createDatabase } from '@authorization/database';
 import {
   authorizationPurchaseMonthEnd,
   currentBogotaDate,
+  projectFungibleAuthorizationCoverage,
   sumDemandQuantities,
   type DemandSourceClassification,
 } from '@authorization/domain';
 import type {
   ConsolidateProjectedDemandResponse,
+  ProjectedDemandCoverageProjectionResponse,
   ProjectedDemandListQuery,
   ProjectedDemandLineResponse,
   ProjectedDemandSourceResponse,
@@ -105,6 +107,17 @@ type DemandSourceJoinedRow = Readonly<{
   patient_name: string | null;
   quantity: number;
   loaded_at: string;
+}>;
+
+type CoverageProjectionSourceRow = Readonly<{
+  authorization_item_id: string;
+  authorization_number: string;
+  patient_document: string | null;
+  patient_name: string | null;
+  demand_bucket: 'REGULAR' | 'LATE';
+  quantity: number;
+  assignment_date: string;
+  expiration_date: string;
 }>;
 
 const DEMAND_LINE_COLUMNS = sql`
@@ -364,6 +377,123 @@ export class ProjectedDemandRepository {
        order by ds.quantity desc, ai.numero_autorizacion, coalesce(ds.authorization_item_id, ps.authorization_item_id)
     `);
     return rows.rows.map(toDemandSource);
+  }
+
+  async coverageProjection(
+    line: ProjectedDemandLineResponse,
+  ): Promise<ProjectedDemandCoverageProjectionResponse> {
+    const sources = await this.database.db.execute<CoverageProjectionSourceRow>(sql`
+        select
+          ai.id
+            as authorization_item_id,
+          ai.numero_autorizacion
+            as authorization_number,
+          coalesce(
+            ai.source_data->>'IDENTIFICACION_PACIENTE',
+            ai.source_data->>'NUM_DOCUMENTO'
+          )
+            as patient_document,
+          ai.source_data->>'NOMBRE_PACIENTE'
+            as patient_name,
+          ds.demand_bucket,
+          ds.quantity,
+          ai.source_data->>'FECHA_ASIGNACION'
+            as assignment_date,
+          ai.source_data->>'FECHA_FINAL_VIGENCIA'
+            as expiration_date
+        from demand_sources ds
+        join authorization_items ai
+          on ai.id =
+             ds.authorization_item_id
+        where ds.projected_demand_line_id =
+              ${line.id}
+          and ds.authorization_item_id
+              is not null
+      `);
+
+    const pool = await this.database.db.execute<{
+      usable_stock_quantity: number;
+      open_purchase_coverage_quantity: number;
+    }>(sql`
+        select
+          coalesce(
+            (
+              select usable_quantity
+              from inventory_usable_by_product
+              where commercial_code =
+                    ${line.commercialCode}
+            ),
+            0
+          )::int
+            as usable_stock_quantity,
+          coalesce(
+            (
+              select open_quantity
+              from purchase_open_coverage_by_product
+              where commercial_code =
+                    ${line.commercialCode}
+            ),
+            0
+          )::int
+            as open_purchase_coverage_quantity
+      `);
+
+    const poolRow = pool.rows[0] ?? {
+      usable_stock_quantity: 0,
+      open_purchase_coverage_quantity: 0,
+    };
+
+    const projection = projectFungibleAuthorizationCoverage({
+      usableStockQuantity: poolRow.usable_stock_quantity,
+      openPurchaseCoverageQuantity: poolRow.open_purchase_coverage_quantity,
+      sources: sources.rows.map((source) => ({
+        authorizationItemId: source.authorization_item_id,
+        authorizationNumber: source.authorization_number,
+        demandBucket: source.demand_bucket,
+        quantity: source.quantity,
+        assignmentDate: source.assignment_date,
+        expirationDate: source.expiration_date,
+      })),
+    });
+
+    const sourceById = new Map(
+      sources.rows.map((source) => [source.authorization_item_id, source]),
+    );
+
+    return {
+      projectedDemandLineId: line.id,
+      projectedDemandRevision: line.revision,
+      commercialCode: line.commercialCode,
+      allocationPolicy: projection.allocationPolicy,
+      physicalReservation: projection.physicalReservation,
+      fungiblePool: projection.fungiblePool,
+      usableStockQuantity: projection.usableStockQuantity,
+      openPurchaseCoverageQuantity: projection.openPurchaseCoverageQuantity,
+      totalCoveragePoolQuantity: projection.totalCoveragePoolQuantity,
+      totalDemandQuantity: projection.totalDemandQuantity,
+      projectedCoveredQuantity: projection.projectedCoveredQuantity,
+      projectedUncoveredQuantity: projection.projectedUncoveredQuantity,
+      unusedCoverageQuantity: projection.unusedCoverageQuantity,
+      items: projection.items.map((item) => {
+        const source = sourceById.get(item.authorizationItemId);
+
+        return {
+          authorizationItemId: item.authorizationItemId,
+          authorizationNumber: item.authorizationNumber,
+          patientDocument: source?.patient_document ?? null,
+          patientName: source?.patient_name ?? null,
+          demandBucket: item.demandBucket,
+          demandQuantity: item.quantity,
+          assignmentDate: item.assignmentDate,
+          expirationDate: item.expirationDate,
+          projectedStockCoverage: item.projectedStockCoverage,
+          projectedOpenPurchaseCoverage: item.projectedOpenPurchaseCoverage,
+          projectedCoveredQuantity: item.projectedCoveredQuantity,
+          projectedUncoveredQuantity: item.projectedUncoveredQuantity,
+          coverageStatus: item.coverageStatus,
+        };
+      }),
+    };
   }
 
   /**

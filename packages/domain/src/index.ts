@@ -334,3 +334,4 @@ export {
   parseCumProductIdentity,
 } from './product-delivery-point';
 export type { CumProductIdentity } from './product-delivery-point';
+export * from './authorization-coverage-projection';

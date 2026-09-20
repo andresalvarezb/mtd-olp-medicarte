@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { DemandConsolidationError } from '@authorization/domain';
 import type {
   ConsolidateProjectedDemandResponse,
+  ProjectedDemandCoverageProjectionResponse,
   ProjectedDemandListQuery,
   ProjectedDemandLineResponse,
   ProjectedDemandSourceResponse,
@@ -46,6 +47,19 @@ export class ProjectedDemandService {
   async listSources(lineId: string): Promise<ProjectedDemandSourceResponse[]> {
     const line = await this.findById(lineId);
     return this.repository.listSources(line);
+  }
+
+  async coverageProjection(lineId: string): Promise<ProjectedDemandCoverageProjectionResponse> {
+    const line = await this.findById(lineId);
+
+    if (line.dispensingPointId !== null) {
+      throw new ConflictException({
+        code: 'PROJECTED_DEMAND_COVERAGE_PROJECTION_LEGACY_NOT_SUPPORTED',
+        message: 'Coverage projection is available only for modern fungible authorization demand',
+      });
+    }
+
+    return this.repository.coverageProjection(line);
   }
 
   private toActor(actor: Scope): DemandConsolidationActorLike {

@@ -102,11 +102,7 @@ export class ProjectedDemandController {
   ) {
     const periodId = uuidSchema.parse(rawId);
     emptyBodySchema.parse(rawBody ?? {});
-    const scope = await this.requireScope(
-      organizationId,
-      request,
-      'projected_demand.manage',
-    );
+    const scope = await this.requireScope(organizationId, request, 'projected_demand.manage');
     return this.demand.consolidate(periodId, scope);
   }
 
@@ -136,6 +132,36 @@ export class ProjectedDemandController {
     const id = uuidSchema.parse(rawId);
     await this.requireScope(organizationId, request, 'projected_demand.read');
     return this.demand.findById(id);
+  }
+
+  @Get('projected-demand/:id/coverage-projection')
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+    },
+  })
+  @ApiConflictResponse({
+    schema: errorSchema,
+  })
+  @ApiForbiddenResponse({
+    schema: errorSchema,
+  })
+  @ApiNotFoundResponse({
+    schema: errorSchema,
+  })
+  async coverageProjection(
+    @Param('id')
+    rawId: string,
+    @Headers('x-organization-id')
+    organizationId: string | undefined,
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    const id = uuidSchema.parse(rawId);
+
+    await this.requireScope(organizationId, request, 'projected_demand.read');
+
+    return this.demand.coverageProjection(id);
   }
 
   @Get('projected-demand/:id/sources')
