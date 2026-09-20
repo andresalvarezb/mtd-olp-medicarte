@@ -1,6 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import {
+  authorizationPurchaseMonthEnd,
+  currentBogotaDate,
+  isAuthorizationSourceEnabled,
+} from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
+import { normalizeInvimaComponent } from '@authorization/domain';
 import type {
   CreatePurchaseOrderRequest,
   PurchaseOrderListQuery,
@@ -255,6 +261,9 @@ export class PurchaseOrderRepository {
       id: string;
       commercialCode: string;
       dispensingPointId: string | null;
+      dispensingPointCode: string | null;
+      dispensingPointName: string | null;
+      deliveryPointMapped: boolean;
       revision: number;
       regularQuantity: number;
       lateQuantity: number;
@@ -272,7 +281,10 @@ export class PurchaseOrderRepository {
         ) as modern
       ),
       candidate as (
-        select pdl.*
+        select
+          pdl.*,
+          tap.numero_expediente_invima,
+          tap.consecutivo_invima_presentacion
         from projected_demand_lines pdl
         join tariff_annex_products tap
           on tap.codigo_producto =
@@ -346,8 +358,30 @@ export class PurchaseOrderRepository {
       select
         pdl.id,
         pdl.commercial_code as "commercialCode",
-        pdl.dispensing_point_id
-          as "dispensingPointId",
+        case
+          when pdl.dispensing_point_id is null
+            then mapped_point.id
+          else pdl.dispensing_point_id
+        end as "dispensingPointId",
+
+        case
+          when pdl.dispensing_point_id is null
+            then mapped_point.code
+          else historical_point.code
+        end as "dispensingPointCode",
+
+        case
+          when pdl.dispensing_point_id is null
+            then mapped_point.name
+          else historical_point.name
+        end as "dispensingPointName",
+
+        case
+          when pdl.dispensing_point_id is null
+            then mapped_point.id is not null
+          else true
+        end as "deliveryPointMapped",
+
         pdl.revision,
         pdl.regular_quantity
           as "regularQuantity",
@@ -463,6 +497,56 @@ export class PurchaseOrderRepository {
         on opc.commercial_code =
            pdl.commercial_code
 
+      left join dispensing_points historical_point
+        on historical_point.id =
+           pdl.dispensing_point_id
+
+      left join product_delivery_point_mappings mapped
+        on pdl.dispensing_point_id is null
+       and btrim(
+             coalesce(
+               pdl.numero_expediente_invima,
+               ''
+             )
+           ) ~ '^[0-9]+$'
+       and btrim(
+             coalesce(
+               pdl.consecutivo_invima_presentacion,
+               ''
+             )
+           ) ~ '^[0-9]+$'
+       and mapped.invima_record_normalized =
+           coalesce(
+             nullif(
+               ltrim(
+                 btrim(
+                   pdl.numero_expediente_invima
+                 ),
+                 '0'
+               ),
+               ''
+             ),
+             '0'
+           )
+       and mapped.invima_presentation_normalized =
+           coalesce(
+             nullif(
+               ltrim(
+                 btrim(
+                   pdl.consecutivo_invima_presentacion
+                 ),
+                 '0'
+               ),
+               ''
+             ),
+             '0'
+           )
+
+      left join dispensing_points mapped_point
+        on mapped_point.id =
+           mapped.dispensing_point_id
+       and mapped_point.active = true
+
       order by
         pdl.commercial_code,
         pdl.dispensing_point_id nulls first
@@ -494,6 +578,7 @@ export class PurchaseOrderRepository {
       late_quantity: number;
       tarifa_unidad: string | null;
       descripcion_generica: string | null;
+      numero_expediente_invima: string | null;
       consecutivo_invima_presentacion: string | null;
     }>(sql`
         select
@@ -506,6 +591,7 @@ export class PurchaseOrderRepository {
           pdl.late_quantity,
           tap.tarifa_unidad,
           tap.descripcion_generica,
+          tap.numero_expediente_invima,
           tap.consecutivo_invima_presentacion
         from projected_demand_lines pdl
         left join tariff_annex_products tap
@@ -571,10 +657,14 @@ export class PurchaseOrderRepository {
       const currentTariff = await tx.execute<{
         tarifa_unidad: string | null;
         tipo_inclusion: string | null;
+        numero_expediente_invima: string | null;
+        consecutivo_invima_presentacion: string | null;
       }>(sql`
         select
           tarifa_unidad,
-          tipo_inclusion
+          tipo_inclusion,
+          numero_expediente_invima,
+          consecutivo_invima_presentacion
         from tariff_annex_products
         where codigo_producto =
               ${demand.commercial_code}
@@ -601,6 +691,28 @@ export class PurchaseOrderRepository {
         if (line.dispensingPointId !== undefined) {
           throw new Error('PURCHASE_ORDER_MODERN_DEMAND_POINT_NOT_ALLOWED');
         }
+
+        await this.assertModernDemandIsCurrent(tx, {
+          id: demand.id,
+          commercialCode: demand.commercial_code,
+          regularQuantity: demand.regular_quantity,
+          lateQuantity: demand.late_quantity,
+        });
+
+        /*
+         * Wave 2A.
+         *
+         * La sede logística no viene del paciente ni del request.
+         * Se deriva del maestro producto/presentación -> sede Medicarte.
+         *
+         * La resolución ocurre dentro de la misma transacción de creación
+         * de OC para impedir usar una relación logística obsoleta.
+         */
+        await this.resolveProductDeliveryPoint(
+          tx,
+          currentTariffRow.numero_expediente_invima,
+          currentTariffRow.consecutivo_invima_presentacion,
+        );
 
         const supply = await tx.execute<{
           usable_stock: number;
@@ -729,6 +841,217 @@ export class PurchaseOrderRepository {
     }
   }
 
+  private async assertModernDemandIsCurrent(
+    tx: Tx,
+    demand: Readonly<{
+      id: string;
+      commercialCode: string;
+      regularQuantity: number;
+      lateQuantity: number;
+    }>,
+  ): Promise<void> {
+    const metadata = await tx.execute<{
+      consolidated_at: string | null;
+    }>(sql`
+        select
+          consolidated_at::text
+            as consolidated_at
+        from projected_demand_lines
+        where id = ${demand.id}
+      `);
+
+    /*
+     * Compatibilidad controlada:
+     *
+     * Las líneas históricas/sintéticas anteriores al reconciliador
+     * moderno pueden no tener consolidated_at. El boundary nuevo
+     * protege las líneas materializadas por consolidación moderna,
+     * que siempre tienen provenance en demand_sources.
+     */
+    if (!metadata.rows[0]?.consolidated_at) {
+      return;
+    }
+
+    const sources = await tx.execute<{
+      authorization_item_id: string | null;
+      quantity: number;
+      demand_bucket: 'REGULAR' | 'LATE';
+    }>(sql`
+        select
+          authorization_item_id,
+          quantity,
+          demand_bucket
+        from demand_sources
+        where projected_demand_line_id =
+              ${demand.id}
+        order by id
+      `);
+
+    if (
+      sources.rows.length === 0 ||
+      sources.rows.some((source) => source.authorization_item_id === null)
+    ) {
+      throw new Error('PURCHASE_ORDER_DEMAND_STALE');
+    }
+
+    const authorizationIds = [
+      ...new Set(sources.rows.map((source) => source.authorization_item_id!)),
+    ].sort();
+
+    const authorizations = await tx.execute<{
+      id: string;
+      commercial_code: string;
+      source_status_normalized: string;
+      enablement_status: string;
+      coverage_type: string;
+      source_quantity: string | null;
+      assignment_date: string | null;
+      expiration_date: string | null;
+    }>(sql`
+        select
+          id,
+          codigo_medicamento
+            as commercial_code,
+          source_status_normalized,
+          enablement_status,
+          coverage_type,
+          source_data->>'CANTIDAD'
+            as source_quantity,
+          source_data->>'FECHA_ASIGNACION'
+            as assignment_date,
+          source_data->>'FECHA_FINAL_VIGENCIA'
+            as expiration_date
+        from authorization_items
+        where id in (
+          ${sql.join(
+            authorizationIds.map((id) => sql`${id}`),
+            sql`, `,
+          )}
+        )
+        order by id
+        for share
+      `);
+
+    if (authorizations.rows.length !== authorizationIds.length) {
+      throw new Error('PURCHASE_ORDER_DEMAND_STALE');
+    }
+
+    const authorizationById = new Map(
+      authorizations.rows.map((authorization) => [authorization.id, authorization]),
+    );
+
+    const todayBogota = currentBogotaDate();
+
+    const monthEnd = authorizationPurchaseMonthEnd(todayBogota);
+
+    const isStrictIsoDate = (value: string | null): value is string => {
+      if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return false;
+      }
+
+      const instant = new Date(`${value}T00:00:00Z`);
+
+      return !Number.isNaN(instant.getTime()) && instant.toISOString().slice(0, 10) === value;
+    };
+
+    let regularSourceQuantity = 0;
+    let lateSourceQuantity = 0;
+
+    for (const source of sources.rows) {
+      const authorization = authorizationById.get(source.authorization_item_id!);
+
+      if (!authorization) {
+        throw new Error('PURCHASE_ORDER_DEMAND_STALE');
+      }
+
+      const sourceQuantity =
+        authorization.source_quantity !== null &&
+        /^[1-9][0-9]*$/.test(authorization.source_quantity)
+          ? Number(authorization.source_quantity)
+          : Number.NaN;
+
+      const assignmentDate = authorization.assignment_date;
+
+      const expirationDate = authorization.expiration_date;
+
+      const eligible =
+        authorization.commercial_code === demand.commercialCode &&
+        isAuthorizationSourceEnabled(authorization.source_status_normalized) &&
+        authorization.enablement_status === 'ENABLED' &&
+        authorization.coverage_type === 'PBS' &&
+        Number.isSafeInteger(sourceQuantity) &&
+        sourceQuantity > 0 &&
+        sourceQuantity === source.quantity &&
+        isStrictIsoDate(assignmentDate) &&
+        assignmentDate <= monthEnd &&
+        isStrictIsoDate(expirationDate) &&
+        expirationDate >= todayBogota;
+
+      if (!eligible) {
+        throw new Error('PURCHASE_ORDER_DEMAND_STALE');
+      }
+
+      if (source.demand_bucket === 'REGULAR') {
+        regularSourceQuantity += source.quantity;
+      } else {
+        lateSourceQuantity += source.quantity;
+      }
+    }
+
+    if (
+      regularSourceQuantity !== demand.regularQuantity ||
+      lateSourceQuantity !== demand.lateQuantity
+    ) {
+      throw new Error('PURCHASE_ORDER_DEMAND_STALE');
+    }
+  }
+
+  private async resolveProductDeliveryPoint(
+    tx: Tx,
+    invimaRecordRaw: string | null,
+    invimaPresentationRaw: string | null,
+  ): Promise<{
+    id: string;
+    code: string;
+    name: string;
+  }> {
+    const invimaRecord = normalizeInvimaComponent(invimaRecordRaw);
+
+    const invimaPresentation = normalizeInvimaComponent(invimaPresentationRaw);
+
+    if (!invimaRecord || !invimaPresentation) {
+      throw new Error('DELIVERY_POINT_MAPPING_MISSING');
+    }
+
+    const mapping = await tx.execute<{
+      id: string;
+      code: string;
+      name: string;
+    }>(sql`
+      select
+        dp.id,
+        dp.code,
+        dp.name
+      from product_delivery_point_mappings m
+      join dispensing_points dp
+        on dp.id = m.dispensing_point_id
+       and dp.active = true
+      where m.invima_record_normalized =
+            ${invimaRecord}
+        and m.invima_presentation_normalized =
+            ${invimaPresentation}
+      for share of m, dp
+    `);
+
+    const point = mapping.rows[0];
+
+    if (!point) {
+      throw new Error('DELIVERY_POINT_MAPPING_MISSING');
+    }
+
+    return point;
+  }
+
   private async replaceLines(
     tx: Tx,
     orderId: string,
@@ -741,12 +1064,29 @@ export class PurchaseOrderRepository {
         dispensing_point_id: string | null;
         tarifa_unidad: string;
         descripcion_generica: string | null;
+        numero_expediente_invima: string | null;
         consecutivo_invima_presentacion: string | null;
       }>(
-        sql`select pdl.commercial_code, pdl.dispensing_point_id, tap.tarifa_unidad, tap.descripcion_generica, tap.consecutivo_invima_presentacion from projected_demand_lines pdl join tariff_annex_products tap on tap.codigo_producto = pdl.commercial_code and tap.active = true and regexp_replace(upper(trim(coalesce(tap.tipo_inclusion, ''))), '\\s+', '_', 'g') = 'PBS' where pdl.id = ${line.projectedDemandLineId}`,
+        sql`select pdl.commercial_code, pdl.dispensing_point_id, tap.tarifa_unidad, tap.descripcion_generica, tap.numero_expediente_invima, tap.consecutivo_invima_presentacion from projected_demand_lines pdl join tariff_annex_products tap on tap.codigo_producto = pdl.commercial_code and tap.active = true and regexp_replace(upper(trim(coalesce(tap.tipo_inclusion, ''))), '\\s+', '_', 'g') = 'PBS' where pdl.id = ${line.projectedDemandLineId}`,
       );
+
       const d = demand.rows[0]!;
-      const dispensingPointId = line.dispensingPointId ?? d.dispensing_point_id ?? null;
+
+      let dispensingPointId = line.dispensingPointId ?? d.dispensing_point_id ?? null;
+
+      if (d.dispensing_point_id === null) {
+        const mappedPoint = await this.resolveProductDeliveryPoint(
+          tx,
+          d.numero_expediente_invima,
+          d.consecutivo_invima_presentacion,
+        );
+
+        dispensingPointId = mappedPoint.id;
+      }
+
+      if (!dispensingPointId) {
+        throw new Error('DELIVERY_POINT_MAPPING_MISSING');
+      }
 
       const inserted = await tx.execute<{ id: string }>(
         sql`insert into purchase_order_lines (purchase_order_id, commercial_code, product_description, presentation, dispensing_point_id, requested_quantity, requested_delivery_date, compensar_unit_rate_snapshot, projected_demand_line_id, projected_demand_revision, demand_bucket) values (${orderId}, ${d.commercial_code}, ${d.descripcion_generica}, ${d.consecutivo_invima_presentacion}, ${dispensingPointId}, ${line.requestedQuantity}, ${line.requestedDeliveryDate ?? null}, ${d.tarifa_unidad}, ${line.projectedDemandLineId}, ${line.expectedDemandRevision}, ${line.demandBucket}) returning id`,

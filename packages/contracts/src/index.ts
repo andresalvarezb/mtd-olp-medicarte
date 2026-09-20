@@ -1104,6 +1104,45 @@ export const projectedDemandSourcesResponseSchema = z.object({
 });
 export type ProjectedDemandSourcesResponse = z.infer<typeof projectedDemandSourcesResponseSchema>;
 
+export const projectedDemandCoverageStatusSchema = z.enum(['COVERED', 'PARTIAL', 'UNCOVERED']);
+
+export const projectedDemandCoverageProjectionItemSchema = z.object({
+  authorizationItemId: z.string().uuid(),
+  authorizationNumber: z.string(),
+  patientDocument: z.string().nullable(),
+  patientName: z.string().nullable(),
+  demandBucket: z.enum(['REGULAR', 'LATE']),
+  demandQuantity: z.number().int().positive(),
+  assignmentDate: z.string().date(),
+  expirationDate: z.string().date(),
+  projectedStockCoverage: z.number().int().nonnegative(),
+  projectedOpenPurchaseCoverage: z.number().int().nonnegative(),
+  projectedCoveredQuantity: z.number().int().nonnegative(),
+  projectedUncoveredQuantity: z.number().int().nonnegative(),
+  coverageStatus: projectedDemandCoverageStatusSchema,
+});
+
+export const projectedDemandCoverageProjectionResponseSchema = z.object({
+  projectedDemandLineId: z.string().uuid(),
+  projectedDemandRevision: z.number().int().positive(),
+  commercialCode: commercialCodeSchema,
+  allocationPolicy: z.literal('REGULAR_THEN_LATE_EARLIEST_EXPIRATION'),
+  physicalReservation: z.literal(false),
+  fungiblePool: z.literal(true),
+  usableStockQuantity: z.number().int().nonnegative(),
+  openPurchaseCoverageQuantity: z.number().int().nonnegative(),
+  totalCoveragePoolQuantity: z.number().int().nonnegative(),
+  totalDemandQuantity: z.number().int().nonnegative(),
+  projectedCoveredQuantity: z.number().int().nonnegative(),
+  projectedUncoveredQuantity: z.number().int().nonnegative(),
+  unusedCoverageQuantity: z.number().int().nonnegative(),
+  items: z.array(projectedDemandCoverageProjectionItemSchema),
+});
+
+export type ProjectedDemandCoverageProjectionResponse = z.infer<
+  typeof projectedDemandCoverageProjectionResponseSchema
+>;
+
 export const consolidateProjectedDemandResponseSchema = z.object({
   planningPeriodId: z.string().uuid(),
   lineCount: z.number().int().nonnegative(),

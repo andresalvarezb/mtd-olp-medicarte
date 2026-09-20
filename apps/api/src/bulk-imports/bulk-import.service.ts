@@ -179,6 +179,7 @@ export class BulkImportService {
         'CANTIDAD',
         'FECHA_ASIGNACION',
         'FECHA_FINAL_VIGENCIA',
+        'ESTADO_AUTORIZACION',
       ];
       const missing = required.filter((key) => !payload[key]);
       const quantity = Number(payload.CANTIDAD);
@@ -216,13 +217,17 @@ export class BulkImportService {
               ? tariffInclusion === 'NO_PBS'
                 ? 'TARIFF_ANNEX_PRODUCT_NO_PBS'
                 : 'TARIFF_ANNEX_PRODUCT_INCLUSION_INVALID'
-              : missing.includes('FECHA_FINAL_VIGENCIA') ||
-                  typeof expirationDate !== 'string' ||
-                  !isIsoDate(expirationDate)
-                ? 'AUTHORIZATION_EXPIRATION_INVALID'
-                : expirationDate < todayBogota
-                  ? 'AUTHORIZATION_EXPIRED'
-                  : 'INVALID_AUTHORIZATION_ROW',
+              : missing.includes('FECHA_ASIGNACION') ||
+                  typeof assignmentDate !== 'string' ||
+                  !isIsoDate(assignmentDate)
+                ? 'AUTHORIZATION_ASSIGNMENT_INVALID'
+                : missing.includes('FECHA_FINAL_VIGENCIA') ||
+                    typeof expirationDate !== 'string' ||
+                    !isIsoDate(expirationDate)
+                  ? 'AUTHORIZATION_EXPIRATION_INVALID'
+                  : expirationDate < todayBogota
+                    ? 'AUTHORIZATION_EXPIRED'
+                    : 'INVALID_AUTHORIZATION_ROW',
         errorMessage: valid
           ? null
           : !tariffMatch
@@ -231,13 +236,17 @@ export class BulkImportService {
               ? tariffInclusion === 'NO_PBS'
                 ? `El código comercial ${commercialCode ?? '(vacío)'} está clasificado NO_PBS en el anexo tarifario activo`
                 : `El código comercial ${commercialCode ?? '(vacío)'} no tiene una clasificación PBS válida en el anexo tarifario activo`
-              : missing.includes('FECHA_FINAL_VIGENCIA') ||
-                  typeof expirationDate !== 'string' ||
-                  !isIsoDate(expirationDate)
-                ? 'FECHA_FINAL_VIGENCIA es obligatoria y debe ser una fecha válida'
-                : expirationDate < todayBogota
-                  ? `La autorización venció el ${expirationDate}; fecha actual America/Bogota: ${todayBogota}`
-                  : `Missing or invalid fields: ${missing.join(', ') || 'CANTIDAD or FECHA_ASIGNACION'}`,
+              : missing.includes('FECHA_ASIGNACION') ||
+                  typeof assignmentDate !== 'string' ||
+                  !isIsoDate(assignmentDate)
+                ? 'FECHA_ASIGNACION es obligatoria y debe ser una fecha válida'
+                : missing.includes('FECHA_FINAL_VIGENCIA') ||
+                    typeof expirationDate !== 'string' ||
+                    !isIsoDate(expirationDate)
+                  ? 'FECHA_FINAL_VIGENCIA es obligatoria y debe ser una fecha válida'
+                  : expirationDate < todayBogota
+                    ? `La autorización venció el ${expirationDate}; fecha actual America/Bogota: ${todayBogota}`
+                    : `Missing or invalid fields: ${missing.join(', ') || 'CANTIDAD o ESTADO_AUTORIZACION'}`,
         errorColumn: null,
         executionStatus: initialExecutionStatus(valid ? 'VALID' : 'INVALID'),
         authorizationNumber:

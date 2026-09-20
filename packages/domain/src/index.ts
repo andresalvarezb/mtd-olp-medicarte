@@ -13,6 +13,16 @@ export type {
   MipresVigenciaEvaluation,
 } from './mipres';
 export {
+  authorizationPurchaseMonthEnd,
+  evaluateAuthorizationPurchaseEligibility,
+  isAuthorizationSourceEnabled,
+} from './authorization-purchase-eligibility';
+export type {
+  AuthorizationPurchaseEligibility,
+  AuthorizationPurchaseEligibilityInput,
+  AuthorizationPurchaseEligibilityReason,
+} from './authorization-purchase-eligibility';
+export {
   LEGACY_OPERATIONAL_FIELDS,
   createClinicalAuthorizationReference,
   isLegacyOperationalField,
@@ -317,3 +327,11 @@ export type {
   ReconciliationSeverityAlertThreshold,
   ReconciliationTriggerType,
 } from './reconciliation-operations';
+
+export {
+  normalizeDeliveryPointCode,
+  normalizeInvimaComponent,
+  parseCumProductIdentity,
+} from './product-delivery-point';
+export type { CumProductIdentity } from './product-delivery-point';
+export * from './authorization-coverage-projection';

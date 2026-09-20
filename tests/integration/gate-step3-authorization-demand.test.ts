@@ -13,6 +13,27 @@ const database = new Client({ connectionString: databaseUrl });
 
 const suffix = randomUUID().slice(0, 8).toUpperCase();
 
+function bogotaDateForGate(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+function nextMonthFirst(todayBogota: string): string {
+  const [yearText, monthText] = todayBogota.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+
+  return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+}
+
+const TODAY_BOGOTA = bogotaDateForGate();
+const CURRENT_MONTH_ASSIGNMENT = `${TODAY_BOGOTA.slice(0, 7)}-01`;
+const NEXT_MONTH_ASSIGNMENT = nextMonthFirst(TODAY_BOGOTA);
+
 const CODE_A = `M3A-A-${suffix}`;
 const CODE_B = `M3A-B-${suffix}`;
 const CODE_BLOCKED = `M3A-BLOCK-${suffix}`;
@@ -45,6 +66,7 @@ let ignoredScheduleId = '';
 let authA1Id = '';
 let authA2Id = '';
 let authBId = '';
+let futureId = '';
 let blockedId = '';
 let staleCoverageId = '';
 let noPbsId = '';
@@ -114,12 +136,12 @@ async function insertAuthorization(input: {
         NUMERO_AUTORIZACION: authorizationNumber,
         CODIGO_COMERCIAL: input.commercialCode,
         CANTIDAD: String(input.quantity),
-        FECHA_ASIGNACION: input.assignmentDate ?? periodStart,
+        FECHA_ASIGNACION: input.assignmentDate ?? CURRENT_MONTH_ASSIGNMENT,
         FECHA_FINAL_VIGENCIA: input.expirationDate ?? validExpiration,
         IDENTIFICACION_PACIENTE: `DOC-${input.label}-${suffix}`,
         NOMBRE_PACIENTE: `Paciente ${input.label}`,
       }),
-      input.enablementStatus === 'BLOCKED_SOURCE_STATUS' ? 'CANCELADA' : 'VIGENTE',
+      input.enablementStatus === 'BLOCKED_SOURCE_STATUS' ? '4' : '5',
       input.enablementStatus ?? 'ENABLED',
       input.coverageType ?? 'PBS',
       batchId,
@@ -279,7 +301,16 @@ beforeAll(async () => {
     quantity: 3,
   });
 
-  // La asignación ocurrió fuera del período actual, pero la AUTO continúa
+  // Debe persistir como AUTO habilitada, pero no participar en demanda
+  // mientras FECHA_ASIGNACION pertenezca a un mes futuro.
+  futureId = await insertAuthorization({
+    label: 'FUTURE',
+    commercialCode: CODE_A,
+    quantity: 13,
+    assignmentDate: NEXT_MONTH_ASSIGNMENT,
+  });
+
+  // La asignación ocurrió en un mes anterior y la AUTO continúa
   // vigente: Macro 3A debe incluirla igualmente en la demanda de compra.
   authBId = await insertAuthorization({
     label: 'B1',
@@ -404,6 +435,7 @@ afterAll(async () => {
       authA1Id,
       authA2Id,
       authBId,
+      futureId,
       blockedId,
       staleCoverageId,
       noPbsId,
@@ -557,7 +589,7 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
     ).toBe(true);
 
     // AT activo NO_PBS prevalece incluso si coverage_type materializado dice PBS.
-    const excluded = new Set([blockedId, noPbsId, expiredId, noTariffId]);
+    const excluded = new Set([futureId, blockedId, noPbsId, expiredId, noTariffId]);
 
     expect(
       sources.rows.some(
@@ -574,6 +606,36 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
     );
 
     expect(scheduleSources.rows[0]?.count).toBe(0);
+  });
+
+  it('keeps a future-month AUTO persisted but outside purchase demand', async () => {
+    const authorization = await database.query<{
+      enablement_status: string;
+      assignment_date: string;
+    }>(
+      `select
+         enablement_status,
+         source_data->>'FECHA_ASIGNACION' as assignment_date
+       from authorization_items
+       where id = $1`,
+      [futureId],
+    );
+
+    expect(authorization.rows).toEqual([
+      {
+        enablement_status: 'ENABLED',
+        assignment_date: NEXT_MONTH_ASSIGNMENT,
+      },
+    ]);
+
+    const source = await database.query<{ count: number }>(
+      `select count(*)::int as count
+       from demand_sources
+       where authorization_item_id = $1`,
+      [futureId],
+    );
+
+    expect(source.rows[0]?.count).toBe(0);
   });
 
   it('is idempotent when eligible authorizations have not changed', async () => {
@@ -661,5 +723,97 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
 
     expect(afterLines.rows).toEqual(beforeLines.rows);
     expect(afterSources.rows).toEqual(beforeSources.rows);
+  });
+
+  it('reconciles demand when an AUTO moves to a future month and restores it when eligible again', async () => {
+    await database.query(
+      `update authorization_items
+       set source_data = jsonb_set(
+             source_data,
+             '{FECHA_ASIGNACION}',
+             to_jsonb($2::text),
+             true
+           ),
+           version = version + 1,
+           updated_at = now()
+       where id = $1`,
+      [authA2Id, NEXT_MONTH_ASSIGNMENT],
+    );
+
+    const futureResponse = await consolidate();
+
+    expect(futureResponse.status).toBe(200);
+
+    const futureLine = await database.query<{
+      regular_quantity: number;
+      projected_quantity: number;
+    }>(
+      `select regular_quantity, projected_quantity
+       from projected_demand_lines
+       where planning_period_id = $1
+         and commercial_code = $2`,
+      [periodId, CODE_A],
+    );
+
+    expect(futureLine.rows).toEqual([
+      {
+        regular_quantity: 2,
+        projected_quantity: 2,
+      },
+    ]);
+
+    const futureSource = await database.query<{ count: number }>(
+      `select count(*)::int as count
+       from demand_sources
+       where authorization_item_id = $1`,
+      [authA2Id],
+    );
+
+    expect(futureSource.rows[0]?.count).toBe(0);
+
+    await database.query(
+      `update authorization_items
+       set source_data = jsonb_set(
+             source_data,
+             '{FECHA_ASIGNACION}',
+             to_jsonb($2::text),
+             true
+           ),
+           version = version + 1,
+           updated_at = now()
+       where id = $1`,
+      [authA2Id, CURRENT_MONTH_ASSIGNMENT],
+    );
+
+    const restoredResponse = await consolidate();
+
+    expect(restoredResponse.status).toBe(200);
+
+    const restoredLine = await database.query<{
+      regular_quantity: number;
+      projected_quantity: number;
+    }>(
+      `select regular_quantity, projected_quantity
+       from projected_demand_lines
+       where planning_period_id = $1
+         and commercial_code = $2`,
+      [periodId, CODE_A],
+    );
+
+    expect(restoredLine.rows).toEqual([
+      {
+        regular_quantity: 5,
+        projected_quantity: 5,
+      },
+    ]);
+
+    const restoredSource = await database.query<{ count: number }>(
+      `select count(*)::int as count
+       from demand_sources
+       where authorization_item_id = $1`,
+      [authA2Id],
+    );
+
+    expect(restoredSource.rows[0]?.count).toBe(1);
   });
 });
