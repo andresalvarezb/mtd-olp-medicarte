@@ -114,6 +114,196 @@ function toJob(row: JobRow): BulkImportJobResponse {
   };
 }
 
+
+type LegacyAuthorizationImportBatchRow = {
+  id: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  status: string;
+  total_rows: number;
+  valid_rows: number;
+  rejected_rows: number;
+  duplicate_rows: number;
+  existing_rows: number;
+  confirmed_rows: number;
+  last_error_code: string | null;
+  created_at: Date | string;
+  completed_at: Date | string | null;
+  confirmed_at: Date | string | null;
+};
+
+const LEGACY_AUTHORIZATION_IMPORT_TEMPLATE =
+  'LEGACY_IMPORT_BATCH_V1';
+
+function legacyImportStatus(
+  status: string,
+): BulkImportJobResponse['status'] {
+  switch (status) {
+    case 'UPLOADED':
+      return 'UPLOADED';
+
+    case 'VALIDATING':
+      return 'VALIDATING';
+
+    case 'READY_TO_CONFIRM':
+      return 'READY';
+
+    case 'CONFIRMING':
+      return 'PROCESSING';
+
+    case 'COMPLETED':
+      return 'COMPLETED';
+
+    case 'FAILED':
+      return 'FAILED';
+
+    case 'CANCELLED':
+      return 'CANCELLED';
+
+    default:
+      return 'FAILED';
+  }
+}
+
+function toLegacyAuthorizationJob(
+  row: LegacyAuthorizationImportBatchRow,
+): BulkImportJobResponse {
+  const totalRows =
+    Number(
+      row.total_rows ?? 0,
+    );
+
+  const validRows =
+    Number(
+      row.valid_rows ?? 0,
+    );
+
+  const rejectedRows =
+    Number(
+      row.rejected_rows ?? 0,
+    );
+
+  const duplicateRows =
+    Number(
+      row.duplicate_rows ?? 0,
+    );
+
+  const existingRows =
+    Number(
+      row.existing_rows ?? 0,
+    );
+
+  const confirmedRows =
+    Number(
+      row.confirmed_rows ?? 0,
+    );
+
+  return {
+    id:
+      row.id,
+
+    importType:
+      'AUTHORIZATIONS',
+
+    templateVersion:
+      LEGACY_AUTHORIZATION_IMPORT_TEMPLATE,
+
+    status:
+      legacyImportStatus(
+        row.status,
+      ),
+
+    originalFilename:
+      row.original_filename,
+
+    mimeType:
+      row.mime_type,
+
+    sizeBytes:
+      Number(
+        row.size_bytes ?? 0,
+      ),
+
+    fileHash:
+      row.sha256,
+
+    duplicateFile:
+      false,
+
+    totalRows,
+
+    validRows,
+
+    /*
+     * En el modelo histórico:
+     * valid_rows representa las filas que
+     * pasaron la validación del cargue.
+     *
+     * La UI usa succeededRows para mostrar
+     * "Pasaron filtro", por eso se proyecta
+     * valid_rows y NO confirmed_rows.
+     */
+    invalidRows:
+      Math.max(
+        rejectedRows,
+        totalRows -
+          validRows -
+          duplicateRows,
+        0,
+      ),
+
+    duplicateRows,
+
+    warningRows:
+      existingRows,
+
+    createRows:
+      confirmedRows,
+
+    conflictRows:
+      existingRows,
+
+    succeededRows:
+      validRows,
+
+    failedRows:
+      Math.max(
+        totalRows -
+          validRows,
+        0,
+      ),
+
+    skippedRows:
+      duplicateRows,
+
+    lastErrorCode:
+      row.last_error_code,
+
+    createdAt:
+      asIso(
+        row.created_at,
+      ) as string,
+
+    validatedAt:
+      null,
+
+    confirmedAt:
+      asIso(
+        row.confirmed_at,
+      ),
+
+    completedAt:
+      asIso(
+        row.completed_at,
+      ),
+
+    cancelledAt:
+      null,
+  };
+}
+
 @Injectable()
 export class BulkImportRepository {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
@@ -226,12 +416,141 @@ export class BulkImportRepository {
     return row ? toJob(row) : null;
   }
 
-  async listJobs(actor: Scope, limit: number): Promise<BulkImportJobResponse[]> {
-    const org = this.orgFilter(actor);
-    const result = await this.database.db.execute<JobRow>(sql`
-      select ${JOB_COLUMNS} from bulk_import_jobs where ${org} order by created_at desc limit ${limit}
-    `);
-    return result.rows.map(toJob);
+  async listJobs(
+    actor: Scope,
+    limit: number,
+  ): Promise<
+    BulkImportJobResponse[]
+  > {
+    /*
+     * Jobs generados por el modelo actual.
+     */
+    const org =
+      this.orgFilter(
+        actor,
+      );
+
+    const current =
+      await this.database.db.execute<
+        JobRow
+      >(sql`
+        select
+          ${JOB_COLUMNS}
+        from bulk_import_jobs
+        where ${org}
+        order by
+          created_at desc,
+          id desc
+        limit ${limit}
+      `);
+
+    /*
+     * Los cargues anteriores al cutover
+     * existen en import_batches pero no
+     * tienen una fila equivalente en
+     * bulk_import_jobs.
+     *
+     * No se migran ni duplican físicamente.
+     * Se proyectan únicamente para lectura.
+     */
+    const legacyOrg =
+      actor.organizationCode ===
+        'MTD' ||
+      actor.isFoundationAdmin
+        ? sql`true`
+        : sql`
+            b.organization_id =
+              ${actor.organizationId}
+          `;
+
+    const legacy =
+      await this.database.db.execute<
+        LegacyAuthorizationImportBatchRow
+      >(sql`
+        select
+          b.id,
+          b.original_filename,
+          b.mime_type,
+          b.size_bytes,
+          b.sha256,
+          b.status,
+          b.total_rows,
+          b.valid_rows,
+          b.rejected_rows,
+          b.duplicate_rows,
+          b.existing_rows,
+          b.confirmed_rows,
+          b.last_error_code,
+          b.created_at,
+          b.completed_at,
+          b.confirmed_at
+
+        from import_batches b
+
+        where
+          ${legacyOrg}
+
+          and not exists (
+            select 1
+            from bulk_import_jobs j
+            where
+              j.authorization_import_batch_id =
+                b.id
+          )
+
+        order by
+          b.created_at desc,
+          b.id desc
+
+        limit ${limit}
+      `);
+
+    /*
+     * Una sola línea de tiempo:
+     *
+     * - jobs nuevos
+     * - cargues históricos
+     *
+     * Si un batch ya está enlazado a un
+     * bulk_import_job no aparece dos veces.
+     */
+    return [
+      ...current.rows.map(
+        toJob,
+      ),
+
+      ...legacy.rows.map(
+        toLegacyAuthorizationJob,
+      ),
+    ]
+      .sort(
+        (
+          left,
+          right,
+        ) => {
+          const byDate =
+            Date.parse(
+              right.createdAt,
+            ) -
+            Date.parse(
+              left.createdAt,
+            );
+
+          if (
+            byDate !== 0
+          ) {
+            return byDate;
+          }
+
+          return right.id.localeCompare(
+            left.id,
+          );
+        },
+      )
+      .slice(
+        0,
+        limit,
+      );
   }
 
   async listRows(

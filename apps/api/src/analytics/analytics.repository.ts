@@ -380,6 +380,668 @@ export class AnalyticsRepository {
     };
   }
 
+
+  async dashboard(input: {
+    organizationId: string;
+    organizationCode: string;
+    includeEconomics: boolean;
+  }) {
+    const scopeValues = [
+      input.organizationId,
+      input.organizationCode,
+    ];
+
+    /*
+     * El funnel es authorization-based.
+     *
+     * "Pasó primer filtro" significa elegible para compra hoy:
+     * - estado fuente 5 / ENABLED
+     * - PBS
+     * - listado en Anexo Tarifario
+     * - cantidad fuente válida
+     * - asignación dentro del mes operacional vigente
+     * - vigencia no expirada
+     *
+     * Las etapas posteriores usan provenance de compra.
+     * Esto NO reserva inventario ni lotes por paciente/AUTO.
+     */
+    const authorizations =
+      await this.database.pool.query<Record<string, unknown>>(
+        `
+        with scoped_authorizations as (
+          select ai.*
+          from authorization_items ai
+          where
+            $2::text = 'MTD'
+            or exists (
+              select 1
+              from authorization_item_organizations aio
+              where aio.authorization_item_id = ai.id
+                and aio.organization_id = $1::uuid
+            )
+        ),
+        evaluated as (
+          select
+            ai.id,
+            ai.coverage_type,
+
+            (
+              ai.source_status_normalized = '5'
+              and ai.enablement_status = 'ENABLED'
+              and ai.coverage_type = 'PBS'
+              and ai.tariff_membership_status = 'LISTED'
+
+              and coalesce(
+                ai.source_data->>'CANTIDAD',
+                ''
+              ) ~ '^[1-9][0-9]*$'
+
+              and case
+                when coalesce(
+                  ai.source_data->>'FECHA_ASIGNACION',
+                  ''
+                ) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                then
+                  (ai.source_data->>'FECHA_ASIGNACION')::date
+                  <= (
+                    date_trunc(
+                      'month',
+                      (now() at time zone 'America/Bogota')::date
+                    )
+                    + interval '1 month - 1 day'
+                  )::date
+                else false
+              end
+
+              and case
+                when coalesce(
+                  ai.source_data->>'FECHA_FINAL_VIGENCIA',
+                  ''
+                ) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                then
+                  (ai.source_data->>'FECHA_FINAL_VIGENCIA')::date
+                  >= (now() at time zone 'America/Bogota')::date
+                else false
+              end
+            ) as purchase_eligible,
+
+            coalesce(
+              bool_or(
+                po.id is not null
+                and po.status not in ('DRAFT', 'CANCELLED')
+              ),
+              false
+            ) as has_purchase_order,
+
+            coalesce(
+              bool_or(
+                po.status in (
+                  'ACCEPTED',
+                  'PARTIALLY_ACCEPTED',
+                  'REJECTED',
+                  'IN_FULFILLMENT',
+                  'PARTIALLY_DISPATCHED',
+                  'FULLY_DISPATCHED',
+                  'PARTIALLY_RECEIVED',
+                  'RECEIVED'
+                )
+              ),
+              false
+            ) as supplier_managed,
+
+            coalesce(
+              bool_or(
+                r.status = 'CONFIRMED'
+                and rl.accepted_quantity > 0
+              ),
+              false
+            ) as received_at_point
+
+          from scoped_authorizations ai
+
+          left join purchase_order_authorization_sources poas
+            on poas.authorization_item_id = ai.id
+
+          left join purchase_order_lines pol
+            on pol.id = poas.purchase_order_line_id
+
+          left join purchase_orders po
+            on po.id = pol.purchase_order_id
+
+          left join delivery_lines dl
+            on dl.purchase_order_line_id = pol.id
+
+          left join receipt_lines rl
+            on rl.delivery_line_id = dl.id
+
+          left join receipts r
+            on r.id = rl.receipt_id
+
+          group by
+            ai.id,
+            ai.coverage_type,
+            ai.source_status_normalized,
+            ai.enablement_status,
+            ai.tariff_membership_status,
+            ai.source_data
+        )
+
+        select
+          count(*)::int
+            as total,
+
+          count(*) filter (
+            where purchase_eligible
+          )::int
+            as passed_first_filter,
+
+          count(*) filter (
+            where purchase_eligible
+              and has_purchase_order
+          )::int
+            as purchase_order_issued,
+
+          count(*) filter (
+            where purchase_eligible
+              and supplier_managed
+          )::int
+            as supplier_managed,
+
+          count(*) filter (
+            where purchase_eligible
+              and received_at_point
+          )::int
+            as received_at_point,
+
+          count(*) filter (
+            where coverage_type = 'PBS'
+          )::int
+            as pbs,
+
+          count(*) filter (
+            where coverage_type = 'NO_PBS'
+          )::int
+            as no_pbs
+
+        from evaluated
+        `,
+        scopeValues,
+      );
+
+    const noveltySummary =
+      await this.database.pool.query<Record<string, unknown>>(
+        `
+        select
+          count(*)::int as active_novelty_count,
+
+          count(
+            distinct n.authorization_item_id
+          )::int as affected_authorization_count
+
+        from novelties n
+
+        join authorization_items ai
+          on ai.id = n.authorization_item_id
+
+        where n.active = true
+          and n.authorization_item_id is not null
+          and (
+            $2::text = 'MTD'
+            or exists (
+              select 1
+              from authorization_item_organizations aio
+              where aio.authorization_item_id = ai.id
+                and aio.organization_id = $1::uuid
+            )
+          )
+        `,
+        scopeValues,
+      );
+
+    const noveltyByCause =
+      await this.database.pool.query<Record<string, unknown>>(
+        `
+        select
+          n.code,
+
+          max(
+            coalesce(
+              nullif(nc.description, ''),
+              nullif(n.description, ''),
+              n.code
+            )
+          ) as description,
+
+          count(
+            distinct n.authorization_item_id
+          )::int as affected_authorization_count,
+
+          count(*)::int as novelty_count
+
+        from novelties n
+
+        join authorization_items ai
+          on ai.id = n.authorization_item_id
+
+        left join novelty_codes nc
+          on nc.code = n.code
+
+        where n.active = true
+          and n.authorization_item_id is not null
+          and (
+            $2::text = 'MTD'
+            or exists (
+              select 1
+              from authorization_item_organizations aio
+              where aio.authorization_item_id = ai.id
+                and aio.organization_id = $1::uuid
+            )
+          )
+
+        group by n.code
+
+        order by
+          count(
+            distinct n.authorization_item_id
+          ) desc,
+          n.code
+        `,
+        scopeValues,
+      );
+
+    const inventory =
+      await this.database.pool.query<Record<string, unknown>>(
+        `
+        with scoped_lots as (
+          select
+            il.id,
+            il.commercial_code,
+            il.expiration_date,
+            il.dispensing_point_id
+
+          from inventory_lots il
+
+          join dispensing_points dp
+            on dp.id = il.dispensing_point_id
+
+          where
+            $2::text = 'MTD'
+            or dp.organization_id = $1::uuid
+        ),
+
+        lot_balances as (
+          select
+            sl.id,
+            sl.commercial_code,
+            sl.expiration_date,
+            sl.dispensing_point_id,
+
+            coalesce(
+              sum(im.quantity_delta),
+              0
+            )::bigint as balance
+
+          from scoped_lots sl
+
+          left join inventory_movements im
+            on im.inventory_lot_id = sl.id
+
+          group by
+            sl.id,
+            sl.commercial_code,
+            sl.expiration_date,
+            sl.dispensing_point_id
+        ),
+
+        usable_products as (
+          select
+            commercial_code,
+
+            sum(balance)::bigint
+              as usable_quantity,
+
+            count(
+              distinct dispensing_point_id
+            )::int
+              as location_count
+
+          from lot_balances
+
+          where balance > 0
+            and expiration_date
+              >= (now() at time zone 'America/Bogota')::date
+
+          group by commercial_code
+
+          having sum(balance) > 0
+        )
+
+        select
+          up.commercial_code,
+
+          coalesce(
+            nullif(tap.descripcion_generica, ''),
+            up.commercial_code
+          ) as molecule,
+
+          tap.descripcion_comercial
+            as commercial_description,
+
+          up.usable_quantity,
+          up.location_count
+
+        from usable_products up
+
+        left join tariff_annex_products tap
+          on tap.codigo_producto = up.commercial_code
+
+        order by
+          up.usable_quantity desc,
+          up.commercial_code
+        `,
+        scopeValues,
+      );
+
+    const authorizationRow =
+      authorizations.rows[0] ?? {};
+
+    const noveltySummaryRow =
+      noveltySummary.rows[0] ?? {};
+
+    const base = {
+      generatedAt: new Date().toISOString(),
+
+      authorizations: {
+        total:
+          asInt(authorizationRow.total),
+
+        passedFirstFilter:
+          asInt(
+            authorizationRow.passed_first_filter,
+          ),
+
+        purchaseOrderIssued:
+          asInt(
+            authorizationRow.purchase_order_issued,
+          ),
+
+        supplierManaged:
+          asInt(
+            authorizationRow.supplier_managed,
+          ),
+
+        receivedAtPoint:
+          asInt(
+            authorizationRow.received_at_point,
+          ),
+      },
+
+      coverage: {
+        pbs:
+          asInt(authorizationRow.pbs),
+
+        noPbs:
+          asInt(authorizationRow.no_pbs),
+      },
+
+      inventory: {
+        availableMoleculeCount:
+          inventory.rows.length,
+
+        molecules:
+          inventory.rows.map((row) => ({
+            commercialCode:
+              asText(row.commercial_code) ?? '',
+
+            molecule:
+              asText(row.molecule) ?? '',
+
+            commercialDescription:
+              asText(
+                row.commercial_description,
+              ),
+
+            usableQuantity:
+              asInt(row.usable_quantity),
+
+            locationCount:
+              asInt(row.location_count),
+          })),
+      },
+
+      novelties: {
+        affectedAuthorizationCount:
+          asInt(
+            noveltySummaryRow
+              .affected_authorization_count,
+          ),
+
+        activeNoveltyCount:
+          asInt(
+            noveltySummaryRow
+              .active_novelty_count,
+          ),
+
+        byCause:
+          noveltyByCause.rows.map((row) => ({
+            code:
+              asText(row.code) ?? '',
+
+            description:
+              asText(row.description) ?? '',
+
+            affectedAuthorizationCount:
+              asInt(
+                row.affected_authorization_count,
+              ),
+
+            noveltyCount:
+              asInt(row.novelty_count),
+          })),
+      },
+    };
+
+    if (!input.includeEconomics) {
+      return {
+        ...base,
+        purchaseOrders: null,
+      };
+    }
+
+    const purchaseOrders =
+      await this.database.pool.query<Record<string, unknown>>(
+        `
+        with managed_orders as (
+          select distinct po.id
+
+          from purchase_orders po
+
+          where po.status in (
+            'ACCEPTED',
+            'PARTIALLY_ACCEPTED',
+            'REJECTED',
+            'IN_FULFILLMENT',
+            'PARTIALLY_DISPATCHED',
+            'FULLY_DISPATCHED',
+            'PARTIALLY_RECEIVED',
+            'RECEIVED'
+          )
+
+          and (
+            $2::text = 'MTD'
+
+            or exists (
+              select 1
+
+              from purchase_order_lines scoped_pol
+
+              join purchase_order_authorization_sources scoped_poas
+                on scoped_poas.purchase_order_line_id =
+                   scoped_pol.id
+
+              join authorization_item_organizations aio
+                on aio.authorization_item_id =
+                   scoped_poas.authorization_item_id
+
+              where scoped_pol.purchase_order_id = po.id
+                and aio.organization_id = $1::uuid
+            )
+          )
+        ),
+
+        per_order as (
+          select
+            po.id,
+
+            coalesce(
+              po.purchase_order_code,
+              po.id::text
+            ) as purchase_order_code,
+
+            po.status,
+            po.issued_at,
+            po.created_at,
+
+            coalesce(
+              sum(
+                coalesce(
+                  pol.accepted_quantity,
+                  0
+                )::numeric
+                *
+                case
+                  when pol.compensar_unit_rate_snapshot
+                    ~ '^[0-9]+([.][0-9]+)?$'
+                  then
+                    pol.compensar_unit_rate_snapshot::numeric
+                  else 0
+                end
+              ),
+              0
+            )::numeric(18,2)
+              as contractual_value,
+
+            coalesce(
+              sum(
+                coalesce(
+                  pol.accepted_quantity,
+                  0
+                )::numeric
+                *
+                case
+                  when coalesce(
+                    pol.supplier_unit_cost,
+                    ''
+                  ) ~ '^[0-9]+([.][0-9]+)?$'
+                  then
+                    pol.supplier_unit_cost::numeric
+                  else 0
+                end
+              ),
+              0
+            )::numeric(18,2)
+              as supplier_expense
+
+          from managed_orders mo
+
+          join purchase_orders po
+            on po.id = mo.id
+
+          join purchase_order_lines pol
+            on pol.purchase_order_id = po.id
+
+          group by
+            po.id,
+            po.purchase_order_code,
+            po.status,
+            po.issued_at,
+            po.created_at
+        )
+
+        select
+          id,
+          purchase_order_code,
+          status,
+
+          contractual_value::text
+            as contractual_value,
+
+          supplier_expense::text
+            as supplier_expense,
+
+          count(*) over()::int
+            as managed_order_count,
+
+          sum(contractual_value)
+            over()::numeric(18,2)::text
+            as total_contractual_value,
+
+          sum(supplier_expense)
+            over()::numeric(18,2)::text
+            as total_supplier_expense
+
+        from per_order
+
+        order by
+          issued_at desc nulls last,
+          created_at desc
+        `,
+        scopeValues,
+      );
+
+    const firstOrder =
+      purchaseOrders.rows[0];
+
+    return {
+      ...base,
+
+      purchaseOrders: {
+        managedOrderCount:
+          firstOrder
+            ? asInt(
+                firstOrder.managed_order_count,
+              )
+            : 0,
+
+        totalContractualValue:
+          asMoney(
+            firstOrder
+              ?.total_contractual_value,
+          ) ?? '0.00',
+
+        totalSupplierExpense:
+          asMoney(
+            firstOrder
+              ?.total_supplier_expense,
+          ) ?? '0.00',
+
+        items:
+          purchaseOrders.rows.map((row) => ({
+            id:
+              asText(row.id) ?? '',
+
+            purchaseOrderCode:
+              asText(
+                row.purchase_order_code,
+              ) ?? '',
+
+            status:
+              asText(row.status) ?? '',
+
+            contractualValue:
+              asMoney(
+                row.contractual_value,
+              ) ?? '0.00',
+
+            supplierExpense:
+              asMoney(
+                row.supplier_expense,
+              ) ?? '0.00',
+          })),
+      },
+    };
+  }
+
   async novelties(query: AnalyticsQuery): Promise<NoveltyCount[]> {
     const schedulePeriod = query.planningPeriodId
       ? sql`(ps.planning_period_id = ${query.planningPeriodId} or ps.deferred_planning_period_id = ${query.planningPeriodId})`

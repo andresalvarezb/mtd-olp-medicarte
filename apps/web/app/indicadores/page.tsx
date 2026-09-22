@@ -1,5 +1,5 @@
-import { OperationalIndicatorsView } from '@/features/analytics/operational-indicators-view';
+import { DashboardView } from '@/features/dashboard/dashboard-view';
 
 export default function IndicatorsPage() {
-  return <OperationalIndicatorsView />;
+  return <DashboardView />;
 }

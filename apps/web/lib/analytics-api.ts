@@ -16,6 +16,71 @@ function params(query: object) {
   return search.toString();
 }
 
+
+export interface DashboardAnalyticsResponse {
+  generatedAt: string;
+
+  authorizations: {
+    total: number;
+    passedFirstFilter: number;
+    purchaseOrderIssued: number;
+    supplierManaged: number;
+    receivedAtPoint: number;
+  };
+
+  coverage: {
+    pbs: number;
+    noPbs: number;
+  };
+
+  inventory: {
+    availableMoleculeCount: number;
+
+    molecules: Array<{
+      commercialCode: string;
+      molecule: string;
+      commercialDescription: string | null;
+      usableQuantity: number;
+      locationCount: number;
+    }>;
+  };
+
+  novelties: {
+    affectedAuthorizationCount: number;
+    activeNoveltyCount: number;
+
+    byCause: Array<{
+      code: string;
+      description: string;
+      affectedAuthorizationCount: number;
+      noveltyCount: number;
+    }>;
+  };
+
+  purchaseOrders: null | {
+    managedOrderCount: number;
+    totalContractualValue: string;
+    totalSupplierExpense: string;
+
+    items: Array<{
+      id: string;
+      purchaseOrderCode: string;
+      status: string;
+      contractualValue: string;
+      supplierExpense: string;
+    }>;
+  };
+}
+
+export function getDashboardAnalytics(
+  organizationId: string,
+) {
+  return apiRequest<DashboardAnalyticsResponse>(
+    '/analytics/dashboard',
+    { organizationId },
+  );
+}
+
 export function getOperationalAnalytics(organizationId: string, query: AnalyticsQuery = {}) {
   const qs = params(query);
   return apiRequest<OperationalAnalyticsResponse>(`/analytics/operational${qs ? `?${qs}` : ''}`, {

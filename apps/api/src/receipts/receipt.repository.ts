@@ -1,7 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
-import { deriveReceiptConformity, validateReceiptQuantities } from '@authorization/domain';
+import {
+  derivePurchaseOrderReceiptStatus,
+  deriveReceiptConformity,
+  validateReceiptQuantities,
+} from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
 import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
@@ -278,14 +282,89 @@ export class ReceiptRepository {
     };
   }
   private async deriveOrderStatus(tx: Tx, orderId: string, userId: string) {
-    const totals = await tx.execute<{ total: number; processed: number }>(
-      sql`select count(*)::int total, count(*) filter (where d.status='RECEIVED')::int processed from deliveries d where d.purchase_order_id=${orderId} and d.status in ('DISPATCHED','RECEIVED')`,
-    );
-    const t = totals.rows[0]!;
-    await tx.execute(
-      sql`update purchase_orders set status=${t.processed === t.total ? 'RECEIVED' : 'PARTIALLY_RECEIVED'},updated_at=now(),updated_by=${userId} where id=${orderId}`,
-    );
+    const totals = await tx.execute<{
+      requested: number;
+      received: number;
+    }>(sql`
+        select
+          (
+            select
+              coalesce(
+                sum(
+                  pol.requested_quantity
+                ),
+                0
+              )::int
+
+            from
+              purchase_order_lines pol
+
+            where
+              pol.purchase_order_id =
+                ${orderId}
+          )
+            as requested,
+
+          (
+            select
+              coalesce(
+                sum(
+                  rl.received_quantity
+                ),
+                0
+              )::int
+
+            from
+              receipt_lines rl
+
+            join receipts r
+              on r.id =
+                 rl.receipt_id
+
+             and r.status =
+                 'CONFIRMED'
+
+            join delivery_lines dl
+              on dl.id =
+                 rl.delivery_line_id
+
+            join deliveries d
+              on d.id =
+                 dl.delivery_id
+
+            where
+              d.purchase_order_id =
+                ${orderId}
+          )
+            as received
+      `);
+
+    const row = totals.rows[0];
+
+    const status = derivePurchaseOrderReceiptStatus(row?.requested ?? 0, row?.received ?? 0);
+
+    await tx.execute(sql`
+      update
+        purchase_orders
+
+      set
+        status =
+          ${status},
+
+        updated_at =
+          now(),
+
+        updated_by =
+          ${userId}
+
+      where
+        id =
+          ${orderId}
+    `);
+
+    return status;
   }
+
   private scopeFilter(scope: Scope) {
     const org =
       scope.organizationCode === 'OLP' ||

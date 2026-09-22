@@ -256,3 +256,209 @@ describe('tariff annex preview', () => {
     });
   });
 });
+
+describe('unified tariff + default delivery point preview', () => {
+  const unifiedHeaders = [
+    'CODIGO_MEDICAMENTO',
+    'TARIFA_UNIDAD',
+    'NUMERO_EXPEDIENTE_INVIMA',
+    'CONSECUTIVO_INVIMA_PRESENTACION',
+    'DESCRIPCION_GENERICA_MEDICAMENTO',
+    'DESCRIPCION_COMERCIAL_MEDICAMENTO',
+    'LABORATORIO_MEDICAMENTO',
+    'TIPO_INCLUSION_MEDICAMENTO',
+    'CODIGO_CUM_FINAL',
+    'MODELO',
+    'PUNTO_APLICACION_PREDETERMINADO',
+  ];
+
+  it('acepta producto nuevo con punto predeterminado', () => {
+    const preview =
+      buildTariffPreview({
+        content:
+          workbookBuffer([
+            unifiedHeaders,
+            [
+              'MED-POINT-01',
+              '125000',
+              '20039088',
+              '03',
+              'Genérico',
+              'Comercial',
+              'Laboratorio',
+              'PBS',
+              '20039088-03-0S01LA05',
+              'APLICACION',
+              'CENTUM',
+            ],
+          ]),
+
+        activeProducts: [],
+
+        activeDeliveryPoints: [],
+      });
+
+    expect(
+      preview.rows[0],
+    ).toMatchObject({
+      state:
+        'CHANGED',
+
+      action:
+        'NEW',
+
+      tariffChanged:
+        true,
+
+      deliveryPointManaged:
+        true,
+
+      deliveryPointChanged:
+        true,
+    });
+  });
+
+  it('detecta cambio exclusivo del punto predeterminado', () => {
+    const currentProduct:
+      ActiveTariffProduct = {
+      id:
+        '00000000-0000-4000-8000-000000000099',
+
+      codigoProducto:
+        'MED-POINT-02',
+
+      tarifaUnidadRaw:
+        '125000',
+
+      tarifaUnidadCanonical:
+        '125000.0000',
+
+      numeroExpedienteInvima:
+        '20039088',
+
+      consecutivoInvimaPresentacion:
+        '03',
+
+      descripcionGenerica:
+        'Genérico',
+
+      descripcionComercial:
+        'Comercial',
+
+      laboratorio:
+        'Laboratorio',
+
+      tipoInclusion:
+        'PBS',
+
+      version:
+        1,
+
+      active:
+        true,
+    };
+
+    const preview =
+      buildTariffPreview({
+        content:
+          workbookBuffer([
+            unifiedHeaders,
+            [
+              'MED-POINT-02',
+              '125000',
+              '20039088',
+              '03',
+              'Genérico',
+              'Comercial',
+              'Laboratorio',
+              'PBS',
+              '20039088-03-0S01LA05',
+              'APLICACION',
+              'MEDICARTE NORTE',
+            ],
+          ]),
+
+        activeProducts: [
+          currentProduct,
+        ],
+
+        activeDeliveryPoints: [
+          {
+            invimaRecord:
+              '20039088',
+
+            invimaPresentation:
+              '3',
+
+            cumCode:
+              '20039088-03-0S01LA05',
+
+            serviceModel:
+              'APLICACION',
+
+            siteName:
+              'CENTUM',
+
+            dispensingPointCode:
+              'CENTUM',
+          },
+        ],
+      });
+
+    expect(
+      preview.rows[0],
+    ).toMatchObject({
+      state:
+        'CHANGED',
+
+      action:
+        'UPDATE',
+
+      tariffChanged:
+        false,
+
+      deliveryPointManaged:
+        true,
+
+      deliveryPointChanged:
+        true,
+    });
+  });
+
+  it('rechaza CUM que no corresponde al INVIMA y presentación del AT', () => {
+    const preview =
+      buildTariffPreview({
+        content:
+          workbookBuffer([
+            unifiedHeaders,
+            [
+              'MED-POINT-03',
+              '125000',
+              '20039088',
+              '03',
+              'Genérico',
+              'Comercial',
+              'Laboratorio',
+              'PBS',
+              '99999999-02-0S01LA05',
+              'APLICACION',
+              'CENTUM',
+            ],
+          ]),
+
+        activeProducts: [],
+
+        activeDeliveryPoints: [],
+      });
+
+    expect(
+      preview.rows[0],
+    ).toMatchObject({
+      state:
+        'REJECTED',
+
+      anomalyCode:
+        'CUM_INVIMA_MISMATCH',
+    });
+  });
+});

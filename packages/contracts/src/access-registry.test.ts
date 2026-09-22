@@ -10,8 +10,8 @@ import {
 describe('ESP-020 access registry', () => {
   it('covers every current permission exactly once', () => {
     validateAccessRegistry();
-    expect(ACCESS_PERMISSION_REGISTRY).toHaveLength(79);
-    expect(new Set(ACCESS_PERMISSION_REGISTRY.map((entry) => entry.permissionCode)).size).toBe(79);
+    expect(ACCESS_PERMISSION_REGISTRY).toHaveLength(80);
+    expect(new Set(ACCESS_PERMISSION_REGISTRY.map((entry) => entry.permissionCode)).size).toBe(80);
     expect(new Set(ACCESS_RETIRED_PERMISSION_CODES).size).toBe(6);
   });
 

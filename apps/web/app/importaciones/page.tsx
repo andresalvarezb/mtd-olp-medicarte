@@ -1,5 +1,9 @@
-import { BulkImportsView } from '@/features/bulk-imports/bulk-imports-view';
+import {
+  redirect,
+} from 'next/navigation';
 
-export default function BulkImportsPage() {
-  return <BulkImportsView />;
+export default function ImportacionesPage() {
+  redirect(
+    '/autorizaciones',
+  );
 }

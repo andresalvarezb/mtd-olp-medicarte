@@ -28,3 +28,16 @@ export function deriveReceiptConformity(
     return 'CONFORMING';
   return 'PARTIALLY_CONFORMING';
 }
+
+export type PurchaseOrderReceiptStatus = 'PARTIALLY_RECEIVED' | 'RECEIVED';
+
+export function derivePurchaseOrderReceiptStatus(
+  requestedQuantity: number,
+  physicallyReceivedQuantity: number,
+): PurchaseOrderReceiptStatus {
+  if (requestedQuantity <= 0) {
+    throw new Error('PURCHASE_ORDER_REQUESTED_QUANTITY_INVALID');
+  }
+
+  return physicallyReceivedQuantity >= requestedQuantity ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
+}

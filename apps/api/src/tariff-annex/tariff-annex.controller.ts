@@ -36,6 +36,23 @@ export class TariffAnnexController {
     private readonly access: AccessService,
   ) {}
 
+  @Get('products')
+  async listProducts(
+    @Headers('x-organization-id')
+    organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const organization = uuidSchema.parse(organizationId);
+
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organization,
+      'tariff_annex.read',
+    );
+
+    return this.service.listProducts(scopeFromProfile(profile, organization, request));
+  }
+
   @Post('imports')
   @HttpCode(202)
   @UseInterceptors(

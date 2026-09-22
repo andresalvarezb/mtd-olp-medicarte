@@ -24,6 +24,52 @@ export class AnalyticsController {
     private readonly pointAccess: OperationalAccessScopeService,
   ) {}
 
+
+  @Get('dashboard')
+  async dashboard(
+    @Headers('x-organization-id')
+    organizationId: string | undefined,
+
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    const id =
+      z.string().uuid().parse(
+        organizationId,
+      );
+
+    const profile =
+      await this.require(
+        id,
+        request,
+        'analytics.read',
+      );
+
+    const scope =
+      scopeFromProfile(
+        profile,
+        id,
+        request,
+      );
+
+    const includeEconomics =
+      Boolean(
+        profile.organizations
+          .find(
+            (organization) =>
+              organization.id === id,
+          )
+          ?.permissions.includes(
+            'analytics.economics.read',
+          ),
+      );
+
+    return this.analytics.dashboard(
+      scope,
+      includeEconomics,
+    );
+  }
+
   @Get('operational')
   async operational(
     @Query() raw: unknown,

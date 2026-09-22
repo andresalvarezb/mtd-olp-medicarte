@@ -62,6 +62,51 @@ type ImportResponseRow = {
   completed_at: Date | null;
 };
 
+type TariffProductListRow = Record<string, unknown> & {
+  id: string;
+  codigo_producto: string;
+  tarifa_unidad: string | null;
+  tarifa_unidad_canonical: string | null;
+  numero_expediente_invima: string | null;
+  consecutivo_invima_presentacion: string | null;
+  descripcion_generica: string | null;
+  descripcion_comercial: string | null;
+  laboratorio: string | null;
+  tipo_inclusion: string | null;
+  active: boolean;
+  source_cum_code: string | null;
+  dispensing_point_id: string | null;
+  dispensing_point_code: string | null;
+  dispensing_point_name: string | null;
+  updated_at: Date | string;
+};
+
+export type TariffProductListItem = Readonly<{
+  id: string;
+  codigoProducto: string;
+  tarifaUnidad: string | null;
+  tarifaUnidadCanonical: string | null;
+  numeroExpedienteInvima: string | null;
+  consecutivoInvimaPresentacion: string | null;
+  descripcionGenerica: string | null;
+  descripcionComercial: string | null;
+  laboratorio: string | null;
+  tipoInclusion: string | null;
+  active: boolean;
+  sourceCumCode: string | null;
+  defaultApplicationPoint: Readonly<{
+    id: string;
+    code: string;
+    name: string;
+  }> | null;
+  updatedAt: string;
+}>;
+
+export type TariffProductListResponse = Readonly<{
+  items: readonly TariffProductListItem[];
+  total: number;
+}>;
+
 @Injectable()
 export class TariffAnnexService {
   constructor(
@@ -251,6 +296,124 @@ export class TariffAnnexService {
           message: 'Anomaly override reason of at least 10 characters is required',
         });
     }
+  }
+
+  async listProducts(scope: Scope): Promise<TariffProductListResponse> {
+    requireMtd(scope);
+
+    const result = await this.database.db.execute<TariffProductListRow>(sql`
+      select
+        product.id,
+        product.codigo_producto,
+        product.tarifa_unidad,
+        product.tarifa_unidad_canonical::text as tarifa_unidad_canonical,
+        product.numero_expediente_invima,
+        product.consecutivo_invima_presentacion,
+        product.descripcion_generica,
+        product.descripcion_comercial,
+        product.laboratorio,
+        product.tipo_inclusion,
+        product.active,
+        mapping.source_cum_code,
+        point.id as dispensing_point_id,
+        point.code as dispensing_point_code,
+        coalesce(
+          point.name,
+          mapping.source_site_name
+        ) as dispensing_point_name,
+        product.updated_at
+      from tariff_annex_products product
+
+      left join lateral (
+        select
+          candidate.source_cum_code,
+          candidate.source_site_name,
+          candidate.dispensing_point_id
+        from product_delivery_point_mappings candidate
+        where candidate.invima_record_normalized =
+          upper(
+            trim(
+              coalesce(
+                product.numero_expediente_invima,
+                ''
+              )
+            )
+          )
+          and candidate.invima_presentation_normalized =
+            case
+              when trim(
+                coalesce(
+                  product.consecutivo_invima_presentacion,
+                  ''
+                )
+              ) ~ '^[0-9]+$'
+              then coalesce(
+                nullif(
+                  regexp_replace(
+                    trim(
+                      product.consecutivo_invima_presentacion
+                    ),
+                    '^0+',
+                    ''
+                  ),
+                  ''
+                ),
+                '0'
+              )
+              else upper(
+                trim(
+                  coalesce(
+                    product.consecutivo_invima_presentacion,
+                    ''
+                  )
+                )
+              )
+            end
+        order by
+          candidate.updated_at desc,
+          candidate.id
+        limit 1
+      ) mapping on true
+
+      left join dispensing_points point
+        on point.id = mapping.dispensing_point_id
+
+      where product.organization_id = ${scope.organizationId}
+        and product.active = true
+
+      order by
+        product.codigo_producto asc,
+        product.id asc
+    `);
+
+    const items: TariffProductListItem[] = result.rows.map((row) => ({
+      id: row.id,
+      codigoProducto: row.codigo_producto,
+      tarifaUnidad: row.tarifa_unidad,
+      tarifaUnidadCanonical: row.tarifa_unidad_canonical,
+      numeroExpedienteInvima: row.numero_expediente_invima,
+      consecutivoInvimaPresentacion: row.consecutivo_invima_presentacion,
+      descripcionGenerica: row.descripcion_generica,
+      descripcionComercial: row.descripcion_comercial,
+      laboratorio: row.laboratorio,
+      tipoInclusion: row.tipo_inclusion,
+      active: row.active,
+      sourceCumCode: row.source_cum_code,
+      defaultApplicationPoint:
+        row.dispensing_point_id && row.dispensing_point_code && row.dispensing_point_name
+          ? {
+              id: row.dispensing_point_id,
+              code: row.dispensing_point_code,
+              name: row.dispensing_point_name,
+            }
+          : null,
+      updatedAt: timestampToIso(row.updated_at) ?? new Date(0).toISOString(),
+    }));
+
+    return {
+      items,
+      total: items.length,
+    };
   }
 
   async getImport(importId: string, scope: Scope): Promise<TariffImportResponse> {

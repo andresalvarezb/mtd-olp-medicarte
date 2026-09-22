@@ -115,7 +115,11 @@ export {
   requiresLateHandling,
   scheduleToday,
 } from './patient-schedule';
-export { deriveReceiptConformity, validateReceiptQuantities } from './receipt';
+export {
+  derivePurchaseOrderReceiptStatus,
+  deriveReceiptConformity,
+  validateReceiptQuantities,
+} from './receipt';
 export {
   canTransitionPatientApplicationAudit,
   isTerminalPatientApplicationAudit,
@@ -335,3 +339,37 @@ export {
 } from './product-delivery-point';
 export type { CumProductIdentity } from './product-delivery-point';
 export * from './authorization-coverage-projection';
+
+export {
+  PURCHASE_ORDER_MACRO_STATUSES,
+  PURCHASE_ORDER_MACRO_STATUS_LABELS,
+  PurchaseOrderOperationalFlowError,
+  applyPurchaseOrderReceipt,
+  derivePurchaseOrderActions,
+  derivePurchaseOrderMacroStatus,
+  hasAnyPurchaseOrderReceipt,
+  isPurchaseOrderFullyReceived,
+  purchaseOrderBalances,
+  purchaseOrderLineBalance,
+} from './purchase-order-operational-flow';
+export type {
+  PurchaseOrderLineBalance,
+  PurchaseOrderMacroStatus,
+  PurchaseOrderOperationalActions,
+  PurchaseOrderOperationalSnapshot,
+  PurchaseOrderQuantityLine,
+  PurchaseOrderReceiptInputLine,
+} from './purchase-order-operational-flow';
+
+export {
+  PURCHASE_ORDER_ACTORS,
+  assertPurchaseOrderAction,
+  derivePurchaseOrderAllowedActions,
+  derivePurchaseOrderFieldAccess,
+} from './purchase-order-access-policy';
+export type {
+  PurchaseOrderActor,
+  PurchaseOrderAllowedActions,
+  PurchaseOrderFieldAccess,
+  PurchaseOrderOperationalContext,
+} from './purchase-order-access-policy';

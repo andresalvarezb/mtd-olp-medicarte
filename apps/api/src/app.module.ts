@@ -42,6 +42,8 @@ import {
 } from './purchase-orders/purchase-order.controller';
 import { PurchaseOrderService } from './purchase-orders/purchase-order.service';
 import { PurchaseOrderRepository } from './purchase-orders/purchase-order.repository';
+import { PurchaseOrderImportController } from './purchase-orders/purchase-order-import.controller';
+import { PurchaseOrderImportService } from './purchase-orders/purchase-order-import.service';
 import { DeliveryController, MedicarteDeliveryController } from './deliveries/delivery.controller';
 import { DeliveryRepository } from './deliveries/delivery.repository';
 import { DeliveryService } from './deliveries/delivery.service';
@@ -49,6 +51,9 @@ import { ReceiptController, OlpReceiptController } from './receipts/receipt.cont
 import { ReceiptRepository } from './receipts/receipt.repository';
 import { ReceiptService } from './receipts/receipt.service';
 import { InventoryController } from './inventory/inventory.controller';
+import { InventoryAvailabilityController } from './inventory/inventory-availability.controller';
+import { InventoryAvailabilityRepository } from './inventory/inventory-availability.repository';
+import { InventoryAvailabilityService } from './inventory/inventory-availability.service';
 import { InventoryRepository } from './inventory/inventory.repository';
 import { InventoryService } from './inventory/inventory.service';
 import { StockTransferController } from './inventory/stock-transfer.controller';
@@ -69,6 +74,8 @@ import { AnalyticsService } from './analytics/analytics.service';
 import { BulkImportController } from './bulk-imports/bulk-import.controller';
 import { BulkImportRepository } from './bulk-imports/bulk-import.repository';
 import { BulkImportService } from './bulk-imports/bulk-import.service';
+import { AuthorizationQueryController } from './clinical/authorization-query.controller';
+import { AuthorizationQueryRepository } from './clinical/authorization-query.repository';
 import { TariffAnnexRepository } from './tariff-annex/tariff-annex.repository';
 import { TariffAnnexService } from './tariff-annex/tariff-annex.service';
 import { TariffAnnexController } from './tariff-annex/tariff-annex.controller';
@@ -144,18 +151,21 @@ new Gauge({
     PatientScheduleController,
     ProjectedDemandController,
     PurchaseOrderController,
+    PurchaseOrderImportController,
     SupplierPurchaseOrderController,
     DeliveryController,
     MedicarteDeliveryController,
     ReceiptController,
     OlpReceiptController,
     InventoryController,
+    InventoryAvailabilityController,
     StockTransferController,
     PatientApplicationController,
     PatientOutcomeController,
     PatientApplicationAuditController,
     AnalyticsController,
     BulkImportController,
+    AuthorizationQueryController,
     TariffAnnexController,
     ProductDeliveryPointController,
     AccessScopeController,
@@ -179,12 +189,15 @@ new Gauge({
     ProjectedDemandService,
     PurchaseOrderRepository,
     PurchaseOrderService,
+    PurchaseOrderImportService,
     DeliveryRepository,
     DeliveryService,
     ReceiptRepository,
     ReceiptService,
     InventoryRepository,
+    InventoryAvailabilityRepository,
     InventoryService,
+    InventoryAvailabilityService,
     StockTransferRepository,
     StockTransferService,
     PatientApplicationRepository,
@@ -199,6 +212,7 @@ new Gauge({
     AnalyticsService,
     BulkImportRepository,
     BulkImportService,
+    AuthorizationQueryRepository,
     TariffAnnexRepository,
     TariffAnnexService,
     ProductDeliveryPointRepository,

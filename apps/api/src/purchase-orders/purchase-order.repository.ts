@@ -160,6 +160,150 @@ export class PurchaseOrderRepository {
     });
   }
 
+  async acceptBySupplier(
+    id: string,
+    input: {
+      expectedVersion: number;
+      committedDate: string;
+      observation?: string;
+    },
+    actor: PurchaseOrderActor,
+  ) {
+    return this.database.db.transaction(async (tx) => {
+      const result = await tx.execute<{
+        version: number;
+        status: string;
+        olp_accepted_at: Date | null;
+      }>(sql`
+            select
+              version,
+              status,
+              olp_accepted_at
+
+            from
+              purchase_orders
+
+            where
+              id = ${id}
+
+            for update
+          `);
+
+      const order = result.rows[0];
+
+      if (!order) {
+        return {
+          outcome: 'not_found' as const,
+        };
+      }
+
+      if (order.version !== input.expectedVersion) {
+        return {
+          outcome: 'version_conflict' as const,
+
+          currentVersion: order.version,
+        };
+      }
+
+      if (order.olp_accepted_at !== null) {
+        throw new Error('PURCHASE_ORDER_ALREADY_ACCEPTED');
+      }
+
+      if (order.status !== 'ISSUED') {
+        throw new Error('PURCHASE_ORDER_NOT_ACCEPTABLE');
+      }
+
+      const lines = await tx.execute<{
+        count: number;
+      }>(sql`
+            select
+              count(*)::int as count
+
+            from
+              purchase_order_lines
+
+            where
+              purchase_order_id =
+                ${id}
+          `);
+
+      if ((lines.rows[0]?.count ?? 0) < 1) {
+        throw new Error('PURCHASE_ORDER_LINES_REQUIRED');
+      }
+
+      /*
+       * La aceptación operacional es de la OC.
+       *
+       * La cantidad solicitada por MTD no se modifica.
+       * accepted_quantity se sincroniza con requested_quantity
+       * para mantener compatible el motor de despachos existente.
+       *
+       * Las diferencias reales del proveedor se registrarán
+       * posteriormente en las cantidades efectivamente despachadas.
+       */
+      await tx.execute(sql`
+          update
+            purchase_order_lines
+
+          set
+            accepted_quantity =
+              requested_quantity,
+
+            updated_at =
+              now()
+
+          where
+            purchase_order_id =
+              ${id}
+        `);
+
+      /*
+       * ACCEPTED es estado interno.
+       *
+       * En la proyección operacional seguirá siendo
+       * "Pendiente OLP" mientras no exista despacho.
+       */
+      await tx.execute(sql`
+          update
+            purchase_orders
+
+          set
+            status =
+              'ACCEPTED',
+
+            olp_accepted_at =
+              now(),
+
+            olp_accepted_by =
+              ${actor.userId},
+
+            olp_committed_date =
+              ${input.committedDate}::date,
+
+            version =
+              version + 1,
+
+            updated_at =
+              now(),
+
+            updated_by =
+              ${actor.userId}
+
+          where
+            id =
+              ${id}
+        `);
+
+      await this.audit(tx, actor, 'PURCHASE_ORDER_OLP_ACCEPTED', id, {
+        committedDate: input.committedDate,
+
+        observation: input.observation ?? null,
+      });
+
+      return this.findByIdOn(tx, id, true);
+    });
+  }
+
   async reviewLine(
     id: string,
     lineId: string,
@@ -184,6 +328,70 @@ export class PurchaseOrderRepository {
       );
       await this.audit(tx, actor, 'PURCHASE_ORDER_LINE_REVIEWED', lineId, input);
       return this.findByIdOn(tx, id);
+    });
+  }
+
+  async returnBySupplier(
+    id: string,
+    expectedVersion: number,
+    observation: string,
+    actor: PurchaseOrderActor,
+  ) {
+    return this.database.db.transaction(async (tx) => {
+      const order = await tx.execute<{
+        version: number;
+        status: string;
+      }>(sql`
+        select version, status
+        from purchase_orders
+        where id = ${id}
+        for update
+      `);
+
+      const row = order.rows[0];
+
+      if (!row || !['ISSUED', 'UNDER_OLP_REVIEW'].includes(row.status)) {
+        throw new Error('PURCHASE_ORDER_NOT_REVIEWABLE');
+      }
+
+      if (row.version !== expectedVersion) {
+        return {
+          outcome: 'version_conflict' as const,
+          currentVersion: row.version,
+        };
+      }
+
+      /*
+       * Una devolución de OLP libera toda la cobertura
+       * pendiente de la OC.
+       *
+       * La observación se conserva en audit_events.
+       */
+      await tx.execute(sql`
+        update purchase_order_lines
+        set
+          accepted_quantity = 0,
+          supplier_unit_cost = null,
+          updated_at = now()
+        where purchase_order_id = ${id}
+      `);
+
+      await tx.execute(sql`
+        update purchase_orders
+        set
+          status = 'REJECTED',
+          version = version + 1,
+          updated_at = now(),
+          updated_by = ${actor.userId}
+        where id = ${id}
+      `);
+
+      await this.audit(tx, actor, 'PURCHASE_ORDER_RETURNED_BY_SUPPLIER', id, {
+        observation,
+        previousStatus: row.status,
+      });
+
+      return this.findByIdOn(tx, id, true);
     });
   }
 
@@ -1124,43 +1332,179 @@ export class PurchaseOrderRepository {
   }
 
   private async findByIdOn(conn: Tx | Database['db'], id: string, supplier = false) {
-    const rows = await conn.execute<PurchaseOrderJoinedRow>(
-      sql`select po.id, po.purchase_order_code, po.planning_period_id, po.order_type, po.status, po.version, po.issued_at, po.issued_by, po.created_at, po.updated_at, pol.id as line_id, pol.commercial_code, pol.product_description, pol.presentation, pol.dispensing_point_id, dp.code as dispensing_point_code, dp.name as dispensing_point_name, pol.requested_quantity, pol.accepted_quantity, pol.requested_delivery_date, pol.compensar_unit_rate_snapshot, pol.supplier_unit_cost, pol.projected_demand_line_id, pol.projected_demand_revision, pol.demand_bucket, a.allocated_quantity, pdl.revision as current_demand_revision from purchase_orders po left join purchase_order_lines pol on pol.purchase_order_id = po.id left join purchase_order_demand_allocations a on a.purchase_order_line_id = pol.id left join dispensing_points dp on dp.id = pol.dispensing_point_id left join projected_demand_lines pdl on pdl.id = pol.projected_demand_line_id where po.id = ${id} order by pol.id`,
-    );
+    const rows = await conn.execute<PurchaseOrderJoinedRow>(sql`
+      select
+        po.id,
+        po.purchase_order_code,
+        po.planning_period_id,
+        po.order_type,
+        po.status,
+        po.version,
+        po.issued_at,
+        po.issued_by,
+        po.created_at,
+        po.updated_at,
+
+        pol.id as line_id,
+        pol.commercial_code,
+        pol.product_description,
+        pol.presentation,
+        pol.dispensing_point_id,
+
+        dp.code as dispensing_point_code,
+        dp.name as dispensing_point_name,
+
+        pol.requested_quantity,
+        pol.accepted_quantity,
+        pol.requested_delivery_date,
+        pol.compensar_unit_rate_snapshot,
+        pol.supplier_unit_cost,
+        pol.projected_demand_line_id,
+        pol.projected_demand_revision,
+        pol.demand_bucket,
+
+        a.allocated_quantity,
+        pdl.revision as current_demand_revision
+
+      from purchase_orders po
+
+      left join purchase_order_lines pol
+        on pol.purchase_order_id = po.id
+
+      left join purchase_order_demand_allocations a
+        on a.purchase_order_line_id = pol.id
+
+      left join dispensing_points dp
+        on dp.id = pol.dispensing_point_id
+
+      left join projected_demand_lines pdl
+        on pdl.id = pol.projected_demand_line_id
+
+      where po.id = ${id}
+
+      order by pol.id
+    `);
+
     const first = rows.rows[0];
-    if (!first) return null;
-    return {
+
+    if (!first) {
+      return null;
+    }
+
+    const common = {
       id: first.id,
       purchaseOrderCode: first.purchase_order_code,
-      planningPeriodId: first.planning_period_id,
       orderType: first.order_type,
       status: first.status,
       version: first.version,
       issuedAt: first.issued_at,
-      issuedBy: first.issued_by,
       createdAt: first.created_at,
       updatedAt: first.updated_at,
+    };
+
+    /*
+     * Contrato de exposición OLP:
+     * no tarifa COMPENSAR,
+     * no línea de demanda,
+     * no revisión interna,
+     * no información clínica.
+     */
+    if (supplier) {
+      return {
+        ...common,
+
+        lines: rows.rows
+          .filter((row) => row.line_id)
+          .map((row) => ({
+            id: row.line_id,
+
+            commercialCode: row.commercial_code,
+
+            productDescription: row.product_description,
+
+            presentation: row.presentation,
+
+            dispensingPointId: row.dispensing_point_id,
+
+            dispensingPointCode: row.dispensing_point_code,
+
+            dispensingPointName: row.dispensing_point_name,
+
+            requestedQuantity: row.requested_quantity,
+
+            acceptedQuantity: row.accepted_quantity,
+
+            shortage: (row.requested_quantity ?? 0) - (row.accepted_quantity ?? 0),
+
+            requestedDeliveryDate: row.requested_delivery_date,
+
+            supplierUnitCost: row.supplier_unit_cost,
+          })),
+      };
+    }
+
+    const returned = await conn.execute<{
+      observation: string | null;
+    }>(sql`
+      select
+        after ->> 'observation'
+          as observation
+      from audit_events
+      where resource_type = 'purchase_order'
+        and resource_id = ${id}
+        and action =
+          'PURCHASE_ORDER_RETURNED_BY_SUPPLIER'
+      order by occurred_at desc
+      limit 1
+    `);
+
+    return {
+      ...common,
+
+      planningPeriodId: first.planning_period_id,
+
+      issuedBy: first.issued_by,
+
+      latestSupplierObservation: returned.rows[0]?.observation ?? null,
+
       lines: rows.rows
-        .filter((r) => r.line_id)
-        .map((r) => ({
-          id: r.line_id,
-          commercialCode: r.commercial_code,
-          productDescription: r.product_description,
-          presentation: r.presentation,
-          dispensingPointId: r.dispensing_point_id,
-          dispensingPointCode: r.dispensing_point_code,
-          dispensingPointName: r.dispensing_point_name,
-          requestedQuantity: r.requested_quantity,
-          acceptedQuantity: r.accepted_quantity,
-          shortage: (r.requested_quantity ?? 0) - (r.accepted_quantity ?? 0),
-          requestedDeliveryDate: r.requested_delivery_date,
-          compensarUnitRateSnapshot: r.compensar_unit_rate_snapshot,
-          supplierUnitCost: supplier ? r.supplier_unit_cost : r.supplier_unit_cost,
-          projectedDemandLineId: r.projected_demand_line_id,
-          projectedDemandRevision: r.projected_demand_revision,
-          demandBucket: r.demand_bucket,
-          allocatedQuantity: r.allocated_quantity,
-          sourceDemandChanged: r.current_demand_revision !== r.projected_demand_revision,
+        .filter((row) => row.line_id)
+        .map((row) => ({
+          id: row.line_id,
+
+          commercialCode: row.commercial_code,
+
+          productDescription: row.product_description,
+
+          presentation: row.presentation,
+
+          dispensingPointId: row.dispensing_point_id,
+
+          dispensingPointCode: row.dispensing_point_code,
+
+          dispensingPointName: row.dispensing_point_name,
+
+          requestedQuantity: row.requested_quantity,
+
+          acceptedQuantity: row.accepted_quantity,
+
+          shortage: (row.requested_quantity ?? 0) - (row.accepted_quantity ?? 0),
+
+          requestedDeliveryDate: row.requested_delivery_date,
+
+          compensarUnitRateSnapshot: row.compensar_unit_rate_snapshot,
+
+          supplierUnitCost: row.supplier_unit_cost,
+
+          projectedDemandLineId: row.projected_demand_line_id,
+
+          projectedDemandRevision: row.projected_demand_revision,
+
+          demandBucket: row.demand_bucket,
+
+          allocatedQuantity: row.allocated_quantity,
+
+          sourceDemandChanged: row.current_demand_revision !== row.projected_demand_revision,
         })),
     };
   }

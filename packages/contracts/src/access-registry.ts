@@ -227,6 +227,9 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
   permission('inventory.read', 'inventory', 'VIEW', 'ACTIVE', 'MEDICARTE_POINT', {
     configurable: true,
   }),
+  permission('inventory.allocate', 'inventory', 'ALLOCATE', 'ACTIVE', 'MTD_ONLY', {
+    configurable: true,
+  }),
   permission('stock_transfers.read', 'stock-transfers', 'VIEW', 'ACTIVE', 'MEDICARTE_POINT', {
     configurable: true,
   }),
@@ -678,8 +681,8 @@ export function validateAccessRegistry(): void {
     routes.add(module.route);
   }
 
-  if (permissionCodes.size !== 79) {
-    throw new Error(`Expected 79 current permission mappings, got ${permissionCodes.size}`);
+  if (permissionCodes.size !== 80) {
+    throw new Error(`Expected 80 current permission mappings, got ${permissionCodes.size}`);
   }
 }
 
