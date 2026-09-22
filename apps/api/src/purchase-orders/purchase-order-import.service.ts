@@ -621,13 +621,14 @@ export class PurchaseOrderImportService {
 
       for (
         const cell
-        of Object.values(sheet)
+        of (Object.values(sheet) as unknown[])
       ) {
         if (
-          cell &&
+          cell !== null &&
           typeof cell === 'object' &&
           'f' in cell &&
-          cell.f
+          typeof cell.f === 'string' &&
+          cell.f.length > 0
         ) {
           throw new BadRequestException({
             code:
@@ -668,16 +669,14 @@ export class PurchaseOrderImportService {
       of metadataRows
     ) {
       const key =
-        String(
-          row?.[0] ?? '',
-        )
-          .trim();
+        this.text(
+          row?.[0],
+        );
 
       const value =
-        String(
-          row?.[1] ?? '',
-        )
-          .trim();
+        this.text(
+          row?.[1],
+        );
 
       if (key) {
         meta.set(key, value);
@@ -897,9 +896,7 @@ export class PurchaseOrderImportService {
         planningPeriodId,
 
         orderType:
-          type as
-            | 'STANDARD'
-            | 'COMPLEMENTARY',
+          type,
 
         commercialCode,
 
@@ -939,9 +936,7 @@ export class PurchaseOrderImportService {
   private header(
     value: unknown,
   ): string {
-    return String(
-      value ?? '',
-    )
+    return this.text(value)
       .normalize('NFD')
       .replace(
         /[\u0300-\u036f]/g,
@@ -968,7 +963,19 @@ export class PurchaseOrderImportService {
       return '';
     }
 
-    return String(value).trim();
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value).trim();
+    }
+
+    return '';
   }
 
   private mapError(

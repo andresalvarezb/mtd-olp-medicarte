@@ -213,13 +213,6 @@ export function PurchaseOrdersView() {
     }
   }
 
-  const totalOrders = visibleOrders.length;
-  const totalUnits = visibleOrders.reduce(
-    (sum, order) =>
-      sum + order.lines.reduce((lineTotal, line) => lineTotal + line.requestedQuantity, 0),
-    0,
-  );
-
   return (
     <>
       <PageHeader

@@ -21,7 +21,23 @@ export type InventoryAvailabilityImportRow = Readonly<{
 }>;
 
 function textValue(value: unknown): string {
-  return String(value ?? '').trim();
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value).trim();
+  }
+
+  return '';
 }
 
 function quantityValue(value: unknown): number {
