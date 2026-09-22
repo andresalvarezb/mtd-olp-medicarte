@@ -222,267 +222,288 @@
     {
       "idx": 31,
       "version": "7",
-      "when": 1790374021663,
+      "when": 1790546822663,
       "tag": "0031_esp001_domain_separation",
       "breakpoints": true
     },
     {
       "idx": 32,
       "version": "7",
-      "when": 1790374022663,
+      "when": 1790546823663,
       "tag": "0032_esp002_planning_periods",
       "breakpoints": true
     },
     {
       "idx": 33,
       "version": "7",
-      "when": 1790374023663,
+      "when": 1790546824663,
       "tag": "0033_esp003_patient_scheduling",
       "breakpoints": true
     },
     {
       "idx": 34,
       "version": "7",
-      "when": 1790374024663,
+      "when": 1790546825663,
       "tag": "0034_patient_schedule_duplicate_identity",
       "breakpoints": true
     },
     {
       "idx": 35,
       "version": "7",
-      "when": 1790374025663,
+      "when": 1790546826663,
       "tag": "0035_esp004_demand_consolidation",
       "breakpoints": true
     },
     {
       "idx": 36,
       "version": "7",
-      "when": 1790460425663,
+      "when": 1790546827663,
       "tag": "0036_esp005_purchase_orders",
       "breakpoints": true
     },
     {
       "idx": 37,
       "version": "7",
-      "when": 1790460426663,
+      "when": 1790546828663,
       "tag": "0037_esp006_supplier_deliveries",
       "breakpoints": true
     },
     {
       "idx": 38,
       "version": "7",
-      "when": 1790460427663,
+      "when": 1790546829663,
       "tag": "0038_esp007_receipts",
       "breakpoints": true
     },
     {
       "idx": 39,
       "version": "7",
-      "when": 1790460428663,
+      "when": 1790546830663,
       "tag": "0039_esp008_inventory_ledger",
       "breakpoints": true
     },
     {
       "idx": 40,
       "version": "7",
-      "when": 1790460429663,
+      "when": 1790546831663,
       "tag": "0040_esp009_stock_transfers",
       "breakpoints": true
     },
     {
       "idx": 41,
       "version": "7",
-      "when": 1790460430663,
+      "when": 1790546832663,
       "tag": "0041_esp010_patient_applications",
       "breakpoints": true
     },
     {
       "idx": 42,
       "version": "7",
-      "when": 1790460431663,
+      "when": 1790546833663,
       "tag": "0042_esp011_operational_outcomes",
       "breakpoints": true
     },
     {
       "idx": 43,
       "version": "7",
-      "when": 1790460432663,
+      "when": 1790546834663,
       "tag": "0043_esp012_application_audits",
       "breakpoints": true
     },
     {
       "idx": 44,
       "version": "7",
-      "when": 1790460433663,
+      "when": 1790546835663,
       "tag": "0044_esp013_analytics",
       "breakpoints": true
     },
     {
       "idx": 45,
       "version": "7",
-      "when": 1790460434663,
+      "when": 1790546836663,
       "tag": "0045_esp014_bulk_imports",
       "breakpoints": true
     },
     {
       "idx": 46,
       "version": "7",
-      "when": 1790460435663,
+      "when": 1790546837663,
       "tag": "0046_esp014_claim_fencing",
       "breakpoints": true
     },
     {
       "idx": 47,
       "version": "7",
-      "when": 1790460436663,
+      "when": 1790546838663,
       "tag": "0047_esp015_point_scopes",
       "breakpoints": true
     },
     {
       "idx": 48,
       "version": "7",
-      "when": 1790460437663,
+      "when": 1790546839663,
       "tag": "0048_esp016_legacy_cutover",
       "breakpoints": true
     },
     {
       "idx": 49,
       "version": "7",
-      "when": 1790460438663,
+      "when": 1790546840663,
       "tag": "0049_esp017_operational_reconciliation",
       "breakpoints": true
     },
     {
       "idx": 50,
       "version": "7",
-      "when": 1790460439663,
+      "when": 1790546841663,
       "tag": "0050_esp018_reconciliation_governance",
       "breakpoints": true
     },
     {
       "idx": 51,
       "version": "7",
-      "when": 1790460440663,
+      "when": 1790546842663,
       "tag": "0051_esp019_reconciliation_operations",
       "breakpoints": true
     },
     {
       "idx": 52,
       "version": "7",
-      "when": 1790546840663,
+      "when": 1790546843663,
       "tag": "0052_esp020_identity_access_metadata",
       "breakpoints": true
     },
     {
       "idx": 53,
       "version": "7",
-      "when": 1790550440663,
+      "when": 1790546844663,
       "tag": "0053_esp020_custom_roles",
       "breakpoints": true
     },
     {
       "idx": 54,
       "version": "7",
-      "when": 1790546841663,
+      "when": 1790546845663,
       "tag": "0054_authorization_based_projected_demand",
       "breakpoints": true
     },
     {
       "idx": 55,
       "version": "7",
-      "when": 1790546842663,
+      "when": 1790546846663,
       "tag": "0055_authorization_import_and_purchase_points",
       "breakpoints": true
     },
     {
       "idx": 56,
       "version": "7",
-      "when": 1790546843663,
+      "when": 1790546847663,
       "tag": "0056_novelty_logical_key",
       "breakpoints": true
     },
     {
       "idx": 57,
       "version": "7",
-      "when": 1790546844663,
+      "when": 1790546848663,
       "tag": "0057_novelty_logical_key_unique",
       "breakpoints": true
     },
     {
       "idx": 58,
       "version": "7",
-      "when": 1790546845663,
+      "when": 1790546849663,
       "tag": "0058_tariff_provenance_snapshots",
       "breakpoints": true
     },
     {
       "idx": 59,
       "version": "7",
-      "when": 1790550441663,
+      "when": 1790546850663,
       "tag": "0059_tariff_prepare_confirm",
       "breakpoints": true
     },
     {
       "idx": 60,
       "version": "7",
-      "when": 1790550442663,
+      "when": 1790546851663,
       "tag": "0060_tariff_preview_result_codes",
       "breakpoints": true
     },
     {
       "idx": 61,
       "version": "7",
-      "when": 1790550443663,
+      "when": 1790546852663,
       "tag": "0061_authorization_demand_identity",
       "breakpoints": true
     },
     {
       "idx": 62,
       "version": "7",
-      "when": 1790550443664,
+      "when": 1790546853663,
       "tag": "0062_purchase_order_optional_logistics",
       "breakpoints": true
     },
     {
       "idx": 63,
       "version": "7",
-      "when": 1790550443665,
+      "when": 1790546854663,
       "tag": "0063_purchase_order_authorization_sources",
       "breakpoints": true
     },
     {
       "idx": 64,
       "version": "7",
-      "when": 1790550443666,
+      "when": 1790546855663,
       "tag": "0064_inventory_locations",
       "breakpoints": true
     },
     {
       "idx": 65,
       "version": "7",
-      "when": 1790550443667,
+      "when": 1790546856663,
       "tag": "0065_inventory_lot_location_identity",
       "breakpoints": true
     },
     {
       "idx": 66,
       "version": "7",
-      "when": 1790550443668,
+      "when": 1790546857663,
       "tag": "0066_inventory_location_bridge",
       "breakpoints": true
     },
     {
       "idx": 67,
       "version": "7",
-      "when": 1790550443669,
+      "when": 1790546858663,
       "tag": "0067_procurement_fungible_netting",
       "breakpoints": true
     },
     {
       "idx": 68,
       "version": "7",
-      "when": 1790550443670,
+      "when": 1790546859663,
       "tag": "0068_product_delivery_point_mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1790546860663,
+      "tag": "0069_inventory_availability",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1790546861663,
+      "tag": "0070_purchase_order_operational_rbac",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1790546862663,
+      "tag": "0071_purchase_order_operational_dates",
       "breakpoints": true
     }
   ]

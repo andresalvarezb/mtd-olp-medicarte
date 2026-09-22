@@ -1,9 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
+import {
+  normalizeDeliveryPointCode,
+  parseCumProductIdentity,
+} from '@authorization/domain';
 import { DATABASE } from '../tokens';
 import {
   buildTariffPreview,
+  type ActiveDeliveryPointMapping,
   type ActiveTariffProduct,
   type TariffPreview,
   type TariffPreviewRow,
@@ -70,6 +75,9 @@ type PreparedImportRow = {
     phase?: string;
     action?: string;
     state?: string;
+    tariffChanged?: boolean;
+    deliveryPointManaged?: boolean;
+    deliveryPointChanged?: boolean;
   } | null;
 };
 
@@ -153,12 +161,26 @@ export class TariffAnnexRepository {
         return { outcome: 'source_not_found' };
       }
 
-      const activeProducts = await this.findActiveProducts(tx, input.actor.organizationId);
+      const activeProducts =
+        await this.findActiveProducts(
+          tx,
+          input.actor.organizationId,
+        );
 
-      const preview = buildTariffPreview({
-        content: sourceRow.content,
-        activeProducts,
-      });
+      const activeDeliveryPoints =
+        await this.findActiveDeliveryPoints(
+          tx,
+        );
+
+      const preview =
+        buildTariffPreview({
+          content:
+            sourceRow.content,
+
+          activeProducts,
+
+          activeDeliveryPoints,
+        });
 
       await tx.execute(sql`
         delete from tariff_annex_import_rows
@@ -280,21 +302,61 @@ export class TariffAnnexRepository {
             break;
 
           case 'PREVIEW_NEW':
-            await this.applyNewProduct(tx, {
-              importId: importRow.id,
-              row,
-              actor: input.actor,
-            });
+            await this.applyNewProduct(
+              tx,
+              {
+                importId:
+                  importRow.id,
+
+                row,
+
+                actor:
+                  input.actor,
+              },
+            );
+
+            await this.applyDefaultDeliveryPoint(
+              tx,
+              {
+                row,
+                actor:
+                  input.actor,
+              },
+            );
+
             created += 1;
             break;
 
           case 'PREVIEW_CHANGED':
           case 'PREVIEW_ANOMALOUS':
-            await this.applyExistingProduct(tx, {
-              importId: importRow.id,
-              row,
-              actor: input.actor,
-            });
+            if (
+              row.provenance
+                ?.tariffChanged !==
+              false
+            ) {
+              await this.applyExistingProduct(
+                tx,
+                {
+                  importId:
+                    importRow.id,
+
+                  row,
+
+                  actor:
+                    input.actor,
+                },
+              );
+            }
+
+            await this.applyDefaultDeliveryPoint(
+              tx,
+              {
+                row,
+                actor:
+                  input.actor,
+              },
+            );
+
             updated += 1;
             break;
 
@@ -742,6 +804,510 @@ export class TariffAnnexRepository {
     return result.rows[0] ?? null;
   }
 
+  private async findActiveDeliveryPoints(
+    tx: Transaction,
+  ): Promise<
+    ActiveDeliveryPointMapping[]
+  > {
+    const result =
+      await tx.execute<{
+        invima_record_normalized:
+          string;
+
+        invima_presentation_normalized:
+          string;
+
+        source_cum_code:
+          string;
+
+        service_model:
+          string | null;
+
+        source_site_name:
+          string;
+
+        dispensing_point_code:
+          string;
+      }>(sql`
+        select
+          mapping.invima_record_normalized,
+          mapping.invima_presentation_normalized,
+          mapping.source_cum_code,
+          mapping.service_model,
+          mapping.source_site_name,
+          point.code
+            as dispensing_point_code
+
+        from product_delivery_point_mappings mapping
+
+        join dispensing_points point
+          on point.id =
+             mapping.dispensing_point_id
+
+        join organizations organization
+          on organization.id =
+             point.organization_id
+
+        where
+          upper(
+            organization.code
+          ) = 'MEDICARTE'
+
+          and point.active = true
+      `);
+
+    return result.rows.map(
+      (row) => ({
+        invimaRecord:
+          row.invima_record_normalized,
+
+        invimaPresentation:
+          row.invima_presentation_normalized,
+
+        cumCode:
+          row.source_cum_code,
+
+        serviceModel:
+          row.service_model,
+
+        siteName:
+          row.source_site_name,
+
+        dispensingPointCode:
+          row.dispensing_point_code,
+      }),
+    );
+  }
+
+  private async applyDefaultDeliveryPoint(
+    tx: Transaction,
+
+    input: {
+      row:
+        PreparedImportRow;
+
+      actor:
+        TariffAnnexActor;
+    },
+  ): Promise<void> {
+    if (
+      input.row.provenance
+        ?.deliveryPointManaged !==
+        true ||
+      input.row.provenance
+        ?.deliveryPointChanged !==
+        true
+    ) {
+      return;
+    }
+
+    const raw =
+      input.row.raw_data ??
+      {};
+
+    const cumCode =
+      rawText(
+        raw,
+        'CODIGO_CUM_FINAL',
+        'CODIGO_CUM',
+      );
+
+    const siteName =
+      rawText(
+        raw,
+        'PUNTO_APLICACION_PREDETERMINADO',
+        'SEDE_ENTREGA',
+      );
+
+    const serviceModel =
+      rawText(
+        raw,
+        'MODELO',
+      );
+
+    if (
+      !cumCode ||
+      !siteName
+    ) {
+      throw new Error(
+        'TARIFF_DEFAULT_POINT_SOURCE_INCOMPLETE',
+      );
+    }
+
+    const identity =
+      parseCumProductIdentity(
+        cumCode,
+      );
+
+    const siteCode =
+      normalizeDeliveryPointCode(
+        siteName,
+      );
+
+    if (
+      !identity ||
+      !siteCode
+    ) {
+      throw new Error(
+        'TARIFF_DEFAULT_POINT_INVALID',
+      );
+    }
+
+    const medicarte =
+      await tx.execute<{
+        id:
+          string;
+      }>(sql`
+        select id
+        from organizations
+        where upper(code) =
+              'MEDICARTE'
+        limit 1
+      `);
+
+    const medicarteOrganizationId =
+      medicarte.rows[0]
+        ?.id;
+
+    if (
+      !medicarteOrganizationId
+    ) {
+      throw new Error(
+        'MEDICARTE_ORGANIZATION_NOT_FOUND',
+      );
+    }
+
+    let point =
+      await tx.execute<{
+        id:
+          string;
+
+        active:
+          boolean;
+
+        name:
+          string;
+      }>(sql`
+        select
+          id,
+          active,
+          name
+
+        from dispensing_points
+
+        where
+          organization_id =
+            ${medicarteOrganizationId}
+
+          and upper(code) =
+            ${siteCode}
+
+        limit 1
+        for update
+      `);
+
+    if (
+      !point.rows[0]
+    ) {
+      point =
+        await tx.execute<{
+          id:
+            string;
+
+          active:
+            boolean;
+
+          name:
+            string;
+        }>(sql`
+          insert into dispensing_points (
+            organization_id,
+            code,
+            name,
+            active,
+            created_by
+          )
+          values (
+            ${medicarteOrganizationId},
+            ${siteCode},
+            ${siteName},
+            true,
+            ${input.actor.userId}
+          )
+          returning
+            id,
+            active,
+            name
+        `);
+    }
+
+    const pointRow =
+      point.rows[0];
+
+    if (!pointRow) {
+      throw new Error(
+        'DELIVERY_POINT_CREATE_FAILED',
+      );
+    }
+
+    if (
+      !pointRow.active
+    ) {
+      throw new Error(
+        `DELIVERY_POINT_INACTIVE:${siteCode}`,
+      );
+    }
+
+    if (
+      pointRow.name.trim() !==
+      siteName.trim()
+    ) {
+      await tx.execute(sql`
+        update dispensing_points
+        set name =
+            ${siteName}
+        where id =
+              ${pointRow.id}
+      `);
+    }
+
+    const current =
+      await tx.execute<{
+        id:
+          string;
+
+        source_cum_code:
+          string;
+
+        service_model:
+          string | null;
+
+        source_site_name:
+          string;
+
+        dispensing_point_id:
+          string;
+
+        version:
+          number;
+      }>(sql`
+        select
+          id,
+          source_cum_code,
+          service_model,
+          source_site_name,
+          dispensing_point_id,
+          version
+
+        from product_delivery_point_mappings
+
+        where
+          invima_record_normalized =
+            ${identity.invimaRecord}
+
+          and
+          invima_presentation_normalized =
+            ${identity.invimaPresentation}
+
+        for update
+      `);
+
+    const existing =
+      current.rows[0];
+
+    if (!existing) {
+      const inserted =
+        await tx.execute<{
+          id:
+            string;
+        }>(sql`
+          insert into product_delivery_point_mappings (
+            invima_record_normalized,
+            invima_presentation_normalized,
+            source_cum_code,
+            service_model,
+            source_site_name,
+            dispensing_point_id,
+            created_by,
+            updated_by
+          )
+          values (
+            ${identity.invimaRecord},
+            ${identity.invimaPresentation},
+            ${identity.cumCode},
+            ${serviceModel},
+            ${siteName},
+            ${pointRow.id},
+            ${input.actor.userId},
+            ${input.actor.userId}
+          )
+          returning id
+        `);
+
+      const mapping =
+        inserted.rows[0];
+
+      if (!mapping) {
+        throw new Error(
+          'DELIVERY_POINT_MAPPING_CREATE_FAILED',
+        );
+      }
+
+      await tx.execute(sql`
+        insert into audit_events (
+          actor_type,
+          actor_id,
+          organization_id,
+          action,
+          resource_type,
+          resource_id,
+          after,
+          correlation_id,
+          request_id,
+          result
+        )
+        values (
+          'USER',
+          ${input.actor.userId},
+          ${input.actor.organizationId},
+          'PRODUCT_DELIVERY_POINT_MAPPING_CREATED',
+          'product_delivery_point_mapping',
+          ${mapping.id},
+          ${JSON.stringify({
+            invimaRecord:
+              identity.invimaRecord,
+
+            invimaPresentation:
+              identity.invimaPresentation,
+
+            cumCode:
+              identity.cumCode,
+
+            serviceModel,
+
+            pointCode:
+              siteCode,
+
+            pointName:
+              siteName,
+
+            source:
+              'TARIFF_ANNEX_IMPORT',
+          })}::jsonb,
+          ${input.actor.correlationId},
+          ${input.actor.correlationId},
+          'SUCCESS'
+        )
+      `);
+
+      return;
+    }
+
+    const unchanged =
+      existing.source_cum_code ===
+        identity.cumCode &&
+      existing.service_model ===
+        serviceModel &&
+      existing.source_site_name
+        .trim() ===
+        siteName.trim() &&
+      existing.dispensing_point_id ===
+        pointRow.id;
+
+    if (unchanged) {
+      return;
+    }
+
+    await tx.execute(sql`
+      update product_delivery_point_mappings
+      set
+        source_cum_code =
+          ${identity.cumCode},
+
+        service_model =
+          ${serviceModel},
+
+        source_site_name =
+          ${siteName},
+
+        dispensing_point_id =
+          ${pointRow.id},
+
+        version =
+          version + 1,
+
+        updated_by =
+          ${input.actor.userId},
+
+        updated_at =
+          now()
+
+      where id =
+            ${existing.id}
+    `);
+
+    await tx.execute(sql`
+      insert into audit_events (
+        actor_type,
+        actor_id,
+        organization_id,
+        action,
+        resource_type,
+        resource_id,
+        before,
+        after,
+        correlation_id,
+        request_id,
+        result
+      )
+      values (
+        'USER',
+        ${input.actor.userId},
+        ${input.actor.organizationId},
+        'PRODUCT_DELIVERY_POINT_MAPPING_UPDATED',
+        'product_delivery_point_mapping',
+        ${existing.id},
+
+        ${JSON.stringify({
+          cumCode:
+            existing.source_cum_code,
+
+          serviceModel:
+            existing.service_model,
+
+          pointId:
+            existing.dispensing_point_id,
+
+          pointName:
+            existing.source_site_name,
+        })}::jsonb,
+
+        ${JSON.stringify({
+          cumCode:
+            identity.cumCode,
+
+          serviceModel,
+
+          pointId:
+            pointRow.id,
+
+          pointCode:
+            siteCode,
+
+          pointName:
+            siteName,
+
+          source:
+            'TARIFF_ANNEX_IMPORT',
+        })}::jsonb,
+
+        ${input.actor.correlationId},
+        ${input.actor.correlationId},
+        'SUCCESS'
+      )
+    `);
+  }
+
   private async findActiveProducts(
     tx: Transaction,
     organizationId: string,
@@ -815,9 +1381,23 @@ export class TariffAnnexRepository {
         ${row.next?.tarifaUnidadCanonical ?? null},
         ${row.anomalyCode},
         ${JSON.stringify({
-          phase: 'PREPARE',
-          action: row.action,
-          state: row.state,
+          phase:
+            'PREPARE',
+
+          action:
+            row.action,
+
+          state:
+            row.state,
+
+          tariffChanged:
+            row.tariffChanged,
+
+          deliveryPointManaged:
+            row.deliveryPointManaged,
+
+          deliveryPointChanged:
+            row.deliveryPointChanged,
         })}::jsonb
       )
     `);

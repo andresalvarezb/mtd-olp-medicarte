@@ -775,6 +775,11 @@ export const purchaseOrders = pgTable(
     version: integer('version').notNull().default(1),
     issuedAt: timestamp('issued_at', { withTimezone: true }),
     issuedBy: uuid('issued_by').references(() => users.id, { onDelete: 'restrict' }),
+    olpAcceptedAt: timestamp('olp_accepted_at', {
+      withTimezone: true,
+    }),
+    olpAcceptedBy: uuid('olp_accepted_by'),
+    olpCommittedDate: date('olp_committed_date'),
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
@@ -924,6 +929,7 @@ export const deliveries = pgTable(
     supplierReference: varchar('supplier_reference', { length: 255 }),
     status: varchar('status', { length: 20 }).notNull().default('DRAFT'),
     dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+    declaredDispatchDate: date('declared_dispatch_date'),
     version: integer('version').notNull().default(1),
     createdBy: uuid('created_by')
       .notNull()
@@ -2879,5 +2885,302 @@ export const reconciliationNotifications = pgTable(
       sql`${table.status} IN ('PENDING', 'SENT', 'FAILED', 'SUPPRESSED')`,
     ),
     check('reconciliation_notifications_channel_check', sql`${table.channel} IN ('IN_APP')`),
+  ],
+);
+
+export const inventoryAllocationBatches = pgTable(
+  'inventory_allocation_batches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, {
+        onDelete: 'restrict',
+      }),
+
+    source: varchar('source', {
+      length: 10,
+    }).notNull(),
+
+    importBatchId: uuid('import_batch_id').references(() => importBatches.id, {
+      onDelete: 'restrict',
+    }),
+
+    status: varchar('status', {
+      length: 20,
+    })
+      .notNull()
+      .default('PREPARED'),
+
+    totalRows: integer('total_rows').notNull().default(0),
+
+    validRows: integer('valid_rows').notNull().default(0),
+
+    invalidRows: integer('invalid_rows').notNull().default(0),
+
+    allocatedQuantity: integer('allocated_quantity').notNull().default(0),
+
+    version: integer('version').notNull().default(1),
+
+    correlationId: uuid('correlation_id').notNull(),
+
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, {
+        onDelete: 'restrict',
+      }),
+
+    confirmedBy: uuid('confirmed_by').references(() => users.id, {
+      onDelete: 'restrict',
+    }),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    confirmedAt: timestamp('confirmed_at', {
+      withTimezone: true,
+    }),
+
+    cancelledAt: timestamp('cancelled_at', {
+      withTimezone: true,
+    }),
+  },
+  (table) => [
+    index('inventory_allocation_batches_org_status_idx').on(
+      table.organizationId,
+      table.status,
+      table.createdAt,
+    ),
+
+    index('inventory_allocation_batches_import_idx').on(table.importBatchId),
+
+    check('inventory_allocation_batches_source_check', sql`${table.source} IN ('UI','XLSX')`),
+
+    check(
+      'inventory_allocation_batches_status_check',
+      sql`${table.status} IN ('PREPARED','CONFIRMED','FAILED','CANCELLED')`,
+    ),
+
+    check('inventory_allocation_batches_quantity_check', sql`${table.allocatedQuantity} >= 0`),
+
+    check('inventory_allocation_batches_version_check', sql`${table.version} > 0`),
+  ],
+);
+
+export const inventoryAllocationImportRows = pgTable(
+  'inventory_allocation_import_rows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => inventoryAllocationBatches.id, {
+        onDelete: 'cascade',
+      }),
+
+    rowNumber: integer('row_number').notNull(),
+
+    authorizationKey: varchar('authorization_key', {
+      length: 511,
+    }).notNull(),
+
+    purchaseOrderCode: varchar('purchase_order_code', {
+      length: 255,
+    }).notNull(),
+
+    requestedQuantity: integer('requested_quantity').notNull(),
+
+    resolvedAuthorizationItemId: uuid('resolved_authorization_item_id').references(
+      () => authorizationItems.id,
+      {
+        onDelete: 'restrict',
+      },
+    ),
+
+    resolvedPurchaseOrderId: uuid('resolved_purchase_order_id').references(
+      () => purchaseOrders.id,
+      {
+        onDelete: 'restrict',
+      },
+    ),
+
+    commercialCode: varchar('commercial_code', {
+      length: 255,
+    }),
+
+    expectedAuthorizationVersion: integer('expected_authorization_version'),
+
+    validationStatus: varchar('validation_status', {
+      length: 10,
+    }).notNull(),
+
+    executionStatus: varchar('execution_status', {
+      length: 10,
+    })
+      .notNull()
+      .default('PENDING'),
+
+    errorCode: varchar('error_code', {
+      length: 100,
+    }),
+
+    errorMessage: text('error_message'),
+
+    rawPayload: jsonb('raw_payload').notNull(),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    executedAt: timestamp('executed_at', {
+      withTimezone: true,
+    }),
+  },
+  (table) => [
+    unique('inventory_allocation_import_rows_batch_row_unique').on(table.batchId, table.rowNumber),
+
+    index('inventory_allocation_import_rows_batch_idx').on(table.batchId, table.rowNumber),
+
+    index('inventory_allocation_import_rows_authorization_idx').on(table.authorizationKey),
+
+    index('inventory_allocation_import_rows_purchase_order_idx').on(table.purchaseOrderCode),
+
+    check('inventory_allocation_import_rows_quantity_check', sql`${table.requestedQuantity} > 0`),
+
+    check(
+      'inventory_allocation_import_rows_validation_check',
+      sql`${table.validationStatus} IN ('VALID','INVALID')`,
+    ),
+
+    check(
+      'inventory_allocation_import_rows_execution_check',
+      sql`${table.executionStatus} IN ('PENDING','APPLIED','SKIPPED','FAILED')`,
+    ),
+  ],
+);
+
+export const inventoryAuthorizationAllocations = pgTable(
+  'inventory_authorization_allocations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => inventoryAllocationBatches.id, {
+        onDelete: 'restrict',
+      }),
+
+    sourceImportRowId: uuid('source_import_row_id').references(
+      () => inventoryAllocationImportRows.id,
+      {
+        onDelete: 'restrict',
+      },
+    ),
+
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, {
+        onDelete: 'restrict',
+      }),
+
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, {
+        onDelete: 'restrict',
+      }),
+
+    purchaseOrderId: uuid('purchase_order_id')
+      .notNull()
+      .references(() => purchaseOrders.id, {
+        onDelete: 'restrict',
+      }),
+
+    commercialCode: varchar('commercial_code', {
+      length: 255,
+    }).notNull(),
+
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, {
+        onDelete: 'restrict',
+      }),
+
+    allocatedQuantity: integer('allocated_quantity').notNull(),
+
+    consumedQuantity: integer('consumed_quantity').notNull().default(0),
+
+    releasedQuantity: integer('released_quantity').notNull().default(0),
+
+    status: varchar('status', {
+      length: 30,
+    })
+      .notNull()
+      .default('ALLOCATED'),
+
+    authorizationVersion: integer('authorization_version').notNull(),
+
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, {
+        onDelete: 'restrict',
+      }),
+
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, {
+        onDelete: 'restrict',
+      }),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('inventory_authorization_allocations_auth_idx').on(
+      table.authorizationItemId,
+      table.status,
+    ),
+
+    index('inventory_authorization_allocations_oc_product_idx').on(
+      table.purchaseOrderId,
+      table.commercialCode,
+      table.dispensingPointId,
+      table.status,
+    ),
+
+    index('inventory_authorization_allocations_product_point_idx').on(
+      table.commercialCode,
+      table.dispensingPointId,
+      table.status,
+    ),
+
+    check(
+      'inventory_authorization_allocations_quantity_check',
+      sql`${table.allocatedQuantity} > 0 AND ${table.consumedQuantity} >= 0 AND ${table.releasedQuantity} >= 0 AND ${table.consumedQuantity} + ${table.releasedQuantity} <= ${table.allocatedQuantity}`,
+    ),
+
+    check(
+      'inventory_authorization_allocations_status_check',
+      sql`${table.status} IN ('ALLOCATED','PARTIALLY_CONSUMED','CONSUMED','RELEASED','EXPIRED')`,
+    ),
+
+    check(
+      'inventory_authorization_allocations_version_check',
+      sql`${table.authorizationVersion} > 0`,
+    ),
   ],
 );

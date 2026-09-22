@@ -10,6 +10,50 @@ import type {
 } from '@authorization/contracts';
 import { apiRequest } from './api-client';
 
+
+export type SupplierPurchaseOrderLine = {
+  id: string;
+  commercialCode: string;
+  productDescription: string | null;
+  presentation: string | null;
+  dispensingPointId: string | null;
+  dispensingPointCode: string | null;
+  dispensingPointName: string | null;
+  requestedQuantity: number;
+  acceptedQuantity: number | null;
+  shortage: number;
+  requestedDeliveryDate: string | null;
+  supplierUnitCost: string | null;
+};
+
+export type SupplierPurchaseOrderResponse = {
+  id: string;
+  purchaseOrderCode: string | null;
+  orderType: 'STANDARD' | 'COMPLEMENTARY';
+  status: string;
+  version: number;
+  issuedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lines: SupplierPurchaseOrderLine[];
+};
+
+export type AvailablePurchaseDemand = {
+  id: string;
+  commercialCode: string;
+  dispensingPointId: string | null;
+  dispensingPointCode: string | null;
+  dispensingPointName: string | null;
+  deliveryPointMapped: boolean;
+  revision: number;
+  regularQuantity: number;
+  lateQuantity: number;
+  regularAvailable: number;
+  lateAvailable: number;
+  regularOverOrdered: number;
+  lateOverOrdered: number;
+};
+
 export function listPurchaseOrders(
   organizationId: string,
   query: Partial<PurchaseOrderListQuery> = {},
@@ -61,13 +105,13 @@ export function cancelPurchaseOrder(organizationId: string, id: string, expected
   });
 }
 export function listAvailableDemand(organizationId: string, planningPeriodId: string) {
-  return apiRequest<{ items: Array<Record<string, unknown>> }>(
+  return apiRequest<{ items: AvailablePurchaseDemand[] }>(
     `/purchase-demand/available?planningPeriodId=${planningPeriodId}`,
     { organizationId },
   );
 }
 export function listSupplierPurchaseOrders(organizationId: string) {
-  return apiRequest<{ items: PurchaseOrderResponse[] }>('/supplier/purchase-orders', {
+  return apiRequest<{ items: SupplierPurchaseOrderResponse[] }>('/supplier/purchase-orders', {
     organizationId,
   });
 }
@@ -166,4 +210,87 @@ export function confirmReceipt(organizationId: string, id: string, expectedVersi
     organizationId,
     body: JSON.stringify({ expectedVersion }),
   });
+}
+
+export type PurchaseOrderImportResult = {
+  totalRows: number;
+  acceptedRows: number;
+  rejectedRows: number;
+  createdOrders: number;
+  rejectedWorkbookBase64: string | null;
+
+  results: Array<{
+    rowNumber: number;
+    status:
+      | 'ACCEPTED'
+      | 'REJECTED';
+    purchaseOrderCode: string;
+    planningPeriodId: string;
+    orderType: string;
+    commercialCode: string;
+    quantity: number | null;
+    requestedDeliveryDate:
+      | string
+      | null;
+    purchaseOrderId:
+      | string
+      | null;
+    errorCode:
+      | string
+      | null;
+    errorMessage:
+      | string
+      | null;
+  }>;
+};
+
+export function downloadPurchaseOrderTemplate(
+  organizationId: string,
+) {
+  return apiRequest<Blob>(
+    '/purchase-orders/import/template.xlsx',
+    {
+      organizationId,
+    },
+  );
+}
+
+export function uploadPurchaseOrderImport(
+  organizationId: string,
+  file: File,
+) {
+  const body =
+    new FormData();
+
+  body.append(
+    'file',
+    file,
+  );
+
+  return apiRequest<PurchaseOrderImportResult>(
+    '/purchase-orders/import',
+    {
+      method: 'POST',
+      organizationId,
+      body,
+    },
+  );
+}
+export function returnSupplierPurchaseOrder(
+  organizationId: string,
+  id: string,
+  expectedVersion: number,
+  observation: string,
+) {
+  return apiRequest<SupplierPurchaseOrderResponse>(
+    `/supplier/purchase-orders/${id}/return`,
+    {
+      method: 'POST',
+      organizationId,
+      body: JSON.stringify({
+        expectedVersion,
+        observation,
+      }),
+    },
+  );
 }

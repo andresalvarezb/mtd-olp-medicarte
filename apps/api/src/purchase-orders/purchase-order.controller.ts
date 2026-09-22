@@ -26,7 +26,24 @@ import type { AuthenticatedRequest } from '../types';
 import { PurchaseOrderService } from './purchase-order.service';
 
 const uuid = z.string().uuid();
-const actionSchema = z.object({ expectedVersion: z.number().int().positive() });
+const actionSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+});
+
+const acceptPurchaseOrderSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+
+    committedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'committedDate must use YYYY-MM-DD'),
+
+    observation: z.string().trim().min(3).max(2000).optional(),
+  })
+  .strict();
+
+const supplierReturnSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  observation: z.string().trim().min(3).max(2000),
+});
 
 @ApiTags('purchase-orders')
 @ApiBearerAuth()
@@ -157,6 +174,30 @@ export class SupplierPurchaseOrderController {
     uuid.parse(id);
     return this.orders.detail(id, true, await this.scope(req, org, 'purchase_orders.read'));
   }
+  @Post('purchase-orders/:id/accept')
+  @HttpCode(200)
+  async accept(
+    @Param('id') id: string,
+    @Body() raw: unknown,
+    @Headers('x-organization-id')
+    org: string | undefined,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    uuid.parse(id);
+
+    const body = acceptPurchaseOrderSchema.parse(raw);
+
+    return this.orders.acceptBySupplier(
+      id,
+      {
+        expectedVersion: body.expectedVersion,
+        committedDate: body.committedDate,
+        ...(body.observation === undefined ? {} : { observation: body.observation }),
+      },
+      await this.scope(req, org, 'purchase_orders.review_supplier'),
+    );
+  }
+
   @Post('purchase-orders/:id/lines/:lineId/review') @HttpCode(200) async review(
     @Param('id') id: string,
     @Param('lineId') lineId: string,
@@ -176,6 +217,26 @@ export class SupplierPurchaseOrderController {
       await this.scope(req, org, 'purchase_orders.review_supplier'),
     );
   }
+  @Post('purchase-orders/:id/return')
+  @HttpCode(200)
+  async returnToMtd(
+    @Param('id') id: string,
+    @Body() raw: unknown,
+    @Headers('x-organization-id') org: string | undefined,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    uuid.parse(id);
+
+    const body = supplierReturnSchema.parse(raw);
+
+    return this.orders.returnBySupplier(
+      id,
+      body.expectedVersion,
+      body.observation,
+      await this.scope(req, org, 'purchase_orders.review_supplier'),
+    );
+  }
+
   @Post('purchase-orders/:id/complete-review') @HttpCode(200) async complete(
     @Param('id') id: string,
     @Body() raw: unknown,

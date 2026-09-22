@@ -132,6 +132,18 @@ export class AnalyticsService {
     };
   }
 
+
+  async dashboard(
+    scope: Scope,
+    includeEconomics: boolean,
+  ) {
+    return this.repository.dashboard({
+      organizationId: scope.organizationId,
+      organizationCode: scope.organizationCode,
+      includeEconomics,
+    });
+  }
+
   async novelties(query: AnalyticsQuery, scope: Scope) {
     const result = await this.operational(query, scope, false);
     return { freshness: result.freshness, outcomes: result.outcomes };

@@ -33,6 +33,34 @@ export class BulkImportController {
     private readonly access: AccessService,
   ) {}
 
+  @Get('authorizations/template.xlsx')
+  async authorizationTemplate(
+    @Res() response: Response,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    await this.scope(
+      organizationId,
+      request,
+      'bulk_imports.read',
+    );
+
+    const buffer =
+      this.bulk.buildAuthorizationTemplate();
+
+    response.setHeader(
+      'content-type',
+      XLSX_CONTENT_TYPE,
+    );
+
+    response.setHeader(
+      'content-disposition',
+      'attachment; filename="plantilla-autorizaciones.xlsx"',
+    );
+
+    response.send(buffer);
+  }
+
   @Get('scheduling/template.xlsx')
   async template(
     @Res() response: Response,

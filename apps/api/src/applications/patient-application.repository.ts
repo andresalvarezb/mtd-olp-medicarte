@@ -230,6 +230,14 @@ export class PatientApplicationRepository {
         if (!override || !override.fefo_override_reason?.trim())
           throw new Error('PATIENT_APPLICATION_FEFO_OVERRIDE_REQUIRED');
       }
+      await this.consumeInventoryAllocations(
+        tx,
+        application.authorization_item_id,
+        application.commercial_code,
+        application.dispensing_point_id,
+        total,
+      );
+
       for (const line of lines) {
         await tx.execute(sql`insert into inventory_movements
           (inventory_lot_id,movement_type,quantity_delta,source_type,source_id,occurred_at,created_by,metadata)
@@ -273,13 +281,18 @@ export class PatientApplicationRepository {
     if (query.patientScheduleId)
       conditions.push(sql`pa.patient_schedule_id=${query.patientScheduleId}`);
     if (query.patientDocument)
-      conditions.push(sql`coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE', ai.source_data->>'NUM_DOCUMENTO', '') ilike ${`%${query.patientDocument}%`}`);
+      conditions.push(
+        sql`coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE', ai.source_data->>'NUM_DOCUMENTO', '') ilike ${`%${query.patientDocument}%`}`,
+      );
     if (query.authorization)
       conditions.push(sql`ai.numero_autorizacion ilike ${`%${query.authorization}%`}`);
     if (query.commercialCode) conditions.push(sql`pa.commercial_code=${query.commercialCode}`);
-    if (query.dispensingPointId) conditions.push(sql`pa.dispensing_point_id=${query.dispensingPointId}`);
-    if (query.applicationDateFrom) conditions.push(sql`pa.application_date >= ${query.applicationDateFrom}::date`);
-    if (query.applicationDateTo) conditions.push(sql`pa.application_date <= ${query.applicationDateTo}::date`);
+    if (query.dispensingPointId)
+      conditions.push(sql`pa.dispensing_point_id=${query.dispensingPointId}`);
+    if (query.applicationDateFrom)
+      conditions.push(sql`pa.application_date >= ${query.applicationDateFrom}::date`);
+    if (query.applicationDateTo)
+      conditions.push(sql`pa.application_date <= ${query.applicationDateTo}::date`);
     if (!['MTD', 'MEDICARTE'].includes(scope.organizationCode))
       conditions.push(sql`dp.organization_id=${scope.organizationId}`);
     conditions.push(applyPointScope(sql`pa.dispensing_point_id`, scope));
@@ -524,6 +537,142 @@ export class PatientApplicationRepository {
       })),
       availableLots: lots,
     };
+  }
+
+  private async consumeInventoryAllocations(
+    tx: Tx,
+    authorizationItemId: string,
+    commercialCode: string,
+    dispensingPointId: string,
+    quantity: number,
+  ) {
+    await tx.execute(sql`
+      select
+        pg_advisory_xact_lock(
+          hashtextextended(
+            ${`${commercialCode}:${dispensingPointId}`},
+            0::bigint
+          )
+        )
+    `);
+
+    const allocations = await tx.execute<{
+      id: string;
+      allocated_quantity: number;
+      consumed_quantity: number;
+      released_quantity: number;
+    }>(sql`
+        select
+          id,
+          allocated_quantity,
+          consumed_quantity,
+          released_quantity
+
+        from
+          inventory_authorization_allocations
+
+        where
+          authorization_item_id =
+            ${authorizationItemId}
+
+          and commercial_code =
+            ${commercialCode}
+
+          and dispensing_point_id =
+            ${dispensingPointId}
+
+          and status in (
+            'ALLOCATED',
+            'PARTIALLY_CONSUMED'
+          )
+
+        order by
+          created_at,
+          id
+
+        for update
+      `);
+
+    if (allocations.rows.length === 0) {
+      // Compatibilidad transicional:
+      // aplicaciones históricas sin asignación
+      // siguen operando. Una vez existe
+      // asignación para la AUTO, sí se exige
+      // cobertura lógica suficiente.
+      return;
+    }
+
+    const available = allocations.rows.reduce(
+      (sum, allocation) =>
+        sum +
+        Math.max(
+          allocation.allocated_quantity -
+            allocation.consumed_quantity -
+            allocation.released_quantity,
+          0,
+        ),
+      0,
+    );
+
+    if (available < quantity) {
+      throw new Error('PATIENT_APPLICATION_INVENTORY_ALLOCATION_INSUFFICIENT');
+    }
+
+    let remaining = quantity;
+
+    for (const allocation of allocations.rows) {
+      if (remaining <= 0) {
+        break;
+      }
+
+      const outstanding = Math.max(
+        allocation.allocated_quantity - allocation.consumed_quantity - allocation.released_quantity,
+        0,
+      );
+
+      if (outstanding === 0) {
+        continue;
+      }
+
+      const consumed = Math.min(outstanding, remaining);
+
+      await tx.execute(sql`
+        update
+          inventory_authorization_allocations
+
+        set
+          consumed_quantity =
+            consumed_quantity
+            +
+            ${consumed},
+
+          status =
+            case
+              when
+                consumed_quantity
+                +
+                ${consumed}
+                +
+                released_quantity
+                >=
+                allocated_quantity
+
+              then 'CONSUMED'
+
+              else
+                'PARTIALLY_CONSUMED'
+            end,
+
+          updated_at =
+            now()
+
+        where
+          id =
+            ${allocation.id}
+      `);
+
+      remaining -= consumed;
+    }
   }
 
   private async audit(tx: Tx, scope: Scope, action: string, id: string, after: unknown) {

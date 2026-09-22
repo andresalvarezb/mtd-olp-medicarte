@@ -1,0 +1,210 @@
+services:
+
+  # Nunca ejecutar migraciones automáticamente
+  # sobre authorization_ui_dev.
+  migrate:
+    command:
+      - sh
+      - -lc
+      - |
+        echo "[dev] Migraciones automáticas deshabilitadas."
+    environment:
+      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization_ui_dev
+
+  # Worker deliberadamente deshabilitado en desarrollo interactivo.
+  worker:
+    environment:
+      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization_ui_dev
+      SCHEDULER_ENABLED: "false"
+      RECONCILIATION_SCHEDULER_ENABLED: "false"
+    command:
+      - sh
+      - -lc
+      - |
+        echo "[dev] Worker deshabilitado."
+        exec tail -f /dev/null
+
+  api:
+    image: authorization-platform-api:ui-dev
+
+    restart: unless-stopped
+
+    environment:
+      NODE_ENV: development
+
+      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization_ui_dev
+      REDIS_URL: redis://redis:6379
+
+      LOG_LEVEL: info
+
+      AUTH_JWT_SECRET: 0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0
+      AUTH_JWT_TTL_SECONDS: 28800
+
+      AUTH_BOOTSTRAP_ADMIN_USERNAME: foundation-admin
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: foundation-admin
+
+      API_PUBLIC_URL: http://localhost:3001
+      WEB_ORIGIN: http://localhost:3002
+      API_PORT: 3001
+
+      IMPORT_MAX_FILE_BYTES: 20971520
+      IMPORT_PROCESSOR_VERSION: 2
+
+      MIPRES_BASE_URL: http://mipres-mock:8090
+      MIPRES_NIT: 900123456
+      MIPRES_INITIAL_TOKEN: initial-secret
+      MIPRES_MANUAL_RECHECK_DAILY_LIMIT: 3
+
+      THROTTLE_GLOBAL_LIMIT: 1000
+      AUTH_LOGIN_THROTTLE_LIMIT: 1000
+
+      RECONCILIATION_SCHEDULER_ENABLED: "false"
+
+      # Importante para bind mounts Windows -> Docker.
+      TSC_WATCHFILE: DynamicPriorityPolling
+      TSC_WATCHDIRECTORY: DynamicPriorityPolling
+
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+
+        echo
+        echo "=============================================="
+        echo "[api-dev] BUILD INICIAL - NO ES DOCKER BUILD"
+        echo "=============================================="
+
+        pnpm --filter @authorization/config exec tsc -p tsconfig.json
+        pnpm --filter @authorization/contracts exec tsc -p tsconfig.json
+        pnpm --filter @authorization/database exec tsc -p tsconfig.json
+        pnpm --filter @authorization/domain exec tsc -p tsconfig.json
+        pnpm --filter @authorization/api exec tsc -p tsconfig.json
+
+        echo
+        echo "=============================================="
+        echo "[api-dev] WATCHERS"
+        echo "=============================================="
+
+        pnpm --filter @authorization/config \
+          exec tsc -p tsconfig.json \
+          --watch \
+          --preserveWatchOutput &
+
+        pnpm --filter @authorization/contracts \
+          exec tsc -p tsconfig.json \
+          --watch \
+          --preserveWatchOutput &
+
+        pnpm --filter @authorization/database \
+          exec tsc -p tsconfig.json \
+          --watch \
+          --preserveWatchOutput &
+
+        pnpm --filter @authorization/domain \
+          exec tsc -p tsconfig.json \
+          --watch \
+          --preserveWatchOutput &
+
+        pnpm --filter @authorization/api \
+          exec tsc -p tsconfig.json \
+          --watch \
+          --preserveWatchOutput &
+
+        echo
+        echo "=============================================="
+        echo "[api-dev] NEST RUNTIME"
+        echo "=============================================="
+
+        exec node \
+          --watch \
+          --watch-preserve-output \
+          apps/api/dist/main.js
+
+    volumes:
+      # Aplicación API completa sensible a cambios.
+      - ./apps/api/src:/workspace/apps/api/src
+
+      # Paquetes compartidos usados por API.
+      - ./packages/config/src:/workspace/packages/config/src
+      - ./packages/contracts/src:/workspace/packages/contracts/src
+      - ./packages/database/src:/workspace/packages/database/src
+      - ./packages/domain/src:/workspace/packages/domain/src
+
+  web:
+    image: mtd-ui-dev-web:latest
+
+    restart: unless-stopped
+
+    environment:
+      NODE_ENV: development
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+
+      # Polling necesario con Docker Desktop + Windows.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+      TSC_WATCHFILE: DynamicPriorityPolling
+      TSC_WATCHDIRECTORY: DynamicPriorityPolling
+
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+
+        echo
+        echo "=============================================="
+        echo "[web-dev] BUILD PAQUETES COMPARTIDOS"
+        echo "=============================================="
+
+        pnpm --filter @authorization/contracts exec tsc -p tsconfig.json
+        pnpm --filter @authorization/domain exec tsc -p tsconfig.json
+        pnpm --filter @authorization/ui exec tsc -p tsconfig.json
+
+        echo
+        echo "=============================================="
+        echo "[web-dev] WATCHERS"
+        echo "=============================================="
+
+        pnpm --filter @authorization/contracts \
+          exec tsc -p tsconfig.json \
+          --watch \
+          --preserveWatchOutput &
+
+        pnpm --filter @authorization/domain \
+          exec tsc -p tsconfig.json \
+          --watch \
+          --preserveWatchOutput &
+
+        pnpm --filter @authorization/ui \
+          exec tsc -p tsconfig.json \
+          --watch \
+          --preserveWatchOutput &
+
+        echo
+        echo "=============================================="
+        echo "[web-dev] NEXT DEV"
+        echo "=============================================="
+
+        exec pnpm \
+          --filter @authorization/web \
+          exec next dev \
+          --hostname 0.0.0.0 \
+          --port 3000
+
+    volumes:
+      # Next
+      - ./apps/web/app:/workspace/apps/web/app
+      - ./apps/web/components:/workspace/apps/web/components
+      - ./apps/web/features:/workspace/apps/web/features
+      - ./apps/web/hooks:/workspace/apps/web/hooks
+      - ./apps/web/lib:/workspace/apps/web/lib
+      - ./apps/web/public:/workspace/apps/web/public
+
+      # Paquetes compartidos usados por Web.
+      - ./packages/contracts/src:/workspace/packages/contracts/src
+      - ./packages/domain/src:/workspace/packages/domain/src
+      - ./packages/ui/src:/workspace/packages/ui/src

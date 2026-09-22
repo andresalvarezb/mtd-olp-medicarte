@@ -47,20 +47,57 @@ export class PurchaseOrderService {
       });
     return result;
   }
+
+  acceptBySupplier(
+    id: string,
+    input: {
+      expectedVersion: number;
+      committedDate: string;
+      observation?: string;
+    },
+    actor: Scope,
+  ) {
+    this.requireOlp(actor);
+
+    return this.run(() => this.repository.acceptBySupplier(id, input, this.actor(actor)));
+  }
+
   review(
     id: string,
     lineId: string,
     input: { acceptedQuantity: number; supplierUnitCost?: number; expectedVersion: number },
     actor: Scope,
   ) {
+    this.requireOlp(actor);
+
     return this.run(() => this.repository.reviewLine(id, lineId, input, this.actor(actor)));
   }
+  returnBySupplier(id: string, version: number, observation: string, actor: Scope) {
+    this.requireOlp(actor);
+
+    return this.run(() =>
+      this.repository.returnBySupplier(id, version, observation, this.actor(actor)),
+    );
+  }
+
   completeReview(id: string, version: number, actor: Scope) {
+    this.requireOlp(actor);
+
     return this.run(() => this.repository.completeReview(id, version, this.actor(actor)));
   }
   available(periodId: string) {
     return this.repository.available(periodId);
   }
+  private requireOlp(scope: Scope): void {
+    if (scope.organizationCode !== 'OLP') {
+      throw new ForbiddenException({
+        code: 'PURCHASE_ORDER_OLP_ONLY',
+
+        message: 'Only OLP can perform supplier purchase order actions',
+      });
+    }
+  }
+
   private actor(scope: Scope) {
     return {
       userId: scope.userId,
@@ -87,7 +124,12 @@ export class PurchaseOrderService {
       }
       return result;
     } catch (error) {
-      if (error instanceof ConflictException || error instanceof NotFoundException) throw error;
+      if (
+        error instanceof ConflictException ||
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException
+      )
+        throw error;
       const message = error instanceof Error ? error.message : '';
       const codes: Record<string, [number, string]> = {
         PURCHASE_ORDER_CODE_REQUIRED: [409, 'Purchase order code is required before issue'],
@@ -114,6 +156,9 @@ export class PurchaseOrderService {
         PURCHASE_ORDER_INVALID_TRANSITION: [409, 'Invalid purchase order transition'],
         TARIFF_RATE_NOT_FOUND: [400, 'No active COMPENSAR tariff exists for the product'],
         PURCHASE_ORDER_TARIFF_NOT_PBS: [409, 'Product is no longer PBS in the active tariff annex'],
+        PURCHASE_ORDER_NOT_ACCEPTABLE: [409, 'Purchase order is not available for OLP acceptance'],
+        PURCHASE_ORDER_ALREADY_ACCEPTED: [409, 'Purchase order was already accepted by OLP'],
+        PURCHASE_ORDER_LINES_REQUIRED: [409, 'Purchase order has no lines to accept'],
         PURCHASE_ORDER_NOT_REVIEWABLE: [409, 'Purchase order is not under supplier review'],
         PURCHASE_ORDER_REVIEW_INCOMPLETE: [409, 'All lines must be reviewed'],
       };
