@@ -1278,13 +1278,13 @@ describe('Gate ESP-019 — Operación programada y alertamiento controlado', () 
   });
 
   // GATES A & B
-  it('Gate A. PostgreSQL has 52 migrations through 0051', async () => {
+  it('Gate A. PostgreSQL has at least 55 migrations through 0055', async () => {
     const journal = JSON.parse(
       readFileSync(resolve(root, 'packages/database/migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries.length).toBeGreaterThanOrEqual(52);
-    expect(journal.entries[50]?.tag).toBe('0050_esp018_reconciliation_governance');
-    expect(journal.entries[51]?.tag).toBe('0051_esp019_reconciliation_operations');
+    expect(journal.entries.length).toBeGreaterThanOrEqual(55);
+    expect(journal.entries[53]?.tag).toBe('0054_esp018_reconciliation_governance');
+    expect(journal.entries[54]?.tag).toBe('0055_esp019_reconciliation_operations');
 
     const pTable = await database.query<{ exists: boolean }>(
       `select to_regclass('public.reconciliation_operation_policies') is not null as exists`,
@@ -1318,7 +1318,7 @@ describe('Gate ESP-019 — Operación programada y alertamiento controlado', () 
 
   it('Gate B. ESP-019 migration does not insert auto-enabled policy', () => {
     const migrationSql = source(
-      'packages/database/migrations/0051_esp019_reconciliation_operations.sql',
+      'packages/database/migrations/0055_esp019_reconciliation_operations.sql',
     );
     expect(migrationSql).not.toMatch(/INSERT INTO reconciliation_operation_policies/i);
     expect(migrationSql).not.toMatch(/DROP TABLE/i);

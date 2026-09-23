@@ -16,6 +16,7 @@ const database = new Client({
 });
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 const suffix = randomUUID().slice(0, 8).toUpperCase();
+const DECLARED_DISPATCH_DATE = '2037-01-14';
 let adminToken: string;
 let olpToken: string;
 let medicarteToken: string;
@@ -150,6 +151,7 @@ describe('Gate ESP-006 - supplier deliveries', () => {
     }>(
       await api('POST', `/supplier/deliveries/${first.id}/dispatch`, {
         expectedVersion: first.version,
+        declaredDispatchDate: DECLARED_DISPATCH_DATE,
       }),
     );
     expect(dispatched).toMatchObject({
@@ -189,6 +191,7 @@ describe('Gate ESP-006 - supplier deliveries', () => {
     await json(
       await api('POST', `/supplier/deliveries/${first.id}/dispatch`, {
         expectedVersion: first.version,
+        declaredDispatchDate: DECLARED_DISPATCH_DATE,
       }),
     );
     const one = await createDelivery(10, 'LOT-D');
@@ -197,6 +200,7 @@ describe('Gate ESP-006 - supplier deliveries', () => {
       [one, two].map((delivery) =>
         api('POST', `/supplier/deliveries/${delivery.id}/dispatch`, {
           expectedVersion: delivery.version,
+          declaredDispatchDate: DECLARED_DISPATCH_DATE,
         }),
       ),
     );

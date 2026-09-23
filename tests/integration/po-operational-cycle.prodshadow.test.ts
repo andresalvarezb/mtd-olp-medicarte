@@ -24,6 +24,19 @@ const databaseUrl =
   process.env.DATABASE_URL ??
   'postgresql://authorization:authorization@127.0.0.1:15432/authorization_ui_prodshadow';
 
+const targetDatabaseName =
+  new URL(
+    databaseUrl,
+  ).pathname.replace(
+    /^\/+/,
+    '',
+  );
+
+const isEphemeralE2eTarget =
+  /^authorization_e2e_\d{14}$/.test(
+    targetDatabaseName,
+  );
+
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 const database = new Client({ connectionString: databaseUrl });
 
@@ -500,6 +513,12 @@ async function summarizeDatabase(): Promise<JsonObject> {
 }
 
 beforeAll(async () => {
+  if (
+    !isEphemeralE2eTarget
+  ) {
+    return;
+  }
+
   await database.connect();
   await assertShadow();
 
@@ -514,6 +533,12 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
+  if (
+    !isEphemeralE2eTarget
+  ) {
+    return;
+  }
+
   console.log('\n================ PO OPERATIONAL E2E MATRIX ================');
   console.table(
     findings.map(({ name, pass, severity, expected, observed }) => ({
@@ -557,7 +582,12 @@ afterAll(async () => {
   await database.end();
 });
 
-describe('PO operational cycle — ephemeral E2E gate', () => {
+const describeEphemeralE2e =
+  isEphemeralE2eTarget
+    ? describe
+    : describe.skip;
+
+describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
   it('runs MTD → OLP → Medicarte and records expected/negative outcomes', async () => {
     // 1) MTD creates PO.
     const created = await request('POST', '/purchase-orders', {
