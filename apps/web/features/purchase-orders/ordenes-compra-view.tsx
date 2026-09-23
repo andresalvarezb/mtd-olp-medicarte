@@ -652,12 +652,9 @@ export function PurchaseOrdersView() {
                 <p>
                   {statusGroupLabel(selectedOrder.status)}
 
-                  {statusReasonLabel(selectedOrder.status)
-                    ? ` · ${statusReasonLabel(selectedOrder.status)}`
-                    : statusGroup(selectedOrder.status) === 'ISSUE' &&
-                        issueOutcomeLabel(selectedOrder.status)
-                      ? ` · ${issueOutcomeLabel(selectedOrder.status)}`
-                      : ''}
+                  {rowStatusReason(selectedOrder.status)
+                    ? ` · ${rowStatusReason(selectedOrder.status)}`
+                    : ''}
                 </p>
               </div>
 
