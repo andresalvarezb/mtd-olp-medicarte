@@ -2451,6 +2451,12 @@ export type AuthorizationFulfillmentType =
 
 export const fulfillAuthorizationRequestSchema =
   z.object({
+    purchaseOrderCode:
+      z.string()
+        .trim()
+        .min(1)
+        .max(255),
+
     fulfillmentType:
       authorizationFulfillmentTypeSchema,
 

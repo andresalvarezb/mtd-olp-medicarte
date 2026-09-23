@@ -97,7 +97,9 @@ export function AppShell({
         '/login'
     ) {
       router.replace(
-        '/indicadores',
+        roles.includes('OLP')
+          ? '/ordenes-compra'
+          : '/indicadores',
       );
 
       return;

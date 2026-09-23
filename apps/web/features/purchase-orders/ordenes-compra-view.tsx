@@ -14,14 +14,36 @@ import { useRole } from '@/components/layout/role-context';
 import {
   downloadPurchaseOrderTemplate,
   listPurchaseOrders,
+  listSupplierPurchaseOrders,
   uploadPurchaseOrderImport,
   type PurchaseOrderImportResult,
 } from '@/lib/purchase-orders-api';
 import { issuePurchaseOrder } from '@/lib/purchase-orders-api';
 
-type DetailedOrder = PurchaseOrderResponse & {
-  latestSupplierObservation?: string | null;
-};
+type DetailedOrder =
+  Omit<
+    PurchaseOrderResponse,
+    'status' | 'orderType'
+  > & {
+    status: string;
+
+    orderType:
+      | 'STANDARD'
+      | 'COMPLEMENTARY'
+      | null;
+
+    olpAcceptedAt?:
+      | string
+      | null;
+
+    olpCommittedDate?:
+      | string
+      | null;
+
+    latestSupplierObservation?:
+      | string
+      | null;
+  };
 
 type OrderStatusGroup =
   | ''
@@ -37,41 +59,63 @@ const STATUS_GROUP_LABELS: Record<Exclude<OrderStatusGroup, ''>, string> = {
   RECEIVED: 'Recibida',
 };
 
-function statusGroup(status: string): Exclude<OrderStatusGroup, ''> {
+function statusGroup(
+  order: Pick<
+    DetailedOrder,
+    'status' | 'olpAcceptedAt'
+  >,
+): Exclude<OrderStatusGroup, ''> {
   /*
-   * Estados técnicos del backend.
-   * La UI expone únicamente el estado operacional.
+   * El estado visible es operacional, no el status técnico.
+   *
+   * Las OC reconstruidas pueden conservar HISTORICAL_ONLY
+   * de forma permanente. Si OLP ya las aceptó, su estado
+   * operacional pasa a PENDING_MEDICARTE.
    */
 
-  if (['DRAFT', 'ISSUED', 'UNDER_OLP_REVIEW'].includes(status)) {
-    return 'PENDING_OLP';
+  if (
+    order.status ===
+    'RECEIVED'
+  ) {
+    return 'RECEIVED';
   }
 
   if (
+    order.status ===
+    'PARTIALLY_RECEIVED'
+  ) {
+    return 'PARTIALLY_RECEIVED';
+  }
+
+  if (
+    order.olpAcceptedAt ||
     [
       'ACCEPTED',
       'PARTIALLY_ACCEPTED',
       'IN_FULFILLMENT',
       'PARTIALLY_DISPATCHED',
       'FULLY_DISPATCHED',
-    ].includes(status)
+    ].includes(
+      order.status,
+    )
   ) {
     return 'PENDING_MEDICARTE';
-  }
-
-  if (status === 'PARTIALLY_RECEIVED') {
-    return 'PARTIALLY_RECEIVED';
-  }
-
-  if (status === 'RECEIVED') {
-    return 'RECEIVED';
   }
 
   return 'PENDING_OLP';
 }
 
-function statusGroupLabel(status: string) {
-  return STATUS_GROUP_LABELS[statusGroup(status)];
+function statusGroupLabel(
+  order: Pick<
+    DetailedOrder,
+    'status' | 'olpAcceptedAt'
+  >,
+) {
+  return STATUS_GROUP_LABELS[
+    statusGroup(
+      order,
+    )
+  ];
 }
 
 function statusReasonLabel(status: string) {
@@ -122,8 +166,9 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export function PurchaseOrdersView() {
   const router = useRouter();
-  const { organizationId, hasPermission } = useRole();
+  const { organizationId, hasPermission, roles } = useRole();
   const canManage = hasPermission('purchase_orders.manage');
+  const isOlp = roles.includes('OLP');
 
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -149,37 +194,89 @@ export function PurchaseOrdersView() {
   const [pageSize, setPageSize] = useState(10);
 
   const orders = useApiData(async () => {
+    /*
+     * Los filtros de texto/tipo se ejecutan en el backend.
+     * El filtro de macroestado se aplica en frontend porque
+     * PENDING_OLP/PENDING_MEDICARTE son estados operacionales
+     * y no necesariamente coinciden con po.status.
+     */
     const query = {
-      purchaseOrderCode: appliedFilters.purchaseOrderCode || undefined,
+      purchaseOrderCode:
+        appliedFilters.purchaseOrderCode ||
+        undefined,
 
-      commercialCode: appliedFilters.commercialCode || undefined,
+      commercialCode:
+        appliedFilters.commercialCode ||
+        undefined,
 
-      orderType: appliedFilters.orderType,
+      orderType:
+        appliedFilters.orderType,
+
+      limit: 500,
     };
 
-    /*
-     * La consulta estándar excluye CANCELLED.
-     * Se consulta ese estado adicionalmente para que
-     * el macroestado "Cerrada" sea completo.
-     */
-    const [active, cancelled] = await Promise.all([
-      listPurchaseOrders(organizationId, query),
+    const list =
+      isOlp
+        ? listSupplierPurchaseOrders
+        : listPurchaseOrders;
 
-      listPurchaseOrders(organizationId, {
-        ...query,
-        status: 'CANCELLED',
-      }),
-    ]);
+    const [
+      active,
+      cancelled,
+    ] =
+      await Promise.all([
+        list(
+          organizationId,
+          query,
+        ),
 
-    const unique = new Map([...active.items, ...cancelled.items].map((order) => [order.id, order]));
+        list(
+          organizationId,
+          {
+            ...query,
+            status:
+              'CANCELLED',
+          },
+        ),
+      ]);
+
+    const unique =
+      new Map<
+        string,
+        DetailedOrder
+      >();
+
+    for (
+      const raw
+      of [
+        ...active.items,
+        ...cancelled.items,
+      ]
+    ) {
+      const order =
+        raw as DetailedOrder;
+
+      unique.set(
+        order.id,
+        order,
+      );
+    }
 
     return {
-      items: Array.from(unique.values()),
+      items:
+        Array.from(
+          unique.values(),
+        ),
     };
-  }, [organizationId, appliedFilters]);
+  }, [
+    organizationId,
+    appliedFilters,
+    isOlp,
+  ]);
+
 
   const visibleOrders = (orders.data?.items ?? []).filter(
-    (order) => !appliedFilters.status || statusGroup(order.status) === appliedFilters.status,
+    (order) => !appliedFilters.status || statusGroup(order) === appliedFilters.status,
   );
 
   const totalPages =
@@ -517,7 +614,15 @@ export function PurchaseOrdersView() {
 
                           <td>{new Date(order.createdAt).toLocaleDateString('es-CO')}</td>
 
-                          <td>{order.orderType === 'STANDARD' ? 'Estándar' : 'Complementaria'}</td>
+                          <td>{
+  order.orderType ===
+  'STANDARD'
+    ? 'Estándar'
+    : order.orderType ===
+        'COMPLEMENTARY'
+      ? 'Complementaria'
+      : 'Sin tipo'
+}</td>
 
                           <td>{order.lines.length}</td>
 
@@ -525,7 +630,7 @@ export function PurchaseOrdersView() {
 
                           <td>
                             <div className="oc-status-cell">
-                              <span className="status-chip">{statusGroupLabel(order.status)}</span>
+                              <span className="status-chip">{statusGroupLabel(order)}</span>
 
                               {rowStatusReason(order.status) ? (
                                 <span className="oc-status-reason">
@@ -648,7 +753,7 @@ export function PurchaseOrdersView() {
                 <h2>{selectedOrder.purchaseOrderCode ?? 'Borrador'}</h2>
 
                 <p>
-                  {statusGroupLabel(selectedOrder.status)}
+                  {statusGroupLabel(selectedOrder)}
 
                   {rowStatusReason(selectedOrder.status)
                     ? ` · ${rowStatusReason(selectedOrder.status)}`

@@ -175,6 +175,7 @@ export function PurchaseOrderOperationalView() {
   const {
     organizationId,
     hasPermission,
+    roles,
   } =
     useRole();
 
@@ -190,6 +191,9 @@ export function PurchaseOrderOperationalView() {
     hasPermission(
       'purchase_orders.review_supplier',
     );
+
+  const isOlp =
+    roles.includes('OLP');
 
   const [
     detail,
@@ -232,13 +236,8 @@ export function PurchaseOrderOperationalView() {
     useState('');
 
 
-  const [
-    supplierUnitCosts,
-    setSupplierUnitCosts,
-  ] =
-    useState<Record<string, string>>(
-      {},
-    );
+
+
 
 
   async function load() {
@@ -285,36 +284,8 @@ export function PurchaseOrderOperationalView() {
       !detail ||
       !shippingDate
     ) {
-      return;
-    }
-
-    const lines =
-      detail.lines.map(
-        (line) => ({
-          lineId:
-            line.id,
-
-          supplierUnitCost:
-            Number(
-              supplierUnitCosts[
-                line.id
-              ],
-            ),
-        }),
-      );
-
-    const invalidCost =
-      lines.some(
-        (line) =>
-          !Number.isFinite(
-            line.supplierUnitCost,
-          ) ||
-          line.supplierUnitCost <= 0,
-      );
-
-    if (invalidCost) {
       setError(
-        'Debes registrar un costo unitario OLP mayor que cero para cada producto.',
+        'Debes seleccionar la fecha comprometida de envío.',
       );
 
       return;
@@ -329,12 +300,10 @@ export function PurchaseOrderOperationalView() {
         detail.id,
         detail.version,
         shippingDate,
-        lines,
       );
 
       setAccepting(false);
       setShippingDate('');
-      setSupplierUnitCosts({});
 
       await load();
     } catch (cause) {
@@ -347,6 +316,7 @@ export function PurchaseOrderOperationalView() {
       setBusy(false);
     }
   }
+
 
   if (loading) {
     return (
@@ -401,7 +371,8 @@ export function PurchaseOrderOperationalView() {
 
   const historical =
     detail.technicalStatus ===
-    'HISTORICAL_ONLY';
+      'HISTORICAL_ONLY' &&
+    !detail.olpAcceptedAt;
 
   const canAcceptThisOrder =
     canAcceptOlp &&
@@ -411,7 +382,21 @@ export function PurchaseOrderOperationalView() {
       detail.technicalStatus,
     );
 
-  const olpStepText =
+
+  /*
+   * En esta etapa estamos validando la experiencia visual OLP.
+   * Las OC HISTORICAL_ONLY permiten visualizar el bloque
+   * sin convertir ni modificar información histórica.
+   */
+  const showOlpAcceptanceUi =
+    canAcceptThisOrder ||
+    (
+      isOlp &&
+      historical &&
+      !detail.olpAcceptedAt
+    );
+
+const olpStepText =
     detail.olpAcceptedAt
       ? `Aceptada · Envío ${dateOnly(
           detail.olpCommittedDate,
@@ -513,19 +498,6 @@ export function PurchaseOrderOperationalView() {
             </div>
           ) : null}
 
-          <div>
-            <span>
-              Generada
-            </span>
-
-            <strong>
-              {
-                dateTime(
-                  detail.createdAt,
-                )
-              }
-            </strong>
-          </div>
         </div>
       </header>
 
@@ -858,7 +830,7 @@ export function PurchaseOrderOperationalView() {
       </Card>
 
 
-      {historical ? (
+      {historical && !isOlp ? (
         <section
           className={
             styles.secondaryPanel
@@ -866,12 +838,12 @@ export function PurchaseOrderOperationalView() {
         >
           <div>
             <strong>
-              Información histórica
+              Registro histórico
             </strong>
 
             <span>
-              No existe evidencia autoritativa de aceptación
-              o recepción para esta OC.
+              Esta OC no tiene evidencia operacional autoritativa
+              suficiente para continuar el ciclo OLP / Medicarte.
             </span>
           </div>
         </section>
@@ -881,220 +853,229 @@ export function PurchaseOrderOperationalView() {
             styles.actionPanel
           }
         >
-          <div>
-            <strong>
-              Gestión OLP
-            </strong>
-
-            {detail.olpAcceptedAt ? (
-              <span>
-                OC aceptada por{' '}
-                {
-                  detail.olpAcceptedByName ??
-                  'OLP'
-                }
-                {' · '}
-                Fecha prevista de envío:{' '}
-                {
-                  dateOnly(
-                    detail.olpCommittedDate,
-                  )
-                }
-              </span>
-            ) : (
-              <span>
-                OLP debe aceptar la OC completa y confirmar
-                la fecha prevista de envío.
-              </span>
-            )}
-          </div>
-
-
-          {canAcceptThisOrder &&
-          !accepting ? (
-            <button
-              type="button"
-              className="button primary"
-              onClick={() =>
-                setAccepting(true)
-              }
-            >
-              Aceptar OC
-            </button>
-          ) : null}
-
-
-          {canAcceptThisOrder &&
-          accepting ? (
-            <div
-              className={
-                styles.acceptForm
-              }
-            >
-              <label>
-                <span>
-                  Fecha de envío
-                </span>
-
-                <input
-                  type="date"
-                  value={
-                    shippingDate
-                  }
-                  onChange={(
-                    event,
-                  ) =>
-                    setShippingDate(
-                      event.target.value,
-                    )
-                  }
-                />
-              </label>
-
-              <div
-              className={
-                styles.olpCostSection
-              }
-            >
-              <div
-                className={
-                  styles.olpCostHeader
-                }
-              >
+          {detail.olpAcceptedAt ? (
+            <>
+              <div>
                 <strong>
-                  Costos OLP
+                  Gestión OLP completada
                 </strong>
 
                 <span>
-                  Registra el costo unitario que OLP cobrará a MTD por cada producto.
+                  La orden fue aceptada y quedó disponible
+                  para la gestión de Medicarte.
                 </span>
               </div>
 
               <div
                 className={
-                  styles.olpCostGrid
+                  styles.acceptEvidence
                 }
               >
-                {detail.lines.map(
-                  (line) => (
-                    <div
-                      key={
-                        line.id
+                <div>
+                  <span>
+                    Aceptada por
+                  </span>
+
+                  <strong>
+                    {
+                      detail.olpAcceptedByName ??
+                      'OLP'
+                    }
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Fecha de aceptación
+                  </span>
+
+                  <strong>
+                    {
+                      dateTime(
+                        detail.olpAcceptedAt,
+                      )
+                    }
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Fecha de entrega
+                  </span>
+
+                  <strong>
+                    {
+                      dateOnly(
+                        detail.olpCommittedDate,
+                      )
+                    }
+                  </strong>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <strong>
+                  Gestión OLP
+                </strong>
+
+                <div>
+                  <span>
+                    Revisa los productos y cantidades de la orden.
+                  </span>
+
+                  <span>
+                    Para aceptarla, define la fecha de entrega.
+                  </span>
+                </div>
+              </div>
+
+              {showOlpAcceptanceUi ? (
+                <div
+                  className={
+                    styles.acceptWorkspace
+                  }
+                >
+                  <div
+                    className={
+                      styles.acceptForm
+                    }
+                  >
+                    <label>
+                      <span>
+                        Fecha de entrega
+                      </span>
+
+                      <input
+                        type="date"
+                        value={
+                          shippingDate
+                        }
+                        disabled={
+                          busy
+                        }
+                        onChange={(
+                          event,
+                        ) => {
+                          setShippingDate(
+                            event.target.value,
+                          );
+
+                          /*
+                           * Si cambia la fecha después de abrir
+                           * la confirmación, se exige confirmar
+                           * nuevamente el nuevo valor.
+                           */
+                          setAccepting(false);
+                        }}
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      className="button primary"
+                      disabled={
+                        busy ||
+                        !shippingDate
                       }
+                      onClick={() => {
+                        if (
+                          !shippingDate
+                        ) {
+                          setError(
+                            'Debes seleccionar la fecha de entrega.',
+                          );
+
+                          return;
+                        }
+
+                        setError(null);
+                        setAccepting(true);
+                      }}
+                    >
+                      Aceptar OC
+                    </button>
+                  </div>
+
+                  {accepting ? (
+                    <div
                       className={
-                        styles.olpCostRow
+                        styles.acceptConfirmation
                       }
                     >
-                      <div
-                        className={
-                          styles.olpCostProduct
-                        }
-                      >
+                      <div>
                         <strong>
-                          {
-                            line.commercialCode
-                          }
+                          Confirmar aceptación
                         </strong>
 
                         <span>
+                          La OC{' '}
                           {
-                            line.productDescription ??
-                            'Sin nombre'
-                          }
+                            detail.purchaseOrderCode ??
+                            ''
+                          }{' '}
+                          pasará a Pendiente Medicarte con fecha
+                          prevista de envío{' '}
+                          {
+                            dateOnly(
+                              shippingDate,
+                            )
+                          }.
                         </span>
-
-                        <small>
-                          Cantidad solicitada:{' '}
-                          {
-                            line.requestedQuantity
-                          }
-                        </small>
                       </div>
 
-                      <label
+                      <div
                         className={
-                          styles.olpCostField
+                          styles.acceptConfirmationActions
                         }
                       >
-                        <span>
-                          Costo unitario OLP
-                        </span>
-
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          inputMode="decimal"
-                          value={
-                            supplierUnitCosts[
-                              line.id
-                            ] ??
-                            ''
-                          }
+                        <button
+                          type="button"
+                          className="button"
                           disabled={
                             busy
                           }
-                          placeholder="0"
-                          onChange={
-                            (
-                              event,
-                            ) => {
-                              const value =
-                                event.target.value;
-
-                              setSupplierUnitCosts(
-                                (
-                                  current,
-                                ) => ({
-                                  ...current,
-
-                                  [
-                                    line.id
-                                  ]:
-                                    value,
-                                }),
-                              );
-                            }
+                          onClick={() =>
+                            setAccepting(
+                              false,
+                            )
                           }
-                        />
-                      </label>
+                        >
+                          Cancelar
+                        </button>
+
+                        <button
+                          type="button"
+                          className="button primary"
+                          disabled={
+                            busy
+                          }
+                          onClick={() => {
+                            void acceptOrder();
+                          }}
+                        >
+                          {
+                            busy
+                              ? 'Confirmando...'
+                              : 'Confirmar aceptación'
+                          }
+                        </button>
+                      </div>
                     </div>
-                  ),
-                )}
-              </div>
-            </div>
-
-            <div>
-                <button
-                  type="button"
-                  className="button"
-                  disabled={
-                    busy
+                  ) : null}
+                </div>
+              ) : (
+                <div
+                  className={
+                    styles.acceptUnavailable
                   }
-                  onClick={() => {
-                    setAccepting(false);
-                    setShippingDate('');
-                  }}
                 >
-                  Cancelar
-                </button>
-
-                <button
-                  type="button"
-                  className="button primary"
-                  disabled={
-                    busy ||
-                    !shippingDate
-                  }
-                  onClick={() => {
-                    void acceptOrder();
-                  }}
-                >
-                  Confirmar
-                </button>
-              </div>
-            </div>
-          ) : null}
+                  Esta orden no tiene una acción pendiente para OLP.
+                </div>
+              )}
+            </>
+          )}
         </section>
       )}
     </>

@@ -13,11 +13,15 @@ export type InventoryAvailabilityItem = Readonly<{
 
   dispensingPointCode: string | null;
 
+  requestedQuantity: number;
+
+  receivedQuantity: number;
+
+  fulfilledQuantity: number;
+
   availableQuantity: number;
 
-  assignedQuantity: number;
-
-  totalQuantity: number;
+  pendingReceiptQuantity: number;
 }>;
 
 export type AvailabilityImportRow = Readonly<{
