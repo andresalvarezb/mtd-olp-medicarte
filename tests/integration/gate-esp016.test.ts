@@ -609,13 +609,13 @@ describe('Gate ESP-016 — cutover de campos legacy', () => {
     );
   });
 
-  it('Gate A. PostgreSQL tiene las 49 migraciones hasta 0048', async () => {
+  it('Gate A. PostgreSQL tiene al menos 52 migraciones hasta 0052', async () => {
     const journal = JSON.parse(
       readFileSync(resolve(root, 'packages/database/migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries.length).toBeGreaterThanOrEqual(49);
+    expect(journal.entries.length).toBeGreaterThanOrEqual(52);
     expect(journal.entries[0]?.tag).toBe('0000_foundation');
-    expect(journal.entries[48]?.tag).toBe('0048_esp016_legacy_cutover');
+    expect(journal.entries[51]?.tag).toBe('0052_esp016_legacy_cutover');
     const comment = await database.query<{ description: string }>(
       `select col_description('authorization_items'::regclass, attnum) as description
          from pg_attribute
@@ -624,16 +624,16 @@ describe('Gate ESP-016 — cutover de campos legacy', () => {
     expect(comment.rows[0]?.description).toContain('DERIVED_COMPATIBILITY');
   });
 
-  it('Gate B. ESP-016 es únicamente 0048 sobre el estado ESP-015', () => {
+  it('Gate B. ESP-016 es únicamente 0052 sobre el estado ESP-015', () => {
     const journal = JSON.parse(
       readFileSync(resolve(root, 'packages/database/migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ tag: string }> };
-    expect(journal.entries[47]?.tag).toBe('0047_esp015_point_scopes');
+    expect(journal.entries[50]?.tag).toBe('0051_esp015_point_scopes');
     expect(
       journal.entries.filter((entry) => entry.tag.includes('esp016')).map((entry) => entry.tag),
-    ).toEqual(['0048_esp016_legacy_cutover']);
+    ).toEqual(['0052_esp016_legacy_cutover']);
     const sql = readFileSync(
-      resolve(root, 'packages/database/migrations/0048_esp016_legacy_cutover.sql'),
+      resolve(root, 'packages/database/migrations/0052_esp016_legacy_cutover.sql'),
       'utf8',
     );
     expect(sql).toContain('COMMENT ON COLUMN');

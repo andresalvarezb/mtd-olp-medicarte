@@ -32,11 +32,41 @@ const actionSchema = z.object({
 
 const acceptPurchaseOrderSchema = z
   .object({
-    expectedVersion: z.number().int().positive(),
+    expectedVersion:
+      z.number()
+        .int()
+        .positive(),
 
-    committedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'committedDate must use YYYY-MM-DD'),
+    committedDate:
+      z.string()
+        .regex(
+          /^\d{4}-\d{2}-\d{2}$/,
+          'committedDate must use YYYY-MM-DD',
+        ),
 
-    observation: z.string().trim().min(3).max(2000).optional(),
+    observation:
+      z.string()
+        .trim()
+        .min(3)
+        .max(2000)
+        .optional(),
+
+    lines:
+      z.array(
+        z.object({
+          lineId:
+            z.string()
+              .uuid(),
+
+          supplierUnitCost:
+            z.number()
+              .finite()
+              .positive(),
+        })
+        .strict(),
+      )
+      .min(1)
+      .max(500),
   })
   .strict();
 
@@ -90,6 +120,25 @@ export class PurchaseOrderController {
     uuid.parse(id);
     return this.orders.detail(id, false, await this.scope(req, org, 'purchase_orders.read'));
   }
+  @Get('purchase-orders/:id/operational')
+  async operationalDetail(
+    @Param('id') id: string,
+    @Headers('x-organization-id')
+    org: string | undefined,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    uuid.parse(id);
+
+    return this.orders.operationalDetail(
+      id,
+      await this.scope(
+        req,
+        org,
+        'purchase_orders.read',
+      ),
+    );
+  }
+
   @Patch('purchase-orders/:id') async update(
     @Param('id') id: string,
     @Body() raw: unknown,
@@ -177,24 +226,58 @@ export class SupplierPurchaseOrderController {
   @Post('purchase-orders/:id/accept')
   @HttpCode(200)
   async accept(
-    @Param('id') id: string,
-    @Body() raw: unknown,
+    @Param('id')
+    id: string,
+
+    @Body()
+    raw: unknown,
+
     @Headers('x-organization-id')
     org: string | undefined,
-    @Req() req: AuthenticatedRequest,
+
+    @Req()
+    req: AuthenticatedRequest,
   ) {
     uuid.parse(id);
 
-    const body = acceptPurchaseOrderSchema.parse(raw);
+    /*
+     * Autorización antes de validar el payload.
+     *
+     * Un actor sin permiso debe recibir 403 y no obtener
+     * información sobre la forma del contrato de OLP.
+     */
+    const scope =
+      await this.scope(
+        req,
+        org,
+        'purchase_orders.review_supplier',
+      );
+
+    const body =
+      acceptPurchaseOrderSchema.parse(
+        raw,
+      );
 
     return this.orders.acceptBySupplier(
       id,
       {
-        expectedVersion: body.expectedVersion,
-        committedDate: body.committedDate,
-        ...(body.observation === undefined ? {} : { observation: body.observation }),
+        expectedVersion:
+          body.expectedVersion,
+
+        committedDate:
+          body.committedDate,
+
+        lines:
+          body.lines,
+
+        ...(body.observation === undefined
+          ? {}
+          : {
+              observation:
+                body.observation,
+            }),
       },
-      await this.scope(req, org, 'purchase_orders.review_supplier'),
+      scope,
     );
   }
 

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   confirmReceiptRequestSchema,
   createReceiptRequestSchema,
+  purchaseOrderDirectReceiptRequestSchema,
   updateReceiptRequestSchema,
 } from '@authorization/contracts';
 import { AuthGuard } from '../common/auth.guard';
@@ -23,6 +24,28 @@ export class ReceiptController {
     const profile = await this.access.requirePermission(req.auth.sub, id, permission);
     return scopeFromProfile(profile, id, req);
   }
+  @Post('medicarte/purchase-orders/:id/receipts')
+  async createPurchaseOrderReceipt(
+    @Param('id') id: string,
+    @Body() raw: unknown,
+    @Headers('x-organization-id')
+    org: string | undefined,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.receipts.createPurchaseOrderReceipt(
+      uuid.parse(id),
+      purchaseOrderDirectReceiptRequestSchema.parse(
+        raw,
+      ),
+      await this.scope(
+        req,
+        org,
+        'medicarte_receipts.manage',
+      ),
+    );
+  }
+
+
   @Post('medicarte/receipts') async create(
     @Body() raw: unknown,
     @Headers('x-organization-id') org: string | undefined,

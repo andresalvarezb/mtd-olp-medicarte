@@ -2,6 +2,8 @@
 
 import { useRef, useState } from 'react';
 
+import { useRouter } from 'next/navigation';
+
 import type { PurchaseOrderListQuery, PurchaseOrderResponse } from '@authorization/contracts';
 
 import { PageHeader } from '@/components/ui/page-header';
@@ -114,6 +116,7 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 export function PurchaseOrdersView() {
+  const router = useRouter();
   const { organizationId, hasPermission } = useRole();
   const canManage = hasPermission('purchase_orders.manage');
 
@@ -329,8 +332,8 @@ export function PurchaseOrdersView() {
         </Card>
       ) : null}
 
-      <Card className="orders-workspace-card">
-        <CardBody className="orders-workspace-body">
+      <Card className="purchase-orders-list-workspace operational-list-workspace orders-workspace-card">
+        <CardBody>
           <div className="orders-filters-block">
             <FilterBar>
               <FilterField label="Código OC">
@@ -430,8 +433,8 @@ export function PurchaseOrdersView() {
             </FilterBar>
           </div>
 
-          <div className="orders-table-block">
-            <div className="table-wrap">
+          <div className="operational-list-table-section">
+            <div className="table-wrap operational-list-table-wrap">
               <table>
                 <thead>
                   <tr>
@@ -495,7 +498,11 @@ export function PurchaseOrdersView() {
                             <button
                               type="button"
                               className="button"
-                              onClick={() => setSelectedOrder(order as DetailedOrder)}
+                              onClick={() =>
+                                router.push(
+                                  `/ordenes-compra/${order.id}`,
+                                )
+                              }
                             >
                               Ver
                             </button>

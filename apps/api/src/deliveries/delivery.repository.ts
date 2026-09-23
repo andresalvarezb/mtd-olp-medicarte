@@ -1,7 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
-import type { CreateDeliveryRequest, UpdateDeliveryRequest } from '@authorization/contracts';
+import type {
+  CreateDeliveryRequest,
+  DeliveryDispatchRequest,
+  UpdateDeliveryRequest,
+} from '@authorization/contracts';
 import type { Scope } from '../common/request-scope';
 import { applyPointScope } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
@@ -17,8 +21,10 @@ type DeliveryRow = {
   purchase_order_id: string;
   purchase_order_code: string | null;
   supplier_reference: string | null;
-  status: 'DRAFT' | 'DISPATCHED' | 'CANCELLED';
+  status: 'DRAFT' | 'DISPATCHED' | 'RECEIVED' | 'CANCELLED';
   dispatched_at: string | null;
+  dispatched_by: string | null;
+  declared_dispatch_date: string | null;
   version: number;
   created_at: string;
   updated_at: string;
@@ -49,6 +55,12 @@ export class DeliveryRepository {
         body.lines.map((line) => line.purchaseOrderLineId),
         scope,
         false,
+      );
+
+      await this.assertDraftCapacity(
+        tx,
+        body.purchaseOrderId,
+        body.lines,
       );
       const order = await tx.execute<{ status: string }>(
         sql`select status from purchase_orders where id = ${body.purchaseOrderId} for update`,
@@ -98,6 +110,14 @@ export class DeliveryRepository {
         scope,
         false,
       );
+
+      await this.assertDraftCapacity(
+        tx,
+        row.purchase_order_id,
+        body.lines,
+        id,
+      );
+
       await tx.execute(sql`delete from delivery_lines where delivery_id = ${id}`);
       await this.insertLines(tx, id, body.lines);
       await tx.execute(
@@ -110,7 +130,7 @@ export class DeliveryRepository {
 
   async dispatch(
     id: string,
-    expectedVersion: number,
+    body: DeliveryDispatchRequest,
     scope: Scope,
   ): Promise<Outcome<Awaited<ReturnType<DeliveryRepository['findById']>>>> {
     return this.database.db.transaction(async (tx) => {
@@ -123,7 +143,7 @@ export class DeliveryRepository {
       );
       const row = delivery.rows[0];
       if (!row) return { outcome: 'not_found' };
-      if (row.version !== expectedVersion)
+      if (row.version !== body.expectedVersion)
         return { outcome: 'version_conflict', currentVersion: row.version };
       if (row.status !== 'DRAFT') throw new Error('DELIVERY_INVALID_TRANSITION');
       const lines = await tx.execute<{
@@ -163,10 +183,27 @@ export class DeliveryRepository {
           throw new Error('DELIVERY_SNAPSHOT_MISMATCH');
       }
       await tx.execute(
-        sql`update deliveries set status = 'DISPATCHED', dispatched_at = now(), version = version + 1, updated_at = now(), updated_by = ${scope.userId} where id = ${id}`,
+        sql`update deliveries
+            set status = 'DISPATCHED',
+                dispatched_at = now(),
+                dispatched_by = ${scope.userId},
+                declared_dispatch_date = ${body.declaredDispatchDate},
+                version = version + 1,
+                updated_at = now(),
+                updated_by = ${scope.userId}
+          where id = ${id}`,
       );
       await this.deriveOrderStatus(tx, row.purchase_order_id, scope.userId);
-      await this.audit(tx, scope, 'DELIVERY_DISPATCHED', id, null);
+      await this.audit(
+        tx,
+        scope,
+        'DELIVERY_DISPATCHED',
+        id,
+        {
+          declaredDispatchDate:
+            body.declaredDispatchDate,
+        },
+      );
       return this.findByIdOn(tx, id, scope);
     });
   }
@@ -202,7 +239,7 @@ export class DeliveryRepository {
 
   private async findByIdOn(conn: Tx | Database['db'], id: string, scope: Scope) {
     const rows = await conn.execute<DeliveryRow>(
-      sql`select d.id, d.purchase_order_id, po.purchase_order_code, d.supplier_reference, d.status, d.dispatched_at, d.version, d.created_at, d.updated_at, dl.id as line_id, dl.purchase_order_line_id, dl.commercial_code, dl.dispensing_point_id, dp.code as dispensing_point_code, dp.name as dispensing_point_name, dl.quantity, dl.lot_number, dl.expiration_date, pol.product_description, pol.presentation, pol.accepted_quantity, coalesce((select sum(dl2.quantity) from delivery_lines dl2 join deliveries d2 on d2.id = dl2.delivery_id where dl2.purchase_order_line_id = dl.purchase_order_line_id and d2.status in ('DISPATCHED','RECEIVED')), 0)::int as dispatched_quantity from deliveries d join purchase_orders po on po.id = d.purchase_order_id join delivery_lines dl on dl.delivery_id = d.id join purchase_order_lines pol on pol.id = dl.purchase_order_line_id join dispensing_points dp on dp.id = dl.dispensing_point_id where d.id = ${id} and ${this.scopeFilter(scope)} order by dl.id`,
+      sql`select d.id, d.purchase_order_id, po.purchase_order_code, d.supplier_reference, d.status, d.dispatched_at, d.dispatched_by, d.declared_dispatch_date, d.version, d.created_at, d.updated_at, dl.id as line_id, dl.purchase_order_line_id, dl.commercial_code, dl.dispensing_point_id, dp.code as dispensing_point_code, dp.name as dispensing_point_name, dl.quantity, dl.lot_number, dl.expiration_date, pol.product_description, pol.presentation, pol.accepted_quantity, coalesce((select sum(dl2.quantity) from delivery_lines dl2 join deliveries d2 on d2.id = dl2.delivery_id where dl2.purchase_order_line_id = dl.purchase_order_line_id and d2.status in ('DISPATCHED','RECEIVED')), 0)::int as dispatched_quantity from deliveries d join purchase_orders po on po.id = d.purchase_order_id join delivery_lines dl on dl.delivery_id = d.id join purchase_order_lines pol on pol.id = dl.purchase_order_line_id join dispensing_points dp on dp.id = dl.dispensing_point_id where d.id = ${id} and ${this.scopeFilter(scope)} order by dl.id`,
     );
     const first = rows.rows[0];
     if (!first) return null;
@@ -213,6 +250,9 @@ export class DeliveryRepository {
       supplierReference: first.supplier_reference,
       status: first.status,
       dispatchedAt: first.dispatched_at,
+      dispatchedBy: first.dispatched_by,
+      declaredDispatchDate:
+        first.declared_dispatch_date,
       version: first.version,
       createdAt: first.created_at,
       updatedAt: first.updated_at,
@@ -233,6 +273,103 @@ export class DeliveryRepository {
         remainingQuantity: Math.max(line.accepted_quantity - line.dispatched_quantity, 0),
       })),
     };
+  }
+
+  private async assertDraftCapacity(
+    tx: Tx,
+    orderId: string,
+    lines: CreateDeliveryRequest['lines'],
+    excludeDeliveryId?: string,
+  ) {
+    const requestedByLine =
+      new Map<string, number>();
+
+    for (const line of lines) {
+      requestedByLine.set(
+        line.purchaseOrderLineId,
+        (
+          requestedByLine.get(
+            line.purchaseOrderLineId,
+          ) ?? 0
+        ) + line.quantity,
+      );
+    }
+
+    for (
+      const [
+        purchaseOrderLineId,
+        requestedQuantity,
+      ] of requestedByLine
+    ) {
+      const capacity =
+        await tx.execute<{
+          accepted_quantity: number | null;
+          committed_quantity: number;
+        }>(sql`
+          select
+            pol.accepted_quantity,
+
+            coalesce(
+              (
+                select
+                  sum(dl.quantity)
+
+                from delivery_lines dl
+
+                join deliveries d
+                  on d.id = dl.delivery_id
+
+                where
+                  dl.purchase_order_line_id =
+                    pol.id
+
+                  and d.status in (
+                    'DRAFT',
+                    'DISPATCHED',
+                    'RECEIVED'
+                  )
+
+                  ${
+                    excludeDeliveryId
+                      ? sql`and d.id <> ${excludeDeliveryId}`
+                      : sql``
+                  }
+              ),
+              0
+            )::int as committed_quantity
+
+          from purchase_order_lines pol
+
+          where
+            pol.id =
+              ${purchaseOrderLineId}
+
+            and pol.purchase_order_id =
+              ${orderId}
+        `);
+
+      const row = capacity.rows[0];
+
+      if (
+        !row ||
+        row.accepted_quantity === null ||
+        row.accepted_quantity <= 0
+      ) {
+        throw new Error(
+          'DELIVERY_LINE_NOT_ACCEPTED',
+        );
+      }
+
+      if (
+        requestedQuantity >
+        row.accepted_quantity -
+          row.committed_quantity
+      ) {
+        throw new Error(
+          'DELIVERY_OVER_DISPATCHED',
+        );
+      }
+    }
   }
 
   private async lockOrderLines(
@@ -278,7 +415,7 @@ export class DeliveryRepository {
 
   private async deriveOrderStatus(tx: Tx, orderId: string, userId: string) {
     const totals = await tx.execute<{ accepted: number; dispatched: number }>(
-      sql`select coalesce(sum(pol.accepted_quantity), 0)::int accepted, coalesce((select sum(dl.quantity) from delivery_lines dl join deliveries d on d.id = dl.delivery_id where d.purchase_order_id = ${orderId} and d.status = 'DISPATCHED'), 0)::int dispatched from purchase_order_lines pol where pol.purchase_order_id = ${orderId}`,
+      sql`select coalesce(sum(pol.accepted_quantity), 0)::int accepted, coalesce((select sum(dl.quantity) from delivery_lines dl join deliveries d on d.id = dl.delivery_id where d.purchase_order_id = ${orderId} and d.status in ('DISPATCHED','RECEIVED')), 0)::int dispatched from purchase_order_lines pol where pol.purchase_order_id = ${orderId}`,
     );
     const total = totals.rows[0]!;
     const status = total.dispatched >= total.accepted ? 'FULLY_DISPATCHED' : 'PARTIALLY_DISPATCHED';

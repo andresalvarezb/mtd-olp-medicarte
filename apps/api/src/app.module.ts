@@ -62,6 +62,11 @@ import { StockTransferService } from './inventory/stock-transfer.service';
 import { PatientApplicationController } from './applications/patient-application.controller';
 import { PatientApplicationRepository } from './applications/patient-application.repository';
 import { PatientApplicationService } from './applications/patient-application.service';
+import { AuthorizationFulfillmentController } from './fulfillments/authorization-fulfillment.controller';
+import { AuthorizationFulfillmentImportController } from './fulfillments/authorization-fulfillment-import.controller';
+import { AuthorizationFulfillmentRepository } from './fulfillments/authorization-fulfillment.repository';
+import { AuthorizationFulfillmentService } from './fulfillments/authorization-fulfillment.service';
+import { AuthorizationFulfillmentImportService } from './fulfillments/authorization-fulfillment-import.service';
 import { PatientOutcomeController } from './outcomes/patient-outcome.controller';
 import { PatientOutcomeRepository } from './outcomes/patient-outcome.repository';
 import { PatientOutcomeService } from './outcomes/patient-outcome.service';
@@ -95,6 +100,8 @@ import { ReconciliationSchedulerWorker } from './reconciliation/reconciliation-s
 import { ReconciliationMetricsProvider } from './reconciliation/reconciliation.metrics';
 import { ReconciliationRepository } from './reconciliation/reconciliation.repository';
 import { ReconciliationService } from './reconciliation/reconciliation.service';
+import { DispensationImportController } from './dispensation-import/dispensation-import.controller';
+import { DispensationImportService } from './dispensation-import/dispensation-import.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -121,7 +128,7 @@ new Gauge({
 
 @Module({
   imports: [
-    ClinicalModule.register(database),
+ClinicalModule.register(database),
     LoggerModule.forRoot({
       pinoHttp: {
         level: config.LOG_LEVEL,
@@ -140,6 +147,7 @@ new Gauge({
     ]),
   ],
   controllers: [
+    DispensationImportController,
     AuthController,
     MeController,
     ModuleRegistryController,
@@ -161,6 +169,8 @@ new Gauge({
     InventoryAvailabilityController,
     StockTransferController,
     PatientApplicationController,
+    AuthorizationFulfillmentController,
+    AuthorizationFulfillmentImportController,
     PatientOutcomeController,
     PatientApplicationAuditController,
     AnalyticsController,
@@ -173,6 +183,7 @@ new Gauge({
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
+    DispensationImportService,
     AuthGuard,
     AccessService,
     AuthService,
@@ -202,6 +213,9 @@ new Gauge({
     StockTransferService,
     PatientApplicationRepository,
     PatientApplicationService,
+    AuthorizationFulfillmentRepository,
+    AuthorizationFulfillmentService,
+    AuthorizationFulfillmentImportService,
     PatientOutcomeRepository,
     PatientOutcomeService,
     PatientApplicationAuditRepository,

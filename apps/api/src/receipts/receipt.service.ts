@@ -7,10 +7,29 @@ import {
 import { ReceiptRepository, type ReceiptOutcome } from './receipt.repository';
 import type { Scope } from '../common/request-scope';
 import { throwIfPointAccessDenied, pointAccessDeniedException } from '../common/point-access';
-import type { UpdateReceiptRequest } from '@authorization/contracts';
+import type {
+  PurchaseOrderDirectReceiptRequest,
+  UpdateReceiptRequest,
+} from '@authorization/contracts';
 @Injectable()
 export class ReceiptService {
   constructor(private readonly repository: ReceiptRepository) {}
+  createPurchaseOrderReceipt(
+    purchaseOrderId: string,
+    body: PurchaseOrderDirectReceiptRequest,
+    scope: Scope,
+  ) {
+    return this.run(
+      () =>
+        this.repository.createPurchaseOrderReceipt(
+          purchaseOrderId,
+          body,
+          scope,
+        ),
+    );
+  }
+
+
   create(id: string, scope: Scope) {
     return this.run(() => this.repository.create(id, scope));
   }
@@ -57,6 +76,19 @@ export class ReceiptService {
         'RECEIPT_QUANTITY_SUM_INVALID',
         'RECEIPT_EXPIRED_PRODUCT',
         'RECEIPT_LINE_OUT_OF_SCOPE',
+        'DIRECT_RECEIPT_MEDICARTE_ONLY',
+        'DIRECT_RECEIPT_ORDER_NOT_FOUND',
+        'DIRECT_RECEIPT_HISTORICAL_ONLY',
+        'DIRECT_RECEIPT_OLP_NOT_ACCEPTED',
+        'DIRECT_RECEIPT_LEGACY_FLOW_EXISTS',
+        'DIRECT_RECEIPT_LINE_DUPLICATE',
+        'DIRECT_RECEIPT_LINE_NOT_FOUND',
+        'DIRECT_RECEIPT_POINT_NOT_FOUND',
+        'DIRECT_RECEIPT_ALREADY_COMPLETE',
+        'DIRECT_RECEIPT_OVER_RECEIVED',
+        'DIRECT_RECEIPT_OUTCOME_INVALID',
+        'DIRECT_RECEIPT_LOT_REQUIRED',
+        'DIRECT_RECEIPT_EXPIRED_PRODUCT',
       ];
       if (conflicts.includes(message)) throw new ConflictException({ code: message, message });
       throw new BadRequestException({ code: message, message });

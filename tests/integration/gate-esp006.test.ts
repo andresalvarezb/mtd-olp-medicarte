@@ -16,6 +16,7 @@ const database = new Client({
 });
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 const suffix = randomUUID().slice(0, 8).toUpperCase();
+const DECLARED_DISPATCH_DATE = '2037-01-14';
 let adminToken: string;
 let olpToken: string;
 let medicarteToken: string;
@@ -150,6 +151,7 @@ describe('Gate ESP-006 - supplier deliveries', () => {
     }>(
       await api('POST', `/supplier/deliveries/${first.id}/dispatch`, {
         expectedVersion: first.version,
+        declaredDispatchDate: DECLARED_DISPATCH_DATE,
       }),
     );
     expect(dispatched).toMatchObject({
@@ -160,6 +162,7 @@ describe('Gate ESP-006 - supplier deliveries', () => {
     const complete = await json<{ status: string }>(
       await api('POST', `/supplier/deliveries/${second.id}/dispatch`, {
         expectedVersion: second.version,
+        declaredDispatchDate: DECLARED_DISPATCH_DATE,
       }),
     );
     expect(complete.status).toBe('DISPATCHED');
@@ -176,7 +179,7 @@ describe('Gate ESP-006 - supplier deliveries', () => {
     ).toBe(409);
   });
 
-  it('prevents concurrent dispatches from exceeding accepted quantity', async () => {
+  it('prevents concurrent delivery commitments from exceeding accepted quantity', async () => {
     await database.query("update purchase_orders set status = 'IN_FULFILLMENT' where id = $1", [
       orderId,
     ]);
@@ -185,27 +188,104 @@ describe('Gate ESP-006 - supplier deliveries', () => {
       [orderId],
     );
     await database.query('delete from deliveries where purchase_order_id = $1', [orderId]);
+
     const first = await createDelivery(10, 'LOT-C');
+
     await json(
       await api('POST', `/supplier/deliveries/${first.id}/dispatch`, {
         expectedVersion: first.version,
+        declaredDispatchDate: DECLARED_DISPATCH_DATE,
       }),
     );
-    const one = await createDelivery(10, 'LOT-D');
-    const two = await createDelivery(10, 'LOT-E');
+
     const responses = await Promise.all(
-      [one, two].map((delivery) =>
-        api('POST', `/supplier/deliveries/${delivery.id}/dispatch`, {
-          expectedVersion: delivery.version,
+      ['LOT-D', 'LOT-E'].map((lot) =>
+        api('POST', '/supplier/deliveries', {
+          purchaseOrderId: orderId,
+          supplierReference: `REF-${randomUUID()}`,
+          lines: [
+            {
+              purchaseOrderLineId: orderLineId,
+              quantity: 10,
+              lotNumber: lot,
+              expirationDate: '2036-06-30',
+            },
+          ],
         }),
       ),
     );
-    expect(responses.filter((response) => response.ok).length).toBe(1);
-    const total = await database.query<{ quantity: number }>(
-      `select coalesce(sum(dl.quantity),0)::int quantity from delivery_lines dl join deliveries d on d.id = dl.delivery_id where d.purchase_order_id = $1 and d.status = 'DISPATCHED'`,
-      [orderId],
+
+    const successfulResponses =
+      responses.filter(
+        (response) =>
+          response.status === 201,
+      );
+
+    const rejectedResponses =
+      responses.filter(
+        (response) =>
+          response.status === 409,
+      );
+
+    expect(
+      successfulResponses,
+    ).toHaveLength(1);
+
+    expect(
+      rejectedResponses,
+    ).toHaveLength(1);
+
+    const rejectedPayload =
+      await rejectedResponses[0]!.json() as {
+        code?: string;
+      };
+
+    expect(
+      rejectedPayload.code,
+    ).toBe(
+      'DELIVERY_OVER_DISPATCHED',
     );
-    expect(total.rows[0]!.quantity).toBe(20);
+
+    const successfulDraft =
+      await json<{
+        id: string;
+        version: number;
+      }>(
+        successfulResponses[0]!,
+      );
+
+    await json(
+      await api(
+        'POST',
+        `/supplier/deliveries/${successfulDraft.id}/dispatch`,
+        {
+          expectedVersion:
+            successfulDraft.version,
+
+          declaredDispatchDate:
+            DECLARED_DISPATCH_DATE,
+        },
+      ),
+    );
+
+    const total =
+      await database.query<{
+        quantity: number;
+      }>(
+        `select coalesce(sum(dl.quantity),0)::int quantity
+           from delivery_lines dl
+           join deliveries d
+             on d.id = dl.delivery_id
+          where d.purchase_order_id = $1
+            and d.status = 'DISPATCHED'`,
+        [
+          orderId,
+        ],
+      );
+
+    expect(
+      total.rows[0]!.quantity,
+    ).toBe(20);
   });
 
   it('separates OLP and Medicarte RBAC and exposes no prices or PHI', async () => {

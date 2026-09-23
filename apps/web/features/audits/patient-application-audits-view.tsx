@@ -105,7 +105,7 @@ export function PatientApplicationAuditsView() {
         title="Auditoría de aplicaciones"
         description="MTD valida aplicaciones confirmadas sin modificar el hecho físico ni el inventario."
       />
-      <Card>
+      <Card className="operational-list-workspace">
         <CardBody>
           <label>
             Estado
@@ -127,7 +127,7 @@ export function PatientApplicationAuditsView() {
           {!audits.loading && audits.data?.items.length === 0 ? (
             <p>No hay aplicaciones para este filtro.</p>
           ) : null}
-          <div className="table-wrap">
+          <div className="table-wrap operational-list-table-wrap">
             <table aria-label="Auditoría de aplicaciones">
               <thead>
                 <tr>

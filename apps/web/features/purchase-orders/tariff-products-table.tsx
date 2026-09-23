@@ -153,8 +153,8 @@ export function TariffProductsTable() {
     });
   }, [products, appliedSearch, appliedInclusion, appliedPoint]);
 
-  const totalFiltered = filtered.length;
 
+  const totalFiltered = filtered.length;
   const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
 
   const currentPage = Math.min(page, totalPages);
@@ -221,15 +221,7 @@ export function TariffProductsTable() {
               marginBottom: 14,
             }}
           >
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {loading ? 'Consultando…' : `${filtered.length} de ${data?.total ?? 0} productos`}
-            </div>
+
           </div>
 
           <div
@@ -319,7 +311,8 @@ export function TariffProductsTable() {
           ) : null}
         </div>
 
-        <DataTable
+        <div className="operational-list-table-scope">
+          <DataTable
           columns={COLUMNS}
           rows={loading ? undefined : rows}
           aria-label="Productos del Anexo Tarifario vigente"
@@ -331,6 +324,7 @@ export function TariffProductsTable() {
               : 'No existen productos que coincidan con los filtros aplicados.'
           }
         />
+        </div>
 
         {!loading ? (
           <div

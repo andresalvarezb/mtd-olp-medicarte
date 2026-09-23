@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 import { PageHeader } from '@/components/ui/page-header';
 
-import { Card, CardBody, CardHead } from '@/components/ui/card';
+import { Card, CardBody } from '@/components/ui/card';
 
 import { FilterActions, FilterBar, FilterField } from '@/components/ui/filter-bar';
 
@@ -13,7 +13,10 @@ import { useRole } from '@/components/layout/role-context';
 import { useApiData } from '@/hooks/use-api-data';
 
 import {
+  fulfillAuthorization,
+  getAuthorizationQueryItem,
   listAuthorizationQuery,
+  type AuthorizationFulfillmentType,
   type AuthorizationQueryFilters,
   type AuthorizationQueryItem,
 } from '@/lib/authorization-query-api';
@@ -22,24 +25,95 @@ function enablementLabel(status: string) {
   return status === 'ENABLED' ? 'Habilitada' : 'Bloqueada';
 }
 
-function operationLabel(status: string | null) {
-  const labels: Record<string, string> = {
-    BLOCKED: 'Bloqueada',
+function operationalLabel(
+  status:
+    AuthorizationQueryItem['operationalStatus'],
+) {
+  const labels = {
+    UNASSIGNED:
+      'Sin asignar',
 
-    READY_TO_DISPENSE: 'Elegible',
+    ASSIGNED:
+      'Asignada',
 
-    DISPENSATION_REPORTED: 'Dispensación reportada',
-
-    DISPENSED: 'Dispensada',
-
-    EXPIRED: 'Vencida',
+    CLOSED:
+      'Cerrada',
   };
 
-  return status ? (labels[status] ?? status) : 'Sin estado';
+  return labels[status];
 }
 
+function fulfillmentTypeLabel(
+  type:
+    string | null,
+) {
+  if (
+    type === 'APPLICATION'
+  ) {
+    return 'Aplicación';
+  }
+
+  if (
+    type === 'DELIVERY'
+  ) {
+    return 'Entrega';
+  }
+
+  return '—';
+}
+
+function currentBogotaDate() {
+  return new Intl.DateTimeFormat(
+    'en-CA',
+    {
+      timeZone:
+        'America/Bogota',
+
+      year:
+        'numeric',
+
+      month:
+        '2-digit',
+
+      day:
+        '2-digit',
+    },
+  ).format(
+    new Date(),
+  );
+}
+
+function dateTimeLabel(
+  value:
+    string | null,
+) {
+  if (!value) {
+    return '—';
+  }
+
+  const parsed =
+    new Date(
+      value,
+    );
+
+  if (
+    Number.isNaN(
+      parsed.getTime(),
+    )
+  ) {
+    return value;
+  }
+
+  return parsed.toLocaleString(
+    'es-CO',
+  );
+}
+
+import { DispensacionBulkActions } from './dispensacion-bulk-actions';
+import { FulfillmentBulkActions } from './fulfillment-bulk-actions';
+
 export function ConsultaAutorizacionesView() {
-  const { organizationId } = useRole();
+  const { organizationId, hasPermission } = useRole();
 
   const [filters, setFilters] = useState({
     authorizationNumber: '',
@@ -54,6 +128,40 @@ export function ConsultaAutorizacionesView() {
   const [page, setPage] = useState(1);
 
   const [selected, setSelected] = useState<AuthorizationQueryItem | null>(null);
+
+  const [
+    fulfillmentType,
+    setFulfillmentType,
+  ] =
+    useState<AuthorizationFulfillmentType>(
+      'APPLICATION',
+    );
+
+  const [
+    fulfillmentDate,
+    setFulfillmentDate,
+  ] =
+    useState('');
+
+  const [
+    fulfilling,
+    setFulfilling,
+  ] =
+    useState(false);
+
+  const [
+    fulfillmentError,
+    setFulfillmentError,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
+  const canFulfill =
+    hasPermission(
+      'patient_applications.manage',
+    );
+
 
   const query = useApiData(
     () =>
@@ -121,6 +229,104 @@ export function ConsultaAutorizacionesView() {
     setPage(1);
   }
 
+  function openDetail(
+    item:
+      AuthorizationQueryItem,
+  ) {
+    setSelected(
+      item,
+    );
+
+    setFulfillmentType(
+      'APPLICATION',
+    );
+
+    setFulfillmentDate(
+      '',
+    );
+
+    setFulfillmentError(
+      null,
+    );
+  }
+
+  async function confirmFulfillment() {
+    if (
+      !selected ||
+      !organizationId ||
+      !fulfillmentDate ||
+      fulfilling
+    ) {
+      return;
+    }
+
+    setFulfilling(
+      true,
+    );
+
+    setFulfillmentError(
+      null,
+    );
+
+    try {
+      await fulfillAuthorization(
+        organizationId,
+        selected.id,
+        {
+          fulfillmentType,
+          effectiveDate:
+            fulfillmentDate,
+        },
+      );
+
+      const refreshed =
+        await getAuthorizationQueryItem(
+          organizationId,
+          selected.id,
+        );
+
+      setSelected(
+        refreshed,
+      );
+
+      setFulfillmentDate(
+        '',
+      );
+
+      query.reload();
+    } catch (caught) {
+      setFulfillmentError(
+        caught instanceof Error
+          ? caught.message
+          : 'No fue posible registrar la dispensación.',
+      );
+    } finally {
+      setFulfilling(
+        false,
+      );
+    }
+  }
+
+  const todayBogota =
+    currentBogotaDate();
+
+  const fulfillmentMaxDate =
+    selected?.validityEndDate &&
+    selected.validityEndDate <
+      todayBogota
+      ? selected.validityEndDate
+      : todayBogota;
+
+  const canFulfillSelected =
+    Boolean(
+      selected &&
+      canFulfill &&
+      selected.operationalStatus ===
+        'ASSIGNED' &&
+      selected.remainingAssignedQuantity >
+        0,
+    );
+
   return (
     <>
       <PageHeader
@@ -128,13 +334,28 @@ export function ConsultaAutorizacionesView() {
         description="Consulta las autorizaciones registradas y su estado actual."
       />
 
-      <Card>
-        <CardHead
-          title="Autorizaciones"
-          subtitle="Busca por autorización, producto, paciente o estado."
-        />
+      <DispensacionBulkActions
+        organizationId={organizationId}
+        canManage={hasPermission('bulk_updates.dispensation_date')}
+        onImported={() => {
+          window.location.reload();
+        }}
+      />
 
-        <CardBody>
+      <FulfillmentBulkActions
+        organizationId={organizationId}
+        canManage={hasPermission(
+          'patient_applications.manage',
+        )}
+        onImported={() => {
+          window.location.reload();
+        }}
+      />
+
+
+
+      <Card className="operational-list-workspace">
+<CardBody>
           <FilterBar>
             <FilterField label="Autorización">
               <input
@@ -222,6 +443,7 @@ export function ConsultaAutorizacionesView() {
             </FilterField>
 
             <FilterActions>
+                <div className="authorization-query-actions">
               <button type="button" className="button primary" onClick={applyFilters}>
                 Filtrar
               </button>
@@ -229,7 +451,9 @@ export function ConsultaAutorizacionesView() {
               <button type="button" className="button" onClick={clearFilters}>
                 Limpiar
               </button>
-            </FilterActions>
+
+                </div>
+              </FilterActions>
           </FilterBar>
 
           <div className="table-wrap">
@@ -238,17 +462,17 @@ export function ConsultaAutorizacionesView() {
                 <tr>
                   <th>Autorización</th>
 
-                  <th>Producto</th>
-
                   <th>Paciente</th>
 
-                  <th>Documento</th>
+                  <th>Producto</th>
 
                   <th>Asignación</th>
 
-                  <th>Vigencia</th>
+                  <th>OC</th>
 
-                  <th>Estado</th>
+                  <th>Punto</th>
+
+                  <th>Estado operativo</th>
 
                   <th />
                 </tr>
@@ -258,23 +482,65 @@ export function ConsultaAutorizacionesView() {
                 {(data?.items ?? []).map((item) => (
                   <tr key={item.id}>
                     <td>
-                      <strong>{item.authorizationNumber}</strong>
+                      <strong>
+                        {item.authorizationNumber}
+                      </strong>
                     </td>
 
-                    <td>{item.commercialCode}</td>
+                    <td>
+                      <div className="authorization-cell-stack">
+                        <strong>
+                          {item.patientName ?? 'Sin nombre'}
+                        </strong>
 
-                    <td>{item.patientName ?? '—'}</td>
-
-                    <td>{item.patientDocument ?? '—'}</td>
-
-                    <td>{item.assignmentDate ?? '—'}</td>
-
-                    <td>{item.validityEndDate ?? '—'}</td>
-
-                    <td>{enablementLabel(item.enablementStatus)}</td>
+                        <span>
+                          {item.patientDocument ?? 'Sin documento'}
+                        </span>
+                      </div>
+                    </td>
 
                     <td>
-                      <button type="button" className="button" onClick={() => setSelected(item)}>
+                      <div className="authorization-cell-stack">
+                        <strong>
+                          {item.commercialCode}
+                        </strong>
+
+                        <span>
+                          {item.productDescription ?? 'Sin nombre de producto'}
+                        </span>
+                      </div>
+                    </td>
+
+                    <td>
+                      {item.operationalStatus === 'CLOSED'
+                        ? 'Consumida'
+                        : item.remainingAssignedQuantity > 0
+                          ? `${item.remainingAssignedQuantity} asignada(s)`
+                          : 'Sin asignar'}
+                    </td>
+
+                    <td>
+                      {item.purchaseOrder ?? '—'}
+                    </td>
+
+                    <td>
+                      {item.dispensingPointCode ?? '—'}
+                    </td>
+
+                    <td>
+                      <span
+                        className={`authorization-operational-status ${item.operationalStatus.toLowerCase()}`}
+                      >
+                        {operationalLabel(item.operationalStatus)}
+                      </span>
+                    </td>
+
+                    <td>
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() => openDetail(item)}
+                      >
                         Ver
                       </button>
                     </td>
@@ -285,9 +551,13 @@ export function ConsultaAutorizacionesView() {
                   <tr>
                     <td colSpan={8}>
                       <div className="table-empty-state">
-                        <strong>Sin resultados</strong>
+                        <strong>
+                          Sin resultados
+                        </strong>
 
-                        <span>No existen autorizaciones con los filtros seleccionados.</span>
+                        <span>
+                          No existen autorizaciones con los filtros seleccionados.
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -327,73 +597,307 @@ export function ConsultaAutorizacionesView() {
       </Card>
 
       {selected ? (
-        <div className="operation-drawer-backdrop" onMouseDown={() => setSelected(null)}>
-          <aside className="operation-drawer" onMouseDown={(event) => event.stopPropagation()}>
+        <div
+          className="operation-drawer-backdrop"
+          onMouseDown={() => setSelected(null)}
+        >
+          <aside
+            className="operation-drawer"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className="operation-drawer-header">
               <div>
-                <span>Autorización</span>
+                <span>
+                  Autorización
+                </span>
 
-                <h2>{selected.authorizationNumber}</h2>
+                <h2>
+                  {selected.authorizationNumber}
+                </h2>
 
-                <p>{operationLabel(selected.logisticsStatus)}</p>
+                <p>
+                  {operationalLabel(selected.operationalStatus)}
+                </p>
               </div>
 
-              <button type="button" className="operation-close" onClick={() => setSelected(null)}>
+              <button
+                type="button"
+                className="operation-close"
+                onClick={() => setSelected(null)}
+              >
                 ×
               </button>
             </div>
 
-            <div className="authorization-detail-grid">
-              <div>
-                <span>Código comercial</span>
-
-                <strong>{selected.commercialCode}</strong>
-              </div>
-
-              <div>
-                <span>Cantidad</span>
-
-                <strong>{selected.quantity ?? '—'}</strong>
-              </div>
-
-              <div>
-                <span>Cobertura</span>
-
-                <strong>{selected.coverageType}</strong>
-              </div>
-
-              <div>
-                <span>Estado</span>
-
-                <strong>{enablementLabel(selected.enablementStatus)}</strong>
-              </div>
-
-              <div>
-                <span>Asignación</span>
-
-                <strong>{selected.assignmentDate ?? '—'}</strong>
-              </div>
-
-              <div>
-                <span>Vigencia</span>
-
-                <strong>{selected.validityEndDate ?? '—'}</strong>
-              </div>
-
-              <div>
-                <span>Orden de compra</span>
-
-                <strong>{selected.purchaseOrder ?? 'Sin asignar'}</strong>
-              </div>
+            <div className="operation-section-title">
+              Paciente
             </div>
-
-            <div className="operation-section-title">Paciente</div>
 
             <div className="authorization-detail-patient">
-              <strong>{selected.patientName ?? 'Sin nombre registrado'}</strong>
+              <strong>
+                {selected.patientName ?? 'Sin nombre registrado'}
+              </strong>
 
-              <span>{selected.patientDocument ?? 'Sin documento'}</span>
+              <span>
+                {selected.patientDocument ?? 'Sin documento'}
+              </span>
             </div>
+
+            <div className="operation-section-title">
+              Producto y asignación
+            </div>
+
+            <div className="authorization-detail-grid">
+              <div>
+                <span>
+                  Código
+                </span>
+
+                <strong>
+                  {selected.commercialCode}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Producto
+                </span>
+
+                <strong>
+                  {selected.productDescription ?? 'Sin nombre'}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Cantidad autorizada
+                </span>
+
+                <strong>
+                  {selected.quantity ?? '—'}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Cantidad asignada
+                </span>
+
+                <strong>
+                  {selected.allocatedQuantity}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Pendiente asignada
+                </span>
+
+                <strong>
+                  {selected.remainingAssignedQuantity}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Orden de compra
+                </span>
+
+                <strong>
+                  {selected.purchaseOrder ?? 'Sin OC'}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Punto
+                </span>
+
+                <strong>
+                  {selected.dispensingPointCode ?? 'Sin punto'}
+                </strong>
+
+                {selected.dispensingPointName ? (
+                  <small>
+                    {selected.dispensingPointName}
+                  </small>
+                ) : null}
+              </div>
+
+              <div>
+                <span>
+                  Vigencia
+                </span>
+
+                <strong>
+                  {selected.validityEndDate ?? '—'}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Cobertura
+                </span>
+
+                <strong>
+                  {selected.coverageType}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Estado fuente
+                </span>
+
+                <strong>
+                  {enablementLabel(selected.enablementStatus)}
+                </strong>
+              </div>
+            </div>
+
+            <div className="operation-section-title">
+              Operación Medicarte
+            </div>
+
+            {selected.operationalStatus === 'CLOSED' ? (
+              <div className="authorization-closure-summary">
+                <div>
+                  <span>
+                    Estado
+                  </span>
+
+                  <strong>
+                    Cerrada
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Tipo
+                  </span>
+
+                  <strong>
+                    {fulfillmentTypeLabel(
+                      selected.fulfillment?.type ?? null,
+                    )}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Fecha efectiva
+                  </span>
+
+                  <strong>
+                    {selected.fulfillment?.effectiveDate ?? '—'}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Cantidad
+                  </span>
+
+                  <strong>
+                    {selected.fulfillment?.quantity ?? '—'}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Registrado en sistema
+                  </span>
+
+                  <strong>
+                    {dateTimeLabel(
+                      selected.fulfillment?.confirmedAt ?? null,
+                    )}
+                  </strong>
+                </div>
+              </div>
+            ) : canFulfillSelected ? (
+              <div className="authorization-fulfillment-form">
+                <div>
+                  <span className="authorization-fulfillment-label">
+                    Tipo de dispensación
+                  </span>
+
+                  <div className="authorization-fulfillment-choice">
+                    <label>
+                      <input
+                        type="radio"
+                        name="fulfillmentType"
+                        checked={fulfillmentType === 'APPLICATION'}
+                        onChange={() => setFulfillmentType('APPLICATION')}
+                      />
+
+                      Aplicación
+                    </label>
+
+                    <label>
+                      <input
+                        type="radio"
+                        name="fulfillmentType"
+                        checked={fulfillmentType === 'DELIVERY'}
+                        onChange={() => setFulfillmentType('DELIVERY')}
+                      />
+
+                      Entrega
+                    </label>
+                  </div>
+                </div>
+
+                <label className="authorization-fulfillment-date">
+                  <span>
+                    {fulfillmentType === 'APPLICATION'
+                      ? 'Fecha de aplicación'
+                      : 'Fecha de entrega'}
+                  </span>
+
+                  <input
+                    type="date"
+                    className="control"
+                    value={fulfillmentDate}
+                    max={fulfillmentMaxDate}
+                    onChange={(event) =>
+                      setFulfillmentDate(event.target.value)
+                    }
+                  />
+                </label>
+
+                <p className="authorization-fulfillment-help">
+                  La autorización puede estar vencida hoy. La fecha efectiva debe ser como máximo el último día de vigencia.
+                </p>
+
+                {fulfillmentError ? (
+                  <div
+                    className="authorization-fulfillment-error"
+                    role="alert"
+                  >
+                    {fulfillmentError}
+                  </div>
+                ) : null}
+
+                <div className="authorization-detail-actions">
+                  <button
+                    type="button"
+                    className="button primary"
+                    disabled={!fulfillmentDate || fulfilling}
+                    onClick={() => void confirmFulfillment()}
+                  >
+                    {fulfilling
+                      ? 'Registrando…'
+                      : 'Confirmar dispensación'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="authorization-operation-message">
+                {selected.operationalStatus === 'UNASSIGNED'
+                  ? 'La autorización todavía no tiene producto asignado en Disponibilidad.'
+                  : 'La operación está disponible únicamente para Medicarte.'}
+              </div>
+            )}
           </aside>
         </div>
       ) : null}

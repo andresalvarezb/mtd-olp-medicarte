@@ -9,7 +9,11 @@ import {
 import type { Scope } from '../common/request-scope';
 import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
-import type { ReceiptLineRequest, UpdateReceiptRequest } from '@authorization/contracts';
+import type {
+  PurchaseOrderDirectReceiptRequest,
+  ReceiptLineRequest,
+  UpdateReceiptRequest,
+} from '@authorization/contracts';
 import { InventoryRepository } from '../inventory/inventory.repository';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -59,10 +63,6 @@ export class ReceiptRepository {
       await this.lockDeliveryPoints(tx, deliveryId, scope);
       if (delivery.rows[0].status !== 'DISPATCHED')
         throw new Error('RECEIPT_DELIVERY_NOT_DISPATCHED');
-      const existing = await tx.execute<{ id: string }>(
-        sql`select id from receipts where delivery_id=${deliveryId} and status='CONFIRMED'`,
-      );
-      if (existing.rows[0]) throw new Error('RECEIPT_ALREADY_CONFIRMED');
       const found = await tx.execute<{ id: string }>(
         sql`select id from receipts where delivery_id=${deliveryId} and status='DRAFT' limit 1`,
       );
@@ -75,7 +75,85 @@ export class ReceiptRepository {
         ).rows[0]!.id;
       if (!found.rows[0]) {
         await tx.execute(
-          sql`insert into receipt_lines (receipt_id,delivery_line_id,dispatched_quantity,received_quantity,accepted_quantity,rejected_quantity,shortage_quantity,expected_lot_number,expected_expiration_date) select ${id},dl.id,dl.quantity,0,0,0,dl.quantity,dl.lot_number,dl.expiration_date from delivery_lines dl where dl.delivery_id=${deliveryId}`,
+          sql`
+            insert into receipt_lines (
+              receipt_id,
+              delivery_line_id,
+              dispatched_quantity,
+              received_quantity,
+              accepted_quantity,
+              rejected_quantity,
+              shortage_quantity,
+              expected_lot_number,
+              expected_expiration_date
+            )
+
+            select
+              ${id},
+              dl.id,
+
+              greatest(
+                dl.quantity -
+                coalesce(
+                  (
+                    select
+                      sum(previous_rl.received_quantity)
+
+                    from receipt_lines previous_rl
+
+                    join receipts previous_r
+                      on previous_r.id =
+                         previous_rl.receipt_id
+
+                    where
+                      previous_rl.delivery_line_id =
+                        dl.id
+
+                      and previous_r.status =
+                        'CONFIRMED'
+                  ),
+                  0
+                ),
+                0
+              )::int,
+
+              0,
+              0,
+              0,
+
+              greatest(
+                dl.quantity -
+                coalesce(
+                  (
+                    select
+                      sum(previous_rl.received_quantity)
+
+                    from receipt_lines previous_rl
+
+                    join receipts previous_r
+                      on previous_r.id =
+                         previous_rl.receipt_id
+
+                    where
+                      previous_rl.delivery_line_id =
+                        dl.id
+
+                      and previous_r.status =
+                        'CONFIRMED'
+                  ),
+                  0
+                ),
+                0
+              )::int,
+
+              dl.lot_number,
+              dl.expiration_date
+
+            from delivery_lines dl
+
+            where dl.delivery_id =
+              ${deliveryId}
+          `,
         );
         await this.audit(tx, scope, 'RECEIPT_CREATED', id, { deliveryId });
       }
@@ -135,6 +213,7 @@ export class ReceiptRepository {
         throw new Error('RECEIPT_DELIVERY_NOT_DISPATCHED');
       const lines = await tx.execute<{
         id: string;
+        delivery_line_id: string;
         dispatched_quantity: number;
         received_quantity: number;
         accepted_quantity: number;
@@ -145,7 +224,7 @@ export class ReceiptRepository {
         received_expiration_date: string | null;
         nonconformity_reason: string | null;
       }>(
-        sql`select id,dispatched_quantity,received_quantity,accepted_quantity,rejected_quantity,expected_lot_number,expected_expiration_date::text expected_expiration_date,received_lot_number,received_expiration_date::text received_expiration_date,nonconformity_reason from receipt_lines where receipt_id=${id} for update`,
+        sql`select id,delivery_line_id,dispatched_quantity,received_quantity,accepted_quantity,rejected_quantity,expected_lot_number,expected_expiration_date::text expected_expiration_date,received_lot_number,received_expiration_date::text received_expiration_date,nonconformity_reason from receipt_lines where receipt_id=${id} for update`,
       );
       if (!lines.rows.length) throw new Error('RECEIPT_LINES_REQUIRED');
       const deliveryLines = await tx.execute<{ count: number }>(
@@ -153,7 +232,79 @@ export class ReceiptRepository {
       );
       if (lines.rows.length !== (deliveryLines.rows[0]?.count ?? 0))
         throw new Error('RECEIPT_LINES_REQUIRED');
+      const cumulative =
+        await tx.execute<{
+          delivery_line_id: string;
+          dispatched_quantity: number;
+          previously_received: number;
+        }>(sql`
+          select
+            dl.id as delivery_line_id,
+            dl.quantity::int
+              as dispatched_quantity,
+
+            coalesce(
+              (
+                select
+                  sum(previous_rl.received_quantity)
+
+                from receipt_lines previous_rl
+
+                join receipts previous_r
+                  on previous_r.id =
+                     previous_rl.receipt_id
+
+                where
+                  previous_rl.delivery_line_id =
+                    dl.id
+
+                  and previous_r.status =
+                    'CONFIRMED'
+
+                  and previous_r.id <>
+                    ${id}
+              ),
+              0
+            )::int as previously_received
+
+          from delivery_lines dl
+
+          where dl.delivery_id =
+            ${row.delivery_id}
+        `);
+
+      const cumulativeByLine =
+        new Map(
+          cumulative.rows.map(
+            (item) => [
+              item.delivery_line_id,
+              item,
+            ],
+          ),
+        );
+
       const conformities = lines.rows.map((line) => {
+        const cumulativeLine =
+          cumulativeByLine.get(
+            line.delivery_line_id,
+          );
+
+        if (!cumulativeLine) {
+          throw new Error(
+            'RECEIPT_LINE_OUT_OF_SCOPE',
+          );
+        }
+
+        if (
+          cumulativeLine.previously_received +
+            line.received_quantity >
+          cumulativeLine.dispatched_quantity
+        ) {
+          throw new Error(
+            'RECEIPT_OVER_RECEIVED',
+          );
+        }
+
         const error = validateReceiptQuantities({
           dispatched: line.dispatched_quantity,
           received: line.received_quantity,
@@ -195,15 +346,643 @@ export class ReceiptRepository {
       await tx.execute(
         sql`update receipts set status='CONFIRMED',conformity=${overall},confirmed_at=now(),version=version+1,updated_at=now(),updated_by=${scope.userId} where id=${id}`,
       );
-      await this.inventory.recordConfirmedReceipt(tx, id, scope);
-      await tx.execute(
-        sql`update deliveries set status='RECEIVED',version=version+1,updated_at=now(),updated_by=${scope.userId} where id=${row.delivery_id}`,
+      await this.inventory.recordConfirmedReceipt(
+        tx,
+        id,
+        scope,
       );
-      await this.deriveOrderStatus(tx, delivery.rows[0].purchase_order_id, scope.userId);
-      await this.audit(tx, scope, 'RECEIPT_CONFIRMED', id, { conformity: overall });
+
+      const completion =
+        await tx.execute<{
+          complete: boolean;
+        }>(sql`
+          select
+            not exists (
+              select 1
+
+              from delivery_lines dl
+
+              where
+                dl.delivery_id =
+                  ${row.delivery_id}
+
+                and coalesce(
+                  (
+                    select
+                      sum(confirmed_rl.received_quantity)
+
+                    from receipt_lines confirmed_rl
+
+                    join receipts confirmed_r
+                      on confirmed_r.id =
+                         confirmed_rl.receipt_id
+
+                    where
+                      confirmed_rl.delivery_line_id =
+                        dl.id
+
+                      and confirmed_r.status =
+                        'CONFIRMED'
+                  ),
+                  0
+                ) < dl.quantity
+            ) as complete
+        `);
+
+      const deliveryStatus =
+        completion.rows[0]?.complete
+          ? 'RECEIVED'
+          : 'DISPATCHED';
+
+      await tx.execute(sql`
+        update deliveries
+
+        set
+          status =
+            ${deliveryStatus},
+
+          version =
+            version + 1,
+
+          updated_at =
+            now(),
+
+          updated_by =
+            ${scope.userId}
+
+        where
+          id =
+            ${row.delivery_id}
+      `);
+
+      await this.deriveOrderStatus(
+        tx,
+        delivery.rows[0].purchase_order_id,
+        scope.userId,
+      );
+
+      await this.audit(
+        tx,
+        scope,
+        'RECEIPT_CONFIRMED',
+        id,
+        {
+          conformity: overall,
+          deliveryStatus,
+        },
+      );
       return this.findOn(tx, id, scope);
     });
   }
+
+
+  async createPurchaseOrderReceipt(
+    purchaseOrderId: string,
+    body: PurchaseOrderDirectReceiptRequest,
+    scope: Scope,
+  ) {
+    if (
+      scope.organizationCode !==
+      'MEDICARTE'
+    ) {
+      throw new Error(
+        'DIRECT_RECEIPT_MEDICARTE_ONLY',
+      );
+    }
+
+    return this.database.db.transaction(
+      async (tx) => {
+        const order =
+          await tx.execute<{
+            id: string;
+            status: string;
+            origin: string | null;
+            olp_accepted_at: string | null;
+          }>(sql`
+            select
+              id,
+              status,
+              origin,
+              olp_accepted_at
+
+            from purchase_orders
+
+            where id =
+                  ${purchaseOrderId}
+
+            for update
+          `);
+
+        const orderRow =
+          order.rows[0];
+
+        if (!orderRow) {
+          throw new Error(
+            'DIRECT_RECEIPT_ORDER_NOT_FOUND',
+          );
+        }
+
+        if (
+          orderRow.status ===
+            'HISTORICAL_ONLY' ||
+          orderRow.origin ===
+            'LEGACY_BACKFILL'
+        ) {
+          throw new Error(
+            'DIRECT_RECEIPT_HISTORICAL_ONLY',
+          );
+        }
+
+        if (
+          !orderRow.olp_accepted_at
+        ) {
+          throw new Error(
+            'DIRECT_RECEIPT_OLP_NOT_ACCEPTED',
+          );
+        }
+
+        const legacy =
+          await tx.execute<{
+            found: boolean;
+          }>(sql`
+            select exists (
+              select 1
+
+              from deliveries
+
+              where purchase_order_id =
+                    ${purchaseOrderId}
+            ) as found
+          `);
+
+        if (
+          legacy.rows[0]?.found
+        ) {
+          throw new Error(
+            'DIRECT_RECEIPT_LEGACY_FLOW_EXISTS',
+          );
+        }
+
+        const ids =
+          body.lines.map(
+            (line) =>
+              line.purchaseOrderLineId,
+          );
+
+        if (
+          new Set(ids).size !==
+          ids.length
+        ) {
+          throw new Error(
+            'DIRECT_RECEIPT_LINE_DUPLICATE',
+          );
+        }
+
+        const source =
+          await tx.execute<{
+            id: string;
+            commercial_code: string;
+            requested_quantity: number;
+            dispensing_point_id: string | null;
+          }>(sql`
+            select
+              pol.id,
+              pol.commercial_code,
+              pol.requested_quantity,
+
+              coalesce(
+                pol.dispensing_point_id,
+                mapped.dispensing_point_id
+              ) as dispensing_point_id
+
+            from purchase_order_lines pol
+
+            left join tariff_annex_products tap
+              on tap.codigo_producto =
+                 pol.commercial_code
+             and tap.active = true
+
+            left join product_delivery_point_mappings mapped
+              on pol.dispensing_point_id is null
+
+             and btrim(
+                   coalesce(
+                     tap.numero_expediente_invima,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             and btrim(
+                   coalesce(
+                     tap.consecutivo_invima_presentacion,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             and mapped.invima_record_normalized =
+                 coalesce(
+                   nullif(
+                     ltrim(
+                       btrim(
+                         tap.numero_expediente_invima
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+             and mapped.invima_presentation_normalized =
+                 coalesce(
+                   nullif(
+                     ltrim(
+                       btrim(
+                         tap.consecutivo_invima_presentacion
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+            where pol.purchase_order_id =
+                  ${purchaseOrderId}
+
+              and pol.id in (
+                ${sql.join(
+                  ids.map(
+                    (id) =>
+                      sql`${id}`,
+                  ),
+                  sql`,`,
+                )}
+              )
+
+            for update of pol
+          `);
+
+        if (
+          source.rows.length !==
+          ids.length
+        ) {
+          throw new Error(
+            'DIRECT_RECEIPT_LINE_NOT_FOUND',
+          );
+        }
+
+        const points =
+          source.rows.map(
+            (line) =>
+              line.dispensing_point_id,
+          );
+
+        if (
+          points.some(
+            (id) => !id,
+          )
+        ) {
+          throw new Error(
+            'DIRECT_RECEIPT_POINT_NOT_FOUND',
+          );
+        }
+
+        await lockActivePointGrants(
+          tx,
+          scope,
+          points as string[],
+        );
+
+        const cumulative =
+          await tx.execute<{
+            purchase_order_line_id: string;
+            received: number;
+          }>(sql`
+            select
+              porl.purchase_order_line_id,
+
+              coalesce(
+                sum(
+                  porl.received_quantity
+                ),
+                0
+              )::int as received
+
+            from purchase_order_receipt_lines porl
+
+            join purchase_order_receipts por
+              on por.id =
+                 porl.receipt_id
+
+            where por.purchase_order_id =
+                  ${purchaseOrderId}
+
+            group by
+              porl.purchase_order_line_id
+          `);
+
+        const receivedByLine =
+          new Map(
+            cumulative.rows.map(
+              (row) => [
+                row.purchase_order_line_id,
+                Number(
+                  row.received,
+                ),
+              ],
+            ),
+          );
+
+        const receivedAt =
+          body.receivedAt ??
+          new Date().toISOString();
+
+        const receivedDate =
+          receivedAt.slice(
+            0,
+            10,
+          );
+
+        for (
+          const input of
+          body.lines
+        ) {
+          const line =
+            source.rows.find(
+              (candidate) =>
+                candidate.id ===
+                input.purchaseOrderLineId,
+            )!;
+
+          const already =
+            receivedByLine.get(
+              line.id,
+            ) ?? 0;
+
+          const remaining =
+            line.requested_quantity -
+            already;
+
+          if (
+            remaining <= 0
+          ) {
+            throw new Error(
+              'DIRECT_RECEIPT_ALREADY_COMPLETE',
+            );
+          }
+
+          if (
+            input.receivedQuantity >
+            remaining
+          ) {
+            throw new Error(
+              'DIRECT_RECEIPT_OVER_RECEIVED',
+            );
+          }
+
+          if (
+            input.outcome ===
+            'NOT_RECEIVED'
+          ) {
+            if (
+              input.receivedQuantity !==
+                0 ||
+              input.lotNumber ||
+              input.expirationDate
+            ) {
+              throw new Error(
+                'DIRECT_RECEIPT_OUTCOME_INVALID',
+              );
+            }
+
+            continue;
+          }
+
+          if (
+            !input.lotNumber ||
+            !input.expirationDate
+          ) {
+            throw new Error(
+              'DIRECT_RECEIPT_LOT_REQUIRED',
+            );
+          }
+
+          if (
+            input.expirationDate <
+            receivedDate
+          ) {
+            throw new Error(
+              'DIRECT_RECEIPT_EXPIRED_PRODUCT',
+            );
+          }
+
+          if (
+            input.outcome ===
+            'RECEIVED_COMPLETE' &&
+            input.receivedQuantity !==
+              remaining
+          ) {
+            throw new Error(
+              'DIRECT_RECEIPT_OUTCOME_INVALID',
+            );
+          }
+
+          if (
+            input.outcome ===
+            'RECEIVED_PARTIAL' &&
+            (
+              input.receivedQuantity <=
+                0 ||
+              input.receivedQuantity >=
+                remaining
+            )
+          ) {
+            throw new Error(
+              'DIRECT_RECEIPT_OUTCOME_INVALID',
+            );
+          }
+        }
+
+        const receipt =
+          await tx.execute<{
+            id: string;
+          }>(sql`
+            insert into purchase_order_receipts (
+              purchase_order_id,
+              received_at,
+              confirmed_at,
+              confirmed_by,
+              observation
+            )
+            values (
+              ${purchaseOrderId},
+              ${receivedAt}::timestamptz,
+              now(),
+              ${scope.userId},
+              ${body.observation ?? null}
+            )
+            returning id
+          `);
+
+        const receiptId =
+          receipt.rows[0]!.id;
+
+        for (
+          const input of
+          body.lines
+        ) {
+          await tx.execute(sql`
+            insert into purchase_order_receipt_lines (
+              receipt_id,
+              purchase_order_line_id,
+              outcome,
+              received_quantity,
+              lot_number,
+              expiration_date,
+              observation
+            )
+            values (
+              ${receiptId},
+              ${input.purchaseOrderLineId},
+              ${input.outcome},
+              ${input.receivedQuantity},
+              ${input.lotNumber ?? null},
+              ${input.expirationDate ?? null},
+              ${input.observation ?? null}
+            )
+          `);
+        }
+
+        await this.inventory
+          .recordConfirmedPurchaseOrderReceipt(
+            tx,
+            receiptId,
+            scope,
+          );
+
+        const totals =
+          await tx.execute<{
+            requested: number;
+            received: number;
+          }>(sql`
+            select
+              (
+                select
+                  coalesce(
+                    sum(
+                      requested_quantity
+                    ),
+                    0
+                  )::int
+
+                from purchase_order_lines
+
+                where purchase_order_id =
+                      ${purchaseOrderId}
+              ) as requested,
+
+              (
+                select
+                  coalesce(
+                    sum(
+                      porl.received_quantity
+                    ),
+                    0
+                  )::int
+
+                from purchase_order_receipt_lines porl
+
+                join purchase_order_receipts por
+                  on por.id =
+                     porl.receipt_id
+
+                where por.purchase_order_id =
+                      ${purchaseOrderId}
+              ) as received
+          `);
+
+        const total =
+          totals.rows[0];
+
+        const status =
+          (
+            total &&
+            total.requested > 0 &&
+            total.received >=
+              total.requested
+          )
+            ? 'RECEIVED'
+            : 'PARTIALLY_RECEIVED';
+
+        await tx.execute(sql`
+          update purchase_orders
+
+          set
+            status =
+              ${status},
+
+            updated_at =
+              now(),
+
+            updated_by =
+              ${scope.userId}
+
+          where id =
+                ${purchaseOrderId}
+        `);
+
+        await tx.execute(sql`
+          insert into audit_events (
+            actor_type,
+            actor_id,
+            organization_id,
+            action,
+            resource_type,
+            resource_id,
+            after,
+            correlation_id,
+            request_id,
+            result
+          )
+          values (
+            'USER',
+            ${scope.userId},
+            ${scope.organizationId},
+            'PURCHASE_ORDER_RECEIPT_CONFIRMED',
+            'purchase_order_receipt',
+            ${receiptId},
+            ${JSON.stringify({
+              purchaseOrderId,
+              lineCount:
+                body.lines.length,
+            })}::jsonb,
+            ${scope.correlationId},
+            ${scope.correlationId},
+            'SUCCESS'
+          )
+        `);
+
+        return {
+          id:
+            receiptId,
+
+          purchaseOrderId,
+
+          receivedAt,
+
+          confirmedAt:
+            new Date().toISOString(),
+
+          status,
+
+          lines:
+            body.lines,
+        };
+      },
+    );
+  }
+
 
   list(scope: Scope, pending = false) {
     const filter = pending ? sql`d.status='DISPATCHED' and r.status='DRAFT'` : sql`true`;
@@ -242,7 +1021,108 @@ export class ReceiptRepository {
     await tx.execute(sql`delete from receipt_lines where receipt_id=${receiptId}`);
     for (const line of lines) {
       const inserted = await tx.execute(
-        sql`insert into receipt_lines (receipt_id, delivery_line_id, dispatched_quantity, received_quantity, accepted_quantity, rejected_quantity, shortage_quantity, expected_lot_number, expected_expiration_date, received_lot_number, received_expiration_date, nonconformity_reason, observation) select ${receiptId}, dl.id, dl.quantity, ${line.receivedQuantity}, ${line.acceptedQuantity}, ${line.rejectedQuantity}, dl.quantity - ${line.receivedQuantity}, dl.lot_number, dl.expiration_date, ${line.receivedLotNumber ?? null}, ${line.receivedExpirationDate ?? null}, ${line.nonconformityReason ?? null}, ${line.observation ?? null} from delivery_lines dl join deliveries d on d.id = dl.delivery_id join dispensing_points dp on dp.id = dl.dispensing_point_id where dl.id = ${line.deliveryLineId} and d.id = ${deliveryId} and ${this.scopeFilter(scope)}`,
+        sql`
+          insert into receipt_lines (
+            receipt_id,
+            delivery_line_id,
+            dispatched_quantity,
+            received_quantity,
+            accepted_quantity,
+            rejected_quantity,
+            shortage_quantity,
+            expected_lot_number,
+            expected_expiration_date,
+            received_lot_number,
+            received_expiration_date,
+            nonconformity_reason,
+            observation
+          )
+
+          select
+            ${receiptId},
+            dl.id,
+
+            greatest(
+              dl.quantity -
+              coalesce(
+                (
+                  select
+                    sum(previous_rl.received_quantity)
+
+                  from receipt_lines previous_rl
+
+                  join receipts previous_r
+                    on previous_r.id =
+                       previous_rl.receipt_id
+
+                  where
+                    previous_rl.delivery_line_id =
+                      dl.id
+
+                    and previous_r.status =
+                      'CONFIRMED'
+                ),
+                0
+              ),
+              0
+            )::int,
+
+            ${line.receivedQuantity},
+            ${line.acceptedQuantity},
+            ${line.rejectedQuantity},
+
+            greatest(
+              dl.quantity -
+              coalesce(
+                (
+                  select
+                    sum(previous_rl.received_quantity)
+
+                  from receipt_lines previous_rl
+
+                  join receipts previous_r
+                    on previous_r.id =
+                       previous_rl.receipt_id
+
+                  where
+                    previous_rl.delivery_line_id =
+                      dl.id
+
+                    and previous_r.status =
+                      'CONFIRMED'
+                ),
+                0
+              ),
+              0
+            )::int -
+              ${line.receivedQuantity},
+
+            dl.lot_number,
+            dl.expiration_date,
+            ${line.receivedLotNumber ?? null},
+            ${line.receivedExpirationDate ?? null},
+            ${line.nonconformityReason ?? null},
+            ${line.observation ?? null}
+
+          from delivery_lines dl
+
+          join deliveries d
+            on d.id =
+               dl.delivery_id
+
+          join dispensing_points dp
+            on dp.id =
+               dl.dispensing_point_id
+
+          where
+            dl.id =
+              ${line.deliveryLineId}
+
+            and d.id =
+              ${deliveryId}
+
+            and ${this.scopeFilter(scope)}
+        `,
       );
       if (inserted.rowCount !== 1) throw new Error('RECEIPT_LINE_OUT_OF_SCOPE');
     }

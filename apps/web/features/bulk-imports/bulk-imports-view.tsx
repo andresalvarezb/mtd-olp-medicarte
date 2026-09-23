@@ -232,14 +232,12 @@ export function BulkImportsView() {
           </CardBody>
         </Card>
 
-        <Card>
-          <CardHead
-            title="Historial de cargas"
-            subtitle="Cargues históricos y actuales de autorizaciones."
-          />
+        <Card className="operational-list-workspace">
+
 
           <CardBody>
-            <DataTable
+            <div className="operational-list-table-scope">
+              <DataTable
               columns={[
                 {
                   label: 'Archivo',
@@ -283,6 +281,7 @@ export function BulkImportsView() {
               emptyTitle="Sin cargas"
               emptyDescription="No existen cargues de autorizaciones registrados."
             />
+            </div>
           </CardBody>
         </Card>
 

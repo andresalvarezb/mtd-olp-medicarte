@@ -214,7 +214,16 @@ describe('Gate ESP-007 - API/integration hardening', () => {
         'select status from deliveries where id=$1',
         [delivery.deliveryId],
       );
-      expect(state.rows[0]!.status).toBe('RECEIVED');
+      const expectedDeliveryStatus =
+        received >= 20
+          ? 'RECEIVED'
+          : 'DISPATCHED';
+
+      expect(
+        state.rows[0]!.status,
+      ).toBe(
+        expectedDeliveryStatus,
+      );
     }
   });
 

@@ -1154,29 +1154,29 @@ describe('Gate ESP-017 — reconciliación operacional', () => {
     );
   });
 
-  it('Gate A. PostgreSQL tiene las 50 migraciones hasta 0049', async () => {
+  it('Gate A. PostgreSQL tiene al menos 53 migraciones hasta 0053', async () => {
     const journal = JSON.parse(
       readFileSync(resolve(root, 'packages/database/migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries.length).toBeGreaterThanOrEqual(50);
+    expect(journal.entries.length).toBeGreaterThanOrEqual(53);
     expect(journal.entries[0]?.tag).toBe('0000_foundation');
-    expect(journal.entries[49]?.tag).toBe('0049_esp017_operational_reconciliation');
+    expect(journal.entries[52]?.tag).toBe('0053_esp017_operational_reconciliation');
     const table = await database.query<{ exists: boolean }>(
       `select to_regclass('public.reconciliation_runs') is not null as exists`,
     );
     expect(table.rows[0]?.exists).toBe(true);
   });
 
-  it('Gate B. ESP-017 es únicamente 0049 sobre el estado ESP-016', () => {
+  it('Gate B. ESP-017 es únicamente 0053 sobre el estado ESP-016', () => {
     const journal = JSON.parse(
       readFileSync(resolve(root, 'packages/database/migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ tag: string }> };
-    expect(journal.entries[48]?.tag).toBe('0048_esp016_legacy_cutover');
+    expect(journal.entries[51]?.tag).toBe('0052_esp016_legacy_cutover');
     expect(
       journal.entries.filter((entry) => entry.tag.includes('esp017')).map((entry) => entry.tag),
-    ).toEqual(['0049_esp017_operational_reconciliation']);
+    ).toEqual(['0053_esp017_operational_reconciliation']);
     const sql = readFileSync(
-      resolve(root, 'packages/database/migrations/0049_esp017_operational_reconciliation.sql'),
+      resolve(root, 'packages/database/migrations/0053_esp017_operational_reconciliation.sql'),
       'utf8',
     );
     expect(sql).toContain('reconciliation_runs');

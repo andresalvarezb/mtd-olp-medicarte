@@ -1101,35 +1101,35 @@ describe('Gate ESP-015 — alcance operacional por punto', () => {
     expect(persisted.rows[0]!.n).toBe(1);
   });
 
-  it('44 / Gate A. PostgreSQL tiene las 48 migraciones hasta 0047', async () => {
+  it('44 / Gate A. PostgreSQL tiene al menos 51 migraciones hasta 0051', async () => {
     const journal = JSON.parse(
       readFileSync(
         resolve(process.cwd(), 'packages/database/migrations/meta/_journal.json'),
         'utf8',
       ),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries.length).toBeGreaterThanOrEqual(48);
+    expect(journal.entries.length).toBeGreaterThanOrEqual(51);
     expect(journal.entries[0]?.tag).toBe('0000_foundation');
-    expect(journal.entries[47]?.tag).toBe('0047_esp015_point_scopes');
+    expect(journal.entries[50]?.tag).toBe('0051_esp015_point_scopes');
     const table = await database.query<{ n: number }>(
       `select count(*)::int n from information_schema.tables where table_name='user_point_scopes'`,
     );
     expect(table.rows[0]!.n).toBe(1);
   });
 
-  it('Gate B. ESP-015 es únicamente 0047 sobre el estado ESP-014', () => {
+  it('Gate B. ESP-015 es únicamente 0051 sobre el estado ESP-014', () => {
     const journal = JSON.parse(
       readFileSync(
         resolve(process.cwd(), 'packages/database/migrations/meta/_journal.json'),
         'utf8',
       ),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries[46]?.tag).toBe('0046_esp014_claim_fencing');
+    expect(journal.entries[49]?.tag).toBe('0050_esp014_claim_fencing');
     expect(
       journal.entries.filter((entry) => entry.tag.includes('esp015')).map((entry) => entry.tag),
-    ).toEqual(['0047_esp015_point_scopes']);
+    ).toEqual(['0051_esp015_point_scopes']);
     const sql = readFileSync(
-      resolve(process.cwd(), 'packages/database/migrations/0047_esp015_point_scopes.sql'),
+      resolve(process.cwd(), 'packages/database/migrations/0051_esp015_point_scopes.sql'),
       'utf8',
     );
     expect(sql).toContain('user_point_scopes');

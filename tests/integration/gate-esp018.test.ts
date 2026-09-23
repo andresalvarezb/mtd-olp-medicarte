@@ -1078,28 +1078,28 @@ describe('Gate ESP-018 — governance de findings', () => {
     );
   });
 
-  it('Gate A. PostgreSQL has 52 migrations through 0051', async () => {
+  it('Gate A. PostgreSQL has at least 54 migrations through 0054', async () => {
     const journal = JSON.parse(
       readFileSync(resolve(root, 'packages/database/migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries.length).toBeGreaterThanOrEqual(51);
+    expect(journal.entries.length).toBeGreaterThanOrEqual(54);
     expect(journal.entries[0]?.tag).toBe('0000_foundation');
-    expect(journal.entries[50]?.tag).toBe('0050_esp018_reconciliation_governance');
+    expect(journal.entries[53]?.tag).toBe('0054_esp018_reconciliation_governance');
     const table = await database.query<{ exists: boolean }>(
       `select to_regclass('public.reconciliation_issues') is not null as exists`,
     );
     expect(table.rows[0]?.exists).toBe(true);
   });
 
-  it('Gate B. ESP-018 is only 0050 on ESP-017 and backfills OPEN issues', async () => {
+  it('Gate B. ESP-018 is only 0054 on ESP-017 and backfills OPEN issues', async () => {
     const journal = JSON.parse(
       readFileSync(resolve(root, 'packages/database/migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ tag: string }> };
-    expect(journal.entries[49]?.tag).toBe('0049_esp017_operational_reconciliation');
+    expect(journal.entries[52]?.tag).toBe('0053_esp017_operational_reconciliation');
     expect(
       journal.entries.filter((entry) => entry.tag.includes('esp018')).map((entry) => entry.tag),
-    ).toEqual(['0050_esp018_reconciliation_governance']);
-    const sql = source('packages/database/migrations/0050_esp018_reconciliation_governance.sql');
+    ).toEqual(['0054_esp018_reconciliation_governance']);
+    const sql = source('packages/database/migrations/0054_esp018_reconciliation_governance.sql');
     expect(sql).toContain('reconciliation_issues');
     expect(sql).toContain('ESP-018_BACKFILL');
     expect(sql).toContain("'OPEN'");

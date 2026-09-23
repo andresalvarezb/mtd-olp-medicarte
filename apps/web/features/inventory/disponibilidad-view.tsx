@@ -24,7 +24,10 @@ import {
 
 const COLUMNS = [
   {
-    label: 'Producto',
+    label: 'Código producto',
+  },
+  {
+    label: 'Nombre producto',
   },
   {
     label: 'OC',
@@ -45,12 +48,6 @@ const COLUMNS = [
 
 function quantity(value: number) {
   return value.toLocaleString('es-CO');
-}
-
-function productLabel(item: InventoryAvailabilityItem) {
-  return item.productDescription
-    ? `${item.commercialCode} - ${item.productDescription}`
-    : item.commercialCode;
 }
 
 export function DisponibilidadView() {
@@ -194,13 +191,15 @@ export function DisponibilidadView() {
 
   const rows = visibleItems.map((item) => [
     <span
-      key={`${item.purchaseOrderId}-${item.commercialCode}-${item.dispensingPointId ?? 'no-point'}`}
+      key={`${item.purchaseOrderId}-${item.commercialCode}-${item.dispensingPointId ?? 'no-point'}-code`}
       style={{
         fontWeight: 600,
       }}
     >
-      {productLabel(item)}
+      {item.commercialCode}
     </span>,
+
+    item.productDescription ?? 'Sin nombre',
 
     item.purchaseOrderCode,
 
@@ -246,12 +245,12 @@ export function DisponibilidadView() {
         }
       />
 
-      <Card>
+      <Card className="operational-list-workspace">
         <FilterBar>
-          <FilterField label="Producto">
+          <FilterField label="Código o nombre producto">
             <input
               className="control"
-              placeholder="Código o nombre del producto"
+              placeholder="Buscar por código o nombre"
               value={product}
               onChange={(event) => setProduct(event.target.value)}
               onKeyDown={(event) => {
@@ -291,6 +290,7 @@ export function DisponibilidadView() {
           </FilterField>
 
           <FilterActions>
+              <div className="availability-filter-actions">
             <button type="button" className="btn primary" onClick={applyFilters}>
               Filtrar
             </button>
@@ -298,7 +298,9 @@ export function DisponibilidadView() {
             <button type="button" className="btn" onClick={clearFilters}>
               Limpiar
             </button>
-          </FilterActions>
+
+              </div>
+            </FilterActions>
         </FilterBar>
 
         {error ? (
@@ -313,7 +315,8 @@ export function DisponibilidadView() {
           </div>
         ) : null}
 
-        <DataTable
+        <div className="operational-list-table-scope">
+          <DataTable
           columns={COLUMNS}
           rows={loading ? undefined : rows}
           aria-label="Disponibilidad por producto, orden de compra y punto"
@@ -327,6 +330,7 @@ export function DisponibilidadView() {
                 : 'No existen productos asociados a órdenes de compra para mostrar.'
           }
         />
+        </div>
 
         <TablePagination
           page={safePage}

@@ -442,14 +442,10 @@ export function AutorizacionesView() {
         </Card>
       ) : null}
 
-      <Card>
-        <CardHead
-          title="Historial de cargas"
-          subtitle="Consulta los archivos procesados y sus resultados."
-        />
-
-        <CardBody>
-          <DataTable
+      <Card className="operational-list-workspace">
+<CardBody>
+          <div className="operational-list-table-scope">
+            <DataTable
             aria-label="Historial de cargas de autorizaciones"
             columns={[
               {
@@ -514,6 +510,7 @@ export function AutorizacionesView() {
             emptyTitle="Sin cargas"
             emptyDescription="Aún no se han procesado archivos de autorizaciones."
           />
+          </div>
         </CardBody>
       </Card>
 

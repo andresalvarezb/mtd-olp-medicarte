@@ -149,6 +149,8 @@ export class InventoryAvailabilityRepository {
                 BTRIM(
                   COALESCE(
                     pol.product_description,
+                    tap.descripcion_comercial,
+                    tap.descripcion_generica,
                     ''
                   )
                 ),
@@ -165,13 +167,45 @@ export class InventoryAvailabilityRepository {
               ON pol.purchase_order_id =
                  po.id
 
+          LEFT JOIN
+            tariff_annex_products tap
+              ON tap.codigo_producto =
+                 pol.commercial_code
+
+             AND tap.active =
+                 true
+
           GROUP BY
             po.id,
             po.purchase_order_code,
             pol.commercial_code
         ),
 
-        point_candidates AS (
+        operational_point_candidates AS (
+          /*
+           * Prioridad 1:
+           * hechos operacionales/históricos ya persistidos.
+           *
+           * Nunca reemplazamos un punto histórico por el mapping
+           * vigente del Anexo Tarifario.
+           */
+
+          SELECT DISTINCT
+            pol.purchase_order_id,
+
+            pol.commercial_code,
+
+            pol.dispensing_point_id
+
+          FROM
+            purchase_order_lines pol
+
+          WHERE
+            pol.dispensing_point_id
+              IS NOT NULL
+
+          UNION
+
           SELECT DISTINCT
             d.purchase_order_id,
 
@@ -208,7 +242,129 @@ export class InventoryAvailabilityRepository {
               IS NOT NULL
         ),
 
+        canonical_point_candidates AS (
+          /*
+           * Prioridad 2:
+           * cuando la OC/producto no tiene un punto operacional
+           * histórico, resolvemos el punto vigente por:
+           *
+           * código producto
+           * -> AT activo
+           * -> INVIMA + presentación normalizados
+           * -> product_delivery_point_mappings
+           * -> dispensing_points.
+           */
+
+          SELECT DISTINCT
+            pp.purchase_order_id,
+
+            pp.commercial_code,
+
+            mapping.dispensing_point_id
+
+          FROM
+            po_products pp
+
+          JOIN
+            tariff_annex_products tap
+              ON tap.codigo_producto =
+                 pp.commercial_code
+
+             AND tap.active =
+                 true
+
+          JOIN
+            product_delivery_point_mappings mapping
+              ON BTRIM(
+                   COALESCE(
+                     tap.numero_expediente_invima,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             AND BTRIM(
+                   COALESCE(
+                     tap.consecutivo_invima_presentacion,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             AND mapping.invima_record_normalized =
+                 COALESCE(
+                   NULLIF(
+                     LTRIM(
+                       BTRIM(
+                         tap.numero_expediente_invima
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+             AND mapping.invima_presentation_normalized =
+                 COALESCE(
+                   NULLIF(
+                     LTRIM(
+                       BTRIM(
+                         tap.consecutivo_invima_presentacion
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+          WHERE
+            NOT EXISTS (
+              SELECT
+                1
+
+              FROM
+                operational_point_candidates opc
+
+              WHERE
+                opc.purchase_order_id =
+                  pp.purchase_order_id
+
+                AND opc.commercial_code =
+                  pp.commercial_code
+            )
+        ),
+
+        point_candidates AS (
+          SELECT
+            purchase_order_id,
+            commercial_code,
+            dispensing_point_id
+
+          FROM
+            operational_point_candidates
+
+          UNION
+
+          SELECT
+            purchase_order_id,
+            commercial_code,
+            dispensing_point_id
+
+          FROM
+            canonical_point_candidates
+        ),
+
         po_product_points AS (
+          /*
+           * Grain operacional de esta vista:
+           *
+           * 1 fila =
+           * OC + producto + punto.
+           *
+           * Una misma OC puede contener más de una línea física
+           * del mismo producto, pero Disponibilidad debe exponer
+           * una sola fila para esa combinación.
+           */
           SELECT
             pp.purchase_order_id,
 
@@ -216,7 +372,10 @@ export class InventoryAvailabilityRepository {
 
             pp.commercial_code,
 
-            pp.product_description,
+            MAX(
+              pp.product_description
+            )
+              AS product_description,
 
             pc.dispensing_point_id
 
@@ -230,6 +389,12 @@ export class InventoryAvailabilityRepository {
 
              AND pc.commercial_code =
                  pp.commercial_code
+
+          GROUP BY
+            pp.purchase_order_id,
+            pp.purchase_order_code,
+            pp.commercial_code,
+            pc.dispensing_point_id
         ),
 
         received AS (

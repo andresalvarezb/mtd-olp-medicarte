@@ -373,3 +373,13 @@ export type {
   PurchaseOrderFieldAccess,
   PurchaseOrderOperationalContext,
 } from './purchase-order-access-policy';
+
+export {
+  AUTHORIZATION_FULFILLMENT_TYPES,
+  AuthorizationFulfillmentError,
+  assertAuthorizationFulfillment,
+} from './authorization-fulfillment';
+export type {
+  AuthorizationFulfillmentInput,
+  AuthorizationFulfillmentType,
+} from './authorization-fulfillment';

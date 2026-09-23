@@ -162,19 +162,34 @@ export class PurchaseOrderRepository {
 
   async acceptBySupplier(
     id: string,
+
     input: {
       expectedVersion: number;
+
       committedDate: string;
+
       observation?: string;
+
+      lines: readonly {
+        lineId: string;
+
+        supplierUnitCost: number;
+      }[];
     },
+
     actor: PurchaseOrderActor,
   ) {
-    return this.database.db.transaction(async (tx) => {
-      const result = await tx.execute<{
-        version: number;
-        status: string;
-        olp_accepted_at: Date | null;
-      }>(sql`
+    return this.database.db.transaction(
+      async (tx) => {
+        const result =
+          await tx.execute<{
+            version: number;
+
+            status: string;
+
+            olp_accepted_at:
+              Date | null;
+          }>(sql`
             select
               version,
               status,
@@ -184,40 +199,70 @@ export class PurchaseOrderRepository {
               purchase_orders
 
             where
-              id = ${id}
+              id =
+                ${id}
 
             for update
           `);
 
-      const order = result.rows[0];
+        const order =
+          result.rows[0];
 
-      if (!order) {
-        return {
+        if (!order) {
+          return {
           outcome: 'not_found' as const,
         };
-      }
+        }
 
-      if (order.version !== input.expectedVersion) {
-        return {
+        if (
+          order.version !==
+          input.expectedVersion
+        ) {
+          return {
           outcome: 'version_conflict' as const,
 
-          currentVersion: order.version,
+          currentVersion:
+            order.version,
         };
-      }
+        }
 
-      if (order.olp_accepted_at !== null) {
-        throw new Error('PURCHASE_ORDER_ALREADY_ACCEPTED');
-      }
+        if (
+          order.olp_accepted_at !==
+          null
+        ) {
+          throw new Error(
+            'PURCHASE_ORDER_ALREADY_ACCEPTED',
+          );
+        }
 
-      if (order.status !== 'ISSUED') {
-        throw new Error('PURCHASE_ORDER_NOT_ACCEPTABLE');
-      }
+        if (
+          order.status !==
+          'ISSUED'
+        ) {
+          throw new Error(
+            'PURCHASE_ORDER_NOT_ACCEPTABLE',
+          );
+        }
 
-      const lines = await tx.execute<{
-        count: number;
-      }>(sql`
+
+        /*
+         * Bloqueamos las líneas antes de validar los costos.
+         *
+         * La aceptación de la OC significa que OLP acepta
+         * toda la cantidad solicitada. El costo que OLP
+         * cobrará a MTD sí es información propia del proveedor
+         * y debe recibirse explícitamente.
+         */
+        const orderLines =
+          await tx.execute<{
+            id: string;
+
+            requested_quantity:
+              number;
+          }>(sql`
             select
-              count(*)::int as count
+              id,
+              requested_quantity
 
             from
               purchase_order_lines
@@ -225,45 +270,136 @@ export class PurchaseOrderRepository {
             where
               purchase_order_id =
                 ${id}
+
+            order by
+              id
+
+            for update
           `);
 
-      if ((lines.rows[0]?.count ?? 0) < 1) {
-        throw new Error('PURCHASE_ORDER_LINES_REQUIRED');
-      }
 
-      /*
-       * La aceptación operacional es de la OC.
-       *
-       * La cantidad solicitada por MTD no se modifica.
-       * accepted_quantity se sincroniza con requested_quantity
-       * para mantener compatible el motor de despachos existente.
-       *
-       * Las diferencias reales del proveedor se registrarán
-       * posteriormente en las cantidades efectivamente despachadas.
-       */
-      await tx.execute(sql`
-          update
-            purchase_order_lines
+        if (
+          orderLines.rows.length <
+          1
+        ) {
+          throw new Error(
+            'PURCHASE_ORDER_LINES_REQUIRED',
+          );
+        }
 
-          set
-            accepted_quantity =
-              requested_quantity,
 
-            updated_at =
-              now()
+        if (
+          input.lines.length <
+          1
+        ) {
+          throw new Error(
+            'PURCHASE_ORDER_SUPPLIER_COSTS_REQUIRED',
+          );
+        }
 
-          where
-            purchase_order_id =
-              ${id}
-        `);
 
-      /*
-       * ACCEPTED es estado interno.
-       *
-       * En la proyección operacional seguirá siendo
-       * "Pendiente OLP" mientras no exista despacho.
-       */
-      await tx.execute(sql`
+        const providedIds =
+          input.lines.map(
+            (line) =>
+              line.lineId,
+          );
+
+
+        if (
+          new Set(
+            providedIds,
+          ).size !==
+          providedIds.length
+        ) {
+          throw new Error(
+            'PURCHASE_ORDER_SUPPLIER_COST_DUPLICATE',
+          );
+        }
+
+
+        const actualIds =
+          new Set(
+            orderLines.rows.map(
+              (line) =>
+                line.id,
+            ),
+          );
+
+
+        if (
+          input.lines.length !==
+            orderLines.rows.length
+          ||
+          input.lines.some(
+            (line) =>
+              !actualIds.has(
+                line.lineId,
+              ),
+          )
+        ) {
+          throw new Error(
+            'PURCHASE_ORDER_SUPPLIER_COST_LINE_MISMATCH',
+          );
+        }
+
+
+        for (
+          const inputLine
+          of input.lines
+        ) {
+          if (
+            !Number.isFinite(
+              inputLine.supplierUnitCost,
+            )
+            ||
+            inputLine.supplierUnitCost <=
+              0
+          ) {
+            throw new Error(
+              'PURCHASE_ORDER_SUPPLIER_COSTS_REQUIRED',
+            );
+          }
+
+
+          const supplierUnitCost =
+            inputLine.supplierUnitCost
+              .toFixed(
+                2,
+              );
+
+
+          await tx.execute(sql`
+            update
+              purchase_order_lines
+
+            set
+              accepted_quantity =
+                requested_quantity,
+
+              supplier_unit_cost =
+                ${supplierUnitCost},
+
+              updated_at =
+                now()
+
+            where
+              id =
+                ${inputLine.lineId}
+
+              and
+              purchase_order_id =
+                ${id}
+          `);
+        }
+
+
+        /*
+         * ACCEPTED permanece como estado interno.
+         *
+         * La proyección operacional visible seguirá siendo
+         * Pendiente OLP mientras aún no exista despacho.
+         */
+        await tx.execute(sql`
           update
             purchase_orders
 
@@ -294,14 +430,34 @@ export class PurchaseOrderRepository {
               ${id}
         `);
 
-      await this.audit(tx, actor, 'PURCHASE_ORDER_OLP_ACCEPTED', id, {
-        committedDate: input.committedDate,
 
-        observation: input.observation ?? null,
-      });
+        await this.audit(
+          tx,
+          actor,
+          'PURCHASE_ORDER_OLP_ACCEPTED',
+          id,
+          {
+            committedDate:
+              input.committedDate,
 
-      return this.findByIdOn(tx, id, true);
-    });
+            observation:
+              input.observation
+              ??
+              null,
+
+            supplierCostsRecorded:
+              input.lines.length,
+          },
+        );
+
+
+        return this.findByIdOn(
+          tx,
+          id,
+          true,
+        );
+      },
+    );
   }
 
   async reviewLine(
@@ -427,7 +583,13 @@ export class PurchaseOrderRepository {
 
   async list(query: PurchaseOrderListQuery, actor: Scope, supplier = false) {
     const filters = query.status ? [sql`true`] : [sql`po.status <> 'CANCELLED'`];
-    if (supplier) filters.push(sql`po.status <> 'DRAFT'`);
+    /*
+     * Una OC creada por MTD entra inmediatamente
+     * en responsabilidad operacional de OLP.
+     *
+     * DRAFT se conserva temporalmente como estado técnico
+     * legado, pero no impide su consulta por OLP.
+     */
     if (query.planningPeriodId)
       filters.push(sql`po.planning_period_id = ${query.planningPeriodId}`);
     if (query.status) filters.push(sql`po.status = ${query.status}`);
@@ -458,10 +620,1161 @@ export class PurchaseOrderRepository {
     const visible = await this.database.db.execute<{ id: string }>(sql`
       select po.id from purchase_orders po
       where po.id = ${id}
-        and (${actor.organizationCode} = 'MTD' or (${supplier} and po.status <> 'DRAFT'))
+        and (
+          ${actor.organizationCode} in ('MTD', 'MEDICARTE')
+          or ${supplier}
+        )
     `);
     if (!visible.rows[0]) return null;
     return this.findById(id, supplier);
+  }
+
+
+  async operationalDetail(id: string, actor: Scope) {
+    void actor;
+    const orderResult = await this.database.db.execute<{
+      id: string;
+      purchase_order_code: string | null;
+      order_type: string;
+      status: string;
+      version: number;
+      created_at: Date | string;
+      updated_at: Date | string;
+      issued_at: Date | string | null;
+      olp_accepted_at: Date | string | null;
+      olp_committed_date: string | null;
+      created_by_name: string | null;
+      accepted_by_name: string | null;
+    }>(sql`
+      select
+        po.id,
+        po.purchase_order_code,
+        po.order_type,
+        po.status,
+        po.version,
+        po.created_at,
+        po.updated_at,
+        po.issued_at,
+        po.olp_accepted_at,
+        po.olp_committed_date::text,
+
+        coalesce(
+          creator.display_name,
+          creator.username
+        ) as created_by_name,
+
+        coalesce(
+          accepter.display_name,
+          accepter.username
+        ) as accepted_by_name
+
+      from purchase_orders po
+
+      left join users creator
+        on creator.id = po.created_by
+
+      left join users accepter
+        on accepter.id = po.olp_accepted_by
+
+      where po.id = ${id}
+
+      limit 1
+    `);
+
+    const order = orderResult.rows[0];
+
+    if (!order) {
+      return null;
+    }
+
+    const lineResult = await this.database.db.execute<{
+      id: string;
+      commercial_code: string;
+      product_description: string | null;
+      presentation: string | null;
+      dispensing_point_id: string | null;
+      dispensing_point_code: string | null;
+      dispensing_point_name: string | null;
+      requested_quantity: number;
+      accepted_quantity: number | null;
+      compensar_unit_rate_snapshot: string | null;
+      supplier_unit_cost: string | null;
+      dispatched_quantity: number;
+      received_quantity: number;
+      accepted_received_quantity: number;
+      receipt_outcome: string | null;
+    }>(sql`
+      with dispatched as (
+        select
+          dl.purchase_order_line_id,
+
+          coalesce(
+            sum(dl.quantity),
+            0
+          )::int as dispatched_quantity
+
+        from delivery_lines dl
+
+        join deliveries d
+          on d.id = dl.delivery_id
+
+        where d.purchase_order_id = ${id}
+
+          and d.status in (
+            'DISPATCHED',
+            'RECEIVED'
+          )
+
+        group by
+          dl.purchase_order_line_id
+      ),
+
+      received_sources as (
+        select
+          dl.purchase_order_line_id,
+
+          rl.received_quantity
+
+        from receipt_lines rl
+
+        join receipts r
+          on r.id =
+             rl.receipt_id
+
+        join delivery_lines dl
+          on dl.id =
+             rl.delivery_line_id
+
+        join deliveries d
+          on d.id =
+             dl.delivery_id
+
+        where d.purchase_order_id =
+              ${id}
+
+          and r.status =
+              'CONFIRMED'
+
+        union all
+
+        select
+          porl.purchase_order_line_id,
+
+          porl.received_quantity
+
+        from purchase_order_receipt_lines porl
+
+        join purchase_order_receipts por
+          on por.id =
+             porl.receipt_id
+
+        where por.purchase_order_id =
+              ${id}
+      ),
+
+      received as (
+        select
+          purchase_order_line_id,
+
+          coalesce(
+            sum(
+              received_quantity
+            ),
+            0
+          )::int as received_quantity,
+
+          coalesce(
+            sum(
+              received_quantity
+            ),
+            0
+          )::int as accepted_received_quantity
+
+        from received_sources
+
+        group by
+          purchase_order_line_id
+      )
+
+      select
+        pol.id,
+        pol.commercial_code,
+
+        coalesce(
+          nullif(
+            btrim(
+              coalesce(
+                pol.product_description,
+                ''
+              )
+            ),
+            ''
+          ),
+
+          nullif(
+            btrim(
+              coalesce(
+                tap.descripcion_comercial,
+                ''
+              )
+            ),
+            ''
+          ),
+
+          nullif(
+            btrim(
+              coalesce(
+                tap.descripcion_generica,
+                ''
+              )
+            ),
+            ''
+          )
+        ) as product_description,
+
+        coalesce(
+          nullif(
+            btrim(
+              coalesce(
+                pol.presentation,
+                ''
+              )
+            ),
+            ''
+          ),
+          tap.consecutivo_invima_presentacion
+        ) as presentation,
+
+        coalesce(
+          pol.dispensing_point_id,
+          mapped.dispensing_point_id
+        ) as dispensing_point_id,
+
+        coalesce(
+          historical_point.code,
+          mapped_point.code
+        ) as dispensing_point_code,
+
+        coalesce(
+          historical_point.name,
+          mapped_point.name
+        ) as dispensing_point_name,
+
+        pol.requested_quantity,
+        pol.accepted_quantity,
+        pol.compensar_unit_rate_snapshot,
+        pol.supplier_unit_cost,
+
+        coalesce(
+          dispatched.dispatched_quantity,
+          0
+        )::int as dispatched_quantity,
+
+        coalesce(
+          received.received_quantity,
+          0
+        )::int as received_quantity,
+
+        coalesce(
+          received.accepted_received_quantity,
+          0
+        )::int as accepted_received_quantity,
+
+        latest_direct_receipt.outcome
+          as receipt_outcome
+
+      from purchase_order_lines pol
+
+      left join tariff_annex_products tap
+        on tap.codigo_producto =
+           pol.commercial_code
+       and tap.active = true
+
+      left join dispensing_points historical_point
+        on historical_point.id =
+           pol.dispensing_point_id
+
+      left join product_delivery_point_mappings mapped
+        on pol.dispensing_point_id is null
+
+       and btrim(
+             coalesce(
+               tap.numero_expediente_invima,
+               ''
+             )
+           ) ~ '^[0-9]+$'
+
+       and btrim(
+             coalesce(
+               tap.consecutivo_invima_presentacion,
+               ''
+             )
+           ) ~ '^[0-9]+$'
+
+       and mapped.invima_record_normalized =
+           coalesce(
+             nullif(
+               ltrim(
+                 btrim(
+                   tap.numero_expediente_invima
+                 ),
+                 '0'
+               ),
+               ''
+             ),
+             '0'
+           )
+
+       and mapped.invima_presentation_normalized =
+           coalesce(
+             nullif(
+               ltrim(
+                 btrim(
+                   tap.consecutivo_invima_presentacion
+                 ),
+                 '0'
+               ),
+               ''
+             ),
+             '0'
+           )
+
+      left join dispensing_points mapped_point
+        on mapped_point.id =
+           mapped.dispensing_point_id
+       and mapped_point.active = true
+
+      left join dispatched
+        on dispatched.purchase_order_line_id =
+           pol.id
+
+      left join received
+        on received.purchase_order_line_id =
+           pol.id
+
+      left join lateral (
+        select
+          porl.outcome
+
+        from purchase_order_receipt_lines porl
+
+        join purchase_order_receipts por
+          on por.id =
+             porl.receipt_id
+
+        where por.purchase_order_id =
+              ${id}
+
+          and porl.purchase_order_line_id =
+              pol.id
+
+        order by
+          por.confirmed_at desc,
+          porl.id desc
+
+        limit 1
+      ) latest_direct_receipt
+        on true
+
+      where pol.purchase_order_id = ${id}
+
+      order by
+        pol.commercial_code,
+        pol.id
+    `);
+
+    const deliveryResult = await this.database.db.execute<{
+      id: string;
+      supplier_reference: string | null;
+      status: string;
+      declared_dispatch_date: string | null;
+      dispatched_at: Date | string | null;
+      created_at: Date | string;
+      actor_name: string | null;
+      line_id: string | null;
+      purchase_order_line_id: string | null;
+      commercial_code: string | null;
+      quantity: number | null;
+      dispensing_point_code: string | null;
+    }>(sql`
+      select
+        d.id,
+        d.supplier_reference,
+        d.status,
+        d.declared_dispatch_date::text,
+        d.dispatched_at,
+        d.created_at,
+
+        coalesce(
+          u.display_name,
+          u.username
+        ) as actor_name,
+
+        dl.id as line_id,
+        dl.purchase_order_line_id,
+        dl.commercial_code,
+        dl.quantity,
+
+        dp.code as dispensing_point_code
+
+      from deliveries d
+
+      left join users u
+        on u.id = d.updated_by
+
+      left join delivery_lines dl
+        on dl.delivery_id = d.id
+
+      left join dispensing_points dp
+        on dp.id = dl.dispensing_point_id
+
+      where d.purchase_order_id = ${id}
+
+      order by
+        d.created_at,
+        d.id,
+        dl.id
+    `);
+
+    const receiptResult = await this.database.db.execute<{
+      id: string;
+      delivery_id: string;
+      status: string;
+      declared_received_date: string | null;
+      confirmed_at: Date | string | null;
+      created_at: Date | string;
+      actor_name: string | null;
+      line_id: string | null;
+      delivery_line_id: string | null;
+      purchase_order_line_id: string | null;
+      received_quantity: number | null;
+      accepted_quantity: number | null;
+      rejected_quantity: number | null;
+      nonconformity_reason: string | null;
+      observation: string | null;
+    }>(sql`
+      select
+        r.id,
+        r.delivery_id,
+        r.status,
+        r.received_at::date::text
+          as declared_received_date,
+        r.confirmed_at,
+        r.created_at,
+
+        coalesce(
+          u.display_name,
+          u.username
+        ) as actor_name,
+
+        rl.id as line_id,
+        rl.delivery_line_id,
+        dl.purchase_order_line_id,
+        rl.received_quantity,
+        rl.accepted_quantity,
+        rl.rejected_quantity,
+        rl.nonconformity_reason,
+        rl.observation
+
+      from receipts r
+
+      join deliveries d
+        on d.id = r.delivery_id
+
+      left join users u
+        on u.id = r.updated_by
+
+      left join receipt_lines rl
+        on rl.receipt_id = r.id
+
+      left join delivery_lines dl
+        on dl.id = rl.delivery_line_id
+
+      where d.purchase_order_id = ${id}
+
+      order by
+        r.created_at,
+        r.id,
+        rl.id
+    `);
+
+    const acceptanceAudit = await this.database.db.execute<{
+      observation: string | null;
+    }>(sql`
+      select
+        nullif(
+          btrim(
+            coalesce(
+              after ->> 'observation',
+              ''
+            )
+          ),
+          ''
+        ) as observation
+
+      from audit_events
+
+      where resource_type = 'purchase_order'
+        and resource_id = ${id}
+        and action = 'PURCHASE_ORDER_OLP_ACCEPTED'
+
+      order by occurred_at desc
+
+      limit 1
+    `);
+
+    const returnedAudit = await this.database.db.execute<{
+      observation: string | null;
+    }>(sql`
+      select
+        nullif(
+          btrim(
+            coalesce(
+              after ->> 'observation',
+              ''
+            )
+          ),
+          ''
+        ) as observation
+
+      from audit_events
+
+      where resource_type = 'purchase_order'
+        and resource_id = ${id}
+        and action = 'PURCHASE_ORDER_RETURNED_BY_SUPPLIER'
+
+      order by occurred_at desc
+
+      limit 1
+    `);
+
+    const lines = lineResult.rows.map((line) => {
+      const requestedQuantity =
+        Number(line.requested_quantity ?? 0);
+
+      const dispatchedQuantity =
+        Number(line.dispatched_quantity ?? 0);
+
+      const receivedQuantity =
+        Number(line.received_quantity ?? 0);
+
+      const supplierPendingQuantity =
+        Math.max(
+          requestedQuantity -
+          dispatchedQuantity,
+          0,
+        );
+
+      const receiptPendingQuantity =
+        Math.max(
+          dispatchedQuantity -
+          receivedQuantity,
+          0,
+        );
+
+      const pendingQuantity =
+        Math.max(
+          requestedQuantity -
+          receivedQuantity,
+          0,
+        );
+
+      return {
+        id: line.id,
+
+        commercialCode:
+          line.commercial_code,
+
+        productDescription:
+          line.product_description,
+
+        presentation:
+          line.presentation,
+
+        dispensingPointId:
+          line.dispensing_point_id,
+
+        dispensingPointCode:
+          line.dispensing_point_code,
+
+        dispensingPointName:
+          line.dispensing_point_name,
+
+        requestedQuantity,
+
+        acceptedQuantity:
+          line.accepted_quantity,
+
+        dispatchedQuantity,
+
+        receivedQuantity,
+
+        acceptedReceivedQuantity:
+          Number(
+            line.accepted_received_quantity ??
+            0,
+          ),
+
+        receiptOutcome:
+          line.receipt_outcome,
+
+        supplierPendingQuantity,
+
+        receiptPendingQuantity,
+
+        pendingQuantity,
+
+        compensarUnitRateSnapshot:
+          line.compensar_unit_rate_snapshot,
+
+        supplierUnitCost:
+          line.supplier_unit_cost,
+      };
+    });
+
+    const deliveriesMap =
+      new Map<
+        string,
+        {
+          id: string;
+          supplierReference: string | null;
+          status: string;
+          declaredDispatchDate: string | null;
+          dispatchedAt: Date | string | null;
+          createdAt: Date | string;
+          actorName: string | null;
+          lines: Array<{
+            id: string;
+            purchaseOrderLineId: string;
+            commercialCode: string;
+            quantity: number;
+            dispensingPointCode: string | null;
+          }>;
+        }
+      >();
+
+    for (const row of deliveryResult.rows) {
+      let delivery =
+        deliveriesMap.get(
+          row.id,
+        );
+
+      if (!delivery) {
+        delivery = {
+          id: row.id,
+
+          supplierReference:
+            row.supplier_reference,
+
+          status:
+            row.status,
+
+          declaredDispatchDate:
+            row.declared_dispatch_date,
+
+          dispatchedAt:
+            row.dispatched_at,
+
+          createdAt:
+            row.created_at,
+
+          actorName:
+            row.actor_name,
+
+          lines: [],
+        };
+
+        deliveriesMap.set(
+          row.id,
+          delivery,
+        );
+      }
+
+      if (
+        row.line_id &&
+        row.purchase_order_line_id &&
+        row.commercial_code &&
+        row.quantity !== null
+      ) {
+        delivery.lines.push({
+          id:
+            row.line_id,
+
+          purchaseOrderLineId:
+            row.purchase_order_line_id,
+
+          commercialCode:
+            row.commercial_code,
+
+          quantity:
+            Number(
+              row.quantity,
+            ),
+
+          dispensingPointCode:
+            row.dispensing_point_code,
+        });
+      }
+    }
+
+    const receiptsMap =
+      new Map<
+        string,
+        {
+          id: string;
+          deliveryId: string;
+          status: string;
+          declaredReceivedDate: string | null;
+          confirmedAt: Date | string | null;
+          createdAt: Date | string;
+          actorName: string | null;
+          lines: Array<{
+            id: string;
+            deliveryLineId: string;
+            purchaseOrderLineId: string | null;
+            receivedQuantity: number;
+            acceptedQuantity: number;
+            rejectedQuantity: number;
+            nonconformityReason: string | null;
+            observation: string | null;
+          }>;
+        }
+      >();
+
+    for (const row of receiptResult.rows) {
+      let receipt =
+        receiptsMap.get(
+          row.id,
+        );
+
+      if (!receipt) {
+        receipt = {
+          id:
+            row.id,
+
+          deliveryId:
+            row.delivery_id,
+
+          status:
+            row.status,
+
+          declaredReceivedDate:
+            row.declared_received_date,
+
+          confirmedAt:
+            row.confirmed_at,
+
+          createdAt:
+            row.created_at,
+
+          actorName:
+            row.actor_name,
+
+          lines: [],
+        };
+
+        receiptsMap.set(
+          row.id,
+          receipt,
+        );
+      }
+
+      if (
+        row.line_id &&
+        row.delivery_line_id
+      ) {
+        receipt.lines.push({
+          id:
+            row.line_id,
+
+          deliveryLineId:
+            row.delivery_line_id,
+
+          purchaseOrderLineId:
+            row.purchase_order_line_id,
+
+          receivedQuantity:
+            Number(
+              row.received_quantity ??
+              0,
+            ),
+
+          acceptedQuantity:
+            Number(
+              row.accepted_quantity ??
+              0,
+            ),
+
+          rejectedQuantity:
+            Number(
+              row.rejected_quantity ??
+              0,
+            ),
+
+          nonconformityReason:
+            row.nonconformity_reason,
+
+          observation:
+            row.observation,
+        });
+      }
+    }
+
+    const deliveries =
+      Array.from(
+        deliveriesMap.values(),
+      );
+
+    const receipts =
+      Array.from(
+        receiptsMap.values(),
+      );
+
+    const totalRequested =
+      lines.reduce(
+        (
+          total,
+          line,
+        ) =>
+          total +
+          line.requestedQuantity,
+        0,
+      );
+
+    const totalDispatched =
+      lines.reduce(
+        (
+          total,
+          line,
+        ) =>
+          total +
+          line.dispatchedQuantity,
+        0,
+      );
+
+    const totalReceived =
+      lines.reduce(
+        (
+          total,
+          line,
+        ) =>
+          total +
+          line.receivedQuantity,
+        0,
+      );
+
+    const totalPending =
+      lines.reduce(
+        (
+          total,
+          line,
+        ) =>
+          total +
+          line.pendingQuantity,
+        0,
+      );
+
+    const totalSupplierPending =
+      lines.reduce(
+        (
+          total,
+          line,
+        ) =>
+          total +
+          line.supplierPendingQuantity,
+        0,
+      );
+
+    const totalReceiptPending =
+      lines.reduce(
+        (
+          total,
+          line,
+        ) =>
+          total +
+          line.receiptPendingQuantity,
+        0,
+      );
+
+    const allReceived =
+      lines.length > 0 &&
+      lines.every(
+        (line) =>
+          line.receivedQuantity >=
+          line.requestedQuantity,
+      );
+
+    const anyReceiptEvent =
+      receipts.length > 0 ||
+      lines.some(
+        (line) =>
+          line.receiptOutcome !==
+          null,
+      );
+
+    const operationalState =
+      allReceived
+        ? 'RECEIVED'
+        : anyReceiptEvent
+          ? 'RECEIVED_WITH_PENDING'
+          : order.olp_accepted_at
+            ? 'PENDING_MEDICARTE'
+            : 'PENDING_OLP';
+
+    const responsible =
+      operationalState ===
+      'PENDING_OLP'
+        ? 'OLP'
+        : operationalState ===
+            'RECEIVED'
+          ? 'Finalizada'
+          : 'Medicarte';
+
+    let contractualValue =
+      0;
+
+    let contractualComplete =
+      true;
+
+    let supplierProjectedCost =
+      0;
+
+    let supplierCostComplete =
+      true;
+
+    for (const line of lines) {
+      const tariff =
+        line.compensarUnitRateSnapshot ===
+        null
+          ? null
+          : Number(
+              line.compensarUnitRateSnapshot,
+            );
+
+      const supplierCost =
+        line.supplierUnitCost ===
+        null
+          ? null
+          : Number(
+              line.supplierUnitCost,
+            );
+
+      if (
+        tariff === null ||
+        !Number.isFinite(
+          tariff,
+        )
+      ) {
+        contractualComplete =
+          false;
+      } else {
+        contractualValue +=
+          tariff *
+          line.requestedQuantity;
+      }
+
+      if (
+        supplierCost === null ||
+        !Number.isFinite(
+          supplierCost,
+        )
+      ) {
+        supplierCostComplete =
+          false;
+      } else {
+        supplierProjectedCost +=
+          supplierCost *
+          line.requestedQuantity;
+      }
+    }
+
+    const novelties: Array<{
+      type: string;
+      message: string;
+      commercialCode: string | null;
+    }> = [];
+
+    if (
+      order.status ===
+      'REJECTED'
+    ) {
+      novelties.push({
+        type:
+          'SUPPLIER_RETURN',
+
+        message:
+          returnedAudit.rows[0]?.observation ??
+          'La orden fue devuelta por OLP.',
+
+        commercialCode:
+          null,
+      });
+    }
+
+    if (
+      order.status ===
+      'CANCELLED'
+    ) {
+      novelties.push({
+        type:
+          'CANCELLED',
+
+        message:
+          'La orden de compra fue cancelada.',
+
+        commercialCode:
+          null,
+      });
+    }
+
+    if (
+      order.status ===
+      'HISTORICAL_ONLY'
+    ) {
+      novelties.push({
+        type:
+          'HISTORICAL_ONLY',
+
+        message:
+          'Registro histórico: los hechos físicos no se reconstruyen cuando no existe evidencia autoritativa.',
+
+        commercialCode:
+          null,
+      });
+    }
+
+    for (const receipt of receipts) {
+      for (
+        const receiptLine of
+        receipt.lines
+      ) {
+        if (
+          receiptLine.rejectedQuantity >
+            0 ||
+          receiptLine.nonconformityReason
+        ) {
+          const sourceLine =
+            lines.find(
+              (line) =>
+                line.id ===
+                receiptLine.purchaseOrderLineId,
+            );
+
+          novelties.push({
+            type:
+              'RECEIPT_NONCONFORMITY',
+
+            message:
+              receiptLine.nonconformityReason ??
+              `Recepción con ${receiptLine.rejectedQuantity} unidad(es) rechazada(s).`,
+
+            commercialCode:
+              sourceLine?.commercialCode ??
+              null,
+          });
+        }
+      }
+    }
+
+    return {
+      id:
+        order.id,
+
+      purchaseOrderCode:
+        order.purchase_order_code,
+
+      orderType:
+        order.order_type,
+
+      technicalStatus:
+        order.status,
+
+      operationalState,
+
+      responsible,
+
+      version:
+        order.version,
+
+      createdAt:
+        order.created_at,
+
+      createdByName:
+        order.created_by_name,
+
+      issuedAt:
+        order.issued_at,
+
+      updatedAt:
+        order.updated_at,
+
+      olpAcceptedAt:
+        order.olp_accepted_at,
+
+      olpAcceptedByName:
+        order.accepted_by_name,
+
+      olpCommittedDate:
+        order.olp_committed_date,
+
+      olpAcceptanceObservation:
+        acceptanceAudit.rows[0]?.observation ??
+        null,
+
+      latestSupplierObservation:
+        returnedAudit.rows[0]?.observation ??
+        null,
+
+      summary: {
+        products:
+          lines.length,
+
+        requestedQuantity:
+          totalRequested,
+
+        dispatchedQuantity:
+          totalDispatched,
+
+        receivedQuantity:
+          totalReceived,
+
+        pendingQuantity:
+          totalPending,
+
+        supplierPendingQuantity:
+          totalSupplierPending,
+
+        receiptPendingQuantity:
+          totalReceiptPending,
+      },
+
+      financial: {
+        contractualValue:
+          contractualComplete
+            ? contractualValue
+            : null,
+
+        supplierProjectedCost:
+          supplierCostComplete
+            ? supplierProjectedCost
+            : null,
+
+        projectedGrossMargin:
+          contractualComplete &&
+          supplierCostComplete
+            ? contractualValue -
+              supplierProjectedCost
+            : null,
+      },
+
+      lines,
+
+      deliveries,
+
+      receipts,
+
+      novelties,
+    };
   }
 
   async available(planningPeriodId: string) {
@@ -1347,12 +2660,69 @@ export class PurchaseOrderRepository {
 
         pol.id as line_id,
         pol.commercial_code,
-        pol.product_description,
-        pol.presentation,
-        pol.dispensing_point_id,
 
-        dp.code as dispensing_point_code,
-        dp.name as dispensing_point_name,
+        COALESCE(
+          NULLIF(
+            BTRIM(
+              COALESCE(
+                pol.product_description,
+                ''
+              )
+            ),
+            ''
+          ),
+          NULLIF(
+            BTRIM(
+              COALESCE(
+                tap.descripcion_comercial,
+                ''
+              )
+            ),
+            ''
+          ),
+          NULLIF(
+            BTRIM(
+              COALESCE(
+                tap.descripcion_generica,
+                ''
+              )
+            ),
+            ''
+          )
+        )
+          as product_description,
+
+        COALESCE(
+          NULLIF(
+            BTRIM(
+              COALESCE(
+                pol.presentation,
+                ''
+              )
+            ),
+            ''
+          ),
+          tap.consecutivo_invima_presentacion
+        )
+          as presentation,
+
+        COALESCE(
+          pol.dispensing_point_id,
+          mapped.dispensing_point_id
+        )
+          as dispensing_point_id,
+
+        COALESCE(
+          historical_point.code,
+          mapped_point.code
+        )
+          as dispensing_point_code,
+
+        COALESCE(
+          historical_point.name,
+          mapped_point.name
+        )
+          as dispensing_point_name,
 
         pol.requested_quantity,
         pol.accepted_quantity,
@@ -1374,8 +2744,74 @@ export class PurchaseOrderRepository {
       left join purchase_order_demand_allocations a
         on a.purchase_order_line_id = pol.id
 
-      left join dispensing_points dp
-        on dp.id = pol.dispensing_point_id
+      left join tariff_annex_products tap
+        on tap.codigo_producto =
+           pol.commercial_code
+       and tap.active = true
+
+      /*
+       * Punto histórico de la línea:
+       * siempre tiene prioridad sobre el mapping vigente.
+       */
+      left join dispensing_points historical_point
+        on historical_point.id =
+           pol.dispensing_point_id
+
+      /*
+       * Fallback únicamente cuando la línea histórica
+       * no trae punto.
+       *
+       * Producto -> AT -> INVIMA/presentación -> punto.
+       */
+      left join product_delivery_point_mappings mapped
+        on pol.dispensing_point_id is null
+
+       and btrim(
+             coalesce(
+               tap.numero_expediente_invima,
+               ''
+             )
+           ) ~ '^[0-9]+$'
+
+       and btrim(
+             coalesce(
+               tap.consecutivo_invima_presentacion,
+               ''
+             )
+           ) ~ '^[0-9]+$'
+
+       and mapped.invima_record_normalized =
+           coalesce(
+             nullif(
+               ltrim(
+                 btrim(
+                   tap.numero_expediente_invima
+                 ),
+                 '0'
+               ),
+               ''
+             ),
+             '0'
+           )
+
+       and mapped.invima_presentation_normalized =
+           coalesce(
+             nullif(
+               ltrim(
+                 btrim(
+                   tap.consecutivo_invima_presentacion
+                 ),
+                 '0'
+               ),
+               ''
+             ),
+             '0'
+           )
+
+      left join dispensing_points mapped_point
+        on mapped_point.id =
+           mapped.dispensing_point_id
+       and mapped_point.active = true
 
       left join projected_demand_lines pdl
         on pdl.id = pol.projected_demand_line_id

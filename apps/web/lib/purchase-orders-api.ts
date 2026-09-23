@@ -294,3 +294,279 @@ export function returnSupplierPurchaseOrder(
     },
   );
 }
+
+
+export type PurchaseOrderOperationalLine = Readonly<{
+  id: string;
+
+  commercialCode: string;
+
+  productDescription: string | null;
+
+  presentation: string | null;
+
+  dispensingPointId: string | null;
+
+  dispensingPointCode: string | null;
+
+  dispensingPointName: string | null;
+
+  requestedQuantity: number;
+
+  acceptedQuantity: number | null;
+
+  dispatchedQuantity: number;
+
+  receivedQuantity: number;
+
+  acceptedReceivedQuantity: number;
+
+  receiptOutcome:
+    | 'RECEIVED_COMPLETE'
+    | 'RECEIVED_PARTIAL'
+    | 'NOT_RECEIVED'
+    | null;
+
+  supplierPendingQuantity: number;
+
+  receiptPendingQuantity: number;
+
+  pendingQuantity: number;
+
+  compensarUnitRateSnapshot: string | null;
+
+  supplierUnitCost: string | null;
+}>;
+
+export type PurchaseOrderOperationalDelivery = Readonly<{
+  id: string;
+
+  supplierReference: string | null;
+
+  status: string;
+
+  declaredDispatchDate: string | null;
+
+  dispatchedAt: string | null;
+
+  createdAt: string;
+
+  actorName: string | null;
+
+  lines: ReadonlyArray<{
+    id: string;
+
+    purchaseOrderLineId: string;
+
+    commercialCode: string;
+
+    quantity: number;
+
+    dispensingPointCode: string | null;
+  }>;
+}>;
+
+export type PurchaseOrderOperationalReceipt = Readonly<{
+  id: string;
+
+  deliveryId: string;
+
+  status: string;
+
+  declaredReceivedDate: string | null;
+
+  confirmedAt: string | null;
+
+  createdAt: string;
+
+  actorName: string | null;
+
+  lines: ReadonlyArray<{
+    id: string;
+
+    deliveryLineId: string;
+
+    purchaseOrderLineId: string | null;
+
+    receivedQuantity: number;
+
+    acceptedQuantity: number;
+
+    rejectedQuantity: number;
+
+    nonconformityReason: string | null;
+
+    observation: string | null;
+  }>;
+}>;
+
+export type PurchaseOrderOperationalDetail = Readonly<{
+  id: string;
+
+  purchaseOrderCode: string | null;
+
+  orderType: string;
+
+  technicalStatus: string;
+
+  operationalState:
+    | 'PENDING_OLP'
+    | 'PENDING_MEDICARTE'
+    | 'RECEIVED_WITH_PENDING'
+    | 'RECEIVED';
+
+  responsible: string;
+
+  version: number;
+
+  createdAt: string;
+
+  createdByName: string | null;
+
+  issuedAt: string | null;
+
+  updatedAt: string;
+
+  olpAcceptedAt: string | null;
+
+  olpAcceptedByName: string | null;
+
+  olpCommittedDate: string | null;
+
+  olpAcceptanceObservation: string | null;
+
+  latestSupplierObservation: string | null;
+
+  summary: {
+    products: number;
+
+    requestedQuantity: number;
+
+    dispatchedQuantity: number;
+
+    receivedQuantity: number;
+
+    pendingQuantity: number;
+
+    supplierPendingQuantity: number;
+
+    receiptPendingQuantity: number;
+  };
+
+  financial: {
+    contractualValue: number | null;
+
+    supplierProjectedCost: number | null;
+
+    projectedGrossMargin: number | null;
+  };
+
+  lines: PurchaseOrderOperationalLine[];
+
+  deliveries: PurchaseOrderOperationalDelivery[];
+
+  receipts: PurchaseOrderOperationalReceipt[];
+
+  novelties: ReadonlyArray<{
+    type: string;
+
+    message: string;
+
+    commercialCode: string | null;
+  }>;
+}>;
+
+export function getPurchaseOrderOperationalDetail(
+  organizationId: string,
+  id: string,
+) {
+  return apiRequest<PurchaseOrderOperationalDetail>(
+    `/purchase-orders/${id}/operational`,
+    {
+      organizationId,
+    },
+  );
+}
+
+
+export type OperationalPurchaseOrderAcceptanceLine =
+  Readonly<{
+    lineId: string;
+
+    supplierUnitCost: number;
+  }>;
+
+
+export function acceptOperationalPurchaseOrder(
+  organizationId: string,
+  id: string,
+  expectedVersion: number,
+  shippingDate: string,
+  lines: ReadonlyArray<OperationalPurchaseOrderAcceptanceLine>,
+  observation?: string,
+) {
+  return apiRequest<SupplierPurchaseOrderResponse>(
+    `/supplier/purchase-orders/${id}/accept`,
+    {
+      method: 'POST',
+
+      organizationId,
+
+      body: JSON.stringify({
+        expectedVersion,
+
+        committedDate:
+          shippingDate,
+
+        lines,
+
+        ...(observation === undefined
+          ? {}
+          : {
+              observation,
+            }),
+      }),
+    },
+  );
+}
+
+
+export type PurchaseOrderDirectReceiptInput =
+  Readonly<{
+    receivedAt?: string;
+
+    observation?: string | null;
+
+    lines: ReadonlyArray<{
+      purchaseOrderLineId: string;
+
+      outcome:
+        | 'RECEIVED_COMPLETE'
+        | 'RECEIVED_PARTIAL'
+        | 'NOT_RECEIVED';
+
+      receivedQuantity: number;
+
+      lotNumber?: string | null;
+
+      expirationDate?: string | null;
+
+      observation?: string | null;
+    }>;
+  }>;
+
+
+export function createPurchaseOrderDirectReceipt(
+  organizationId: string,
+  purchaseOrderId: string,
+  input: PurchaseOrderDirectReceiptInput,
+) {
+  return apiRequest(
+    `/medicarte/purchase-orders/${purchaseOrderId}/receipts`,
+    {
+      method: 'POST',
+      organizationId,
+      body: JSON.stringify(input),
+    },
+  );
+}
