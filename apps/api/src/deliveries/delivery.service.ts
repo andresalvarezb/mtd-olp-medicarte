@@ -1,5 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import type { CreateDeliveryRequest, UpdateDeliveryRequest } from '@authorization/contracts';
+import type {
+  CreateDeliveryRequest,
+  DeliveryDispatchRequest,
+  UpdateDeliveryRequest,
+} from '@authorization/contracts';
 import type { Scope } from '../common/request-scope';
 import { DeliveryRepository } from './delivery.repository';
 
@@ -8,7 +12,20 @@ export class DeliveryService {
   constructor(private readonly repository: DeliveryRepository) {}
   create(body: CreateDeliveryRequest, scope: Scope) { return this.run(() => this.repository.create(body, scope)); }
   update(id: string, body: UpdateDeliveryRequest, scope: Scope) { return this.run(() => this.repository.update(id, body, scope)); }
-  dispatch(id: string, version: number, scope: Scope) { return this.run(() => this.repository.dispatch(id, version, scope)); }
+  dispatch(
+    id: string,
+    body: DeliveryDispatchRequest,
+    scope: Scope,
+  ) {
+    return this.run(
+      () =>
+        this.repository.dispatch(
+          id,
+          body,
+          scope,
+        ),
+    );
+  }
   cancel(id: string, version: number, scope: Scope) { return this.run(() => this.repository.cancel(id, version, scope)); }
   list(scope: Scope) { return this.repository.list(scope); }
   async detail(id: string, scope: Scope) { const result = await this.repository.findById(id, scope); if (!result) throw new NotFoundException({ code: 'DELIVERY_NOT_FOUND', message: 'Delivery not found' }); return result; }

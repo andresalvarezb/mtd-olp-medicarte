@@ -363,13 +363,14 @@ export function DisponibilidadCargarView() {
         </div>
       ) : null}
 
-      <Card>
+      <Card className="operational-list-workspace">
         <CardHead
           title="Historial de cargas"
           subtitle="Archivos de asignación de disponibilidad procesados por MTD."
         />
 
-        <DataTable
+        <div className="operational-list-table-scope">
+          <DataTable
           columns={HISTORY_COLUMNS}
           rows={loading ? undefined : historyRows}
           aria-label="Historial de cargas de disponibilidad"
@@ -381,6 +382,7 @@ export function DisponibilidadCargarView() {
               : 'Los archivos procesados aparecerán aquí con su resultado.'
           }
         />
+        </div>
       </Card>
 
       {selected ? (

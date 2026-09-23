@@ -18,9 +18,9 @@ echo "MTD - ENTORNO DE DESARROLLO"
 echo "=========================================="
 echo "ROOT=$ROOT"
 echo
-echo "DATABASE_MODE=WORKING_COPY"
-echo "DATABASE=authorization_ui_dev"
-echo "PRODUCTION_MIRROR=authorization_test_integration [NO WRITE]"
+echo "DATABASE_MODE=PRODUCTION_MIGRATED_SHADOW"
+echo "DATABASE=${DEV_DATABASE:-authorization_prod_220926_migrated}"
+echo "SOURCE_DATABASE=authorization_prod_220926_source [READ ONLY]"
 echo
 
 echo "Infraestructura Docker..."
@@ -51,8 +51,9 @@ echo "=========================================="
 
   export NODE_ENV=development
 
-  export DATABASE_URL="postgresql://authorization:authorization@127.0.0.1:15432/authorization_ui_dev"
-  export REDIS_URL="redis://127.0.0.1:16379"
+  export DEV_DATABASE="${DEV_DATABASE:-authorization_prod_220926_migrated}"
+  export DATABASE_URL="postgresql://authorization:authorization@127.0.0.1:15432/${DEV_DATABASE}"
+  export REDIS_URL="redis://127.0.0.1:6379"
 
   export API_PORT=3001
   export API_PUBLIC_URL="http://localhost:3001"

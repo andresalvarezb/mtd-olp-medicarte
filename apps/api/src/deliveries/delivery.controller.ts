@@ -1,6 +1,11 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { createDeliveryRequestSchema, deliveryActionRequestSchema, updateDeliveryRequestSchema } from '@authorization/contracts';
+import {
+  createDeliveryRequestSchema,
+  deliveryActionRequestSchema,
+  deliveryDispatchRequestSchema,
+  updateDeliveryRequestSchema,
+} from '@authorization/contracts';
 import { AuthGuard } from '../common/auth.guard';
 import { scopeFromProfile } from '../common/request-scope';
 import { AccessService } from '../identity/access.service';
@@ -18,7 +23,29 @@ export class DeliveryController {
   @Get('supplier/deliveries') async list(@Headers('x-organization-id') org: string | undefined, @Req() req: AuthenticatedRequest) { return { items: await this.deliveries.list(await this.scope(req, org, 'supplier_deliveries.read')) }; }
   @Get('supplier/deliveries/:id') async detail(@Param('id') id: string, @Headers('x-organization-id') org: string | undefined, @Req() req: AuthenticatedRequest) { uuid.parse(id); return this.deliveries.detail(id, await this.scope(req, org, 'supplier_deliveries.read')); }
   @Patch('supplier/deliveries/:id') async update(@Param('id') id: string, @Body() raw: unknown, @Headers('x-organization-id') org: string | undefined, @Req() req: AuthenticatedRequest) { uuid.parse(id); return this.deliveries.update(id, updateDeliveryRequestSchema.parse(raw), await this.scope(req, org, 'supplier_deliveries.manage')); }
-  @Post('supplier/deliveries/:id/dispatch') @HttpCode(200) async dispatch(@Param('id') id: string, @Body() raw: unknown, @Headers('x-organization-id') org: string | undefined, @Req() req: AuthenticatedRequest) { uuid.parse(id); return this.deliveries.dispatch(id, deliveryActionRequestSchema.parse(raw).expectedVersion, await this.scope(req, org, 'supplier_deliveries.manage')); }
+  @Post('supplier/deliveries/:id/dispatch')
+  @HttpCode(200)
+  async dispatch(
+    @Param('id') id: string,
+    @Body() raw: unknown,
+    @Headers('x-organization-id') org: string | undefined,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    uuid.parse(id);
+
+    const body =
+      deliveryDispatchRequestSchema.parse(raw);
+
+    return this.deliveries.dispatch(
+      id,
+      body,
+      await this.scope(
+        req,
+        org,
+        'supplier_deliveries.manage',
+      ),
+    );
+  }
   @Post('supplier/deliveries/:id/cancel') @HttpCode(200) async cancel(@Param('id') id: string, @Body() raw: unknown, @Headers('x-organization-id') org: string | undefined, @Req() req: AuthenticatedRequest) { uuid.parse(id); return this.deliveries.cancel(id, deliveryActionRequestSchema.parse(raw).expectedVersion, await this.scope(req, org, 'supplier_deliveries.manage')); }
 }
 

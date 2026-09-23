@@ -1289,6 +1289,14 @@ export type UpdateDeliveryRequest = z.infer<typeof updateDeliveryRequestSchema>;
 export const deliveryActionRequestSchema = z.object({
   expectedVersion: z.number().int().positive(),
 });
+
+export const deliveryDispatchRequestSchema =
+  deliveryActionRequestSchema.extend({
+    declaredDispatchDate: z.string().date(),
+  });
+
+export type DeliveryDispatchRequest =
+  z.infer<typeof deliveryDispatchRequestSchema>;
 export const deliveryLineResponseSchema = z.object({
   id: z.string().uuid(),
   purchaseOrderLineId: z.string().uuid(),
@@ -1313,6 +1321,8 @@ export const deliveryResponseSchema = z.object({
   supplierReference: z.string().nullable(),
   status: deliveryStatusSchema,
   dispatchedAt: isoDateTimeSchema.nullable(),
+  dispatchedBy: z.string().uuid().nullable(),
+  declaredDispatchDate: z.string().date().nullable(),
   version: z.number().int().positive(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -1378,6 +1388,80 @@ export const receiptResponseSchema = z.object({
   lines: z.array(receiptLineResponseSchema),
 });
 export type ReceiptResponse = z.infer<typeof receiptResponseSchema>;
+
+export const purchaseOrderReceiptOutcomeSchema =
+  z.enum([
+    'RECEIVED_COMPLETE',
+    'RECEIVED_PARTIAL',
+    'NOT_RECEIVED',
+  ]);
+
+export type PurchaseOrderReceiptOutcome =
+  z.infer<
+    typeof purchaseOrderReceiptOutcomeSchema
+  >;
+
+
+export const purchaseOrderDirectReceiptLineSchema =
+  z.object({
+    purchaseOrderLineId:
+      z.string().uuid(),
+
+    outcome:
+      purchaseOrderReceiptOutcomeSchema,
+
+    receivedQuantity:
+      z.number().int().nonnegative(),
+
+    lotNumber:
+      z.string()
+        .trim()
+        .min(1)
+        .max(255)
+        .optional()
+        .nullable(),
+
+    expirationDate:
+      z.string()
+        .date()
+        .optional()
+        .nullable(),
+
+    observation:
+      z.string()
+        .trim()
+        .max(2000)
+        .optional()
+        .nullable(),
+  });
+
+
+export const purchaseOrderDirectReceiptRequestSchema =
+  z.object({
+    receivedAt:
+      isoDateTimeSchema.optional(),
+
+    observation:
+      z.string()
+        .trim()
+        .max(2000)
+        .optional()
+        .nullable(),
+
+    lines:
+      z.array(
+        purchaseOrderDirectReceiptLineSchema,
+      )
+        .min(1),
+  });
+
+
+export type PurchaseOrderDirectReceiptRequest =
+  z.infer<
+    typeof purchaseOrderDirectReceiptRequestSchema
+  >;
+
+
 
 export const inventoryMovementTypeSchema = z.enum([
   'RECEIPT',
@@ -2351,3 +2435,67 @@ export const triggerManualOperationExecutionRequestSchema = z.object({
 export type TriggerManualOperationExecutionRequest = z.infer<
   typeof triggerManualOperationExecutionRequestSchema
 >;
+
+/* Authorization operational fulfillment */
+
+export const authorizationFulfillmentTypeSchema =
+  z.enum([
+    'APPLICATION',
+    'DELIVERY',
+  ]);
+
+export type AuthorizationFulfillmentType =
+  z.infer<
+    typeof authorizationFulfillmentTypeSchema
+  >;
+
+export const fulfillAuthorizationRequestSchema =
+  z.object({
+    fulfillmentType:
+      authorizationFulfillmentTypeSchema,
+
+    effectiveDate:
+      z.string()
+        .regex(
+          /^\d{4}-\d{2}-\d{2}$/,
+        ),
+  });
+
+export type FulfillAuthorizationRequest =
+  z.infer<
+    typeof fulfillAuthorizationRequestSchema
+  >;
+
+export const authorizationFulfillmentResponseSchema =
+  z.object({
+    id:
+      z.string().uuid(),
+
+    authorizationItemId:
+      z.string().uuid(),
+
+    fulfillmentType:
+      authorizationFulfillmentTypeSchema,
+
+    effectiveDate:
+      z.string(),
+
+    quantity:
+      z.number().int().positive(),
+
+    dispensingPointId:
+      z.string().uuid(),
+
+    purchaseOrders:
+      z.array(
+        z.string(),
+      ),
+
+    confirmedAt:
+      z.string(),
+  });
+
+export type AuthorizationFulfillmentResponse =
+  z.infer<
+    typeof authorizationFulfillmentResponseSchema
+  >;

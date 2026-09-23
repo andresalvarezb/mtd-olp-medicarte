@@ -1,0 +1,559 @@
+.orderHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 14px;
+}
+
+.orderHeaderLeft {
+  min-width: 0;
+}
+
+.backLink {
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.backLink:hover {
+  color: #1d4ed8;
+}
+
+.orderTitleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.orderTitleRow h1 {
+  margin: 0;
+  color: #172033;
+  font-size: 25px;
+  line-height: 1.15;
+}
+
+.orderType {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.statusBadge,
+.historicalBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.historicalBadge {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.PENDING_OLP {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.PENDING_MEDICARTE {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.RECEIVED_WITH_PENDING {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.RECEIVED {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.orderHeaderMeta {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 30px;
+  padding-bottom: 2px;
+}
+
+.orderHeaderMeta div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.orderHeaderMeta span {
+  color: #64748b;
+  font-size: 9px;
+}
+
+.orderHeaderMeta strong {
+  color: #172033;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.processPanel {
+  margin-bottom: 14px;
+  padding: 13px 18px;
+  border: 1px solid #e3e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.processTitle {
+  margin-bottom: 10px;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.process {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(50px, 0.35fr)
+    minmax(0, 1fr)
+    minmax(50px, 0.35fr)
+    minmax(0, 1fr);
+  align-items: center;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.stepCircle {
+  display: grid;
+  flex: 0 0 27px;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 2px solid #cbd5e1;
+  border-radius: 50%;
+  background: #fff;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.step > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step strong {
+  overflow: hidden;
+  color: #334155;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step small {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stepDone .stepCircle {
+  border-color: #16a34a;
+  background: #16a34a;
+  color: #fff;
+}
+
+.stepCurrent .stepCircle {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.stepCurrent strong {
+  color: #172033;
+}
+
+.connector {
+  height: 2px;
+  margin: 0 14px;
+  background: #e2e8f0;
+}
+
+.connectorDone {
+  background: #86efac;
+}
+
+.productsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 12px;
+}
+
+.productsHeader h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 15px;
+}
+
+.productsHeader p {
+  margin: 3px 0 0;
+  color: #64748b;
+  font-size: 10px;
+}
+
+.productsSummary {
+  padding-top: 2px;
+  color: #475569;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.pendingDetail {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.totalRow td {
+  border-top: 2px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.pendingSummary {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid #e5e7eb;
+  color: #64748b;
+  font-size: 10px;
+}
+
+.pendingSummary > strong {
+  color: #172033;
+}
+
+.actionPanel,
+.secondaryPanel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 14px;
+  padding: 13px 16px;
+  border: 1px solid #e3e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.secondaryPanel {
+  background: #f8fafc;
+}
+
+.actionPanel > div:first-child,
+.secondaryPanel > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.actionPanel strong,
+.secondaryPanel strong {
+  color: #172033;
+  font-size: 11px;
+}
+
+.actionPanel span,
+.secondaryPanel span {
+  color: #64748b;
+  font-size: 10px;
+}
+
+.acceptForm {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.acceptForm label {
+  display: flex;
+  min-width: 200px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.acceptForm label span {
+  color: #334155;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.acceptForm input {
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid #d6dce6;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+}
+
+.acceptForm > div {
+  display: flex;
+  gap: 7px;
+}
+
+@media (max-width: 900px) {
+  .orderHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .orderHeaderMeta {
+    align-items: flex-start;
+  }
+
+  .process {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .connector {
+    display: none;
+  }
+
+  .actionPanel,
+  .secondaryPanel {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 600px) {
+  .orderHeaderMeta {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .productsHeader {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .pendingSummary {
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .acceptForm {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .acceptForm label {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+.receiptState {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.receiptPending {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.receiptComplete {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.receiptPartial {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.receiptHistorical {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.receiptNotReceived {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+/*
+ * Tabla universal de OC.
+ * Las tres columnas de recepción pertenecen al mismo
+ * dominio operacional de Medicarte.
+ */
+.mainHeader {
+  vertical-align: middle !important;
+}
+
+.receptionGroup {
+  border-left: 1px solid #dfe5ee !important;
+  border-bottom: 1px solid #dfe5ee !important;
+  text-align: center !important;
+}
+
+.receptionSubHeader th {
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+  background: #f8fafc;
+  font-size: 10px;
+}
+
+.receptionSubHeader th:first-child {
+  border-left: 1px solid #dfe5ee;
+}
+
+/* OLP supplier cost capture */
+
+.olpCostSection {
+  width: min(100%, 760px);
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.olpCostHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.olpCostHeader strong {
+  color: #172033;
+  font-size: 11px;
+}
+
+.olpCostHeader span {
+  color: #64748b;
+  font-size: 9px;
+}
+
+.olpCostGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.olpCostRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.olpCostProduct {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.olpCostProduct strong {
+  color: #172033;
+  font-size: 10px;
+}
+
+.olpCostProduct span {
+  overflow: hidden;
+  color: #475569;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.olpCostProduct small {
+  color: #64748b;
+  font-size: 9px;
+}
+
+.olpCostField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.olpCostField span {
+  color: #475569;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.olpCostField input {
+  width: 100%;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.olpCostField input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgb(37 99 235 / 10%);
+}
+
+.olpCostField input:disabled {
+  cursor: not-allowed;
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+@media (max-width: 720px) {
+  .olpCostRow {
+    grid-template-columns: 1fr;
+  }
+}

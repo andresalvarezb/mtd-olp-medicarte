@@ -767,10 +767,15 @@ export const purchaseOrders = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     purchaseOrderCode: varchar('purchase_order_code', { length: 255 }),
-    planningPeriodId: uuid('planning_period_id')
-      .notNull()
-      .references(() => planningPeriods.id, { onDelete: 'restrict' }),
-    orderType: varchar('order_type', { length: 20 }).notNull(),
+    origin: varchar('origin', { length: 30 }).notNull().default('OPERATIONAL'),
+    legacyAssignedAt: timestamp('legacy_assigned_at', { withTimezone: true }),
+    legacyAssignedBy: uuid('legacy_assigned_by').references(() => users.id, {
+      onDelete: 'restrict',
+    }),
+    planningPeriodId: uuid('planning_period_id').references(() => planningPeriods.id, {
+      onDelete: 'restrict',
+    }),
+    orderType: varchar('order_type', { length: 20 }),
     status: varchar('status', { length: 30 }).notNull().default('DRAFT'),
     version: integer('version').notNull().default(1),
     issuedAt: timestamp('issued_at', { withTimezone: true }),
@@ -796,12 +801,37 @@ export const purchaseOrders = pgTable(
       table.createdAt,
     ),
     uniqueIndex('purchase_orders_code_idx').on(table.purchaseOrderCode),
-    check('purchase_orders_type_check', sql`${table.orderType} IN ('STANDARD', 'COMPLEMENTARY')`),
+    check(
+      'purchase_orders_origin_check',
+      sql`${table.origin} IN ('OPERATIONAL', 'LEGACY_BACKFILL')`,
+    ),
+    check(
+      'purchase_orders_type_check',
+      sql`${table.orderType} IS NULL OR ${table.orderType} IN ('STANDARD', 'COMPLEMENTARY')`,
+    ),
     check(
       'purchase_orders_status_check',
-      sql`${table.status} IN ('DRAFT', 'ISSUED', 'UNDER_OLP_REVIEW', 'ACCEPTED', 'PARTIALLY_ACCEPTED', 'REJECTED', 'CANCELLED', 'IN_FULFILLMENT', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED', 'PARTIALLY_RECEIVED', 'RECEIVED')`,
+      sql`${table.status} IN ('DRAFT', 'ISSUED', 'UNDER_OLP_REVIEW', 'ACCEPTED', 'PARTIALLY_ACCEPTED', 'REJECTED', 'CANCELLED', 'IN_FULFILLMENT', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'HISTORICAL_ONLY')`,
     ),
     check('purchase_orders_version_check', sql`${table.version} > 0`),
+    check(
+      'purchase_orders_origin_shape_check',
+      sql`(
+        (${table.origin} = 'OPERATIONAL'
+          AND ${table.planningPeriodId} IS NOT NULL
+          AND ${table.orderType} IS NOT NULL
+          AND ${table.status} <> 'HISTORICAL_ONLY'
+          AND ${table.legacyAssignedAt} IS NULL
+          AND ${table.legacyAssignedBy} IS NULL)
+        OR
+        (${table.origin} = 'LEGACY_BACKFILL'
+          AND ${table.planningPeriodId} IS NULL
+          AND ${table.orderType} IS NULL
+          AND ${table.status} = 'HISTORICAL_ONLY'
+          AND ${table.legacyAssignedAt} IS NOT NULL
+          AND ${table.legacyAssignedBy} IS NOT NULL)
+      )`,
+    ),
   ],
 );
 
@@ -813,6 +843,7 @@ export const purchaseOrderLines = pgTable(
       .notNull()
       .references(() => purchaseOrders.id, { onDelete: 'restrict' }),
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
+    provenance: varchar('provenance', { length: 40 }).notNull().default('LIVE_DEMAND'),
     productDescription: text('product_description'),
     presentation: text('presentation'),
     // Optional at purchase time. A purchase order may be generated from
@@ -823,12 +854,16 @@ export const purchaseOrderLines = pgTable(
     requestedQuantity: integer('requested_quantity').notNull(),
     acceptedQuantity: integer('accepted_quantity'),
     requestedDeliveryDate: date('requested_delivery_date'),
-    compensarUnitRateSnapshot: varchar('compensar_unit_rate_snapshot', { length: 255 }).notNull(),
+    compensarUnitRateSnapshot: varchar('compensar_unit_rate_snapshot', { length: 255 }),
+    tariffSnapshotProvenance: varchar('tariff_snapshot_provenance', { length: 40 })
+      .notNull()
+      .default('LIVE_SNAPSHOT'),
+    legacyTariffRevisionId: uuid('legacy_tariff_revision_id'),
     supplierUnitCost: varchar('supplier_unit_cost', { length: 255 }),
     // Historical identifier only: ESP-004 may delete a superseded live projection.
-    projectedDemandLineId: uuid('projected_demand_line_id').notNull(),
-    projectedDemandRevision: integer('projected_demand_revision').notNull(),
-    demandBucket: varchar('demand_bucket', { length: 20 }).notNull(),
+    projectedDemandLineId: uuid('projected_demand_line_id'),
+    projectedDemandRevision: integer('projected_demand_revision'),
+    demandBucket: varchar('demand_bucket', { length: 20 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -843,8 +878,32 @@ export const purchaseOrderLines = pgTable(
       'purchase_order_lines_accepted_quantity_check',
       sql`${table.acceptedQuantity} IS NULL OR (${table.acceptedQuantity} >= 0 AND ${table.acceptedQuantity} <= ${table.requestedQuantity})`,
     ),
-    check('purchase_order_lines_revision_check', sql`${table.projectedDemandRevision} > 0`),
-    check('purchase_order_lines_bucket_check', sql`${table.demandBucket} IN ('REGULAR', 'LATE')`),
+    check(
+      'purchase_order_lines_provenance_check',
+      sql`${table.provenance} IN ('LIVE_DEMAND', 'LEGACY_AUTHORIZATION')`,
+    ),
+    check(
+      'purchase_order_lines_tariff_provenance_check',
+      sql`${table.tariffSnapshotProvenance} IN ('LIVE_SNAPSHOT', 'LEGACY_DERIVED_REVISION', 'LEGACY_REVISION_NO_RATE', 'LEGACY_UNRESOLVED')`,
+    ),
+    check(
+      'purchase_order_lines_origin_shape_check',
+      sql`(
+        (${table.provenance} = 'LIVE_DEMAND'
+          AND ${table.projectedDemandLineId} IS NOT NULL
+          AND ${table.projectedDemandRevision} IS NOT NULL
+          AND ${table.projectedDemandRevision} > 0
+          AND ${table.demandBucket} IN ('REGULAR', 'LATE')
+          AND ${table.compensarUnitRateSnapshot} IS NOT NULL
+          AND ${table.tariffSnapshotProvenance} = 'LIVE_SNAPSHOT'
+          AND ${table.legacyTariffRevisionId} IS NULL)
+        OR
+        (${table.provenance} = 'LEGACY_AUTHORIZATION'
+          AND ${table.projectedDemandLineId} IS NULL
+          AND ${table.projectedDemandRevision} IS NULL
+          AND ${table.demandBucket} IS NULL)
+      )`,
+    ),
     check(
       'purchase_order_lines_supplier_cost_check',
       sql`${table.acceptedQuantity} IS NULL OR ${table.acceptedQuantity} = 0 OR (${table.supplierUnitCost} IS NOT NULL AND ${table.supplierUnitCost}::numeric > 0)`,
@@ -890,9 +949,11 @@ export const purchaseOrderAuthorizationSources = pgTable(
     authorizationItemId: uuid('authorization_item_id')
       .notNull()
       .references(() => authorizationItems.id, { onDelete: 'restrict' }),
-    projectedDemandLineId: uuid('projected_demand_line_id').notNull(),
-    projectedDemandRevision: integer('projected_demand_revision').notNull(),
+    projectedDemandLineId: uuid('projected_demand_line_id'),
+    projectedDemandRevision: integer('projected_demand_revision'),
     sourceQuantitySnapshot: integer('source_quantity_snapshot').notNull(),
+    provenance: varchar('provenance', { length: 40 }).notNull().default('LIVE_DEMAND'),
+    evidenceAt: timestamp('evidence_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -909,8 +970,28 @@ export const purchaseOrderAuthorizationSources = pgTable(
       table.projectedDemandRevision,
     ),
     check(
-      'purchase_order_authorization_sources_revision_check',
-      sql`${table.projectedDemandRevision} > 0`,
+      'purchase_order_authorization_sources_provenance_check',
+      sql`${table.provenance} IN ('LIVE_DEMAND', 'LEGACY_DIRECT_ASSIGNMENT', 'LEGACY_CURRENT_STATE')`,
+    ),
+    check(
+      'purchase_order_authorization_sources_origin_shape_check',
+      sql`(
+        (${table.provenance} = 'LIVE_DEMAND'
+          AND ${table.projectedDemandLineId} IS NOT NULL
+          AND ${table.projectedDemandRevision} IS NOT NULL
+          AND ${table.projectedDemandRevision} > 0
+          AND ${table.evidenceAt} IS NULL)
+        OR
+        (${table.provenance} = 'LEGACY_DIRECT_ASSIGNMENT'
+          AND ${table.projectedDemandLineId} IS NULL
+          AND ${table.projectedDemandRevision} IS NULL
+          AND ${table.evidenceAt} IS NOT NULL)
+        OR
+        (${table.provenance} = 'LEGACY_CURRENT_STATE'
+          AND ${table.projectedDemandLineId} IS NULL
+          AND ${table.projectedDemandRevision} IS NULL
+          AND ${table.evidenceAt} IS NULL)
+      )`,
     ),
     check(
       'purchase_order_authorization_sources_quantity_check',
@@ -929,6 +1010,8 @@ export const deliveries = pgTable(
     supplierReference: varchar('supplier_reference', { length: 255 }),
     status: varchar('status', { length: 20 }).notNull().default('DRAFT'),
     dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+    dispatchedBy: uuid('dispatched_by')
+      .references(() => users.id, { onDelete: 'restrict' }),
     declaredDispatchDate: date('declared_dispatch_date'),
     version: integer('version').notNull().default(1),
     createdBy: uuid('created_by')
@@ -972,7 +1055,7 @@ export const receipts = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('receipts_delivery_idx').on(table.deliveryId),
+    index('receipts_delivery_idx').on(table.deliveryId),
     check('receipts_status_check', sql`${table.status} IN ('DRAFT', 'CONFIRMED')`),
     check(
       'receipts_conformity_check',
@@ -1017,6 +1100,152 @@ export const receiptLines = pgTable(
 );
 
 /** ESP-008: inventory is a movement ledger; lots have no mutable balance. */
+
+export const purchaseOrderReceipts = pgTable(
+  'purchase_order_receipts',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .defaultRandom(),
+
+    purchaseOrderId: uuid('purchase_order_id')
+      .notNull()
+      .references(() => purchaseOrders.id, {
+        onDelete: 'restrict',
+      }),
+
+    receivedAt: timestamp('received_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    confirmedAt: timestamp('confirmed_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    confirmedBy: uuid('confirmed_by')
+      .notNull()
+      .references(() => users.id, {
+        onDelete: 'restrict',
+      }),
+
+    observation: text('observation'),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('purchase_order_receipts_order_idx').on(
+      table.purchaseOrderId,
+      table.confirmedAt,
+    ),
+  ],
+);
+
+
+export const purchaseOrderReceiptLines = pgTable(
+  'purchase_order_receipt_lines',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .defaultRandom(),
+
+    receiptId: uuid('receipt_id')
+      .notNull()
+      .references(() => purchaseOrderReceipts.id, {
+        onDelete: 'cascade',
+      }),
+
+    purchaseOrderLineId: uuid('purchase_order_line_id')
+      .notNull()
+      .references(() => purchaseOrderLines.id, {
+        onDelete: 'restrict',
+      }),
+
+    outcome: varchar('outcome', {
+      length: 30,
+    }).notNull(),
+
+    receivedQuantity: integer(
+      'received_quantity',
+    ).notNull(),
+
+    lotNumber: varchar('lot_number', {
+      length: 255,
+    }),
+
+    expirationDate: date(
+      'expiration_date',
+    ),
+
+    observation: text('observation'),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex(
+      'purchase_order_receipt_lines_receipt_line_unique',
+    ).on(
+      table.receiptId,
+      table.purchaseOrderLineId,
+    ),
+
+    index(
+      'purchase_order_receipt_lines_po_line_idx',
+    ).on(
+      table.purchaseOrderLineId,
+    ),
+
+    check(
+      'purchase_order_receipt_lines_outcome_check',
+      sql`${table.outcome} IN (
+        'RECEIVED_COMPLETE',
+        'RECEIVED_PARTIAL',
+        'NOT_RECEIVED'
+      )`,
+    ),
+
+    check(
+      'purchase_order_receipt_lines_quantity_check',
+      sql`${table.receivedQuantity} >= 0`,
+    ),
+
+    check(
+      'purchase_order_receipt_lines_evidence_check',
+      sql`
+        (
+          ${table.outcome} = 'NOT_RECEIVED'
+          AND ${table.receivedQuantity} = 0
+          AND ${table.lotNumber} IS NULL
+          AND ${table.expirationDate} IS NULL
+        )
+        OR
+        (
+          ${table.outcome} IN (
+            'RECEIVED_COMPLETE',
+            'RECEIVED_PARTIAL'
+          )
+          AND ${table.receivedQuantity} > 0
+          AND ${table.lotNumber} IS NOT NULL
+          AND length(btrim(${table.lotNumber})) > 0
+          AND ${table.expirationDate} IS NOT NULL
+        )
+      `,
+    ),
+  ],
+);
+
+
 export const inventoryLots = pgTable(
   'inventory_lots',
   {
@@ -1085,7 +1314,7 @@ export const inventoryMovements = pgTable(
     index('inventory_movements_lot_occurred_idx').on(table.inventoryLotId, table.occurredAt),
     check(
       'inventory_movements_type_check',
-      sql`${table.movementType} IN ('RECEIPT','APPLICATION','TRANSFER_OUT','TRANSFER_IN','DAMAGE','EXPIRATION','RETURN_TO_SUPPLIER','ADJUSTMENT','NON_REUSABLE')`,
+      sql`${table.movementType} IN ('RECEIPT','APPLICATION','FULFILLMENT_APPLICATION','FULFILLMENT_DELIVERY','TRANSFER_OUT','TRANSFER_IN','DAMAGE','EXPIRATION','RETURN_TO_SUPPLIER','ADJUSTMENT','NON_REUSABLE')`,
     ),
     check('inventory_movements_quantity_delta_check', sql`${table.quantityDelta} <> 0`),
     check('inventory_movements_source_type_check', sql`length(btrim(${table.sourceType})) > 0`),
@@ -1096,6 +1325,10 @@ export const inventoryMovements = pgTable(
     check(
       'inventory_movements_application_delta_check',
       sql`${table.movementType} <> 'APPLICATION' OR ${table.quantityDelta} < 0`,
+    ),
+    check(
+      'inventory_movements_fulfillment_delta_check',
+      sql`${table.movementType} NOT IN ('FULFILLMENT_APPLICATION','FULFILLMENT_DELIVERY') OR ${table.quantityDelta} < 0`,
     ),
   ],
 );
@@ -3181,6 +3414,236 @@ export const inventoryAuthorizationAllocations = pgTable(
     check(
       'inventory_authorization_allocations_version_check',
       sql`${table.authorizationVersion} > 0`,
+    ),
+  ],
+);
+
+
+
+export const authorizationDispensations = pgTable(
+  'authorization_dispensations',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .defaultRandom(),
+
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, {
+        onDelete: 'restrict',
+      }),
+
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, {
+        onDelete: 'restrict',
+      }),
+
+    dispensationDate: date('dispensation_date')
+      .notNull(),
+
+    source: varchar('source', {
+      length: 10,
+    })
+      .notNull()
+      .default('XLSX'),
+
+    reportedBy: uuid('reported_by')
+      .notNull()
+      .references(() => users.id, {
+        onDelete: 'restrict',
+      }),
+
+    reportedAt: timestamp('reported_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique(
+      'authorization_dispensations_authorization_unique',
+    ).on(
+      table.authorizationItemId,
+    ),
+
+    index(
+      'authorization_dispensations_org_date_idx',
+    ).on(
+      table.organizationId,
+      table.dispensationDate,
+      table.authorizationItemId,
+    ),
+
+    index(
+      'authorization_dispensations_authorization_idx',
+    ).on(
+      table.authorizationItemId,
+    ),
+
+    check(
+      'authorization_dispensations_source_check',
+      sql`${table.source} IN ('UI','XLSX')`,
+    ),
+  ],
+);
+
+
+export const authorizationFulfillments = pgTable(
+  'authorization_fulfillments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, {
+        onDelete: 'restrict',
+      }),
+
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, {
+        onDelete: 'restrict',
+      }),
+
+    fulfillmentType: varchar('fulfillment_type', {
+      length: 20,
+    }).notNull(),
+
+    effectiveDate: date('effective_date').notNull(),
+
+    quantity: integer('quantity').notNull(),
+
+    source: varchar('source', {
+      length: 10,
+    })
+      .notNull()
+      .default('UI'),
+
+    confirmedBy: uuid('confirmed_by')
+      .notNull()
+      .references(() => users.id, {
+        onDelete: 'restrict',
+      }),
+
+    confirmedAt: timestamp('confirmed_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique('authorization_fulfillments_authorization_unique').on(
+      table.authorizationItemId,
+    ),
+
+    index('authorization_fulfillments_effective_idx').on(
+      table.effectiveDate,
+      table.authorizationItemId,
+    ),
+
+    check(
+      'authorization_fulfillments_type_check',
+      sql`${table.fulfillmentType} IN ('APPLICATION','DELIVERY')`,
+    ),
+
+    check(
+      'authorization_fulfillments_quantity_check',
+      sql`${table.quantity} > 0`,
+    ),
+
+    check(
+      'authorization_fulfillments_source_check',
+      sql`${table.source} IN ('UI','XLSX')`,
+    ),
+  ],
+);
+
+export const authorizationFulfillmentLines = pgTable(
+  'authorization_fulfillment_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    fulfillmentId: uuid('fulfillment_id')
+      .notNull()
+      .references(() => authorizationFulfillments.id, {
+        onDelete: 'restrict',
+      }),
+
+    inventoryAuthorizationAllocationId: uuid(
+      'inventory_authorization_allocation_id',
+    )
+      .notNull()
+      .references(() => inventoryAuthorizationAllocations.id, {
+        onDelete: 'restrict',
+      }),
+
+    purchaseOrderId: uuid('purchase_order_id')
+      .notNull()
+      .references(() => purchaseOrders.id, {
+        onDelete: 'restrict',
+      }),
+
+    inventoryLotId: uuid('inventory_lot_id')
+      .notNull()
+      .references(() => inventoryLots.id, {
+        onDelete: 'restrict',
+      }),
+
+    commercialCode: varchar('commercial_code', {
+      length: 255,
+    }).notNull(),
+
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, {
+        onDelete: 'restrict',
+      }),
+
+    lotNumber: varchar('lot_number', {
+      length: 255,
+    }).notNull(),
+
+    expirationDate: date('expiration_date').notNull(),
+
+    quantity: integer('quantity').notNull(),
+  },
+  (table) => [
+    index('authorization_fulfillment_lines_fulfillment_idx').on(
+      table.fulfillmentId,
+    ),
+
+    index('authorization_fulfillment_lines_allocation_idx').on(
+      table.inventoryAuthorizationAllocationId,
+    ),
+
+    unique('authorization_fulfillment_lines_identity_unique').on(
+      table.fulfillmentId,
+      table.inventoryAuthorizationAllocationId,
+      table.inventoryLotId,
+    ),
+
+    check(
+      'authorization_fulfillment_lines_quantity_check',
+      sql`${table.quantity} > 0`,
     ),
   ],
 );

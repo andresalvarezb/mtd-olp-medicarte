@@ -136,6 +136,334 @@ export class InventoryRepository {
     }
   }
 
+
+  async recordConfirmedPurchaseOrderReceipt(
+    tx: InventoryTx,
+    receiptId: string,
+    scope: Scope,
+  ): Promise<void> {
+    const lines = await tx.execute<{
+      id: string;
+      received_quantity: number;
+      lot_number: string;
+      expiration_date: string;
+      commercial_code: string;
+      dispensing_point_id: string | null;
+    }>(sql`
+      select
+        porl.id,
+        porl.received_quantity,
+        porl.lot_number,
+        porl.expiration_date::text,
+        pol.commercial_code,
+
+        coalesce(
+          pol.dispensing_point_id,
+          mapped.dispensing_point_id
+        ) as dispensing_point_id
+
+      from purchase_order_receipt_lines porl
+
+      join purchase_order_receipts por
+        on por.id =
+           porl.receipt_id
+
+      join purchase_order_lines pol
+        on pol.id =
+           porl.purchase_order_line_id
+
+      left join tariff_annex_products tap
+        on tap.codigo_producto =
+           pol.commercial_code
+       and tap.active = true
+
+      left join product_delivery_point_mappings mapped
+        on pol.dispensing_point_id is null
+
+       and btrim(
+             coalesce(
+               tap.numero_expediente_invima,
+               ''
+             )
+           ) ~ '^[0-9]+$'
+
+       and btrim(
+             coalesce(
+               tap.consecutivo_invima_presentacion,
+               ''
+             )
+           ) ~ '^[0-9]+$'
+
+       and mapped.invima_record_normalized =
+           coalesce(
+             nullif(
+               ltrim(
+                 btrim(
+                   tap.numero_expediente_invima
+                 ),
+                 '0'
+               ),
+               ''
+             ),
+             '0'
+           )
+
+       and mapped.invima_presentation_normalized =
+           coalesce(
+             nullif(
+               ltrim(
+                 btrim(
+                   tap.consecutivo_invima_presentacion
+                 ),
+                 '0'
+               ),
+               ''
+             ),
+             '0'
+           )
+
+      where por.id = ${receiptId}
+        and porl.received_quantity > 0
+
+      for update of porl
+    `);
+
+    for (const line of lines.rows) {
+      if (!line.dispensing_point_id) {
+        throw new Error(
+          'DIRECT_RECEIPT_POINT_NOT_FOUND',
+        );
+      }
+
+      await tx.execute(sql`
+        insert into inventory_locations (
+          organization_id,
+          code,
+          name,
+          active,
+          legacy_dispensing_point_id,
+          created_by,
+          updated_by
+        )
+
+        select
+          dp.organization_id,
+          dp.code,
+          dp.name,
+          dp.active,
+          dp.id,
+          dp.created_by,
+          dp.created_by
+
+        from dispensing_points dp
+
+        where dp.id =
+              ${line.dispensing_point_id}
+
+        on conflict do nothing
+      `);
+
+      const location =
+        await tx.execute<{
+          id: string;
+        }>(sql`
+          select id
+
+          from inventory_locations
+
+          where legacy_dispensing_point_id =
+                ${line.dispensing_point_id}
+
+          limit 1
+        `);
+
+      const inventoryLocationId =
+        location.rows[0]?.id;
+
+      if (!inventoryLocationId) {
+        throw new Error(
+          'INVENTORY_LOCATION_NOT_FOUND',
+        );
+      }
+
+      const lockKey = [
+        'INVENTORY_LOT',
+        inventoryLocationId,
+        line.commercial_code,
+        line.lot_number,
+        line.expiration_date,
+      ].join(':');
+
+      await tx.execute(sql`
+        select pg_advisory_xact_lock(
+          hashtextextended(
+            ${lockKey},
+            0
+          )
+        )
+      `);
+
+      await tx.execute(sql`
+        insert into inventory_lots (
+          commercial_code,
+          inventory_location_id,
+          dispensing_point_id,
+          lot_number,
+          expiration_date
+        )
+        values (
+          ${line.commercial_code},
+          ${inventoryLocationId},
+          ${line.dispensing_point_id},
+          ${line.lot_number},
+          ${line.expiration_date}
+        )
+        on conflict (
+          commercial_code,
+          dispensing_point_id,
+          lot_number,
+          expiration_date
+        )
+        do nothing
+      `);
+
+      await tx.execute(sql`
+        update inventory_lots
+
+        set inventory_location_id =
+              ${inventoryLocationId}
+
+        where commercial_code =
+              ${line.commercial_code}
+
+          and dispensing_point_id =
+              ${line.dispensing_point_id}
+
+          and lot_number =
+              ${line.lot_number}
+
+          and expiration_date =
+              ${line.expiration_date}
+
+          and inventory_location_id is null
+      `);
+
+      const lot =
+        await tx.execute<{
+          id: string;
+          inventory_location_id: string | null;
+        }>(sql`
+          select
+            id,
+            inventory_location_id
+
+          from inventory_lots
+
+          where commercial_code =
+                ${line.commercial_code}
+
+            and dispensing_point_id =
+                ${line.dispensing_point_id}
+
+            and lot_number =
+                ${line.lot_number}
+
+            and expiration_date =
+                ${line.expiration_date}
+        `);
+
+      if (!lot.rows[0]) {
+        throw new Error(
+          'INVENTORY_LOT_NOT_CREATED',
+        );
+      }
+
+      if (
+        lot.rows[0].inventory_location_id !==
+        inventoryLocationId
+      ) {
+        throw new Error(
+          'INVENTORY_LOT_LOCATION_MISMATCH',
+        );
+      }
+
+      const movement =
+        await tx.execute<{
+          id: string;
+        }>(sql`
+          insert into inventory_movements (
+            inventory_lot_id,
+            movement_type,
+            quantity_delta,
+            source_type,
+            source_id,
+            occurred_at,
+            created_by,
+            metadata
+          )
+          values (
+            ${lot.rows[0].id},
+            'RECEIPT',
+            ${line.received_quantity},
+            'PURCHASE_ORDER_RECEIPT_LINE',
+            ${line.id},
+            now(),
+            ${scope.userId},
+            ${JSON.stringify({
+              receiptId,
+              receivedQuantity:
+                line.received_quantity,
+            })}::jsonb
+          )
+
+          on conflict (
+            movement_type,
+            source_type,
+            source_id
+          )
+          do nothing
+
+          returning id
+        `);
+
+      if (movement.rows[0]) {
+        await tx.execute(sql`
+          insert into audit_events (
+            actor_type,
+            actor_id,
+            organization_id,
+            action,
+            resource_type,
+            resource_id,
+            after,
+            correlation_id,
+            request_id,
+            result
+          )
+          values (
+            'USER',
+            ${scope.userId},
+            ${scope.organizationId},
+            'INVENTORY_MOVEMENT_CREATED',
+            'inventory_movement',
+            ${movement.rows[0].id},
+            ${JSON.stringify({
+              receiptId,
+              receiptLineId:
+                line.id,
+              quantityDelta:
+                line.received_quantity,
+            })}::jsonb,
+            ${scope.correlationId},
+            ${scope.correlationId},
+            'SUCCESS'
+          )
+        `);
+      }
+    }
+  }
+
+
   async list(
     scope: Scope,
     filters: {

@@ -264,7 +264,7 @@ export function PlanningPeriodsView() {
         <Note>Tu rol permite consultar períodos, pero no crearlos ni modificarlos.</Note>
       )}
 
-      <Card>
+      <Card className="operational-list-workspace">
         <CardHead
           title="Calendario operativo"
           subtitle="Períodos ordenados del más reciente al más antiguo."
@@ -275,7 +275,7 @@ export function PlanningPeriodsView() {
           ) : items.length === 0 ? (
             <Note>Sin períodos registrados todavía.</Note>
           ) : (
-            <div className="table-wrap">
+            <div className="table-wrap operational-list-table-wrap">
               <table>
                 <thead>
                   <tr>

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Headers,
@@ -92,6 +93,13 @@ export class PurchaseOrderImportController {
         organizationId,
         request,
       );
+
+    if (!file) {
+      throw new BadRequestException({
+        code: 'PURCHASE_ORDER_IMPORT_FILE_REQUIRED',
+        message: 'Debe seleccionar un archivo XLSX para cargar la orden de compra.',
+      });
+    }
 
     return this.importer.import(
       file,

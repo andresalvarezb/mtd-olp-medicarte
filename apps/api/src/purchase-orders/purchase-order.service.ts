@@ -50,16 +50,37 @@ export class PurchaseOrderService {
 
   acceptBySupplier(
     id: string,
+
     input: {
       expectedVersion: number;
+
       committedDate: string;
+
       observation?: string;
+
+      lines: readonly {
+        lineId: string;
+
+        supplierUnitCost: number;
+      }[];
     },
+
     actor: Scope,
   ) {
-    this.requireOlp(actor);
+    this.requireOlp(
+      actor,
+    );
 
-    return this.run(() => this.repository.acceptBySupplier(id, input, this.actor(actor)));
+    return this.run(
+      () =>
+        this.repository.acceptBySupplier(
+          id,
+          input,
+          this.actor(
+            actor,
+          ),
+        ),
+    );
   }
 
   review(
@@ -85,6 +106,28 @@ export class PurchaseOrderService {
 
     return this.run(() => this.repository.completeReview(id, version, this.actor(actor)));
   }
+
+  async operationalDetail(
+    id: string,
+    scope: Parameters<PurchaseOrderRepository['findVisibleById']>[1],
+  ) {
+    /*
+     * Reutilizamos la validación de visibilidad existente.
+     * Si no es visible, detail() conserva el comportamiento
+     * HTTP actual del módulo.
+     */
+    await this.detail(
+      id,
+      scope.organizationCode === 'OLP',
+      scope,
+    );
+
+    return this.repository.operationalDetail(
+      id,
+      scope,
+    );
+  }
+
   available(periodId: string) {
     return this.repository.available(periodId);
   }
@@ -159,6 +202,21 @@ export class PurchaseOrderService {
         PURCHASE_ORDER_NOT_ACCEPTABLE: [409, 'Purchase order is not available for OLP acceptance'],
         PURCHASE_ORDER_ALREADY_ACCEPTED: [409, 'Purchase order was already accepted by OLP'],
         PURCHASE_ORDER_LINES_REQUIRED: [409, 'Purchase order has no lines to accept'],
+
+        PURCHASE_ORDER_SUPPLIER_COSTS_REQUIRED: [
+          400,
+          'OLP must provide a supplier unit cost for every purchase-order line',
+        ],
+
+        PURCHASE_ORDER_SUPPLIER_COST_DUPLICATE: [
+          400,
+          'A purchase-order line cannot repeat its supplier unit cost',
+        ],
+
+        PURCHASE_ORDER_SUPPLIER_COST_LINE_MISMATCH: [
+          400,
+          'Supplier unit costs must match exactly all purchase-order lines',
+        ],
         PURCHASE_ORDER_NOT_REVIEWABLE: [409, 'Purchase order is not under supplier review'],
         PURCHASE_ORDER_REVIEW_INCOMPLETE: [409, 'All lines must be reviewed'],
       };
