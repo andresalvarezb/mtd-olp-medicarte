@@ -273,7 +273,6 @@ export function PurchaseOrderOperationalView() {
     () => {
       void load();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       organizationId,
       id,

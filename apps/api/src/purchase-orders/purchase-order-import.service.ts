@@ -141,11 +141,33 @@ const TEMPLATE_HEADERS = [
 ] as const;
 
 
+
+function scalarText(
+  value: unknown,
+): string {
+  if (
+    typeof value === 'string'
+  ) {
+    return value;
+  }
+
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value);
+  }
+
+  return '';
+}
+
+
 function normalizeHeader(
   value: unknown,
 ): string {
-  return String(
-    value ?? '',
+  return scalarText(
+    value,
   )
     .replace(/^\uFEFF/, '')
     .trim()
@@ -181,7 +203,9 @@ function normalizeText(
   }
 
   const text =
-    String(value).trim();
+    scalarText(
+      value,
+    ).trim();
 
   return text || null;
 }
@@ -338,7 +362,7 @@ export class PurchaseOrderImportService {
       'METADATA',
     );
 
-    const content =
+    const content: unknown =
       XLSX.write(
         workbook,
         {
@@ -347,11 +371,25 @@ export class PurchaseOrderImportService {
         },
       );
 
-    return Buffer.isBuffer(content)
-      ? content
-      : Buffer.from(
-          content as Uint8Array,
-        );
+    if (
+      Buffer.isBuffer(
+        content,
+      )
+    ) {
+      return content;
+    }
+
+    if (
+      content instanceof Uint8Array
+    ) {
+      return Buffer.from(
+        content,
+      );
+    }
+
+    throw new Error(
+      'PURCHASE_ORDER_XLSX_WRITE_INVALID_OUTPUT',
+    );
   }
 
 

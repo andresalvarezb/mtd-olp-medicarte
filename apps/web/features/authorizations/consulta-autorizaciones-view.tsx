@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 import { PageHeader } from '@/components/ui/page-header';
 
-import { Card, CardBody, CardHead } from '@/components/ui/card';
+import { Card, CardBody } from '@/components/ui/card';
 
 import { FilterActions, FilterBar, FilterField } from '@/components/ui/filter-bar';
 

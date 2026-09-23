@@ -107,7 +107,7 @@ function uploaded(
 function service() {
   const query =
     vi.fn(
-      async () => {
+      () => {
         throw new Error(
           'DATABASE_MUST_NOT_BE_TOUCHED',
         );

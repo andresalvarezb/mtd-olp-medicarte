@@ -70,11 +70,139 @@ const HEADERS = [
 ] as const;
 
 
+
+type ExcelDateParts =
+  Readonly<{
+    y: number;
+    m: number;
+    d: number;
+  }>;
+
+
+function scalarText(
+  value: unknown,
+): string {
+  if (
+    typeof value === 'string'
+  ) {
+    return value;
+  }
+
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value);
+  }
+
+  return '';
+}
+
+
+function hasCellValue(
+  value: unknown,
+): boolean {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return false;
+  }
+
+  if (
+    value instanceof Date
+  ) {
+    return true;
+  }
+
+  return scalarText(
+    value,
+  ).trim() !== '';
+}
+
+
+function parseExcelDateCode(
+  value: number,
+): ExcelDateParts | null {
+  const ssf: unknown =
+    Reflect.get(
+      XLSX as object,
+      'SSF',
+    );
+
+  if (
+    typeof ssf !== 'object' ||
+    ssf === null
+  ) {
+    return null;
+  }
+
+  const parser =
+    (
+      ssf as
+        Record<string, unknown>
+    ).parse_date_code;
+
+  if (
+    typeof parser !== 'function'
+  ) {
+    return null;
+  }
+
+  const parsed: unknown =
+    Reflect.apply(
+      parser,
+      ssf,
+      [
+        value,
+      ],
+    );
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null
+  ) {
+    return null;
+  }
+
+  const record =
+    parsed as
+      Record<string, unknown>;
+
+  const y =
+    record.y;
+
+  const m =
+    record.m;
+
+  const d =
+    record.d;
+
+  if (
+    typeof y !== 'number' ||
+    !Number.isInteger(y) ||
+    typeof m !== 'number' ||
+    !Number.isInteger(m) ||
+    typeof d !== 'number' ||
+    !Number.isInteger(d)
+  ) {
+    return null;
+  }
+
+  return {
+    y,
+    m,
+    d,
+  };
+}
+
+
 function normalizeHeader(
   value: unknown,
 ): string {
-  return String(
-    value ?? '',
+  return scalarText(
+    value,
   )
     .replace(
       /^\uFEFF/,
@@ -115,7 +243,7 @@ function normalizeText(
   }
 
   const normalized =
-    String(
+    scalarText(
       value,
     ).trim();
 
@@ -166,7 +294,7 @@ function normalizeDate(
     )
   ) {
     const parsed =
-      XLSX.SSF.parse_date_code(
+      parseExcelDateCode(
         value,
       );
 
@@ -319,7 +447,7 @@ export class DispensationImportService {
       'DISPENSACION',
     );
 
-    const output =
+    const output: unknown =
       XLSX.write(
         workbook,
         {
@@ -331,13 +459,25 @@ export class DispensationImportService {
         },
       );
 
-    return Buffer.isBuffer(
-      output,
-    )
-      ? output
-      : Buffer.from(
-          output as Uint8Array,
-        );
+    if (
+      Buffer.isBuffer(
+        output,
+      )
+    ) {
+      return output;
+    }
+
+    if (
+      output instanceof Uint8Array
+    ) {
+      return Buffer.from(
+        output,
+      );
+    }
+
+    throw new Error(
+      'DISPENSATION_XLSX_WRITE_INVALID_OUTPUT',
+    );
   }
 
 
@@ -564,11 +704,9 @@ export class DispensationImportService {
 
 
       const hasDate =
-        rawDate !== null &&
-        rawDate !== undefined &&
-        String(
+        hasCellValue(
           rawDate,
-        ).trim() !== '';
+        );
 
 
       if (

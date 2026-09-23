@@ -8,7 +8,8 @@ import {
   grantMedicarteOperatorPoints,
 } from './helpers/auth';
 
-type Json = Record<string, any>;
+type JsonObject =
+  Record<string, unknown>;
 
 type Finding = {
   name: string;
@@ -76,9 +77,130 @@ function record(
   });
 }
 
-function bodyCode(body: any): string | null {
-  return body?.code ?? body?.error?.code ?? body?.message?.code ?? null;
+function asObject(
+  value: unknown,
+): JsonObject | null {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+
+  return value as JsonObject;
 }
+
+
+function stringField(
+  body: JsonObject | null,
+  key: string,
+): string | null {
+  if (!body) {
+    return null;
+  }
+
+  const value =
+    body[key];
+
+  return typeof value === 'string'
+    ? value
+    : null;
+}
+
+
+function numberField(
+  body: JsonObject | null,
+  key: string,
+): number | null {
+  if (!body) {
+    return null;
+  }
+
+  const value =
+    body[key];
+
+  if (
+    typeof value === 'number' &&
+    Number.isFinite(value)
+  ) {
+    return value;
+  }
+
+  if (
+    typeof value === 'string' &&
+    value.trim() !== ''
+  ) {
+    const parsed =
+      Number(value);
+
+    return Number.isFinite(parsed)
+      ? parsed
+      : null;
+  }
+
+  return null;
+}
+
+
+function lineAt(
+  body: JsonObject,
+  index = 0,
+): JsonObject | null {
+  const lines =
+    body.lines;
+
+  if (
+    !Array.isArray(lines)
+  ) {
+    return null;
+  }
+
+  return asObject(
+    lines[index],
+  );
+}
+
+
+function bodyCode(
+  body: JsonObject,
+): string | null {
+  const direct =
+    stringField(
+      body,
+      'code',
+    );
+
+  if (direct) {
+    return direct;
+  }
+
+  const error =
+    asObject(
+      body.error,
+    );
+
+  const errorCode =
+    stringField(
+      error,
+      'code',
+    );
+
+  if (errorCode) {
+    return errorCode;
+  }
+
+  const message =
+    asObject(
+      body.message,
+    );
+
+  return stringField(
+    message,
+    'code',
+  );
+}
+
 
 async function request(
   method: string,
@@ -88,34 +210,100 @@ async function request(
     token?: string;
     organizationId?: string;
   } = {},
-): Promise<{ status: number; body: any }> {
-  const response = await fetch(`${apiUrl}/api/v1${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${opts.token ?? adminToken}`,
-      'content-type': 'application/json',
-      'x-organization-id': opts.organizationId ?? ORGANIZATION_IDS.MTD,
-    },
-    ...(opts.body === undefined ? {} : { body: JSON.stringify(opts.body) }),
-  });
+): Promise<{
+  status: number;
+  body: JsonObject;
+}> {
+  const response =
+    await fetch(
+      `${apiUrl}/api/v1${path}`,
+      {
+        method,
+        headers: {
+          authorization:
+            `Bearer ${opts.token ?? adminToken}`,
+          'content-type':
+            'application/json',
+          'x-organization-id':
+            opts.organizationId ??
+            ORGANIZATION_IDS.MTD,
+        },
+        ...(
+          opts.body === undefined
+            ? {}
+            : {
+                body:
+                  JSON.stringify(
+                    opts.body,
+                  ),
+              }
+        ),
+      },
+    );
 
-  const body = await response.json().catch(() => ({}));
-  return { status: response.status, body };
+  let parsedBody:
+    unknown = {};
+
+  try {
+    parsedBody =
+      (
+        await response.json()
+      ) as unknown;
+  } catch {
+    parsedBody = {};
+  }
+
+  return {
+    status:
+      response.status,
+
+    body:
+      asObject(
+        parsedBody,
+      ) ?? {},
+  };
 }
 
-function versionOf(body: any): number {
-  const value = Number(body?.version);
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`Response has no valid version: ${JSON.stringify(body)}`);
+
+function versionOf(
+  body: JsonObject,
+): number {
+  const value =
+    numberField(
+      body,
+      'version',
+    );
+
+  if (
+    value === null ||
+    !Number.isInteger(value) ||
+    value <= 0
+  ) {
+    throw new Error(
+      `Response has no valid version: ${JSON.stringify(body)}`,
+    );
   }
+
   return value;
 }
 
-function idOf(body: any): string {
-  if (typeof body?.id !== 'string') {
-    throw new Error(`Response has no id: ${JSON.stringify(body)}`);
+
+function idOf(
+  body: JsonObject,
+): string {
+  const id =
+    stringField(
+      body,
+      'id',
+    );
+
+  if (!id) {
+    throw new Error(
+      `Response has no id: ${JSON.stringify(body)}`,
+    );
   }
-  return body.id;
+
+  return id;
 }
 
 async function assertShadow(): Promise<void> {
@@ -229,9 +417,13 @@ async function seedFixture(): Promise<void> {
   await grantMedicarteOperatorPoints(database, [pointId]);
 }
 
-async function summarizeDatabase(): Promise<Json> {
+async function summarizeDatabase(): Promise<JsonObject> {
   if (!poId) return {};
-  const po = await database.query(
+  const po =
+    await database.query<{
+      po: unknown;
+      lines: unknown;
+    }>(
     `select
        to_jsonb(po) po,
        (
@@ -244,7 +436,11 @@ async function summarizeDatabase(): Promise<Json> {
     [poId],
   );
 
-  const deliveries = await database.query(
+  const deliveries =
+    await database.query<{
+      delivery: unknown;
+      lines: unknown;
+    }>(
     `select
        to_jsonb(d) delivery,
        (
@@ -258,7 +454,11 @@ async function summarizeDatabase(): Promise<Json> {
     [poId],
   );
 
-  const receipts = await database.query(
+  const receipts =
+    await database.query<{
+      receipt: unknown;
+      lines: unknown;
+    }>(
     `select
        to_jsonb(r) receipt,
        (
@@ -379,9 +579,32 @@ describe('PO operational cycle — ephemeral E2E gate', () => {
     record('MTD creates purchase order', created.status === 201, 201, created.status, 'CRITICAL', created.body);
     if (created.status !== 201) throw new Error(`Cannot continue: PO create ${created.status} ${JSON.stringify(created.body)}`);
 
-    poId = idOf(created.body);
-    poVersion = versionOf(created.body);
-    poLineId = created.body.lines?.[0]?.id;
+    poId =
+      idOf(
+        created.body,
+      );
+
+    poVersion =
+      versionOf(
+        created.body,
+      );
+
+    const createdLine =
+      lineAt(
+        created.body,
+      );
+
+    poLineId =
+      stringField(
+        createdLine,
+        'id',
+      ) ?? '';
+
+    const createdRequestedQuantity =
+      numberField(
+        createdLine,
+        'requestedQuantity',
+      );
 
     const apiTarget = await database.query<{ found: boolean }>(
       `select exists(select 1 from purchase_orders where id=$1) found`,
@@ -402,7 +625,13 @@ describe('PO operational cycle — ephemeral E2E gate', () => {
       );
     }
 
-    record('Requested quantity starts at 20', created.body.lines?.[0]?.requestedQuantity === 20, 20, created.body.lines?.[0]?.requestedQuantity, 'CRITICAL');
+    record(
+      'Requested quantity starts at 20',
+      createdRequestedQuantity === 20,
+      20,
+      createdRequestedQuantity,
+      'CRITICAL',
+    );
 
     if (!poLineId) {
       throw new Error(
@@ -557,12 +786,37 @@ describe('PO operational cycle — ephemeral E2E gate', () => {
     );
 
     // If legacy code created it as draft, cancel it so it cannot affect the main flow.
-    if (overDispatch.status === 201 && overDispatch.body?.id && overDispatch.body?.version) {
-      await request('POST', `/supplier/deliveries/${overDispatch.body.id}/cancel`, {
-        body: { expectedVersion: overDispatch.body.version },
-        token: olpToken,
-        organizationId: ORGANIZATION_IDS.OLP,
-      });
+    const overDispatchId =
+      stringField(
+        overDispatch.body,
+        'id',
+      );
+
+    const overDispatchVersion =
+      numberField(
+        overDispatch.body,
+        'version',
+      );
+
+    if (
+      overDispatch.status === 201 &&
+      overDispatchId &&
+      overDispatchVersion !== null
+    ) {
+      await request(
+        'POST',
+        `/supplier/deliveries/${overDispatchId}/cancel`,
+        {
+          body: {
+            expectedVersion:
+              overDispatchVersion,
+          },
+          token:
+            olpToken,
+          organizationId:
+            ORGANIZATION_IDS.OLP,
+        },
+      );
     }
 
     // 8) Valid partial dispatch of 18/20.
@@ -584,9 +838,26 @@ describe('PO operational cycle — ephemeral E2E gate', () => {
 
     record('OLP creates dispatch 18/20', delivery.status === 201, 201, delivery.status, 'CRITICAL', delivery.body);
     if (delivery.status !== 201) throw new Error(`Cannot continue: delivery create ${delivery.status} ${JSON.stringify(delivery.body)}`);
-    deliveryId = idOf(delivery.body);
-    deliveryLineId = delivery.body.lines?.[0]?.id;
-    let deliveryVersion = versionOf(delivery.body);
+    deliveryId =
+      idOf(
+        delivery.body,
+      );
+
+    const deliveryLine =
+      lineAt(
+        delivery.body,
+      );
+
+    deliveryLineId =
+      stringField(
+        deliveryLine,
+        'id',
+      ) ?? '';
+
+    const deliveryVersion =
+      versionOf(
+        delivery.body,
+      );
 
     const dispatched = await request('POST', `/supplier/deliveries/${deliveryId}/dispatch`, {
       body: {
@@ -642,9 +913,27 @@ describe('PO operational cycle — ephemeral E2E gate', () => {
 
     record('Medicarte creates receipt', receipt.status === 201, 201, receipt.status, 'CRITICAL', receipt.body);
     if (receipt.status !== 201) throw new Error(`Cannot continue: receipt create ${receipt.status} ${JSON.stringify(receipt.body)}`);
-    receiptId = idOf(receipt.body);
-    let receiptVersion = versionOf(receipt.body);
-    const receiptDeliveryLineId = receipt.body.lines?.[0]?.deliveryLineId ?? deliveryLineId;
+    receiptId =
+      idOf(
+        receipt.body,
+      );
+
+    let receiptVersion =
+      versionOf(
+        receipt.body,
+      );
+
+    const receiptLine =
+      lineAt(
+        receipt.body,
+      );
+
+    const receiptDeliveryLineId =
+      stringField(
+        receiptLine,
+        'deliveryLineId',
+      ) ??
+      deliveryLineId;
 
     // 11) Over-receipt 19 > dispatched 18.
     const overReceipt = await request('PATCH', `/medicarte/receipts/${receiptId}`, {
@@ -790,8 +1079,24 @@ describe('PO operational cycle — ephemeral E2E gate', () => {
       token: adminToken,
       organizationId: ORGANIZATION_IDS.MTD,
     });
-    const observedStatus = poAfterReceipt.body?.macroState ?? poAfterReceipt.body?.status ?? null;
-    const pendingStatusOk = ['RECEIVED_WITH_PENDING', 'PARTIALLY_RECEIVED'].includes(observedStatus);
+    const observedStatus =
+      stringField(
+        poAfterReceipt.body,
+        'macroState',
+      ) ??
+      stringField(
+        poAfterReceipt.body,
+        'status',
+      );
+
+    const pendingStatusOk =
+      observedStatus !== null &&
+      [
+        'RECEIVED_WITH_PENDING',
+        'PARTIALLY_RECEIVED',
+      ].includes(
+        observedStatus,
+      );
     record(
       '20 requested / 18 dispatched / 17 received is not fully received',
       pendingStatusOk,

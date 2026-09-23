@@ -268,7 +268,7 @@ function rejectedWorkbook(
   );
 
 
-  const output =
+  const output: unknown =
     XLSX.write(
       workbook,
       {
@@ -278,12 +278,28 @@ function rejectedWorkbook(
     );
 
 
-  const buffer =
-    Buffer.isBuffer(output)
-      ? output
-      : Buffer.from(
-          output as Uint8Array,
-        );
+  let buffer:
+    Buffer;
+
+  if (
+    Buffer.isBuffer(
+      output,
+    )
+  ) {
+    buffer =
+      output;
+  } else if (
+    output instanceof Uint8Array
+  ) {
+    buffer =
+      Buffer.from(
+        output,
+      );
+  } else {
+    throw new Error(
+      'AUTHORIZATION_FULFILLMENT_REJECTION_XLSX_WRITE_FAILED',
+    );
+  }
 
 
   return buffer.toString(

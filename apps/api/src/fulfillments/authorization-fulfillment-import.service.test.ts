@@ -116,7 +116,7 @@ function setup(
 
   const query =
     vi.fn(
-      async () => ({
+      () => ({
         rows:
           ids.map(
             (id) => ({
@@ -132,11 +132,42 @@ function setup(
 
   const fulfill =
     vi.fn(
-      async () => {
+      () => {
         if (
           input?.error
         ) {
-          throw input.error;
+          if (
+            input.error instanceof Error
+          ) {
+            throw input.error;
+          }
+
+          const error =
+            new Error(
+              typeof input.error === 'object' &&
+              input.error !== null &&
+              'message' in input.error &&
+              typeof input.error.message === 'string'
+                ? input.error.message
+                : 'TEST_FULFILLMENT_ERROR',
+            );
+
+          if (
+            typeof input.error === 'object' &&
+            input.error !== null &&
+            'code' in input.error &&
+            typeof input.error.code === 'string'
+          ) {
+            Object.assign(
+              error,
+              {
+                code:
+                  input.error.code,
+              },
+            );
+          }
+
+          throw error;
         }
 
         return (

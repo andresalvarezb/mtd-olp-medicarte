@@ -96,16 +96,21 @@ function mockedService(
     (
       sql: string,
       values?: unknown[],
-    ) => Promise<{
-      rows: unknown[];
-      rowCount?: number;
-    }>,
+    ) =>
+      | Promise<{
+          rows: unknown[];
+          rowCount?: number;
+        }>
+      | {
+          rows: unknown[];
+          rowCount?: number;
+        },
 ) {
   const query =
     vi.fn(
       queryImplementation ??
         (
-          async () => ({
+          () => ({
             rows:
               [],
             rowCount:
@@ -121,7 +126,7 @@ function mockedService(
 
   const connect =
     vi.fn(
-      async () => ({
+      () => ({
         query,
         release,
       }),
@@ -348,7 +353,7 @@ describe(
           query,
         } =
           mockedService(
-            async (
+            (
               sql,
             ) => {
               const normalized =
@@ -510,7 +515,7 @@ describe(
           query,
         } =
           mockedService(
-            async (
+            (
               sql,
             ) => {
               const normalized =
