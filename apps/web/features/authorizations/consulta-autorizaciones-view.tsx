@@ -83,6 +83,39 @@ function currentBogotaDate() {
   );
 }
 
+function authorizationDateLabel(
+  value:
+    string | null,
+) {
+  if (!value) {
+    return '—';
+  }
+
+  const normalized =
+    value.trim();
+
+  const compact =
+    normalized.match(
+      /^(\d{4})(\d{2})(\d{2})$/,
+    );
+
+  if (compact) {
+    return `${compact[3]}/${compact[2]}/${compact[1]}`;
+  }
+
+  const iso =
+    normalized.match(
+      /^(\d{4})-(\d{2})-(\d{2})/,
+    );
+
+  if (iso) {
+    return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  }
+
+  return normalized;
+}
+
+
 function dateTimeLabel(
   value:
     string | null,
@@ -109,7 +142,6 @@ function dateTimeLabel(
   );
 }
 
-import { DispensacionBulkActions } from './dispensacion-bulk-actions';
 import { FulfillmentBulkActions } from './fulfillment-bulk-actions';
 
 export function ConsultaAutorizacionesView() {
@@ -126,6 +158,8 @@ export function ConsultaAutorizacionesView() {
   const [appliedFilters, setAppliedFilters] = useState(filters);
 
   const [page, setPage] = useState(1);
+
+  const [pageSize, setPageSize] = useState(10);
 
   const [selected, setSelected] = useState<AuthorizationQueryItem | null>(null);
 
@@ -167,7 +201,7 @@ export function ConsultaAutorizacionesView() {
     () =>
       listAuthorizationQuery(organizationId, {
         page,
-        limit: 50,
+        limit: pageSize,
 
         ...(appliedFilters.authorizationNumber
           ? {
@@ -203,12 +237,25 @@ export function ConsultaAutorizacionesView() {
             }
           : {}),
       }),
-    [organizationId, appliedFilters, page],
+    [organizationId, appliedFilters, page, pageSize],
   );
 
   const data = query.data;
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+
+  const firstVisible =
+    data && data.total > 0
+      ? (page - 1) * data.pageSize + 1
+      : 0;
+
+  const lastVisible =
+    data
+      ? Math.min(
+          page * data.pageSize,
+          data.total,
+        )
+      : 0;
 
   function applyFilters() {
     setPage(1);
@@ -332,24 +379,17 @@ export function ConsultaAutorizacionesView() {
       <PageHeader
         title="Consulta de Autorizaciones"
         description="Consulta las autorizaciones registradas y su estado actual."
-      />
-
-      <DispensacionBulkActions
-        organizationId={organizationId}
-        canManage={hasPermission('bulk_updates.dispensation_date')}
-        onImported={() => {
-          window.location.reload();
-        }}
-      />
-
-      <FulfillmentBulkActions
-        organizationId={organizationId}
-        canManage={hasPermission(
-          'patient_applications.manage',
-        )}
-        onImported={() => {
-          window.location.reload();
-        }}
+        actions={
+          <FulfillmentBulkActions
+            organizationId={organizationId}
+            canManage={hasPermission(
+              'patient_applications.manage',
+            )}
+            onImported={() => {
+              window.location.reload();
+            }}
+          />
+        }
       />
 
 
@@ -466,9 +506,9 @@ export function ConsultaAutorizacionesView() {
 
                   <th>Producto</th>
 
-                  <th>Asignación</th>
+                  <th>Cantidad</th>
 
-                  <th>OC</th>
+                  <th>Vencimiento</th>
 
                   <th>Punto</th>
 
@@ -512,15 +552,13 @@ export function ConsultaAutorizacionesView() {
                     </td>
 
                     <td>
-                      {item.operationalStatus === 'CLOSED'
-                        ? 'Consumida'
-                        : item.remainingAssignedQuantity > 0
-                          ? `${item.remainingAssignedQuantity} asignada(s)`
-                          : 'Sin asignar'}
+                      {item.quantity ?? '—'}
                     </td>
 
                     <td>
-                      {item.purchaseOrder ?? '—'}
+                      {authorizationDateLabel(
+                        item.validityEndDate,
+                      )}
                     </td>
 
                     <td>
@@ -566,28 +604,92 @@ export function ConsultaAutorizacionesView() {
             </table>
           </div>
 
-          <div className="query-pagination">
-            <span>{data ? `${data.total} registros` : 'Cargando…'}</span>
+          <div className="authorization-query-pagination">
+            <div className="authorization-query-pagination-summary">
+              <span>
+                {data
+                  ? `Mostrando ${firstVisible}–${lastVisible} de ${data.total}`
+                  : 'Cargando…'}
+              </span>
 
-            <div>
+              <label className="authorization-query-page-size-field">
+                <span>
+                  Filas
+                </span>
+
+                <select
+                  className="control authorization-query-page-size"
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(
+                      Number(
+                        event.target.value,
+                      ),
+                    );
+
+                    setPage(1);
+                  }}
+                >
+                  <option value={10}>
+                    10
+                  </option>
+
+                  <option value={25}>
+                    25
+                  </option>
+
+                  <option value={50}>
+                    50
+                  </option>
+
+                  <option value={100}>
+                    100
+                  </option>
+                </select>
+              </label>
+            </div>
+
+            <div className="authorization-query-pagination-controls">
               <button
                 type="button"
-                className="button"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => current - 1)}
+                className="btn"
+                disabled={
+                  page <= 1 ||
+                  query.loading
+                }
+                onClick={() =>
+                  setPage(
+                    (current) =>
+                      Math.max(
+                        current - 1,
+                        1,
+                      ),
+                  )
+                }
               >
                 Anterior
               </button>
 
-              <span>
+              <strong>
                 Página {page} de {totalPages}
-              </span>
+              </strong>
 
               <button
                 type="button"
-                className="button"
-                disabled={page >= totalPages}
-                onClick={() => setPage((current) => current + 1)}
+                className="btn"
+                disabled={
+                  page >= totalPages ||
+                  query.loading
+                }
+                onClick={() =>
+                  setPage(
+                    (current) =>
+                      Math.min(
+                        current + 1,
+                        totalPages,
+                      ),
+                  )
+                }
               >
                 Siguiente
               </button>

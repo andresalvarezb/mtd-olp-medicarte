@@ -28,15 +28,13 @@ type OrderStatusGroup =
   | 'PENDING_OLP'
   | 'PENDING_MEDICARTE'
   | 'PARTIALLY_RECEIVED'
-  | 'RECEIVED'
-  | 'ISSUE';
+  | 'RECEIVED';
 
 const STATUS_GROUP_LABELS: Record<Exclude<OrderStatusGroup, ''>, string> = {
   PENDING_OLP: 'Pendiente OLP',
   PENDING_MEDICARTE: 'Pendiente Medicarte',
-  PARTIALLY_RECEIVED: 'Recibida parcialmente',
+  PARTIALLY_RECEIVED: 'Recibida con pendientes',
   RECEIVED: 'Recibida',
-  ISSUE: 'Con novedad',
 };
 
 function statusGroup(status: string): Exclude<OrderStatusGroup, ''> {
@@ -69,7 +67,7 @@ function statusGroup(status: string): Exclude<OrderStatusGroup, ''> {
     return 'RECEIVED';
   }
 
-  return 'ISSUE';
+  return 'PENDING_OLP';
 }
 
 function statusGroupLabel(status: string) {
@@ -94,6 +92,13 @@ function issueOutcomeLabel(status: string) {
   }
 
   return null;
+}
+
+function rowStatusReason(status: string) {
+  return (
+    statusReasonLabel(status) ??
+    issueOutcomeLabel(status)
+  );
 }
 
 function money(value: number) {
@@ -140,6 +145,9 @@ export function PurchaseOrdersView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   const orders = useApiData(async () => {
     const query = {
       purchaseOrderCode: appliedFilters.purchaseOrderCode || undefined,
@@ -173,6 +181,37 @@ export function PurchaseOrdersView() {
   const visibleOrders = (orders.data?.items ?? []).filter(
     (order) => !appliedFilters.status || statusGroup(order.status) === appliedFilters.status,
   );
+
+  const totalPages =
+    Math.max(
+      Math.ceil(
+        visibleOrders.length / pageSize,
+      ),
+      1,
+    );
+
+  const safePage =
+    Math.min(
+      page,
+      totalPages,
+    );
+
+  const firstVisible =
+    visibleOrders.length > 0
+      ? (safePage - 1) * pageSize + 1
+      : 0;
+
+  const lastVisible =
+    Math.min(
+      safePage * pageSize,
+      visibleOrders.length,
+    );
+
+  const pagedOrders =
+    visibleOrders.slice(
+      (safePage - 1) * pageSize,
+      safePage * pageSize,
+    );
 
   async function uploadOc(file: File | undefined) {
     if (!file) {
@@ -407,7 +446,10 @@ export function PurchaseOrdersView() {
                 <button
                   type="button"
                   className="button primary"
-                  onClick={() => setAppliedFilters(filters)}
+                  onClick={() => {
+                    setAppliedFilters(filters);
+                    setPage(1);
+                  }}
                 >
                   Filtrar
                 </button>
@@ -425,6 +467,7 @@ export function PurchaseOrdersView() {
 
                     setFilters(cleared);
                     setAppliedFilters(cleared);
+                    setPage(1);
                   }}
                 >
                   Limpiar
@@ -462,7 +505,7 @@ export function PurchaseOrdersView() {
                       </td>
                     </tr>
                   ) : (
-                    visibleOrders.map((order) => {
+                    pagedOrders.map((order) => {
                       const units = order.lines.reduce(
                         (total, line) => total + line.requestedQuantity,
                         0,
@@ -486,9 +529,9 @@ export function PurchaseOrdersView() {
                             <div className="oc-status-cell">
                               <span className="status-chip">{statusGroupLabel(order.status)}</span>
 
-                              {statusReasonLabel(order.status) ? (
+                              {rowStatusReason(order.status) ? (
                                 <span className="oc-status-reason">
-                                  {statusReasonLabel(order.status)}
+                                  {rowStatusReason(order.status)}
                                 </span>
                               ) : null}
                             </div>
@@ -513,6 +556,85 @@ export function PurchaseOrdersView() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <div className="purchase-orders-pagination">
+            <div className="purchase-orders-pagination-summary">
+              <span>
+                {`Mostrando ${firstVisible}–${lastVisible} de ${visibleOrders.length}`}
+              </span>
+
+              <label className="purchase-orders-page-size-field">
+                <span>
+                  Filas
+                </span>
+
+                <select
+                  className="control purchase-orders-page-size"
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(
+                      Number(
+                        event.target.value,
+                      ),
+                    );
+
+                    setPage(1);
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="purchase-orders-pagination-controls">
+              <button
+                type="button"
+                className="btn"
+                disabled={
+                  safePage <= 1 ||
+                  orders.loading
+                }
+                onClick={() =>
+                  setPage(
+                    (current) =>
+                      Math.max(
+                        current - 1,
+                        1,
+                      ),
+                  )
+                }
+              >
+                Anterior
+              </button>
+
+              <strong>
+                Página {safePage} de {totalPages}
+              </strong>
+
+              <button
+                type="button"
+                className="btn"
+                disabled={
+                  safePage >= totalPages ||
+                  orders.loading
+                }
+                onClick={() =>
+                  setPage(
+                    (current) =>
+                      Math.min(
+                        current + 1,
+                        totalPages,
+                      ),
+                  )
+                }
+              >
+                Siguiente
+              </button>
             </div>
           </div>
         </CardBody>

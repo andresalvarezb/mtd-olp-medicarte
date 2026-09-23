@@ -12,8 +12,6 @@ import { DataTable } from '@/components/ui/data-table';
 
 import { FilterActions, FilterBar, FilterField } from '@/components/ui/filter-bar';
 
-import { TablePagination } from '@/components/ui/table-pagination';
-
 import { useRole } from '@/components/layout/role-context';
 
 import {
@@ -77,7 +75,7 @@ export function DisponibilidadView() {
 
   const [page, setPage] = useState(1);
 
-  const pageSize = 25;
+  const [pageSize, setPageSize] = useState(10);
 
   const canAllocate = hasPermission('inventory.allocate');
 
@@ -124,6 +122,17 @@ export function DisponibilidadView() {
   const totalPages = Math.max(Math.ceil(items.length / pageSize), 1);
 
   const safePage = Math.min(page, totalPages);
+
+  const firstVisible =
+    items.length > 0
+      ? (safePage - 1) * pageSize + 1
+      : 0;
+
+  const lastVisible =
+    Math.min(
+      safePage * pageSize,
+      items.length,
+    );
 
   const visibleItems = useMemo(() => {
     const start = (safePage - 1) * pageSize;
@@ -332,13 +341,95 @@ export function DisponibilidadView() {
         />
         </div>
 
-        <TablePagination
-          page={safePage}
-          hasPrev={safePage > 1}
-          hasNext={safePage < totalPages}
-          onPrev={() => setPage((current) => Math.max(current - 1, 1))}
-          onNext={() => setPage((current) => Math.min(current + 1, totalPages))}
-        />
+        <div className="inventory-availability-pagination">
+          <div className="inventory-availability-pagination-summary">
+            <span>
+              {`Mostrando ${firstVisible}–${lastVisible} de ${items.length}`}
+            </span>
+
+            <label className="inventory-availability-page-size-field">
+              <span>
+                Filas
+              </span>
+
+              <select
+                className="control inventory-availability-page-size"
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(
+                    Number(
+                      event.target.value,
+                    ),
+                  );
+
+                  setPage(1);
+                }}
+              >
+                <option value={10}>
+                  10
+                </option>
+
+                <option value={25}>
+                  25
+                </option>
+
+                <option value={50}>
+                  50
+                </option>
+
+                <option value={100}>
+                  100
+                </option>
+              </select>
+            </label>
+          </div>
+
+          <div className="inventory-availability-pagination-controls">
+            <button
+              type="button"
+              className="btn"
+              disabled={
+                safePage <= 1 ||
+                loading
+              }
+              onClick={() =>
+                setPage(
+                  (current) =>
+                    Math.max(
+                      current - 1,
+                      1,
+                    ),
+                )
+              }
+            >
+              Anterior
+            </button>
+
+            <strong>
+              Página {safePage} de {totalPages}
+            </strong>
+
+            <button
+              type="button"
+              className="btn"
+              disabled={
+                safePage >= totalPages ||
+                loading
+              }
+              onClick={() =>
+                setPage(
+                  (current) =>
+                    Math.min(
+                      current + 1,
+                      totalPages,
+                    ),
+                )
+              }
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
       </Card>
     </>
   );

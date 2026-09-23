@@ -185,7 +185,7 @@ export function FulfillmentBulkActions({
         );
 
       setMessage(
-        `Entrega/Aplicación: ${result.acceptedRows} aceptadas de ${result.totalRows}; ${result.rejectedRows} rechazadas.`,
+        `Entrega / Aplicación: ${result.acceptedRows} aceptadas de ${result.totalRows}; ${result.rejectedRows} rechazadas.`,
       );
 
       setRejected(
@@ -197,7 +197,7 @@ export function FulfillmentBulkActions({
       setError(
         cause instanceof Error
           ? cause.message
-          : 'No fue posible cargar Entrega/Aplicación.',
+          : 'No fue posible cargar Entrega / Aplicación.',
       );
     } finally {
       if (
@@ -213,38 +213,33 @@ export function FulfillmentBulkActions({
 
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: '0.5rem',
-        marginTop: '0.75rem',
-      }}
-    >
+    <>
       <button
         type="button"
+        className="btn"
         disabled={busy}
         onClick={() => {
           void template();
         }}
       >
-        Descargar plantilla Entrega/Aplicación
+        Descargar plantilla
       </button>
 
       <button
         type="button"
+        className="btn primary"
         disabled={busy}
         onClick={() => {
           fileRef.current?.click();
         }}
       >
-        Cargar Entrega/Aplicación
+        Cargar archivo
       </button>
 
       {rejected ? (
         <button
           type="button"
+          className="btn"
           disabled={busy}
           onClick={() => {
             saveBase64(
@@ -270,7 +265,7 @@ export function FulfillmentBulkActions({
       />
 
       {message ? (
-        <span>
+        <span role="status">
           {message}
         </span>
       ) : null}
@@ -280,6 +275,6 @@ export function FulfillmentBulkActions({
           {error}
         </span>
       ) : null}
-    </div>
+    </>
   );
 }
