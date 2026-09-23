@@ -16,7 +16,6 @@ import {
 import {
   ArchiveIcon,
   ChevronDownIcon,
-  ChevronUpIcon,
   DashboardIcon,
   ExitIcon,
   FileTextIcon,
@@ -155,28 +154,23 @@ export function Sidebar({
           )
         ) {
           setOpenGroups(
-            (current) => {
-              if (
-                current.has(
-                  entry.title,
-                )
-              ) {
-                return current;
-              }
-
-              const next =
-                new Set(current);
-
-              next.add(
-                entry.title,
-              );
-
-              return next;
-            },
+            new Set([
+              entry.title,
+            ]),
           );
+
+          return;
         }
       }
     }
+
+    /*
+     * Si la ruta activa no pertenece a un grupo
+     * desplegable, cerramos todos.
+     */
+    setOpenGroups(
+      new Set(),
+    );
   }, [pathname]);
 
   function toggleGroup(
@@ -184,22 +178,22 @@ export function Sidebar({
   ) {
     setOpenGroups(
       (current) => {
-        const next =
-          new Set(current);
-
+        /*
+         * Acordeón:
+         * - si el grupo ya está abierto, lo cerramos;
+         * - si está cerrado, abrimos únicamente ese grupo.
+         */
         if (
-          next.has(title)
+          current.has(
+            title,
+          )
         ) {
-          next.delete(
-            title,
-          );
-        } else {
-          next.add(
-            title,
-          );
+          return new Set();
         }
 
-        return next;
+        return new Set([
+          title,
+        ]);
       },
     );
   }
@@ -330,17 +324,34 @@ export function Sidebar({
                               }
                             </span>
 
-                            <span className="nav-chevron">
-                              {expanded ? (
-                                <ChevronUpIcon />
-                              ) : (
-                                <ChevronDownIcon />
-                              )}
+                            <span
+                              className={[
+                                'nav-chevron',
+                                expanded
+                                  ? 'expanded'
+                                  : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                            >
+                              <ChevronDownIcon />
                             </span>
                           </button>
 
-                          {expanded ? (
-                            <div className="nav-submenu">
+                          <div
+                            className={[
+                              'nav-submenu',
+                              expanded
+                                ? 'expanded'
+                                : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            aria-hidden={
+                              !expanded
+                            }
+                          >
+                            <div className="nav-submenu-inner">
                               {children.map(
                                 (
                                   child,
@@ -351,6 +362,11 @@ export function Sidebar({
                                     }
                                     href={
                                       child.href
+                                    }
+                                    tabIndex={
+                                      expanded
+                                        ? 0
+                                        : -1
                                     }
                                     className={[
                                       'nav-subitem',
@@ -386,7 +402,7 @@ export function Sidebar({
                                 ),
                               )}
                             </div>
-                          ) : null}
+                          </div>
                         </div>
                       );
                     }

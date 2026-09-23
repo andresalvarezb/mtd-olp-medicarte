@@ -5170,30 +5170,6 @@ tbody tr:last-child td {
   }
 }
 
-/* Sidebar text reveal */
-
-@media (min-width: 841px) {
-  .sidebar.sidebar-auto-compact:hover .brand-copy,
-  .sidebar.sidebar-auto-compact:hover .nav-label,
-  .sidebar.sidebar-auto-compact:hover .nav-chevron,
-  .sidebar.sidebar-auto-compact:hover .sidebar-account-copy,
-  .sidebar.sidebar-auto-compact:hover .sidebar-logout {
-    animation: sidebar-content-in 180ms ease 70ms both;
-  }
-}
-
-@keyframes sidebar-content-in {
-  from {
-    opacity: 0;
-    transform: translateX(-4px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
 /* END AUTO COMPACT SIDEBAR V3 */
 
 /* AT_VISUAL_HIERARCHY_V1 */
@@ -5727,22 +5703,19 @@ table.operational-list-table tbody tr:hover {
    FILTROS COMPACTOS
    ========================================================== */
 
-.operational-list-workspace .toolbar,
-.orders-workspace-card .toolbar {
+.operational-list-workspace .toolbar {
   gap: 10px;
 
   padding: 16px 20px;
 }
 
-.operational-list-workspace .field label,
-.orders-workspace-card .field label {
+.operational-list-workspace .field label {
   margin-bottom: 5px;
 
   font-size: 11px;
 }
 
-.operational-list-workspace .control,
-.orders-workspace-card .control {
+.operational-list-workspace .control {
   min-height: 44px;
 
   padding: 8px 12px;
@@ -5788,234 +5761,6 @@ table.operational-list-table tbody tr:hover {
 }
 
 /* ==========================================================
-   FILTROS OC
-   ========================================================== */
-
-.orders-workspace-card .toolbar {
-  display: grid !important;
-
-  grid-template-columns:
-    minmax(150px, 1fr)
-    minmax(150px, 1fr)
-    minmax(145px, 0.9fr)
-    minmax(145px, 1fr)
-    auto;
-
-  align-items: end;
-
-  gap: 12px !important;
-
-  margin: 0 !important;
-  padding: 0 0 18px !important;
-
-  border-bottom: 1px solid var(--border) !important;
-}
-
-.orders-workspace-card .toolbar .field {
-  width: 100%;
-  min-width: 0 !important;
-}
-
-.orders-workspace-card .toolbar .field label {
-  margin: 0 0 6px !important;
-
-  color: #5f6f89;
-
-  font-size: 11px !important;
-  font-weight: 600;
-}
-
-.orders-workspace-card .toolbar .control {
-  width: 100%;
-
-  min-height: 42px !important;
-  height: 42px !important;
-
-  padding: 7px 12px !important;
-
-  border-radius: 9px !important;
-
-  font-size: 13px !important;
-}
-
-/* FilterActions es el último div del toolbar. */
-.orders-workspace-card .toolbar > div:last-child {
-  display: flex !important;
-  align-items: center;
-  gap: 8px !important;
-
-  white-space: nowrap;
-}
-
-.orders-workspace-card .toolbar > div:last-child .button,
-.orders-workspace-card .toolbar > div:last-child .btn {
-  min-height: 42px !important;
-
-  padding: 8px 14px !important;
-
-  font-size: 12px !important;
-}
-
-
-/* ==========================================================
-   BLOQUE DE TABLA OC
-   ========================================================== */
-
-.orders-workspace-card .orders-workspace-card .orders-workspace-card .operational-list-table-wrap {
-  width: 100% !important;
-  max-width: 100% !important;
-
-  margin: 0 !important;
-  padding: 0 !important;
-
-  overflow-x: hidden !important;
-
-  border: 0 !important;
-  border-radius: 0 !important;
-
-  background: transparent !important;
-}
-
-
-/* ==========================================================
-   TABLA
-   ========================================================== */
-
-.orders-workspace-card .operational-list-table-wrap table {
-  width: 100% !important;
-  min-width: 0 !important;
-  max-width: 100% !important;
-
-  table-layout: fixed !important;
-
-  border-collapse: collapse !important;
-}
-
-.orders-workspace-card .operational-list-table-wrap th {
-  height: 44px !important;
-
-  padding: 10px 12px !important;
-
-  background: #f8fafc !important;
-
-  color: #5f6f89 !important;
-
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  line-height: 1.2 !important;
-
-  white-space: normal !important;
-}
-
-.orders-workspace-card .operational-list-table-wrap td {
-  height: 54px !important;
-
-  padding: 11px 12px !important;
-
-  color: #172033 !important;
-
-  font-size: 12px !important;
-  line-height: 1.25 !important;
-
-  white-space: normal !important;
-
-  overflow-wrap: anywhere;
-}
-
-
-/* ==========================================================
-   DISTRIBUCION DE COLUMNAS OC
-   ========================================================== */
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(1),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(1) {
-  width: 11%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(2),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(2) {
-  width: 14%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(3),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(3) {
-  width: 19%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(4),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(4) {
-  width: 14%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(5),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(5) {
-  width: 14%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(6),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(6) {
-  width: 18%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(7),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(7) {
-  width: 10%;
-}
-
-
-/* ==========================================================
-   ESTADO Y ACCION
-   ========================================================== */
-
-.orders-workspace-card .operational-list-table-wrap .pill {
-  padding: 5px 9px !important;
-
-  font-size: 10px !important;
-}
-
-.orders-workspace-card .operational-list-table-wrap .button,
-.orders-workspace-card .operational-list-table-wrap .btn {
-  min-height: 34px !important;
-
-  padding: 6px 11px !important;
-
-  border-radius: 8px !important;
-
-  font-size: 11px !important;
-}
-
-
-/* ==========================================================
-   RESPONSIVE
-   Seguimos SIN scroll horizontal.
-   ========================================================== */
-
-@media (max-width: 1250px) {
-  .orders-workspace-card .toolbar {
-    grid-template-columns:
-      minmax(130px, 1fr)
-      minmax(130px, 1fr)
-      minmax(120px, 0.8fr)
-      minmax(120px, 0.9fr)
-      auto;
-  }
-
-  .orders-workspace-card .operational-list-table-wrap th {
-    padding-right: 8px !important;
-    padding-left: 8px !important;
-
-    font-size: 10px !important;
-  }
-
-  .orders-workspace-card .operational-list-table-wrap td {
-    padding-right: 8px !important;
-    padding-left: 8px !important;
-
-    font-size: 11px !important;
-  }
-}
-
-/* ==========================================================
    ROLLBACK - ESTADO VISUAL ANTERIOR
    ========================================================== */
 
@@ -6050,203 +5795,6 @@ table.operational-list-table tbody tr:hover {
 .operational-list-table-wrap td {
   white-space: normal !important;
   overflow-wrap: anywhere;
-}
-
-
-/* ==========================================================
-   ORDENES DE COMPRA - ESTADO PREVIO
-   ========================================================== */
-
-.orders-workspace-card {
-  overflow: hidden;
-}
-
-.orders-workspace-card .orders-workspace-body {
-  padding: 20px 24px 0 !important;
-}
-
-
-/* FILTROS */
-
-.orders-workspace-card .toolbar {
-  display: grid !important;
-
-  grid-template-columns:
-    minmax(150px, 1fr)
-    minmax(150px, 1fr)
-    minmax(145px, 0.9fr)
-    minmax(145px, 1fr)
-    auto;
-
-  align-items: end;
-  gap: 12px !important;
-
-  margin: 0 !important;
-  padding: 0 0 18px !important;
-
-  border-bottom: 1px solid var(--border) !important;
-}
-
-.orders-workspace-card .toolbar .field {
-  width: 100%;
-  min-width: 0 !important;
-}
-
-.orders-workspace-card .toolbar .field label {
-  margin: 0 0 6px !important;
-  font-size: 11px !important;
-  font-weight: 600;
-}
-
-.orders-workspace-card .toolbar .control {
-  width: 100%;
-  min-height: 42px !important;
-  height: 42px !important;
-
-  padding: 7px 12px !important;
-
-  border-radius: 9px !important;
-
-  font-size: 13px !important;
-}
-
-.orders-workspace-card .toolbar > div:last-child {
-  display: flex !important;
-  align-items: center;
-  gap: 8px !important;
-  white-space: nowrap;
-}
-
-.orders-workspace-card .toolbar > div:last-child .button,
-.orders-workspace-card .toolbar > div:last-child .btn {
-  min-height: 42px !important;
-  padding: 8px 14px !important;
-  font-size: 12px !important;
-}
-
-
-/* TABLA */
-
-.orders-workspace-card .orders-table-block {
-  margin: 0 !important;
-  padding: 0 !important;
-
-  border: 0 !important;
-  border-radius: 0 !important;
-
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-.orders-workspace-card .orders-table-header {
-  display: none !important;
-}
-
-.orders-workspace-card .operational-list-table-wrap {
-  width: 100% !important;
-  max-width: 100% !important;
-
-  margin: 0 !important;
-  padding: 0 !important;
-
-  overflow-x: hidden !important;
-
-  border: 0 !important;
-  border-radius: 0 !important;
-
-  background: transparent !important;
-}
-
-.orders-workspace-card .operational-list-table-wrap table {
-  width: 100% !important;
-  min-width: 0 !important;
-  max-width: 100% !important;
-
-  table-layout: fixed !important;
-  border-collapse: collapse !important;
-}
-
-.orders-workspace-card .operational-list-table-wrap th {
-  height: 44px !important;
-
-  padding: 10px 12px !important;
-
-  background: #f8fafc !important;
-
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  line-height: 1.2 !important;
-
-  white-space: normal !important;
-}
-
-.orders-workspace-card .operational-list-table-wrap td {
-  height: 54px !important;
-
-  padding: 11px 12px !important;
-
-  font-size: 12px !important;
-  line-height: 1.25 !important;
-
-  white-space: normal !important;
-  overflow-wrap: anywhere;
-}
-
-
-/* DISTRIBUCIÓN ANTERIOR DE OC */
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(1),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(1) {
-  width: 11%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(2),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(2) {
-  width: 14%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(3),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(3) {
-  width: 19%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(4),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(4) {
-  width: 14%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(5),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(5) {
-  width: 14%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(6),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(6) {
-  width: 18%;
-}
-
-.orders-workspace-card .operational-list-table-wrap th:nth-child(7),
-.orders-workspace-card .operational-list-table-wrap td:nth-child(7) {
-  width: 10%;
-}
-
-
-/* ACCIONES */
-
-.orders-workspace-card .operational-list-table-wrap .pill {
-  padding: 5px 9px !important;
-  font-size: 10px !important;
-}
-
-.orders-workspace-card .operational-list-table-wrap .button,
-.orders-workspace-card .operational-list-table-wrap .btn {
-  min-height: 34px !important;
-
-  padding: 6px 11px !important;
-
-  border-radius: 8px !important;
-
-  font-size: 11px !important;
 }
 
 
@@ -6738,188 +6286,6 @@ table.operational-list-table tbody tr:hover {
 
 
 /* ==========================================================
-   PURCHASE ORDERS LIST - FINAL SPACING FIX
-   ========================================================== */
-
-/*
- * La tarjeta no aporta padding adicional.
- * Filtros y tabla administran su propio espacio.
- */
-.purchase-orders-list-workspace {
-  padding: 0 !important;
-  overflow: hidden !important;
-}
-
-.purchase-orders-list-workspace > .card-body,
-.purchase-orders-list-workspace > .orders-workspace-body {
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-
-/* ==========================================================
-   FILTROS
-   Menos aire arriba.
-   ========================================================== */
-
-.purchase-orders-list-workspace .toolbar {
-  margin: 0 !important;
-
-  padding:
-    20px
-    24px
-    16px !important;
-
-  /*
-   * Esta era la línea adicional que se veía antes
-   * del encabezado gris.
-   */
-  border-bottom: 0 !important;
-}
-
-
-/* Quitar cualquier margen residual después de los filtros. */
-.purchase-orders-list-workspace .toolbar + * {
-  margin-top: 0 !important;
-}
-
-
-/* ==========================================================
-   WRAPPERS ENTRE FILTROS Y TABLA
-   No deben generar espacio ni líneas.
-   ========================================================== */
-
-.purchase-orders-list-workspace .operational-list-table-section,
-.purchase-orders-list-workspace .orders-table-block {
-  width: 100% !important;
-
-  margin: 0 !important;
-  padding: 0 !important;
-
-  border: 0 !important;
-  border-top: 0 !important;
-
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-.purchase-orders-list-workspace .operational-list-table-wrap,
-.purchase-orders-list-workspace .table-wrap {
-  width: 100% !important;
-
-  margin: 0 !important;
-  padding: 0 !important;
-
-  border: 0 !important;
-  border-top: 0 !important;
-  border-radius: 0 !important;
-
-  box-shadow: none !important;
-}
-
-
-/* ==========================================================
-   ENCABEZADO
-   Solo fondo gris + borde inferior.
-   ========================================================== */
-
-.purchase-orders-list-workspace thead {
-  background: #f8fafc !important;
-}
-
-.purchase-orders-list-workspace thead tr {
-  border-top: 0 !important;
-}
-
-.purchase-orders-list-workspace thead th {
-  border-top: 0 !important;
-
-  border-bottom:
-    1px solid
-    var(--border) !important;
-}
-
-
-/* Evitar cualquier pseudo separador heredado. */
-.purchase-orders-list-workspace .orders-table-header {
-  display: none !important;
-}
-
-/* ==========================================================
-   OC - AJUSTE FINAL DE ESPACIADO SUPERIOR
-   ========================================================== */
-
-/*
- * Ningún wrapper interno de OC puede aportar padding.
- */
-.purchase-orders-list-workspace,
-.purchase-orders-list-workspace .card-body,
-.purchase-orders-list-workspace .orders-workspace-body,
-.purchase-orders-list-workspace .operational-list-table-section,
-.purchase-orders-list-workspace .orders-table-block {
-  margin-top: 0 !important;
-  padding-top: 0 !important;
-}
-
-/*
- * CardBody completo sin padding.
- * El espacio lo controla exclusivamente FilterBar.
- */
-.purchase-orders-list-workspace .card-body,
-.purchase-orders-list-workspace .orders-workspace-body {
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-/*
- * Filtros con el mismo aire visual de AT / Disponibilidad,
- * pero sin el hueco superior actual.
- */
-.purchase-orders-list-workspace .toolbar {
-  margin: 0 !important;
-
-  padding:
-    12px
-    24px
-    16px !important;
-
-  border-top: 0 !important;
-  border-bottom: 0 !important;
-}
-
-/*
- * Evitar margen residual del primer elemento del toolbar.
- */
-.purchase-orders-list-workspace .toolbar > :first-child {
-  margin-top: 0 !important;
-}
-
-/*
- * Ningún wrapper antes del toolbar debe generar altura.
- */
-.purchase-orders-list-workspace .orders-workspace-summary {
-  display: none !important;
-}
-
-
-
-
-/* CONSULTA AUTO - FILTER ACTION GAP */
-
-.authorization-query-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-/* Disponibilidad - separación entre Filtrar y Limpiar */
-.availability-filter-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-/* ==========================================================
    CONSULTA AUTORIZACIONES - CICLO OPERATIVO
    ========================================================== */
 
@@ -7127,50 +6493,156 @@ table.operational-list-table tbody tr:hover {
 
 /* END AUTHORIZATION QUERY PAGINATION V2 */
 
-/* INVENTORY AVAILABILITY PAGINATION */
 
-.inventory-availability-pagination {
+
+
+
+
+
+/* INVENTORY AVAILABILITY COLUMN WIDTHS */
+
+.inventory-availability-table table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.inventory-availability-table th:nth-child(1),
+.inventory-availability-table td:nth-child(1) {
+  width: 14%;
+}
+
+.inventory-availability-table th:nth-child(2),
+.inventory-availability-table td:nth-child(2) {
+  width: 32%;
+}
+
+.inventory-availability-table th:nth-child(3),
+.inventory-availability-table td:nth-child(3) {
+  width: 10%;
+}
+
+.inventory-availability-table th:nth-child(4),
+.inventory-availability-table td:nth-child(4) {
+  width: 14%;
+}
+
+.inventory-availability-table th:nth-child(5),
+.inventory-availability-table td:nth-child(5) {
+  width: 10%;
+}
+
+.inventory-availability-table th:nth-child(6),
+.inventory-availability-table td:nth-child(6) {
+  width: 10%;
+}
+
+.inventory-availability-table th:nth-child(7),
+.inventory-availability-table td:nth-child(7) {
+  width: 10%;
+}
+
+.inventory-availability-table th:nth-child(2),
+.inventory-availability-table td:nth-child(2) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* END INVENTORY AVAILABILITY COLUMN WIDTHS */
+
+/* SHARED LIST SURFACE STANDARD */
+
+/*
+ * FilterActions es común para cualquier FilterBar.
+ * La cantidad de campos depende del módulo; la geometría no.
+ */
+.filter-actions {
+  align-self: end;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  flex-wrap: wrap;
+}
+
+.filter-actions .btn,
+.filter-actions .button {
+  min-height: 44px;
+  height: 44px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  white-space: nowrap;
+}
+
+
+/*
+ * Errores internos de una bandeja.
+ * Conservan el mismo margen lateral de los filtros.
+ */
+.operational-list-workspace .list-inline-error {
+  margin:
+    0
+    32px
+    16px;
+}
+
+
+/*
+ * PAGINACION UNICA
+ *
+ * Todas las bandejas deben usar esta geometría.
+ */
+.list-pagination {
   display: flex;
   align-items: center;
   justify-content: space-between;
 
   gap: 16px;
 
-  padding: 18px 24px;
+  padding:
+    18px
+    24px;
 
-  border-top: 1px solid var(--border);
+  border-top:
+    1px solid
+    var(--border);
 
-  color: var(--muted);
+  color:
+    var(--muted);
 
-  font-size: 12px;
+  font-size:
+    12px;
 }
 
-.inventory-availability-pagination-summary {
+.list-pagination > div {
   display: flex;
   align-items: center;
+}
 
+.list-pagination > div:first-child {
   gap: 12px;
 }
 
-.inventory-availability-page-size-field {
+.list-pagination > div:last-child {
+  gap: 14px;
+}
+
+.list-pagination label {
   display: flex;
   align-items: center;
 
   gap: 8px;
 }
 
-.inventory-availability-page-size {
+.list-pagination label .control {
   width: 88px;
+  min-width: 88px;
 }
 
-.inventory-availability-pagination-controls {
-  display: flex;
-  align-items: center;
-
-  gap: 14px;
-}
-
-.inventory-availability-pagination-controls strong {
+.list-pagination strong {
   color: var(--text);
 
   font-weight: 600;
@@ -7178,81 +6650,858 @@ table.operational-list-table tbody tr:hover {
   white-space: nowrap;
 }
 
+
+/*
+ * OC puede tener una distribución propia de columnas.
+ * Esto NO cambia tipografía, altura, padding ni bordes.
+ */
+.purchase-orders-table th:nth-child(1),
+.purchase-orders-table td:nth-child(1) {
+  width: 11%;
+}
+
+.purchase-orders-table th:nth-child(2),
+.purchase-orders-table td:nth-child(2) {
+  width: 14%;
+}
+
+.purchase-orders-table th:nth-child(3),
+.purchase-orders-table td:nth-child(3) {
+  width: 19%;
+}
+
+.purchase-orders-table th:nth-child(4),
+.purchase-orders-table td:nth-child(4) {
+  width: 14%;
+}
+
+.purchase-orders-table th:nth-child(5),
+.purchase-orders-table td:nth-child(5) {
+  width: 14%;
+}
+
+.purchase-orders-table th:nth-child(6),
+.purchase-orders-table td:nth-child(6) {
+  width: 18%;
+}
+
+.purchase-orders-table th:nth-child(7),
+.purchase-orders-table td:nth-child(7) {
+  width: 10%;
+}
+
+
 @media (max-width: 720px) {
-  .inventory-availability-pagination {
+  .list-pagination {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .inventory-availability-pagination-summary,
-  .inventory-availability-pagination-controls {
+  .list-pagination > div {
     justify-content: space-between;
+  }
+
+  .filter-actions {
+    width: 100%;
   }
 }
 
-/* END INVENTORY AVAILABILITY PAGINATION */
+/* END SHARED LIST SURFACE STANDARD */
 
-/* PURCHASE ORDERS PAGINATION */
+/* PAGE HEADER ACTION ALIGNMENT */
 
-.purchase-orders-pagination {
+.page-head .actions {
+  align-items: center;
+}
+
+.page-head .actions .btn,
+.page-head .actions .button {
+  min-height: 36px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* END PAGE HEADER ACTION ALIGNMENT */
+
+/* SIDEBAR ACCORDION MOTION */
+
+.nav-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  margin-left: auto;
+
+  transition:
+    transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nav-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+
+/*
+ * grid-template-rows permite animar una altura dinámica
+ * sin conocer previamente la cantidad de opciones.
+ */
+.nav-submenu {
+  display: grid;
+
+  grid-template-rows: 0fr;
+
+  opacity: 0;
+
+  transform: translateY(-4px);
+
+  transition:
+    grid-template-rows 240ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 180ms ease,
+    transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  pointer-events: none;
+}
+
+.nav-submenu.expanded {
+  grid-template-rows: 1fr;
+
+  opacity: 1;
+
+  transform: translateY(0);
+
+  pointer-events: auto;
+}
+
+.nav-submenu-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+
+/*
+ * Entrada ligeramente escalonada de las opciones.
+ */
+.nav-submenu .nav-subitem {
+  opacity: 0;
+
+  transform: translateY(-3px);
+
+  transition:
+    opacity 150ms ease,
+    transform 190ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.nav-submenu.expanded .nav-subitem {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+
+/*
+ * Respeta usuarios que reduzcan movimiento.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nav-chevron,
+  .nav-submenu,
+  .nav-submenu .nav-subitem {
+    transition: none;
+  }
+}
+
+/* END SIDEBAR ACCORDION MOTION */
+
+/* SIDEBAR HOVER COLLAPSE MOTION */
+
+@media (min-width: 841px) {
+
+  /*
+   * El propio contenedor mantiene una transición simétrica:
+   * expansión y contracción usan la misma curva.
+   */
+  .sidebar.sidebar-auto-compact {
+    transition:
+      width 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      min-width 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 220ms ease;
+  }
+
+
+  /*
+   * Elementos textuales:
+   * permanecen en DOM para poder desaparecer suavemente.
+   */
+  .sidebar.sidebar-auto-compact .brand-copy,
+  .sidebar.sidebar-auto-compact .nav-label,
+  .sidebar.sidebar-auto-compact .nav-chevron,
+  .sidebar.sidebar-auto-compact .sidebar-account-copy,
+  .sidebar.sidebar-auto-compact .sidebar-logout {
+    opacity: 1;
+    visibility: visible;
+
+    transform: translateX(0);
+
+    max-width: 160px;
+
+    transition:
+      opacity 160ms ease,
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      max-width 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 0s linear 0s;
+  }
+
+
+  /*
+   * Al salir el cursor:
+   * primero desvanece/desplaza el contenido,
+   * mientras el sidebar empieza a cerrarse.
+   */
+  .sidebar.sidebar-auto-compact:not(:hover) .brand-copy,
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-label,
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-chevron,
+  .sidebar.sidebar-auto-compact:not(:hover) .sidebar-account-copy,
+  .sidebar.sidebar-auto-compact:not(:hover) .sidebar-logout {
+    opacity: 0;
+
+    visibility: hidden;
+
+    transform: translateX(-6px);
+
+    max-width: 0;
+
+    overflow: hidden;
+
+    transition:
+      opacity 120ms ease,
+      transform 180ms cubic-bezier(0.4, 0, 1, 1),
+      max-width 220ms cubic-bezier(0.4, 0, 1, 1),
+      visibility 0s linear 220ms;
+  }
+
+
+  /*
+   * El submenu también colapsa suavemente.
+   * No usamos display:none.
+   */
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-submenu {
+    grid-template-rows: 0fr !important;
+
+    opacity: 0 !important;
+
+    transform: translateY(-4px);
+
+    pointer-events: none;
+  }
+
+
+  /*
+   * Los íconos se recentran suavemente al quedar compacto.
+   */
+  .sidebar.sidebar-auto-compact .nav-item {
+    transition:
+      padding 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+
+  .sidebar.sidebar-auto-compact .nav-icon {
+    transition:
+      width 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      min-width 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      height 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+
+  .sidebar.sidebar-auto-compact .sidebar-account {
+    transition:
+      padding 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      gap 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+
+/*
+ * Accesibilidad:
+ * sin movimiento para quien haya solicitado reducirlo.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar.sidebar-auto-compact,
+  .sidebar.sidebar-auto-compact .brand-copy,
+  .sidebar.sidebar-auto-compact .nav-label,
+  .sidebar.sidebar-auto-compact .nav-chevron,
+  .sidebar.sidebar-auto-compact .sidebar-account-copy,
+  .sidebar.sidebar-auto-compact .sidebar-logout,
+  .sidebar.sidebar-auto-compact .nav-item,
+  .sidebar.sidebar-auto-compact .nav-icon,
+  .sidebar.sidebar-auto-compact .sidebar-account {
+    transition: none !important;
+  }
+}
+
+/* END SIDEBAR HOVER COLLAPSE MOTION */
+
+/* SIDEBAR GEOMETRY LOCK */
+
+/*
+ * La geometría vertical NO cambia entre compacto y expandido.
+ * Solo cambia el ancho del sidebar y la visibilidad del texto.
+ */
+@media (min-width: 841px) {
+
+  .sidebar.sidebar-auto-compact .nav-item,
+  .sidebar.sidebar-auto-compact .nav-parent {
+    min-height: 32px;
+    height: 32px;
+
+    padding-top: 5px;
+    padding-bottom: 5px;
+
+    margin-top: 2px;
+    margin-bottom: 2px;
+
+    align-items: center;
+  }
+
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-item,
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-parent {
+    min-height: 32px;
+    height: 32px;
+
+    padding-top: 5px;
+    padding-bottom: 5px;
+
+    margin-top: 2px;
+    margin-bottom: 2px;
+  }
+
+
+  /*
+   * El icono conserva exactamente la misma caja.
+   */
+  .sidebar.sidebar-auto-compact .nav-icon {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+
+    flex: 0 0 28px;
+
+    transform: none;
+  }
+
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-icon {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+
+    flex: 0 0 28px;
+  }
+
+
+  /*
+   * La transición del item ya no anima padding vertical.
+   * Eso era lo que producía el pequeño desplazamiento.
+   */
+  .sidebar.sidebar-auto-compact .nav-item,
+  .sidebar.sidebar-auto-compact .nav-parent {
+    transition:
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+
+
+  /*
+   * En compacto solo ajustamos alineación horizontal.
+   * Nunca la vertical.
+   */
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-item,
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-parent {
+    justify-content: center;
+
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+
+  .sidebar.sidebar-auto-compact:hover .nav-item,
+  .sidebar.sidebar-auto-compact:hover .nav-parent {
+    justify-content: flex-start;
+
+    padding-left: 7px;
+    padding-right: 7px;
+  }
+}
+
+/* END SIDEBAR GEOMETRY LOCK */
+
+/* AUTHORIZATION DETAIL V2 */
+
+.authorization-drawer-heading {
+  min-width: 0;
+}
+
+.authorization-drawer-heading h2 {
+  overflow-wrap: anywhere;
+}
+
+.authorization-header-badges {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
+
+  gap: 8px;
+
+  margin-top: 10px;
+}
+
+.authorization-header-badges strong {
+  display: inline-flex;
+  align-items: center;
+
+  min-height: 28px;
+
+  padding: 5px 10px;
+
+  border-radius: 999px;
+
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.authorization-coverage-badge {
+  border: 1px solid #dbe3f0;
+
+  background: #f8fafc;
+  color: #344054;
+}
+
+
+.authorization-product-grid {
+  grid-template-columns:
+    minmax(105px, 0.55fr)
+    minmax(0, 1.45fr);
+}
+
+.authorization-detail-grid small {
+  display: block;
+
+  margin-top: 5px;
+
+  color: #667085;
+
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.authorization-detail-wide {
+  grid-column: 1 / -1;
+}
+
+
+.authorization-management-entry {
+  padding: 16px;
+
+  border: 1px solid #dbe3f0;
+  border-radius: 12px;
+
+  background: #f8fafc;
+}
+
+.authorization-management-entry p {
+  margin:
+    0
+    0
+    14px;
+
+  color: #667085;
+
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.authorization-manage-button {
+  width: 100%;
+
+  justify-content: center;
+}
+
+
+.authorization-fulfillment-form {
+  display: flex;
+  flex-direction: column;
 
   gap: 16px;
 
-  padding: 18px 24px;
+  padding: 16px;
 
-  border-top: 1px solid var(--border);
+  border: 1px solid #dbe3f0;
+  border-radius: 12px;
 
-  color: var(--muted);
+  background: #f8fafc;
+}
+
+.authorization-management-heading {
+  display: flex;
+  flex-direction: column;
+
+  gap: 4px;
+}
+
+.authorization-management-heading strong {
+  color: #172033;
+
+  font-size: 13px;
+}
+
+.authorization-management-heading span {
+  color: #667085;
+
+  font-size: 11px;
+}
+
+
+.authorization-fulfillment-choice {
+  display: grid;
+
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+
+  gap: 10px;
+}
+
+.authorization-fulfillment-choice label {
+  min-height: 44px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 8px;
+
+  padding: 10px 12px;
+
+  border: 1px solid #dbe3f0;
+  border-radius: 10px;
+
+  background: #ffffff;
+  color: #344054;
+
+  cursor: pointer;
+
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.authorization-fulfillment-choice label.selected {
+  border-color: var(--primary);
+
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.authorization-fulfillment-choice input {
+  margin: 0;
+
+  accent-color: var(--primary);
+}
+
+
+.authorization-fulfillment-date {
+  display: flex;
+  flex-direction: column;
+
+  gap: 6px;
+
+  color: #344054;
+
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.authorization-fulfillment-date .control {
+  width: 100%;
+}
+
+
+.authorization-management-summary {
+  display: grid;
+
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+
+  gap: 10px;
+}
+
+.authorization-management-summary > div {
+  padding: 12px;
+
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+
+  background: #ffffff;
+}
+
+.authorization-management-summary span {
+  display: block;
+
+  margin-bottom: 5px;
+
+  color: #667085;
+
+  font-size: 10px;
+}
+
+.authorization-management-summary strong {
+  color: #172033;
+
+  font-size: 13px;
+}
+
+
+.authorization-fulfillment-help {
+  margin: 0;
+
+  color: #667085;
+
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.authorization-fulfillment-error {
+  padding: 10px 12px;
+
+  border: 1px solid #f1b8b3;
+  border-radius: 9px;
+
+  background: #fff5f4;
+  color: #b42318;
+
+  font-size: 11px;
+}
+
+
+.authorization-management-actions {
+  display: flex;
+  justify-content: flex-end;
+
+  gap: 10px;
+
+  padding-top: 4px;
+}
+
+.authorization-management-actions .btn {
+  min-height: 40px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+.authorization-closure-panel {
+  padding: 16px;
+
+  border: 1px solid #b7e2cf;
+  border-radius: 12px;
+
+  background: #f3fbf7;
+}
+
+.authorization-closure-heading {
+  display: flex;
+  align-items: center;
+
+  gap: 10px;
+
+  margin-bottom: 16px;
+}
+
+.authorization-closure-check {
+  width: 34px;
+  height: 34px;
+
+  flex: 0 0 34px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 50%;
+
+  background: #dff5ea;
+  color: #16835d;
+
+  font-weight: 800;
+}
+
+.authorization-closure-heading > div:last-child {
+  display: flex;
+  flex-direction: column;
+
+  gap: 3px;
+}
+
+.authorization-closure-heading strong {
+  color: #175c43;
+
+  font-size: 13px;
+}
+
+.authorization-closure-heading span {
+  color: #527566;
+
+  font-size: 11px;
+}
+
+
+.authorization-closure-summary {
+  display: grid;
+
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+
+  gap: 10px;
+}
+
+.authorization-closure-summary > div {
+  padding: 11px;
+
+  border: 1px solid rgba(22, 131, 93, 0.14);
+  border-radius: 9px;
+
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.authorization-closure-summary span {
+  display: block;
+
+  margin-bottom: 5px;
+
+  color: #667085;
+
+  font-size: 10px;
+}
+
+.authorization-closure-summary strong {
+  color: #172033;
 
   font-size: 12px;
 }
 
-.purchase-orders-pagination-summary {
-  display: flex;
-  align-items: center;
 
-  gap: 12px;
-}
-
-.purchase-orders-page-size-field {
-  display: flex;
-  align-items: center;
-
-  gap: 8px;
-}
-
-.purchase-orders-page-size {
-  width: 88px;
-}
-
-.purchase-orders-pagination-controls {
-  display: flex;
-  align-items: center;
-
-  gap: 14px;
-}
-
-.purchase-orders-pagination-controls strong {
-  color: var(--text);
-
-  font-weight: 600;
-
-  white-space: nowrap;
-}
-
-@media (max-width: 720px) {
-  .purchase-orders-pagination {
-    align-items: stretch;
-    flex-direction: column;
+@media (max-width: 640px) {
+  .authorization-product-grid,
+  .authorization-detail-grid,
+  .authorization-management-summary,
+  .authorization-closure-summary {
+    grid-template-columns: 1fr;
   }
 
-  .purchase-orders-pagination-summary,
-  .purchase-orders-pagination-controls {
-    justify-content: space-between;
+  .authorization-detail-wide {
+    grid-column: auto;
+  }
+
+  .authorization-fulfillment-choice {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .authorization-management-actions {
+    flex-direction: column-reverse;
+  }
+
+  .authorization-management-actions .btn,
+  .authorization-manage-button {
+    width: 100%;
   }
 }
 
-/* END PURCHASE ORDERS PAGINATION */
+/* END AUTHORIZATION DETAIL V2 */
+
+/* MTD BRAND LOGO */
+
+
+.sidebar.sidebar-auto-compact .brand-logo-shell,
+.sidebar.sidebar-auto-compact:not(:hover) .brand-logo-shell,
+.sidebar.sidebar-auto-compact:hover .brand-logo-shell {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+
+  flex: 0 0 44px;
+}
+
+/* END MTD BRAND LOGO */
+
+/* MTD BRAND CONTRAST FIX
+   Mantiene los colores corporativos originales sobre el sidebar oscuro.
+   La misma geometría se conserva durante compactación/expansión.
+*/
+.brand-logo-shell {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 4px;
+  border-radius: 10px;
+  overflow: hidden;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.12),
+    0 4px 12px rgba(15, 23, 42, 0.08);
+
+  flex: 0 0 44px;
+}
+
+.brand-logo-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
+/*
+ * El logo mantiene exactamente el mismo tamaño cuando el sidebar
+ * está contraído. Solo desaparece el copy textual.
+ */
+.sidebar.sidebar-auto-compact .brand-logo-shell,
+.sidebar.sidebar-auto-compact:not(:hover) .brand-logo-shell,
+.sidebar.sidebar-auto-compact:hover .brand-logo-shell {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+}
+
+/*
+ * En modo compacto centramos la marca dentro de los 62px
+ * disponibles sin modificar su escala.
+ */
+.sidebar.sidebar-auto-compact:not(:hover) .sidebar-brand-row {
+  justify-content: center;
+}
+
+.sidebar.sidebar-auto-compact:not(:hover) .brand {
+  justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-logo-shell,
+  .brand-logo-image {
+    transition: none;
+  }
+}
+

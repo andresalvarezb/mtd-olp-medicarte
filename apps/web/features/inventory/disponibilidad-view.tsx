@@ -241,11 +241,6 @@ export function DisponibilidadView() {
               <Link
                 href="/inventario/disponibilidad/cargar"
                 className="btn primary"
-                style={{
-                  textDecoration: 'none',
-
-                  display: 'inline-block',
-                }}
               >
                 Cargar disponibilidad
               </Link>
@@ -299,17 +294,22 @@ export function DisponibilidadView() {
           </FilterField>
 
           <FilterActions>
-              <div className="availability-filter-actions">
-            <button type="button" className="btn primary" onClick={applyFilters}>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={applyFilters}
+            >
               Filtrar
             </button>
 
-            <button type="button" className="btn" onClick={clearFilters}>
+            <button
+              type="button"
+              className="btn"
+              onClick={clearFilters}
+            >
               Limpiar
             </button>
-
-              </div>
-            </FilterActions>
+          </FilterActions>
         </FilterBar>
 
         {error ? (
@@ -324,7 +324,7 @@ export function DisponibilidadView() {
           </div>
         ) : null}
 
-        <div className="operational-list-table-scope">
+        <div className="operational-list-table-scope inventory-availability-table">
           <DataTable
           columns={COLUMNS}
           rows={loading ? undefined : rows}
@@ -341,7 +341,7 @@ export function DisponibilidadView() {
         />
         </div>
 
-        <div className="inventory-availability-pagination">
+        <div className="inventory-availability-pagination list-pagination">
           <div className="inventory-availability-pagination-summary">
             <span>
               {`Mostrando ${firstVisible}–${lastVisible} de ${items.length}`}

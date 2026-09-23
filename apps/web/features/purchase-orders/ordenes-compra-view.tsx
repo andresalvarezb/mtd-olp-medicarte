@@ -265,7 +265,7 @@ export function PurchaseOrdersView() {
             <>
               <button
                 type="button"
-                className="button"
+                className="btn"
                 onClick={() => {
                   void downloadPurchaseOrderTemplate(organizationId).then((blob) =>
                     downloadBlob(blob, 'plantilla-ordenes-compra.xlsx'),
@@ -277,7 +277,7 @@ export function PurchaseOrdersView() {
 
               <button
                 type="button"
-                className="button primary"
+                className="btn primary"
                 disabled={busy}
                 onClick={() => fileInput.current?.click()}
               >
@@ -339,7 +339,7 @@ export function PurchaseOrdersView() {
               {importResult.rejectedRows > 0 && importResult.rejectedWorkbookBase64 ? (
                 <button
                   type="button"
-                  className="button"
+                  className="btn"
                   onClick={() => {
                     const rejectedWorkbook = importResult.rejectedWorkbookBase64;
 
@@ -371,10 +371,9 @@ export function PurchaseOrdersView() {
         </Card>
       ) : null}
 
-      <Card className="purchase-orders-list-workspace operational-list-workspace orders-workspace-card">
+      <Card className="operational-list-workspace">
         <CardBody>
-          <div className="orders-filters-block">
-            <FilterBar>
+          <FilterBar>
               <FilterField label="Código OC">
                 <input
                   className="control"
@@ -445,7 +444,7 @@ export function PurchaseOrdersView() {
               <FilterActions>
                 <button
                   type="button"
-                  className="button primary"
+                  className="btn primary"
                   onClick={() => {
                     setAppliedFilters(filters);
                     setPage(1);
@@ -456,7 +455,7 @@ export function PurchaseOrdersView() {
 
                 <button
                   type="button"
-                  className="button"
+                  className="btn"
                   onClick={() => {
                     const cleared = {
                       purchaseOrderCode: '',
@@ -473,12 +472,11 @@ export function PurchaseOrdersView() {
                   Limpiar
                 </button>
               </FilterActions>
-            </FilterBar>
-          </div>
+          </FilterBar>
 
           <div className="operational-list-table-section">
             <div className="table-wrap operational-list-table-wrap">
-              <table>
+              <table className="purchase-orders-table">
                 <thead>
                   <tr>
                     <th>OC</th>
@@ -540,7 +538,7 @@ export function PurchaseOrdersView() {
                           <td>
                             <button
                               type="button"
-                              className="button"
+                              className="btn"
                               onClick={() =>
                                 router.push(
                                   `/ordenes-compra/${order.id}`,
@@ -559,7 +557,7 @@ export function PurchaseOrdersView() {
             </div>
           </div>
 
-          <div className="purchase-orders-pagination">
+          <div className="purchase-orders-pagination list-pagination">
             <div className="purchase-orders-pagination-summary">
               <span>
                 {`Mostrando ${firstVisible}–${lastVisible} de ${visibleOrders.length}`}
@@ -749,7 +747,7 @@ export function PurchaseOrdersView() {
               {canManage && selectedOrder.status === 'DRAFT' ? (
                 <button
                   type="button"
-                  className="button primary"
+                  className="btn primary"
                   disabled={busy}
                   onClick={() => {
                     void issue(selectedOrder);
