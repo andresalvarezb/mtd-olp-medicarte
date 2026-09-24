@@ -34,7 +34,7 @@ function operationalLabel(
       'Sin asignar',
 
     ASSIGNED:
-      'Asignada',
+      'Lista para entrega/aplicación',
 
     CLOSED:
       'Cerrada',
@@ -911,7 +911,7 @@ export function ConsultaAutorizacionesView() {
             <div className="authorization-detail-grid">
               <div>
                 <span>
-                  Cantidad asignada
+                  Cantidad elegible
                 </span>
 
                 <strong>

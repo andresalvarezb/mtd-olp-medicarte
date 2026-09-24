@@ -42,7 +42,7 @@ describe('purchase order operational flow', () => {
     ).toBe('PENDING_OLP');
   });
 
-  it('accepting by OLP does not change the macro status', () => {
+  it('moves to Pendiente Medicarte when OLP accepts the order', () => {
     expect(
       derivePurchaseOrderMacroStatus({
         olpAccepted: true,
@@ -51,19 +51,19 @@ describe('purchase order operational flow', () => {
 
         lines: initial,
       }),
-    ).toBe('PENDING_OLP');
+    ).toBe('PENDING_MEDICARTE');
   });
 
-  it('moves to Pendiente Medicarte only after dispatch', () => {
+  it('does not advance to Medicarte without OLP acceptance', () => {
     expect(
       derivePurchaseOrderMacroStatus({
-        olpAccepted: true,
+        olpAccepted: false,
 
         dispatchRecorded: true,
 
         lines: initial,
       }),
-    ).toBe('PENDING_MEDICARTE');
+    ).toBe('PENDING_OLP');
   });
 
   it('keeps Medicarte responsible across multiple partial receipts', () => {

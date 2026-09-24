@@ -1,27 +1,80 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import {
+  useEffect,
+} from 'react';
 
-import { useRole } from '@/components/layout/role-context';
+import {
+  useRouter,
+} from 'next/navigation';
+
+import {
+  useRole,
+} from '@/components/layout/role-context';
+
 
 export default function HomePage() {
-  const router = useRouter();
-  const { roles, status } = useRole();
+  const router =
+    useRouter();
 
-  useEffect(() => {
-    if (status !== 'authenticated') return;
+  const {
+    roles,
+    status,
+  } =
+    useRole();
 
-    if (roles.includes('OLP')) {
-      router.replace('/ordenes-compra');
-      return;
-    }
 
-    router.replace('/indicadores');
-  }, [roles, status, router]);
+  useEffect(
+    () => {
+      if (
+        status !==
+        'authenticated'
+      ) {
+        return;
+      }
+
+      if (
+        roles.includes(
+          'OLP',
+        )
+      ) {
+        router.replace(
+          '/ordenes-compra',
+        );
+
+        return;
+      }
+
+      if (
+        roles.includes(
+          'MEDICARTE',
+        )
+      ) {
+        router.replace(
+          '/autorizaciones/consulta',
+        );
+
+        return;
+      }
+
+      router.replace(
+        '/indicadores',
+      );
+    },
+    [
+      roles,
+      router,
+      status,
+    ],
+  );
+
 
   return (
-    <div className="app-loading" role="status" aria-live="polite">
+    <div
+      className="app-loading"
+      role="status"
+      aria-live="polite"
+    >
       Cargando…
     </div>
   );

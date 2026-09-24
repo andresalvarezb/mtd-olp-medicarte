@@ -77,7 +77,6 @@ export class InventoryAvailabilityRepository {
   ) {}
 
   async list(scope: Scope, filters: AvailabilityFilters) {
-    void scope;
 
     const limit =
       Math.min(
@@ -96,6 +95,42 @@ export class InventoryAvailabilityRepository {
         )
       `,
     ];
+
+    /*
+     * MEDICARTE solo consulta inventario de OC que
+     * ya fueron aceptadas por OLP y únicamente de
+     * sus puntos explícitamente autorizados.
+     */
+    if (
+      scope.organizationCode ===
+      'MEDICARTE'
+    ) {
+      conditions.push(
+        sql`
+          po.olp_accepted_at
+            IS NOT NULL
+        `,
+      );
+
+      conditions.push(
+        sql`
+          ppp.dispensing_point_id IN (
+            SELECT
+              ups.dispensing_point_id
+
+            FROM
+              user_point_scopes ups
+
+            WHERE
+              ups.user_id =
+                ${scope.userId}::uuid
+
+              AND ups.revoked_at
+                IS NULL
+          )
+        `,
+      );
+    }
 
     if (filters.search) {
       const search =

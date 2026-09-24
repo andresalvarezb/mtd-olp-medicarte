@@ -4,7 +4,11 @@ import { useRef, useState } from 'react';
 
 import { useRouter } from 'next/navigation';
 
-import type { PurchaseOrderListQuery, PurchaseOrderResponse } from '@authorization/contracts';
+import type {
+  PurchaseOrderListQuery,
+  PurchaseOrderOperationalState,
+  PurchaseOrderResponse,
+} from '@authorization/contracts';
 
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
@@ -43,35 +47,110 @@ type DetailedOrder =
     latestSupplierObservation?:
       | string
       | null;
+
+    operationalState?:
+      PurchaseOrderOperationalState;
+
+    requestedQuantity?:
+      number;
+
+    receivedQuantity?:
+      number;
+
+    pendingQuantity?:
+      number;
   };
 
 type OrderStatusGroup =
   | ''
-  | 'PENDING_OLP'
-  | 'PENDING_MEDICARTE'
-  | 'PARTIALLY_RECEIVED'
-  | 'RECEIVED';
+  | PurchaseOrderOperationalState;
 
-const STATUS_GROUP_LABELS: Record<Exclude<OrderStatusGroup, ''>, string> = {
-  PENDING_OLP: 'Pendiente OLP',
-  PENDING_MEDICARTE: 'Pendiente Medicarte',
-  PARTIALLY_RECEIVED: 'Recibida con pendientes',
-  RECEIVED: 'Recibida',
-};
+
+const STATUS_GROUP_LABELS:
+  Record<
+    PurchaseOrderOperationalState,
+    string
+  > = {
+    PENDING_OLP:
+      'Pendiente OLP',
+
+    PENDING_MEDICARTE:
+      'Pendiente Medicarte',
+
+    RECEIVED_WITH_PENDING:
+      'Recibida con pendiente',
+
+    RECEIVED:
+      'Recibida',
+
+    REJECTED:
+      'Rechazada',
+
+    CANCELLED:
+      'Cancelada',
+  };
+
+
+const STATUS_GROUP_CLASSES:
+  Record<
+    PurchaseOrderOperationalState,
+    string
+  > = {
+    PENDING_OLP:
+      'status-pending-olp',
+
+    PENDING_MEDICARTE:
+      'status-pending-medicarte',
+
+    RECEIVED_WITH_PENDING:
+      'status-received-with-pending',
+
+    RECEIVED:
+      'status-received',
+
+    REJECTED:
+      'status-rejected',
+
+    CANCELLED:
+      'status-cancelled',
+  };
+
 
 function statusGroup(
   order: Pick<
     DetailedOrder,
-    'status' | 'olpAcceptedAt'
+    | 'status'
+    | 'olpAcceptedAt'
+    | 'operationalState'
   >,
-): Exclude<OrderStatusGroup, ''> {
+): PurchaseOrderOperationalState {
   /*
-   * El estado visible es operacional, no el status técnico.
-   *
-   * Las OC reconstruidas pueden conservar HISTORICAL_ONLY
-   * de forma permanente. Si OLP ya las aceptó, su estado
-   * operacional pasa a PENDING_MEDICARTE.
+   * Fuente autoritativa para la bandeja:
+   * estado operacional calculado por backend a partir
+   * de aceptación OLP + recepción acumulada real.
    */
+  if (
+    order.operationalState
+  ) {
+    return order.operationalState;
+  }
+
+  /*
+   * Fallback defensivo para respuestas antiguas.
+   */
+  if (
+    order.status ===
+    'CANCELLED'
+  ) {
+    return 'CANCELLED';
+  }
+
+  if (
+    order.status ===
+    'REJECTED'
+  ) {
+    return 'REJECTED';
+  }
 
   if (
     order.status ===
@@ -84,7 +163,7 @@ function statusGroup(
     order.status ===
     'PARTIALLY_RECEIVED'
   ) {
-    return 'PARTIALLY_RECEIVED';
+    return 'RECEIVED_WITH_PENDING';
   }
 
   if (
@@ -105,10 +184,13 @@ function statusGroup(
   return 'PENDING_OLP';
 }
 
+
 function statusGroupLabel(
   order: Pick<
     DetailedOrder,
-    'status' | 'olpAcceptedAt'
+    | 'status'
+    | 'olpAcceptedAt'
+    | 'operationalState'
   >,
 ) {
   return STATUS_GROUP_LABELS[
@@ -118,32 +200,52 @@ function statusGroupLabel(
   ];
 }
 
-function statusReasonLabel(status: string) {
-  if (status === 'PARTIALLY_RECEIVED') {
-    return 'OLP no entregó completo';
-  }
 
-  return null;
+function statusGroupClass(
+  order: Pick<
+    DetailedOrder,
+    | 'status'
+    | 'olpAcceptedAt'
+    | 'operationalState'
+  >,
+) {
+  return STATUS_GROUP_CLASSES[
+    statusGroup(
+      order,
+    )
+  ];
 }
 
-function issueOutcomeLabel(status: string) {
-  if (status === 'REJECTED') {
+
+function issueOutcomeLabel(
+  status: string,
+) {
+  if (
+    status ===
+    'REJECTED'
+  ) {
     return 'Devuelta por OLP';
   }
 
-  if (status === 'CANCELLED') {
+  if (
+    status ===
+    'CANCELLED'
+  ) {
     return 'Cancelada';
   }
 
   return null;
 }
 
-function rowStatusReason(status: string) {
-  return (
-    statusReasonLabel(status) ??
-    issueOutcomeLabel(status)
+
+function rowStatusReason(
+  status: string,
+) {
+  return issueOutcomeLabel(
+    status,
   );
 }
+
 
 function money(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -529,13 +631,25 @@ export function PurchaseOrdersView() {
                   }
                 >
                   <option value="">Todos</option>
-
-                  {Object.entries(STATUS_GROUP_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                  <option value="PENDING_OLP">
+                    Pendiente OLP
+                  </option>
+                  <option value="PENDING_MEDICARTE">
+                    Pendiente Medicarte
+                  </option>
+                  <option value="RECEIVED_WITH_PENDING">
+                    Recibida con pendiente
+                  </option>
+                  <option value="RECEIVED">
+                    Recibida
+                  </option>
+                  <option value="REJECTED">
+                    Rechazada
+                  </option>
+                  <option value="CANCELLED">
+                    Cancelada
+                  </option>
+</select>
               </FilterField>
 
               <FilterActions>
@@ -630,7 +744,17 @@ export function PurchaseOrdersView() {
 
                           <td>
                             <div className="oc-status-cell">
-                              <span className="status-chip">{statusGroupLabel(order)}</span>
+                              <span
+                                className={`status-chip ${statusGroupClass(
+                                  order,
+                                )}`}
+                              >
+                                {
+                                  statusGroupLabel(
+                                    order,
+                                  )
+                                }
+                              </span>
 
                               {rowStatusReason(order.status) ? (
                                 <span className="oc-status-reason">

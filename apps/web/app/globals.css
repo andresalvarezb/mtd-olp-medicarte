@@ -7505,3 +7505,145 @@ table.operational-list-table tbody tr:hover {
   }
 }
 
+
+/* ==========================================================
+   SIDEBAR FIXED ICON RAIL
+   El sidebar crece hacia la derecha.
+   Los iconos principales nunca cambian de posición.
+   ========================================================== */
+
+@media (min-width: 841px) {
+
+  /*
+   * La geometría horizontal del item es idéntica
+   * tanto cerrado como abierto.
+   */
+  .sidebar.sidebar-auto-compact .nav-item,
+  .sidebar.sidebar-auto-compact .nav-parent,
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-item,
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-parent,
+  .sidebar.sidebar-auto-compact:hover .nav-item,
+  .sidebar.sidebar-auto-compact:hover .nav-parent {
+    justify-content: flex-start;
+
+    padding-left: 7px;
+    padding-right: 7px;
+  }
+
+  /*
+   * Rail fijo del icono.
+   * No cambia ancho, margen ni posición con hover.
+   */
+  .sidebar.sidebar-auto-compact .nav-icon,
+  .sidebar.sidebar-auto-compact:not(:hover) .nav-icon,
+  .sidebar.sidebar-auto-compact:hover .nav-icon {
+    width: 28px;
+    min-width: 28px;
+    max-width: 28px;
+
+    height: 28px;
+
+    flex: 0 0 28px;
+
+    margin: 0;
+
+    transform: none;
+  }
+
+  /*
+   * El texto ocupa únicamente el espacio que aparece
+   * a la derecha del rail.
+   */
+  .sidebar.sidebar-auto-compact .nav-label {
+    min-width: 0;
+  }
+}
+
+/* END SIDEBAR FIXED ICON RAIL */
+
+/* ==========================================================
+   SIDEBAR FIXED BRAND RAIL
+   El logo mantiene la misma coordenada X.
+   El sidebar crece únicamente hacia la derecha.
+   ========================================================== */
+
+@media (min-width: 841px) {
+
+  .sidebar.sidebar-auto-compact .sidebar-brand-row,
+  .sidebar.sidebar-auto-compact:not(:hover) .sidebar-brand-row,
+  .sidebar.sidebar-auto-compact:hover .sidebar-brand-row {
+    justify-content: flex-start;
+  }
+
+  .sidebar.sidebar-auto-compact .brand,
+  .sidebar.sidebar-auto-compact:not(:hover) .brand,
+  .sidebar.sidebar-auto-compact:hover .brand {
+    justify-content: flex-start;
+
+    padding-left: 1px;
+    padding-right: 0;
+  }
+
+  .sidebar.sidebar-auto-compact .brand-logo-shell,
+  .sidebar.sidebar-auto-compact:not(:hover) .brand-logo-shell,
+  .sidebar.sidebar-auto-compact:hover .brand-logo-shell {
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+
+    height: 44px;
+
+    flex: 0 0 44px;
+
+    margin: 0;
+
+    transform: none;
+  }
+
+  .sidebar.sidebar-auto-compact .brand-copy {
+    min-width: 0;
+  }
+}
+
+/* END SIDEBAR FIXED BRAND RAIL */
+
+/* UNIVERSAL_OC_STATUS_COLORS_V1 */
+
+.status-chip.status-pending-olp {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.status-chip.status-pending-medicarte {
+  border-color: #ddd6fe;
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.status-chip.status-received-with-pending {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.status-chip.status-received {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.status-chip.status-rejected {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.status-chip.status-cancelled {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+/* UNIVERSAL_OC_STATUS_COLORS_V1_END */
+

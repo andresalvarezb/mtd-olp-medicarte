@@ -97,9 +97,15 @@ export function AppShell({
         '/login'
     ) {
       router.replace(
-        roles.includes('OLP')
+        roles.includes(
+          'OLP',
+        )
           ? '/ordenes-compra'
-          : '/indicadores',
+          : roles.includes(
+                'MEDICARTE',
+              )
+            ? '/autorizaciones/consulta'
+            : '/indicadores'
       );
 
       return;

@@ -37,6 +37,8 @@ type PurchaseOrderJoinedRow = {
   version: number;
   issued_at: string | null;
   issued_by: string | null;
+  olp_accepted_at: string | null;
+  olp_committed_date: string | null;
   created_at: string;
   updated_at: string;
   line_id: string | null;
@@ -169,18 +171,22 @@ export class PurchaseOrderRepository {
       committedDate: string;
 
       observation?: string;
-
-      lines: readonly {
-        lineId: string;
-
-        supplierUnitCost: number;
-      }[];
     },
 
     actor: PurchaseOrderActor,
   ) {
     return this.database.db.transaction(
       async (tx) => {
+        /*
+         * La aceptación OLP es evidencia operacional nueva.
+         *
+         * Las OC LEGACY_BACKFILL permanecen técnicamente
+         * HISTORICAL_ONLY para no alterar la procedencia
+         * reconstruida ni violar purchase_orders_origin_shape_check.
+         *
+         * Su avance operacional se determina mediante
+         * olp_accepted_at / olp_committed_date.
+         */
         const result =
           await tx.execute<{
             version: number;
@@ -199,8 +205,7 @@ export class PurchaseOrderRepository {
               purchase_orders
 
             where
-              id =
-                ${id}
+              id = ${id}
 
             for update
           `);
@@ -210,8 +215,9 @@ export class PurchaseOrderRepository {
 
         if (!order) {
           return {
-          outcome: 'not_found' as const,
-        };
+            outcome:
+              'not_found' as const,
+          };
         }
 
         if (
@@ -219,11 +225,12 @@ export class PurchaseOrderRepository {
           input.expectedVersion
         ) {
           return {
-          outcome: 'version_conflict' as const,
+            outcome:
+              'version_conflict' as const,
 
-          currentVersion:
-            order.version,
-        };
+            currentVersion:
+              order.version,
+          };
         }
 
         if (
@@ -236,8 +243,13 @@ export class PurchaseOrderRepository {
         }
 
         if (
-          order.status !==
-          'ISSUED'
+          ![
+            'DRAFT',
+            'ISSUED',
+            'HISTORICAL_ONLY',
+          ].includes(
+            order.status,
+          )
         ) {
           throw new Error(
             'PURCHASE_ORDER_NOT_ACCEPTABLE',
@@ -246,37 +258,26 @@ export class PurchaseOrderRepository {
 
 
         /*
-         * Bloqueamos las líneas antes de validar los costos.
-         *
-         * La aceptación de la OC significa que OLP acepta
-         * toda la cantidad solicitada. El costo que OLP
-         * cobrará a MTD sí es información propia del proveedor
-         * y debe recibirse explícitamente.
+         * Siempre exigimos al menos una línea real en la OC.
          */
         const orderLines =
           await tx.execute<{
             id: string;
-
-            requested_quantity:
-              number;
           }>(sql`
             select
-              id,
-              requested_quantity
+              id
 
             from
               purchase_order_lines
 
             where
-              purchase_order_id =
-                ${id}
+              purchase_order_id = ${id}
 
             order by
               id
 
             for update
           `);
-
 
         if (
           orderLines.rows.length <
@@ -288,86 +289,19 @@ export class PurchaseOrderRepository {
         }
 
 
+        /*
+         * OC operacionales:
+         * OLP acepta la totalidad solicitada.
+         *
+         * OC históricas:
+         * NO modificamos accepted_quantity porque esa columna
+         * pertenece a la evidencia reconstruida y además puede
+         * estar sujeta al constraint histórico de supplier cost.
+         */
         if (
-          input.lines.length <
-          1
+          order.status !==
+          'HISTORICAL_ONLY'
         ) {
-          throw new Error(
-            'PURCHASE_ORDER_SUPPLIER_COSTS_REQUIRED',
-          );
-        }
-
-
-        const providedIds =
-          input.lines.map(
-            (line) =>
-              line.lineId,
-          );
-
-
-        if (
-          new Set(
-            providedIds,
-          ).size !==
-          providedIds.length
-        ) {
-          throw new Error(
-            'PURCHASE_ORDER_SUPPLIER_COST_DUPLICATE',
-          );
-        }
-
-
-        const actualIds =
-          new Set(
-            orderLines.rows.map(
-              (line) =>
-                line.id,
-            ),
-          );
-
-
-        if (
-          input.lines.length !==
-            orderLines.rows.length
-          ||
-          input.lines.some(
-            (line) =>
-              !actualIds.has(
-                line.lineId,
-              ),
-          )
-        ) {
-          throw new Error(
-            'PURCHASE_ORDER_SUPPLIER_COST_LINE_MISMATCH',
-          );
-        }
-
-
-        for (
-          const inputLine
-          of input.lines
-        ) {
-          if (
-            !Number.isFinite(
-              inputLine.supplierUnitCost,
-            )
-            ||
-            inputLine.supplierUnitCost <=
-              0
-          ) {
-            throw new Error(
-              'PURCHASE_ORDER_SUPPLIER_COSTS_REQUIRED',
-            );
-          }
-
-
-          const supplierUnitCost =
-            inputLine.supplierUnitCost
-              .toFixed(
-                2,
-              );
-
-
           await tx.execute(sql`
             update
               purchase_order_lines
@@ -376,17 +310,10 @@ export class PurchaseOrderRepository {
               accepted_quantity =
                 requested_quantity,
 
-              supplier_unit_cost =
-                ${supplierUnitCost},
-
               updated_at =
                 now()
 
             where
-              id =
-                ${inputLine.lineId}
-
-              and
               purchase_order_id =
                 ${id}
           `);
@@ -394,10 +321,11 @@ export class PurchaseOrderRepository {
 
 
         /*
-         * ACCEPTED permanece como estado interno.
+         * Para LEGACY_BACKFILL conservamos HISTORICAL_ONLY.
+         * Cambiarlo a ACCEPTED rompería el shape constraint.
          *
-         * La proyección operacional visible seguirá siendo
-         * Pendiente OLP mientras aún no exista despacho.
+         * La aceptación OLP se persiste independientemente
+         * en sus columnas operacionales.
          */
         await tx.execute(sql`
           update
@@ -405,7 +333,14 @@ export class PurchaseOrderRepository {
 
           set
             status =
-              'ACCEPTED',
+              case
+                when status =
+                  'HISTORICAL_ONLY'
+                  then
+                    'HISTORICAL_ONLY'
+                else
+                  'ACCEPTED'
+              end,
 
             olp_accepted_at =
               now(),
@@ -426,8 +361,7 @@ export class PurchaseOrderRepository {
               ${actor.userId}
 
           where
-            id =
-              ${id}
+            id = ${id}
         `);
 
 
@@ -441,12 +375,12 @@ export class PurchaseOrderRepository {
               input.committedDate,
 
             observation:
-              input.observation
-              ??
+              input.observation ??
               null,
 
-            supplierCostsRecorded:
-              input.lines.length,
+            historicalBackfill:
+              order.status ===
+              'HISTORICAL_ONLY',
           },
         );
 
@@ -598,39 +532,537 @@ export class PurchaseOrderRepository {
       filters.push(sql`po.purchase_order_code ilike ${`%${query.purchaseOrderCode}%`}`);
     if (query.commercialCode)
       filters.push(
-        sql`exists (select 1 from purchase_order_lines pol where pol.purchase_order_id = po.id and pol.commercial_code = ${query.commercialCode})`,
+        sql`exists (
+          select 1
+          from purchase_order_lines pol
+          where pol.purchase_order_id = po.id
+            and pol.commercial_code ilike ${`%${query.commercialCode}%`}
+        )`,
       );
     if (query.dispensingPointId)
       filters.push(
         sql`exists (select 1 from purchase_order_lines pol where pol.purchase_order_id = po.id and pol.dispensing_point_id = ${query.dispensingPointId})`,
       );
-    if (!['MTD', 'MEDICARTE'].includes(actor.organizationCode))
-      filters.push(sql`po.organization_id = ${actor.organizationId}`);
-    const rows = await this.database.db.execute<{ id: string }>(
-      sql`select po.id from purchase_orders po where ${sql.join(filters, sql` and `)} order by po.created_at desc limit ${query.limit}`,
+    /*
+     * Las OC son creadas por MTD, pero OLP es el proveedor operacional
+     * de esas órdenes. Por ello el listado supplier no debe limitarse
+     * por po.organization_id = OLP.
+     *
+     * El acceso continúa protegido por purchase_orders.read en el
+     * controller supplier.
+     */
+    if (
+      !supplier &&
+      actor.organizationCode ===
+        'MEDICARTE'
+    ) {
+      /*
+       * Medicarte entra en el proceso únicamente
+       * después de la aceptación de OLP.
+       */
+      filters.push(
+        sql`
+          po.olp_accepted_at
+            IS NOT NULL
+        `,
+      );
+
+      /*
+       * Una OC es visible para Medicarte cuando al
+       * menos una de sus líneas resuelve a un punto
+       * vigente dentro de los scopes del usuario.
+       *
+       * El punto histórico de la línea tiene
+       * prioridad; el mapping producto -> punto se
+       * usa únicamente como fallback.
+       */
+      filters.push(
+        sql`
+          EXISTS (
+            SELECT
+              1
+
+            FROM
+              purchase_order_lines scoped_pol
+
+            LEFT JOIN
+              tariff_annex_products scoped_tap
+                ON scoped_tap.codigo_producto =
+                   scoped_pol.commercial_code
+
+               AND scoped_tap.active =
+                   true
+
+            LEFT JOIN
+              product_delivery_point_mappings scoped_mapping
+                ON scoped_pol.dispensing_point_id
+                   IS NULL
+
+               AND BTRIM(
+                     COALESCE(
+                       scoped_tap.numero_expediente_invima,
+                       ''
+                     )
+                   ) ~ '^[0-9]+$'
+
+               AND BTRIM(
+                     COALESCE(
+                       scoped_tap.consecutivo_invima_presentacion,
+                       ''
+                     )
+                   ) ~ '^[0-9]+$'
+
+               AND scoped_mapping.invima_record_normalized =
+                   COALESCE(
+                     NULLIF(
+                       LTRIM(
+                         BTRIM(
+                           scoped_tap.numero_expediente_invima
+                         ),
+                         '0'
+                       ),
+                       ''
+                     ),
+                     '0'
+                   )
+
+               AND scoped_mapping.invima_presentation_normalized =
+                   COALESCE(
+                     NULLIF(
+                       LTRIM(
+                         BTRIM(
+                           scoped_tap.consecutivo_invima_presentacion
+                         ),
+                         '0'
+                       ),
+                       ''
+                     ),
+                     '0'
+                   )
+
+            JOIN
+              user_point_scopes ups
+                ON ups.dispensing_point_id =
+                   COALESCE(
+                     scoped_pol.dispensing_point_id,
+                     scoped_mapping.dispensing_point_id
+                   )
+
+               AND ups.user_id =
+                   ${actor.userId}::uuid
+
+               AND ups.revoked_at
+                   IS NULL
+
+            WHERE
+              scoped_pol.purchase_order_id =
+                po.id
+          )
+        `,
+      );
+    } else if (
+      !supplier &&
+      actor.organizationCode !==
+        'MTD'
+    ) {
+      filters.push(
+        sql`
+          po.organization_id =
+            ${actor.organizationId}
+        `,
+      );
+    }
+    /*
+     * UNIVERSAL_OC_STATUS_LIST_V1
+     *
+     * El status técnico de purchase_orders NO representa por sí
+     * solo el estado operacional visible.
+     *
+     * Especialmente para LEGACY_BACKFILL, HISTORICAL_ONLY debe
+     * permanecer inmutable. Por eso calculamos aquí la proyección
+     * operacional a partir de:
+     *
+     * - aceptación OLP,
+     * - cantidad solicitada,
+     * - recepciones legacy confirmadas,
+     * - recepciones directas quantity-only.
+     */
+    const rows =
+      await this.database.db.execute<{
+        id: string;
+        technical_status: string;
+        olp_accepted_at:
+          | Date
+          | string
+          | null;
+        requested_quantity: number;
+        received_quantity: number;
+      }>(sql`
+        with visible_orders as (
+          select
+            po.id,
+            po.status
+              as technical_status,
+            po.olp_accepted_at,
+            po.created_at
+
+          from purchase_orders po
+
+          where ${
+            sql.join(
+              filters,
+              sql` and `,
+            )
+          }
+
+          order by
+            po.created_at desc
+
+          limit ${query.limit}
+        ),
+
+        requested as (
+          select
+            pol.purchase_order_id,
+
+            coalesce(
+              sum(
+                pol.requested_quantity
+              ),
+              0
+            )::int
+              as requested_quantity
+
+          from purchase_order_lines pol
+
+          join visible_orders vo
+            on vo.id =
+               pol.purchase_order_id
+
+          group by
+            pol.purchase_order_id
+        ),
+
+        received_sources as (
+          /*
+           * Recepción legacy:
+           * deliveries -> receipts.
+           */
+          select
+            d.purchase_order_id,
+
+            rl.received_quantity
+
+          from receipts r
+
+          join deliveries d
+            on d.id =
+               r.delivery_id
+
+          join receipt_lines rl
+            on rl.receipt_id =
+               r.id
+
+          join visible_orders vo
+            on vo.id =
+               d.purchase_order_id
+
+          where r.status =
+                'CONFIRMED'
+
+
+          union all
+
+
+          /*
+           * Recepción directa actual:
+           * quantity-only Medicarte.
+           */
+          select
+            por.purchase_order_id,
+
+            porl.received_quantity
+
+          from purchase_order_receipts por
+
+          join purchase_order_receipt_lines porl
+            on porl.receipt_id =
+               por.id
+
+          join visible_orders vo
+            on vo.id =
+               por.purchase_order_id
+        ),
+
+        received as (
+          select
+            purchase_order_id,
+
+            coalesce(
+              sum(
+                received_quantity
+              ),
+              0
+            )::int
+              as received_quantity
+
+          from received_sources
+
+          group by
+            purchase_order_id
+        )
+
+        select
+          vo.id,
+          vo.technical_status,
+          vo.olp_accepted_at,
+
+          coalesce(
+            requested.requested_quantity,
+            0
+          )::int
+            as requested_quantity,
+
+          coalesce(
+            received.received_quantity,
+            0
+          )::int
+            as received_quantity
+
+        from visible_orders vo
+
+        left join requested
+          on requested.purchase_order_id =
+             vo.id
+
+        left join received
+          on received.purchase_order_id =
+             vo.id
+
+        order by
+          vo.created_at desc
+      `);
+
+
+    const orders =
+      await Promise.all(
+        rows.rows.map(
+          (row) =>
+            this.findById(
+              row.id,
+              supplier,
+            ),
+        ),
+      );
+
+
+    return orders.flatMap(
+      (
+        order,
+        index,
+      ) => {
+        if (!order) {
+          return [];
+        }
+
+        const snapshot =
+          rows.rows[index];
+
+        if (!snapshot) {
+          return [];
+        }
+
+        const requestedQuantity =
+          Number(
+            snapshot.requested_quantity ??
+            0,
+          );
+
+        const receivedQuantity =
+          Number(
+            snapshot.received_quantity ??
+            0,
+          );
+
+        const pendingQuantity =
+          Math.max(
+            requestedQuantity -
+            receivedQuantity,
+            0,
+          );
+
+
+        const operationalState:
+          | 'PENDING_OLP'
+          | 'PENDING_MEDICARTE'
+          | 'RECEIVED_WITH_PENDING'
+          | 'RECEIVED'
+          | 'REJECTED'
+          | 'CANCELLED' =
+          snapshot.technical_status ===
+          'CANCELLED'
+            ? 'CANCELLED'
+            : snapshot.technical_status ===
+                'REJECTED'
+              ? 'REJECTED'
+              : !snapshot.olp_accepted_at
+                ? 'PENDING_OLP'
+                : receivedQuantity <=
+                    0
+                  ? 'PENDING_MEDICARTE'
+                  : pendingQuantity >
+                      0
+                    ? 'RECEIVED_WITH_PENDING'
+                    : 'RECEIVED';
+
+
+        return [
+          {
+            ...order,
+
+            olpAcceptedAt:
+              snapshot.olp_accepted_at,
+
+            operationalState,
+
+            requestedQuantity,
+
+            receivedQuantity,
+
+            pendingQuantity,
+          },
+        ];
+      },
     );
-    return Promise.all(rows.rows.map((row) => this.findById(row.id, supplier)));
   }
 
   findById(id: string, supplier = false) {
     return this.findByIdOn(this.database.db, id, supplier);
   }
 
-  async findVisibleById(id: string, actor: Scope, supplier = false) {
-    const visible = await this.database.db.execute<{ id: string }>(sql`
-      select po.id from purchase_orders po
-      where po.id = ${id}
-        and (
-          ${actor.organizationCode} in ('MTD', 'MEDICARTE')
-          or ${supplier}
-        )
-    `);
-    if (!visible.rows[0]) return null;
-    return this.findById(id, supplier);
+  async findVisibleById(
+    id: string,
+    actor: Scope,
+    supplier = false,
+  ) {
+    /*
+     * MTD conserva lectura global.
+     * OLP usa el contrato supplier.
+     */
+    if (
+      actor.organizationCode ===
+        'MTD' ||
+      supplier
+    ) {
+      return this.findById(
+        id,
+        supplier,
+      );
+    }
+
+    if (
+      actor.organizationCode !==
+      'MEDICARTE'
+    ) {
+      return null;
+    }
+
+    /*
+     * Medicarte no debe conocer una OC antes
+     * de que OLP la haya aceptado.
+     */
+    const order =
+      await this.database.db.execute<{
+        id: string;
+
+        olp_accepted_at:
+          Date | string | null;
+      }>(sql`
+        SELECT
+          po.id,
+          po.olp_accepted_at
+
+        FROM
+          purchase_orders po
+
+        WHERE
+          po.id =
+            ${id}
+
+        LIMIT 1
+      `);
+
+    if (
+      !order.rows[0] ||
+      !order.rows[0]
+        .olp_accepted_at
+    ) {
+      return null;
+    }
+
+    const pointRows =
+      await this.database.db.execute<{
+        dispensing_point_id:
+          string;
+      }>(sql`
+        SELECT
+          ups.dispensing_point_id
+
+        FROM
+          user_point_scopes ups
+
+        WHERE
+          ups.user_id =
+            ${actor.userId}::uuid
+
+          AND ups.revoked_at
+            IS NULL
+      `);
+
+    const allowedPoints =
+      new Set(
+        pointRows.rows.map(
+          (row) =>
+            row.dispensing_point_id,
+        ),
+      );
+
+    const detail =
+      await this.findById(
+        id,
+        false,
+      );
+
+    if (!detail) {
+      return null;
+    }
+
+    const lines =
+      detail.lines.filter(
+        (line) =>
+          line.dispensingPointId !==
+            null &&
+          allowedPoints.has(
+            line.dispensingPointId,
+          ),
+      );
+
+    if (
+      lines.length ===
+      0
+    ) {
+      return null;
+    }
+
+    return {
+      ...detail,
+
+      lines,
+    };
   }
 
 
-  async operationalDetail(id: string, actor: Scope) {
+  private async operationalDetailUnscoped(id: string, actor: Scope) {
     void actor;
     const orderResult = await this.database.db.execute<{
       id: string;
@@ -1098,6 +1530,60 @@ export class PurchaseOrderRepository {
         rl.id
     `);
 
+    const directReceiptHistoryResult =
+      await this.database.db.execute<{
+        receipt_id: string;
+        received_at: Date | string;
+        confirmed_at: Date | string;
+        actor_name: string | null;
+        receipt_line_id: string;
+        purchase_order_line_id: string;
+        received_quantity: number;
+      }>(sql`
+        select
+          por.id
+            as receipt_id,
+
+          por.received_at,
+          por.confirmed_at,
+
+          coalesce(
+            u.display_name,
+            u.username
+          )
+            as actor_name,
+
+          porl.id
+            as receipt_line_id,
+
+          porl.purchase_order_line_id,
+
+          porl.received_quantity
+
+        from purchase_order_receipts por
+
+        join purchase_order_receipt_lines porl
+          on porl.receipt_id =
+             por.id
+
+        left join users u
+          on u.id =
+             por.confirmed_by
+
+        where por.purchase_order_id =
+              ${id}
+
+          and porl.received_quantity >
+              0
+
+        order by
+          por.received_at asc,
+          por.confirmed_at asc,
+          por.id asc,
+          porl.id asc
+      `);
+
+
     const acceptanceAudit = await this.database.db.execute<{
       observation: string | null;
     }>(sql`
@@ -1429,6 +1915,92 @@ export class PurchaseOrderRepository {
       Array.from(
         receiptsMap.values(),
       );
+
+    const visibleReceiptHistoryLineIds =
+      new Set(
+        lines.map(
+          (line) =>
+            line.id,
+        ),
+      );
+
+    const directReceiptHistoryMap =
+      new Map<
+        string,
+        {
+          id: string;
+          receivedAt: Date | string;
+          confirmedAt: Date | string;
+          actorName: string | null;
+          lines: Array<{
+            id: string;
+            purchaseOrderLineId: string;
+            receivedQuantity: number;
+          }>;
+        }
+      >();
+
+    for (
+      const row of
+      directReceiptHistoryResult.rows
+    ) {
+      if (
+        !visibleReceiptHistoryLineIds.has(
+          row.purchase_order_line_id,
+        )
+      ) {
+        continue;
+      }
+
+      let event =
+        directReceiptHistoryMap.get(
+          row.receipt_id,
+        );
+
+      if (!event) {
+        event = {
+          id:
+            row.receipt_id,
+
+          receivedAt:
+            row.received_at,
+
+          confirmedAt:
+            row.confirmed_at,
+
+          actorName:
+            row.actor_name,
+
+          lines:
+            [],
+        };
+
+        directReceiptHistoryMap.set(
+          row.receipt_id,
+          event,
+        );
+      }
+
+      event.lines.push({
+        id:
+          row.receipt_line_id,
+
+        purchaseOrderLineId:
+          row.purchase_order_line_id,
+
+        receivedQuantity:
+          Number(
+            row.received_quantity ??
+            0,
+          ),
+      });
+    }
+
+    const receiptHistory =
+      Array.from(
+        directReceiptHistoryMap.values(),
+      );
+
 
     const totalRequested =
       lines.reduce(
@@ -1773,9 +2345,219 @@ export class PurchaseOrderRepository {
 
       receipts,
 
+      receiptHistory,
+
       novelties,
     };
   }
+
+  async operationalDetail(
+    id: string,
+    actor: Scope,
+  ) {
+    const detail =
+      await this.operationalDetailUnscoped(
+        id,
+        actor,
+      );
+
+    if (!detail) {
+      return null;
+    }
+
+    if (
+      actor.organizationCode !==
+      'MEDICARTE'
+    ) {
+      return detail;
+    }
+
+    const pointRows =
+      await this.database.db.execute<{
+        dispensing_point_id:
+          string;
+      }>(sql`
+        SELECT
+          ups.dispensing_point_id
+
+        FROM
+          user_point_scopes ups
+
+        WHERE
+          ups.user_id =
+            ${actor.userId}::uuid
+
+          AND ups.revoked_at
+            IS NULL
+      `);
+
+    const allowedPoints =
+      new Set(
+        pointRows.rows.map(
+          (row) =>
+            row.dispensing_point_id,
+        ),
+      );
+
+    const lines =
+      detail.lines.filter(
+        (line) =>
+          line.dispensingPointId !==
+            null &&
+          allowedPoints.has(
+            line.dispensingPointId,
+          ),
+      );
+
+    const lineIds =
+      new Set(
+        lines.map(
+          (line) =>
+            line.id,
+        ),
+      );
+
+    const deliveries =
+      detail.deliveries
+        .map(
+          (delivery) => ({
+            ...delivery,
+
+            lines:
+              delivery.lines.filter(
+                (line) =>
+                  lineIds.has(
+                    line.purchaseOrderLineId,
+                  ),
+              ),
+          }),
+        )
+        .filter(
+          (delivery) =>
+            delivery.lines.length >
+            0,
+        );
+
+    const receipts =
+      detail.receipts
+        .map(
+          (receipt) => ({
+            ...receipt,
+
+            lines:
+              receipt.lines.filter(
+                (line) =>
+                  line.purchaseOrderLineId !==
+                    null &&
+                  lineIds.has(
+                    line.purchaseOrderLineId,
+                  ),
+              ),
+          }),
+        )
+        .filter(
+          (receipt) =>
+            receipt.lines.length >
+            0,
+        );
+
+    const summary =
+      lines.reduce(
+        (
+          total,
+          line,
+        ) => ({
+          products:
+            total.products +
+            1,
+
+          requestedQuantity:
+            total.requestedQuantity +
+            line.requestedQuantity,
+
+          dispatchedQuantity:
+            total.dispatchedQuantity +
+            line.dispatchedQuantity,
+
+          receivedQuantity:
+            total.receivedQuantity +
+            line.receivedQuantity,
+
+          pendingQuantity:
+            total.pendingQuantity +
+            line.pendingQuantity,
+
+          supplierPendingQuantity:
+            total.supplierPendingQuantity +
+            line.supplierPendingQuantity,
+
+          receiptPendingQuantity:
+            total.receiptPendingQuantity +
+            line.receiptPendingQuantity,
+        }),
+        {
+          products: 0,
+
+          requestedQuantity: 0,
+
+          dispatchedQuantity: 0,
+
+          receivedQuantity: 0,
+
+          pendingQuantity: 0,
+
+          supplierPendingQuantity: 0,
+
+          receiptPendingQuantity: 0,
+        },
+      );
+
+    const visibleCodes =
+      new Set(
+        lines.map(
+          (line) =>
+            line.commercialCode,
+        ),
+      );
+
+    return {
+      ...detail,
+
+      summary,
+
+      /*
+       * Medicarte opera cantidades físicas.
+       * No recibe información económica de MTD/OLP.
+       */
+      financial: {
+        contractualValue:
+          null,
+
+        supplierProjectedCost:
+          null,
+
+        projectedGrossMargin:
+          null,
+      },
+
+      lines,
+
+      deliveries,
+
+      receipts,
+
+      novelties:
+        detail.novelties.filter(
+          (novelty) =>
+            novelty.commercialCode !==
+              null &&
+            visibleCodes.has(
+              novelty.commercialCode,
+            ),
+        ),
+    };
+  }
+
 
   async available(planningPeriodId: string) {
     const rows = await this.database.db.execute<{
@@ -2655,6 +3437,8 @@ export class PurchaseOrderRepository {
         po.version,
         po.issued_at,
         po.issued_by,
+        po.olp_accepted_at,
+        po.olp_committed_date::text,
         po.created_at,
         po.updated_at,
 
@@ -2834,6 +3618,13 @@ export class PurchaseOrderRepository {
       status: first.status,
       version: first.version,
       issuedAt: first.issued_at,
+
+      olpAcceptedAt:
+        first.olp_accepted_at,
+
+      olpCommittedDate:
+        first.olp_committed_date,
+
       createdAt: first.created_at,
       updatedAt: first.updated_at,
     };

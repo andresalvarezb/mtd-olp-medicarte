@@ -29,9 +29,21 @@ export class InventoryAvailabilityService {
   }
 
   list(scope: Scope, filters: AvailabilityFilters) {
-    this.requireMtd(scope);
+    if (
+      !['MTD', 'MEDICARTE'].includes(
+        scope.organizationCode,
+      )
+    ) {
+      throw new ForbiddenException({
+        code:
+          'INVENTORY_AVAILABILITY_READ_NOT_ALLOWED',
+      });
+    }
 
-    return this.repository.list(scope, filters);
+    return this.repository.list(
+      scope,
+      filters,
+    );
   }
 
   assign(scope: Scope, assignments: readonly AllocationRequest[]) {

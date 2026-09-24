@@ -25,6 +25,7 @@ import {
 
 import {
   acceptOperationalPurchaseOrder,
+  createPurchaseOrderDirectReceipt,
   getPurchaseOrderOperationalDetail,
   type PurchaseOrderOperationalDetail,
   type PurchaseOrderOperationalLine,
@@ -44,7 +45,7 @@ const STATE_LABELS: Record<
     'Pendiente Medicarte',
 
   RECEIVED_WITH_PENDING:
-    'Recibida con pendientes',
+    'Recibida con pendiente',
 
   RECEIVED:
     'Recibida',
@@ -165,6 +166,890 @@ function receiptState(
 }
 
 
+type PurchaseOrderHistoryReceiptLine =
+  Readonly<{
+    id: string;
+    purchaseOrderLineId: string;
+    commercialCode: string;
+    productDescription: string | null;
+    dispensingPointCode: string | null;
+    receivedNow: number;
+    accumulated: number;
+    pendingAfter: number;
+  }>;
+
+
+type PurchaseOrderHistoryEvent =
+  Readonly<{
+    id: string;
+    kind:
+      | 'CREATED'
+      | 'OLP_ACCEPTED'
+      | 'RECEIPT';
+    occurredAt: string;
+    title: string;
+    actorName: string;
+    stateLabel: string;
+    committedDate: string | null;
+    lines: readonly PurchaseOrderHistoryReceiptLine[];
+  }>;
+
+
+function buildPurchaseOrderHistory(
+  detail: PurchaseOrderOperationalDetail,
+): PurchaseOrderHistoryEvent[] {
+  const lineById =
+    new Map(
+      detail.lines.map(
+        (line) => [
+          line.id,
+          line,
+        ],
+      ),
+    );
+
+  const receivedByLine =
+    new Map<string, number>();
+
+  const receiptSources =
+    (
+      detail.receiptHistory ??
+      []
+    )
+      .map(
+        (receipt) => ({
+          id:
+            `DIRECT:${receipt.id}`,
+
+          occurredAt:
+            receipt.confirmedAt ??
+            receipt.receivedAt,
+
+          actorName:
+            receipt.actorName,
+
+          lines:
+            receipt.lines.map(
+              (line) => ({
+                id:
+                  line.id,
+
+                purchaseOrderLineId:
+                  line.purchaseOrderLineId,
+
+                receivedQuantity:
+                  line.receivedQuantity,
+              }),
+            ),
+        }),
+      )
+      .sort(
+        (
+          left,
+          right,
+        ) =>
+          new Date(
+            left.occurredAt,
+          ).getTime()
+          -
+          new Date(
+            right.occurredAt,
+          ).getTime(),
+      );
+
+  const events:
+    PurchaseOrderHistoryEvent[] =
+    [];
+
+  events.push({
+    id:
+      `CREATED:${detail.id}`,
+
+    kind:
+      'CREATED' as const,
+
+    occurredAt:
+      detail.createdAt,
+
+    title:
+      'OC generada',
+
+    actorName:
+      detail.createdByName ??
+      'MTD',
+
+    stateLabel:
+      'Pendiente OLP',
+
+    committedDate:
+      null,
+
+    lines:
+      [],
+  });
+
+  if (
+    detail.olpAcceptedAt
+  ) {
+    events.push({
+      id:
+        `OLP:${detail.id}`,
+
+      kind:
+        'OLP_ACCEPTED',
+
+      occurredAt:
+        detail.olpAcceptedAt,
+
+      title:
+        'Aceptación OLP',
+
+      actorName:
+        detail.olpAcceptedByName ??
+        'OLP',
+
+      stateLabel:
+        'Pendiente Medicarte',
+
+      committedDate:
+        detail.olpCommittedDate,
+
+      lines:
+        [],
+    });
+  }
+
+  for (
+    const receipt of
+    receiptSources
+  ) {
+    const eventLines:
+      PurchaseOrderHistoryReceiptLine[] =
+      [];
+
+    for (
+      const receiptLine of
+      receipt.lines
+    ) {
+      const line =
+        lineById.get(
+          receiptLine.purchaseOrderLineId,
+        );
+
+      if (!line) {
+        continue;
+      }
+
+      const previous =
+        receivedByLine.get(
+          line.id,
+        ) ??
+        0;
+
+      const accumulated =
+        previous +
+        receiptLine.receivedQuantity;
+
+      receivedByLine.set(
+        line.id,
+        accumulated,
+      );
+
+      eventLines.push({
+        id:
+          `${receipt.id}:${receiptLine.id}`,
+
+        purchaseOrderLineId:
+          line.id,
+
+        commercialCode:
+          line.commercialCode,
+
+        productDescription:
+          line.productDescription,
+
+        dispensingPointCode:
+          line.dispensingPointCode,
+
+        receivedNow:
+          receiptLine.receivedQuantity,
+
+        accumulated,
+
+        pendingAfter:
+          Math.max(
+            line.requestedQuantity -
+            accumulated,
+            0,
+          ),
+      });
+    }
+
+    if (
+      eventLines.length ===
+      0
+    ) {
+      continue;
+    }
+
+    const totalRequested =
+      detail.lines.reduce(
+        (
+          total,
+          line,
+        ) =>
+          total +
+          line.requestedQuantity,
+        0,
+      );
+
+    const totalReceived =
+      detail.lines.reduce(
+        (
+          total,
+          line,
+        ) =>
+          total +
+          (
+            receivedByLine.get(
+              line.id,
+            ) ??
+            0
+          ),
+        0,
+      );
+
+    events.push({
+      id:
+        receipt.id,
+
+      kind:
+        'RECEIPT',
+
+      occurredAt:
+        receipt.occurredAt,
+
+      title:
+        'Recepción Medicarte',
+
+      actorName:
+        receipt.actorName ??
+        'Medicarte',
+
+      stateLabel:
+        totalRequested > 0 &&
+        totalReceived >=
+          totalRequested
+          ? 'Recibida'
+          : 'Recibida con pendiente',
+
+      committedDate:
+        null,
+
+      lines:
+        eventLines,
+    });
+  }
+
+  return events.sort(
+    (
+      left,
+      right,
+    ) =>
+      new Date(
+        right.occurredAt,
+      ).getTime()
+      -
+      new Date(
+        left.occurredAt,
+      ).getTime(),
+  );
+}
+
+
+
+type UniversalHistoryLine = Readonly<{
+  id: string;
+  commercialCode: string;
+  productDescription: string | null;
+  dispensingPointCode: string | null;
+  receivedNow: number;
+  accumulated: number;
+  pendingAfter: number;
+}>;
+
+
+type UniversalHistoryEvent = Readonly<{
+  id: string;
+  kind:
+    | 'CREATED'
+    | 'OLP_ACCEPTED'
+    | 'RECEIPT';
+  occurredAt: string;
+  title: string;
+  actorName: string;
+  stateLabel: string;
+  committedDate: string | null;
+  lines: readonly UniversalHistoryLine[];
+}>;
+
+
+function UniversalOrderHistorySection({
+  detail,
+}: {
+  detail: PurchaseOrderOperationalDetail;
+}) {
+  const lineById =
+    new Map(
+      detail.lines.map(
+        (line) => [
+          line.id,
+          line,
+        ],
+      ),
+    );
+
+  const accumulatedByLine =
+    new Map<string, number>();
+
+  const receiptSources =
+    (
+      detail.receiptHistory ??
+      []
+    )
+      .map(
+        (receipt) => ({
+          id:
+            `DIRECT:${receipt.id}`,
+
+          occurredAt:
+            receipt.confirmedAt ??
+            receipt.receivedAt,
+
+          actorName:
+            receipt.actorName ??
+            'Medicarte',
+
+          lines:
+            receipt.lines.map(
+              (line) => ({
+                id:
+                  line.id,
+
+                purchaseOrderLineId:
+                  line.purchaseOrderLineId,
+
+                receivedQuantity:
+                  line.receivedQuantity,
+              }),
+            ),
+        }),
+      )
+      .sort(
+        (
+          left,
+          right,
+        ) =>
+          new Date(
+            left.occurredAt,
+          ).getTime()
+          -
+          new Date(
+            right.occurredAt,
+          ).getTime(),
+      );
+
+
+  const receiptEvents:
+    UniversalHistoryEvent[] =
+    [];
+
+
+  for (
+    const receipt of
+    receiptSources
+  ) {
+    const eventLines:
+      UniversalHistoryLine[] =
+      [];
+
+    for (
+      const receiptLine of
+      receipt.lines
+    ) {
+      const line =
+        lineById.get(
+          receiptLine.purchaseOrderLineId,
+        );
+
+      if (!line) {
+        continue;
+      }
+
+      const previous =
+        accumulatedByLine.get(
+          line.id,
+        ) ??
+        0;
+
+      const accumulated =
+        previous +
+        receiptLine.receivedQuantity;
+
+      accumulatedByLine.set(
+        line.id,
+        accumulated,
+      );
+
+      eventLines.push({
+        id:
+          `${receipt.id}:${receiptLine.id}`,
+
+        commercialCode:
+          line.commercialCode,
+
+        productDescription:
+          line.productDescription,
+
+        dispensingPointCode:
+          line.dispensingPointCode,
+
+        receivedNow:
+          receiptLine.receivedQuantity,
+
+        accumulated,
+
+        pendingAfter:
+          Math.max(
+            line.requestedQuantity -
+            accumulated,
+            0,
+          ),
+      });
+    }
+
+
+    if (
+      eventLines.length ===
+      0
+    ) {
+      continue;
+    }
+
+
+    const totalRequested =
+      detail.lines.reduce(
+        (
+          total,
+          line,
+        ) =>
+          total +
+          line.requestedQuantity,
+        0,
+      );
+
+    const totalAccumulated =
+      detail.lines.reduce(
+        (
+          total,
+          line,
+        ) =>
+          total +
+          (
+            accumulatedByLine.get(
+              line.id,
+            ) ??
+            0
+          ),
+        0,
+      );
+
+
+    receiptEvents.push({
+      id:
+        receipt.id,
+
+      kind:
+        'RECEIPT',
+
+      occurredAt:
+        receipt.occurredAt,
+
+      title:
+        'Recepción Medicarte',
+
+      actorName:
+        receipt.actorName,
+
+      stateLabel:
+        totalRequested > 0 &&
+        totalAccumulated >=
+          totalRequested
+          ? 'Recibida'
+          : 'Recibida con pendiente',
+
+      committedDate:
+        null,
+
+      lines:
+        eventLines,
+    });
+  }
+
+
+  const events:
+    UniversalHistoryEvent[] =
+    [
+      {
+        id:
+          `CREATED:${detail.id}`,
+
+        kind:
+          'CREATED' as const,
+
+        occurredAt:
+          detail.createdAt,
+
+        title:
+          'OC generada',
+
+        actorName:
+          detail.createdByName ??
+          'MTD',
+
+        stateLabel:
+          'Pendiente OLP',
+
+        committedDate:
+          null,
+
+        lines:
+          [],
+      },
+
+      ...(detail.olpAcceptedAt
+        ? [
+            {
+              id:
+                `OLP:${detail.id}`,
+
+              kind:
+                'OLP_ACCEPTED' as const,
+
+              occurredAt:
+                detail.olpAcceptedAt,
+
+              title:
+                'Aceptación OLP',
+
+              actorName:
+                detail.olpAcceptedByName ??
+                'OLP',
+
+              stateLabel:
+                'Pendiente Medicarte',
+
+              committedDate:
+                detail.olpCommittedDate,
+
+              lines:
+                [],
+            },
+          ]
+        : []),
+
+      ...receiptEvents,
+    ]
+      .sort(
+        (
+          left,
+          right,
+        ) =>
+          new Date(
+            right.occurredAt,
+          ).getTime()
+          -
+          new Date(
+            left.occurredAt,
+          ).getTime(),
+      );
+
+
+  return (
+    <section
+      data-order-history="true"
+      className={
+        styles.orderHistoryPanel
+      }
+    >
+      <div
+        className={
+          styles.orderHistoryHeader
+        }
+      >
+        <div>
+          <strong>
+            Historial de la orden
+          </strong>
+
+          <span>
+            Trazabilidad de creación, aceptación y recepciones registradas sobre esta OC.
+          </span>
+        </div>
+
+        <span
+          className={
+            styles.orderHistoryCount
+          }
+        >
+          {
+            events.length
+          }{' '}
+          {
+            events.length ===
+            1
+              ? 'evento'
+              : 'eventos'
+          }
+        </span>
+      </div>
+
+
+      <div
+        className={
+          styles.orderHistoryList
+        }
+      >
+        {
+          events.map(
+            (event) => (
+              <article
+                key={
+                  event.id
+                }
+                className={
+                  styles.orderHistoryEvent
+                }
+              >
+                <div
+                  className={`${styles.orderHistoryMarker} ${
+                    event.kind ===
+                    'RECEIPT'
+                      ? styles.orderHistoryMarkerReceipt
+                      : event.kind ===
+                          'OLP_ACCEPTED'
+                        ? styles.orderHistoryMarkerOlp
+                        : styles.orderHistoryMarkerCreated
+                  }`}
+                >
+                  {
+                    event.kind ===
+                    'RECEIPT'
+                      ? 'R'
+                      : event.kind ===
+                          'OLP_ACCEPTED'
+                        ? 'O'
+                        : 'M'
+                  }
+                </div>
+
+
+                <div
+                  className={
+                    styles.orderHistoryContent
+                  }
+                >
+                  <div
+                    className={
+                      styles.orderHistoryEventHeader
+                    }
+                  >
+                    <div>
+                      <strong>
+                        {
+                          event.title
+                        }
+                      </strong>
+
+                      <span>
+                        {
+                          dateTime(
+                            event.occurredAt,
+                          )
+                        }
+                      </span>
+                    </div>
+
+                    <span
+                      className={
+                        styles.orderHistoryState
+                      }
+                    >
+                      {
+                        event.stateLabel
+                      }
+                    </span>
+                  </div>
+
+
+                  <div
+                    className={
+                      styles.orderHistoryMeta
+                    }
+                  >
+                    <span>
+                      Registrado por
+                    </span>
+
+                    <strong>
+                      {
+                        event.actorName
+                      }
+                    </strong>
+
+                    {
+                      event.committedDate
+                        ? (
+                          <>
+                            <span>
+                              ·
+                            </span>
+
+                            <span>
+                              Fecha de entrega
+                            </span>
+
+                            <strong>
+                              {
+                                dateOnly(
+                                  event.committedDate,
+                                )
+                              }
+                            </strong>
+                          </>
+                        )
+                        : null
+                    }
+                  </div>
+
+
+                  {
+                    event.lines.length >
+                    0
+                      ? (
+                        <div
+                          className={
+                            styles.orderHistoryReceiptTable
+                          }
+                        >
+                          <div
+                            className="table-scroll"
+                          >
+                            <table
+                              className="data-table"
+                            >
+                              <thead>
+                                <tr>
+                                  <th>
+                                    Código
+                                  </th>
+
+                                  <th>
+                                    Producto
+                                  </th>
+
+                                  <th>
+                                    Punto
+                                  </th>
+
+                                  <th>
+                                    Recibido ahora
+                                  </th>
+
+                                  <th>
+                                    Acumulado
+                                  </th>
+
+                                  <th>
+                                    Pendiente después
+                                  </th>
+                                </tr>
+                              </thead>
+
+                              <tbody>
+                                {
+                                  event.lines.map(
+                                    (line) => (
+                                      <tr
+                                        key={
+                                          line.id
+                                        }
+                                      >
+                                        <td>
+                                          <strong>
+                                            {
+                                              line.commercialCode
+                                            }
+                                          </strong>
+                                        </td>
+
+                                        <td>
+                                          {
+                                            line.productDescription ??
+                                            'Sin nombre'
+                                          }
+                                        </td>
+
+                                        <td>
+                                          {
+                                            line.dispensingPointCode ??
+                                            'Sin punto'
+                                          }
+                                        </td>
+
+                                        <td>
+                                          <strong>
+                                            +{
+                                              line.receivedNow
+                                            }
+                                          </strong>
+                                        </td>
+
+                                        <td>
+                                          {
+                                            line.accumulated
+                                          }
+                                        </td>
+
+                                        <td>
+                                          <strong>
+                                            {
+                                              line.pendingAfter
+                                            }
+                                          </strong>
+                                        </td>
+                                      </tr>
+                                    ),
+                                  )
+                                }
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )
+                      : null
+                  }
+                </div>
+              </article>
+            ),
+          )
+        }
+      </div>
+    </section>
+  );
+}
+
+
 export function PurchaseOrderOperationalView() {
   const router =
     useRouter();
@@ -194,6 +1079,16 @@ export function PurchaseOrderOperationalView() {
 
   const isOlp =
     roles.includes('OLP');
+
+
+  const isMedicarte =
+    roles.includes('MEDICARTE');
+
+  const canReceiveMedicarte =
+    hasPermission(
+      'medicarte_receipts.manage',
+    );
+
 
   const [
     detail,
@@ -238,6 +1133,21 @@ export function PurchaseOrderOperationalView() {
 
 
 
+
+
+  const [
+    receiptQuantities,
+    setReceiptQuantities,
+  ] =
+    useState<Record<string, string>>(
+      {},
+    );
+
+  const [
+    receiptBusy,
+    setReceiptBusy,
+  ] =
+    useState(false);
 
 
   async function load() {
@@ -318,6 +1228,137 @@ export function PurchaseOrderOperationalView() {
   }
 
 
+  async function confirmMedicarteReceipt() {
+    if (
+      !detail ||
+      !organizationId ||
+      receiptBusy
+    ) {
+      return;
+    }
+
+    const entries =
+      detail.lines
+        .filter(
+          (line) =>
+            (
+              receiptQuantities[
+                line.id
+              ]
+              ??
+              ''
+            ).trim() !== '',
+        )
+        .map(
+          (line) => ({
+            line,
+            raw:
+              (
+                receiptQuantities[
+                  line.id
+                ]
+                ??
+                ''
+              ).trim(),
+          }),
+        );
+
+    if (
+      entries.length ===
+      0
+    ) {
+      setError(
+        'Registra la cantidad recibida en al menos un producto.',
+      );
+
+      return;
+    }
+
+    const lines:
+      Array<{
+        purchaseOrderLineId: string;
+        receivedQuantity: number;
+      }> =
+      [];
+
+    for (
+      const entry of
+      entries
+    ) {
+      const quantity =
+        Number(
+          entry.raw,
+        );
+
+      if (
+        !Number.isInteger(
+          quantity,
+        ) ||
+        quantity <= 0
+      ) {
+        setError(
+          `La cantidad recibida para ${entry.line.commercialCode} debe ser un número entero mayor que cero.`,
+        );
+
+        return;
+      }
+
+      if (
+        quantity >
+        entry.line.pendingQuantity
+      ) {
+        setError(
+          `No puedes recibir ${quantity} unidades de ${entry.line.commercialCode}. Solo quedan ${entry.line.pendingQuantity} pendientes.`,
+        );
+
+        return;
+      }
+
+      lines.push({
+        purchaseOrderLineId:
+          entry.line.id,
+
+        receivedQuantity:
+          quantity,
+      });
+    }
+
+    setReceiptBusy(
+      true,
+    );
+
+    setError(
+      null,
+    );
+
+    try {
+      await createPurchaseOrderDirectReceipt(
+        organizationId,
+        detail.id,
+        {
+          lines,
+        },
+      );
+
+      setReceiptQuantities(
+        {},
+      );
+
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible confirmar la recepción.',
+      );
+    } finally {
+      setReceiptBusy(
+        false,
+      );
+    }
+  }
+
+
   if (loading) {
     return (
       <>
@@ -373,6 +1414,29 @@ export function PurchaseOrderOperationalView() {
     detail.technicalStatus ===
       'HISTORICAL_ONLY' &&
     !detail.olpAcceptedAt;
+
+
+  const orderHistory =
+    buildPurchaseOrderHistory(
+      detail,
+    );
+
+  const showReceiptCaptureColumn =
+    isMedicarte &&
+    canReceiveMedicarte &&
+    !historical &&
+    Boolean(
+      detail.olpAcceptedAt,
+    ) &&
+    detail.operationalState !==
+      'RECEIVED';
+
+
+  const canReceiveThisOrder =
+    showReceiptCaptureColumn &&
+    detail.summary.pendingQuantity >
+      0;
+
 
   const canAcceptThisOrder =
     canAcceptOlp &&
@@ -680,7 +1744,11 @@ const olpStepText =
                   </th>
 
                   <th
-                    colSpan={3}
+                    colSpan={
+                      showReceiptCaptureColumn
+                        ? 4
+                        : 3
+                    }
                     className={
                       styles.receptionGroup
                     }
@@ -705,7 +1773,13 @@ const olpStepText =
                   <th>
                     Pendiente
                   </th>
-                </tr>
+
+                  {showReceiptCaptureColumn ? (
+                    <th>
+                      Recibir ahora
+                    </th>
+                  ) : null}
+</tr>
               </thead>
 
               <tbody>
@@ -776,6 +1850,69 @@ const olpStepText =
                             }
                           </strong>
                         </td>
+
+                        {showReceiptCaptureColumn ? (
+  <td>
+                            {
+                              canReceiveThisOrder &&
+                              line.pendingQuantity >
+                                0
+                                ? (
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={
+                                      line.pendingQuantity
+                                    }
+                                    step={1}
+                                    inputMode="numeric"
+                                    className={
+                                      styles.receiptQuantityInput
+                                    }
+                                    value={
+                                      receiptQuantities[
+                                        line.id
+                                      ] ??
+                                      ''
+                                    }
+                                    disabled={
+                                      receiptBusy
+                                    }
+                                    aria-label={`Recibir ahora ${line.commercialCode}`}
+                                    onChange={(
+                                      event,
+                                    ) => {
+                                      const value =
+                                        event.target.value;
+
+                                      if (
+                                        value === '' ||
+                                        /^\d+$/.test(
+                                          value,
+                                        )
+                                      ) {
+                                        setReceiptQuantities(
+                                          (
+                                            current,
+                                          ) => ({
+                                            ...current,
+
+                                            [
+                                              line.id
+                                            ]:
+                                              value,
+                                          }),
+                                        );
+                                      }
+                                    }}
+                                  />
+                                )
+                                : (
+                                  '—'
+                                )
+                            }
+                          </td>
+                        ) : null}
                       </tr>
                     );
                   },
@@ -822,10 +1959,44 @@ const olpStepText =
                       }
                     </strong>
                   </td>
-                </tr>
+
+                  {showReceiptCaptureColumn ? (
+                    <td
+                    className={
+                      styles.receiptTotalSpacer
+                    }
+                  />
+                  ) : null}
+</tr>
               </tbody>
             </table>
           </div>
+
+
+          {canReceiveThisOrder ? (
+            <div
+              className={
+                styles.receiptActions
+              }
+            >
+              <button
+                type="button"
+                className="button primary"
+                disabled={
+                  receiptBusy
+                }
+                onClick={() =>
+                  void confirmMedicarteReceipt()
+                }
+              >
+                {
+                  receiptBusy
+                    ? 'Confirmando…'
+                    : 'Confirmar recepción'
+                }
+              </button>
+            </div>
+          ) : null}
         </CardBody>
       </Card>
 
@@ -1078,6 +2249,13 @@ const olpStepText =
           )}
         </section>
       )}
+
+      <UniversalOrderHistorySection
+        detail={
+          detail
+        }
+      />
+
     </>
   );
 }

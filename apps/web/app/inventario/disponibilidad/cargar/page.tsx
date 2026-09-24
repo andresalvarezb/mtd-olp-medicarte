@@ -1,5 +1,5 @@
-import { DisponibilidadCargarView } from '@/features/inventory/disponibilidad-cargar-view';
+import { redirect } from 'next/navigation';
 
 export default function DisponibilidadCargarPage() {
-  return <DisponibilidadCargarView />;
+  redirect('/inventario/disponibilidad');
 }

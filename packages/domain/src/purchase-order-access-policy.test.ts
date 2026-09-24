@@ -38,7 +38,7 @@ describe('purchase order access policy', () => {
     }
   });
 
-  it('OLP can dispatch only after acceptance', () => {
+  it('OLP has no separate dispatch action after acceptance', () => {
     expect(
       derivePurchaseOrderAllowedActions({
         actor: 'OLP',
@@ -53,14 +53,14 @@ describe('purchase order access policy', () => {
       derivePurchaseOrderAllowedActions({
         actor: 'OLP',
 
-        status: 'PENDING_OLP',
+        status: 'PENDING_MEDICARTE',
 
         olpAccepted: true,
       }).canRecordDispatch,
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it('OLP loses operational actions after dispatch', () => {
+  it('OLP loses OLP operational actions after acceptance', () => {
     const actions = derivePurchaseOrderAllowedActions({
       actor: 'OLP',
 
@@ -146,24 +146,65 @@ describe('purchase order access policy', () => {
     }
   });
 
-  it('OLP only edits OLP operational fields', () => {
-    const fields = derivePurchaseOrderFieldAccess({
-      actor: 'OLP',
+  it('OLP only edits acceptance fields before accepting', () => {
+    const pendingFields =
+      derivePurchaseOrderFieldAccess({
+        actor: 'OLP',
 
-      status: 'PENDING_OLP',
+        status: 'PENDING_OLP',
 
-      olpAccepted: true,
-    });
+        olpAccepted: false,
+      });
 
-    expect(fields.requestedQuantity).toBe('READ');
+    expect(
+      pendingFields.requestedQuantity,
+    ).toBe('READ');
 
-    expect(fields.dispatchedQuantity).toBe('EDIT');
+    expect(
+      pendingFields.committedDispatchDate,
+    ).toBe('EDIT');
 
-    expect(fields.dispatchDate).toBe('EDIT');
+    expect(
+      pendingFields.dispatchedQuantity,
+    ).toBe('READ');
 
-    expect(fields.receivedQuantity).toBe('READ');
+    expect(
+      pendingFields.dispatchDate,
+    ).toBe('READ');
 
-    expect(fields.receiptDate).toBe('READ');
+    expect(
+      pendingFields.receivedQuantity,
+    ).toBe('READ');
+
+
+    const acceptedFields =
+      derivePurchaseOrderFieldAccess({
+        actor: 'OLP',
+
+        status: 'PENDING_MEDICARTE',
+
+        olpAccepted: true,
+      });
+
+    expect(
+      acceptedFields.committedDispatchDate,
+    ).toBe('READ');
+
+    expect(
+      acceptedFields.dispatchedQuantity,
+    ).toBe('READ');
+
+    expect(
+      acceptedFields.dispatchDate,
+    ).toBe('READ');
+
+    expect(
+      acceptedFields.receivedQuantity,
+    ).toBe('READ');
+
+    expect(
+      acceptedFields.receiptDate,
+    ).toBe('READ');
   });
 
   it('Medicarte only edits receipt fields', () => {
@@ -257,19 +298,6 @@ describe('purchase order access policy', () => {
     expect(() =>
       assertPurchaseOrderAction(
         {
-          actor: 'OLP',
-
-          status: 'PENDING_OLP',
-
-          olpAccepted: true,
-        },
-        'RECORD_DISPATCH',
-      ),
-    ).not.toThrow();
-
-    expect(() =>
-      assertPurchaseOrderAction(
-        {
           actor: 'MEDICARTE',
 
           status: 'PENDING_MEDICARTE',
@@ -280,4 +308,5 @@ describe('purchase order access policy', () => {
       ),
     ).not.toThrow();
   });
+
 });
