@@ -4020,7 +4020,11 @@ export class PurchaseOrderRepository {
 
             shortage:
               (row.requested_quantity ?? 0) -
-              (row.olp_managed_quantity ?? 0),
+              (
+                row.olp_managed_quantity ??
+                row.accepted_quantity ??
+                0
+              ),
 
             requestedDeliveryDate: row.requested_delivery_date,
 
@@ -4076,7 +4080,11 @@ export class PurchaseOrderRepository {
 
           shortage:
               (row.requested_quantity ?? 0) -
-              (row.olp_managed_quantity ?? 0),
+              (
+                row.olp_managed_quantity ??
+                row.accepted_quantity ??
+                0
+              ),
 
           requestedDeliveryDate: row.requested_delivery_date,
 
