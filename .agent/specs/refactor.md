@@ -2079,3 +2079,53 @@ El cambio central puede resumirse así:
 > La aplicación consume inventario y recién en ese momento vincula físicamente producto y paciente.**
 
 Ese debe ser el invariante principal del nuevo modelo.
+
+---
+
+# Autorización → OC → Recepción → Consumo → Reasignación
+
+El detalle operativo vigente y las decisiones de negocio confirmadas están en
+[`ADR-043`](../../docs/adr/043-authorization-order-receipt-fulfillment-reassignment.md).
+Esta sección fija la lectura arquitectónica que debe usarse al implementar
+posteriormente el flujo:
+
+```mermaid
+flowchart LR
+        A[AUTO actual] --> B[OC + AUTO + producto + cantidad]
+        B --> C[Aceptación OLP]
+        C --> D[Recepción física MEDICARTE]
+        D --> E[Consulta autorización]
+        E --> F[Entrega / aplicación]
+        F --> G[Consumo físico]
+        G --> H{AUTO vence sin consumo?}
+        H -- No --> I[Conservar trazabilidad]
+        H -- Sí --> J[Liberar cantidad]
+        J --> K[Buscar candidata en HOY + 30 días]
+        K --> L[Reasignar de forma determinística o dejar liberada]
+```
+
+La clave operacional estable de una AUTO es `authorization_key`, construida
+por el código actual desde `numero_autorizacion + codigo_comercial`; su
+restricción de identidad es la combinación `numero_autorizacion` +
+`codigo_medicamento`. Una recarga debe actualizar la AUTO viva cuando sea
+compatible con la historia ya comprometida, pero nunca reescribir
+`purchase_order_authorization_sources`, que es el snapshot de demanda utilizado
+para la OC.
+
+MTD conserva la relación OC + clave de autorización + código comercial +
+cantidad. La OC no crea stock consumible: el máximo disponible nace de la
+recepción efectiva de MEDICARTE y se reduce con consumos y egresos físicos
+válidos. Las invariantes objetivo son `OC_SOLICITADO >= MEDICARTE_RECIBIDO`,
+`MEDICARTE_RECIBIDO >= CONSUMIDO` y nunca `CONSUMIDO > RECIBIDO`.
+
+Disponibilidad existe actualmente y usa `inventory_authorization_allocations`,
+pero no forma parte de la asignación objetivo. El fulfillment actual puede crear
+una allocation automática desde el snapshot de OC y consumir
+`inventory_lots` mediante `inventory_movements`; esto queda documentado como
+GAP hasta que la recepción directa quantity-only alimente la misma autoridad de
+existencia física.
+
+La expiración objetivo libera únicamente lo no consumido, conserva la relación
+histórica AUTO → OC y busca una AUTO sustituta compatible dentro de los próximos
+30 días, ordenada por `fecha_final_vigencia`, `created_at` e `id`. Si no existe
+candidata, el producto permanece liberado y debe poder reconsiderarse después.

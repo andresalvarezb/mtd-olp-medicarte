@@ -16,6 +16,13 @@ Autorización cargada
 → aplicación al paciente
 ```
 
+La auditoría detallada del ciclo operativo, separando AS-IS, decisiones de
+negocio, TO-BE y gaps, está en
+[`ADR-043`](docs/adr/043-authorization-order-receipt-fulfillment-reassignment.md).
+Ese documento distingue la AUTO viva del snapshot histórico de demanda usado
+para crear una OC, y documenta la diferencia entre la recepción directa
+quantity-only y la recepción histórica que alimenta el ledger de inventario.
+
 ## Estado de la base
 
 Se conserva únicamente infraestructura transversal:
