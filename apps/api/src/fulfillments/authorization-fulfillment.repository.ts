@@ -26,7 +26,6 @@ import type {
 } from '../common/request-scope';
 
 import {
-  applyPointScope,
   lockActivePointGrants,
 } from '../common/point-scope.sql';
 
