@@ -240,7 +240,7 @@ export function SupplierPurchaseOrdersView() {
                   : {}
               ),
             },
-          ) as SupplierPurchaseOrderResponse;
+          );
       }
 
       const completed =
@@ -248,7 +248,7 @@ export function SupplierPurchaseOrdersView() {
           organizationId,
           current.id,
           current.version,
-        ) as SupplierPurchaseOrderResponse;
+        );
 
       setSelected(
         completed,
