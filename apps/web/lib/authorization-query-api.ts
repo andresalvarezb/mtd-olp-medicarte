@@ -103,6 +103,9 @@ export type AuthorizationQueryFilters = {
     | 'ENABLED'
     | 'BLOCKED_SOURCE_STATUS';
 
+  operationalStatus?:
+    AuthorizationOperationalStatus;
+
   coverageType?:
     | 'PBS'
     | 'NO_PBS';
@@ -127,6 +130,9 @@ export type AuthorizationQueryResponse = {
 };
 
 export type FulfillAuthorizationInput = {
+  purchaseOrderCode:
+    string;
+
   fulfillmentType:
     AuthorizationFulfillmentType;
 
@@ -186,6 +192,15 @@ export function listAuthorizationQuery(
     params.set(
       'coverageType',
       filters.coverageType,
+    );
+  }
+
+  if (
+    filters.operationalStatus
+  ) {
+    params.set(
+      'operationalStatus',
+      filters.operationalStatus,
     );
   }
 

@@ -44,6 +44,22 @@ const acceptPurchaseOrderSchema = z
           'committedDate must use YYYY-MM-DD',
         ),
 
+    lines:
+      z.array(
+        z
+          .object({
+            purchaseOrderLineId:
+              z.string().uuid(),
+
+            managedQuantity:
+              z.number()
+                .int()
+                .positive(),
+          })
+          .strict(),
+      )
+        .min(1),
+
     observation:
       z.string()
         .trim()
@@ -249,6 +265,9 @@ export class SupplierPurchaseOrderController {
 
         committedDate:
           body.committedDate,
+
+        lines:
+          body.lines,
 
         ...(body.observation === undefined
           ? {}

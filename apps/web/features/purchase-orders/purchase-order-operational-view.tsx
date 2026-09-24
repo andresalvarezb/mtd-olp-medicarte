@@ -121,8 +121,29 @@ function receiptState(
   }
 
   if (
+    (
+      line.managedQuantity ??
+      line.acceptedQuantity
+    ) ===
+    0
+  ) {
+    return {
+      label:
+        'Sin gestión OLP',
+
+      style:
+        styles.receiptHistorical,
+    };
+  }
+
+  const managedQuantity =
+    line.managedQuantity ??
+    line.acceptedQuantity ??
+    line.requestedQuantity;
+
+  if (
     line.receivedQuantity >=
-    line.requestedQuantity
+    managedQuantity
   ) {
     return {
       label:
@@ -319,7 +340,11 @@ function UniversalOrderHistorySection({
 
         pendingAfter:
           Math.max(
-            line.requestedQuantity -
+            (
+              line.managedQuantity ??
+              line.acceptedQuantity ??
+              line.requestedQuantity
+            ) -
             accumulated,
             0,
           ),
@@ -342,7 +367,10 @@ function UniversalOrderHistorySection({
           line,
         ) =>
           total +
-          line.requestedQuantity,
+          (
+            line.acceptedQuantity ??
+            line.requestedQuantity
+          ),
         0,
       );
 
@@ -758,7 +786,7 @@ export function PurchaseOrderOperationalView() {
   const {
     organizationId,
     hasPermission,
-    roles,
+    me,
   } =
     useRole();
 
@@ -775,12 +803,21 @@ export function PurchaseOrderOperationalView() {
       'purchase_orders.review_supplier',
     );
 
+  const activeOrganization =
+    me?.organizations.find(
+      (organization) =>
+        organization.id ===
+        organizationId,
+    );
+
   const isOlp =
-    roles.includes('OLP');
+    activeOrganization?.code ===
+    'OLP';
 
 
   const isMedicarte =
-    roles.includes('MEDICARTE');
+    activeOrganization?.code ===
+    'MEDICARTE';
 
   const canReceiveMedicarte =
     hasPermission(
@@ -828,10 +865,13 @@ export function PurchaseOrderOperationalView() {
   ] =
     useState('');
 
-
-
-
-
+  const [
+    olpQuantities,
+    setOlpQuantities,
+  ] =
+    useState<Record<string, string>>(
+      {},
+    );
 
   const [
     receiptQuantities,
@@ -864,6 +904,18 @@ export function PurchaseOrderOperationalView() {
         );
 
       setDetail(result);
+
+      /*
+       * La captura OLP representa únicamente la cantidad
+       * adicional de esta gestión.
+       *
+       * El acumulado viene persistido desde backend en
+       * line.managedQuantity.
+       */
+      setOlpQuantities(
+        {},
+      );
+
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -899,6 +951,89 @@ export function PurchaseOrderOperationalView() {
       return;
     }
 
+    const lines:
+      Array<{
+        purchaseOrderLineId: string;
+        managedQuantity: number;
+      }> =
+      [];
+
+    for (
+      const line of
+      detail.lines
+    ) {
+      const raw =
+        (
+          olpQuantities[
+            line.id
+          ] ??
+          ''
+        ).trim();
+
+      if (
+        raw ===
+        ''
+      ) {
+        continue;
+      }
+
+      const quantityNow =
+        Number(
+          raw,
+        );
+
+      const alreadyManaged =
+        line.managedQuantity ??
+        0;
+
+      const remaining =
+        Math.max(
+          line.requestedQuantity -
+          alreadyManaged,
+          0,
+        );
+
+      if (
+        !Number.isInteger(
+          quantityNow,
+        ) ||
+        quantityNow <=
+          0 ||
+        quantityNow >
+          remaining
+      ) {
+        setError(
+          `Para ${line.commercialCode} puedes gestionar ahora entre 1 y ${remaining} unidad(es).`,
+        );
+
+        return;
+      }
+
+      lines.push({
+        purchaseOrderLineId:
+          line.id,
+
+        /*
+         * IMPORTANTE:
+         * managedQuantity en el request es DELTA de esta
+         * operación. Backend lo suma al acumulado persistido.
+         */
+        managedQuantity:
+          quantityNow,
+      });
+    }
+
+    if (
+      lines.length ===
+      0
+    ) {
+      setError(
+        'Registra la cantidad que OLP gestionará ahora en al menos un producto.',
+      );
+
+      return;
+    }
+
     setBusy(true);
     setError(null);
 
@@ -908,6 +1043,7 @@ export function PurchaseOrderOperationalView() {
         detail.id,
         detail.version,
         shippingDate,
+        lines,
       );
 
       setAccepting(false);
@@ -1131,13 +1267,91 @@ export function PurchaseOrderOperationalView() {
       0;
 
 
-  const canAcceptThisOrder =
-    canAcceptOlp &&
-    !historical &&
-    !detail.olpAcceptedAt &&
-    ['DRAFT', 'ISSUED'].includes(
-      detail.technicalStatus,
+  const olpManagedTotal =
+    detail.lines.reduce(
+      (
+        total,
+        line,
+      ) =>
+        total +
+        (
+          line.managedQuantity ??
+          0
+        ),
+      0,
     );
+
+  const olpRemainingTotal =
+    detail.lines.reduce(
+      (
+        total,
+        line,
+      ) =>
+        total +
+        Math.max(
+          line.requestedQuantity -
+          (
+            line.managedQuantity ??
+            0
+          ),
+          0,
+        ),
+      0,
+    );
+
+  const olpManagingNowTotal =
+    detail.lines.reduce(
+      (
+        total,
+        line,
+      ) => {
+        const raw =
+          (
+            olpQuantities[
+              line.id
+            ] ??
+            ''
+          ).trim();
+
+        if (
+          raw ===
+          ''
+        ) {
+          return total;
+        }
+
+        const quantity =
+          Number(
+            raw,
+          );
+
+        return (
+          total +
+          (
+            Number.isInteger(
+              quantity,
+            ) &&
+            quantity >
+              0
+              ? quantity
+              : 0
+          )
+        );
+      },
+      0,
+    );
+
+  const canManageOlpQuantities =
+    isOlp &&
+    canAcceptOlp &&
+    ![
+      'REJECTED',
+      'CANCELLED',
+    ].includes(
+      detail.technicalStatus,
+    ) &&
+    olpRemainingTotal >
+      0;
 
 
   /*
@@ -1146,21 +1360,18 @@ export function PurchaseOrderOperationalView() {
    * sin convertir ni modificar información histórica.
    */
   const showOlpAcceptanceUi =
-    canAcceptThisOrder ||
-    (
-      isOlp &&
-      historical &&
-      !detail.olpAcceptedAt
-    );
+    canManageOlpQuantities;
 
-const olpStepText =
+
+  const olpStepText =
     detail.olpAcceptedAt
-      ? `Aceptada · Envío ${dateOnly(
+      ? `Gestionado ${olpManagedTotal} de ${detail.summary.requestedQuantity} · Entrega ${dateOnly(
           detail.olpCommittedDate,
         )}`
       : historical
-        ? 'Sin evidencia de gestión'
-        : 'Pendiente de aceptación';
+        ? 'Pendiente de gestión OLP'
+        : 'Pendiente de gestión';
+
 
   const medicarteStepText =
     detail.summary.receivedQuantity > 0
@@ -1437,6 +1648,15 @@ const olpStepText =
                   </th>
 
                   <th
+                    colSpan={2}
+                    className={
+                      styles.receptionGroup
+                    }
+                  >
+                    Recepción OLP
+                  </th>
+
+                  <th
                     colSpan={
                       showReceiptCaptureColumn
                         ? 4
@@ -1455,6 +1675,14 @@ const olpStepText =
                     styles.receptionSubHeader
                   }
                 >
+                  <th>
+                    Gestionado
+                  </th>
+
+                  <th>
+                    Gestionar ahora
+                  </th>
+
                   <th>
                     Estado
                   </th>
@@ -1517,6 +1745,88 @@ const olpStepText =
                         <td>
                           {
                             line.requestedQuantity
+                          }
+                        </td>
+
+                        <td>
+                          <strong>
+                            {
+                              line.managedQuantity ??
+                              0
+                            }
+                            {' / '}
+                            {
+                              line.requestedQuantity
+                            }
+                          </strong>
+                        </td>
+
+                        <td>
+                          {
+                            canManageOlpQuantities &&
+                            (
+                              line.managedQuantity ??
+                              0
+                            ) <
+                              line.requestedQuantity
+                              ? (
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={
+                                    Math.max(
+                                      line.requestedQuantity -
+                                      (
+                                        line.managedQuantity ??
+                                        0
+                                      ),
+                                      0,
+                                    )
+                                  }
+                                  step={1}
+                                  inputMode="numeric"
+                                  className={
+                                    styles.receiptQuantityInput
+                                  }
+                                  value={
+                                    olpQuantities[
+                                      line.id
+                                    ] ??
+                                    ''
+                                  }
+                                  disabled={
+                                    busy
+                                  }
+                                  aria-label={`Gestionar ahora OLP ${line.commercialCode}`}
+                                  onChange={(
+                                    event,
+                                  ) => {
+                                    const value =
+                                      event.target.value;
+
+                                    if (
+                                      value === '' ||
+                                      /^\d+$/.test(
+                                        value,
+                                      )
+                                    ) {
+                                      setOlpQuantities(
+                                        (
+                                          current,
+                                        ) => ({
+                                          ...current,
+
+                                          [
+                                            line.id
+                                          ]:
+                                            value,
+                                        }),
+                                      );
+                                    }
+                                  }}
+                                />
+                              )
+                              : '—'
                           }
                         </td>
 
@@ -1633,6 +1943,30 @@ const olpStepText =
                     </strong>
                   </td>
 
+                  <td>
+                    <strong>
+                      {
+                        olpManagedTotal
+                      }
+                      {' / '}
+                      {
+                        detail.summary
+                          .requestedQuantity
+                      }
+                    </strong>
+                  </td>
+
+                  <td>
+                    <strong>
+                      {
+                        olpManagingNowTotal >
+                          0
+                          ? olpManagingNowTotal
+                          : '—'
+                      }
+                    </strong>
+                  </td>
+
                   <td />
 
                   <td>
@@ -1717,7 +2051,8 @@ const olpStepText =
             styles.actionPanel
           }
         >
-          {detail.olpAcceptedAt ? (
+          {detail.olpAcceptedAt &&
+          !canManageOlpQuantities ? (
             <>
               <div>
                 <strong>
@@ -1725,8 +2060,8 @@ const olpStepText =
                 </strong>
 
                 <span>
-                  La orden fue aceptada y quedó disponible
-                  para la gestión de Medicarte.
+                  OLP confirmó las cantidades a gestionar y la orden quedó disponible
+                  para la recepción de Medicarte.
                 </span>
               </div>
 
@@ -1786,11 +2121,11 @@ const olpStepText =
 
                 <div>
                   <span>
-                    Revisa los productos y cantidades de la orden.
+                    Revisa el acumulado y registra únicamente la cantidad adicional que OLP gestionará ahora.
                   </span>
 
                   <span>
-                    Para aceptarla, define la fecha de entrega.
+                    Luego define la fecha de entrega para confirmar la gestión.
                   </span>
                 </div>
               </div>
@@ -1858,7 +2193,7 @@ const olpStepText =
                         setAccepting(true);
                       }}
                     >
-                      Aceptar OC
+                      Gestionar entrega
                     </button>
                   </div>
 
@@ -1870,7 +2205,7 @@ const olpStepText =
                     >
                       <div>
                         <strong>
-                          Confirmar aceptación
+                          Confirmar gestión de entrega
                         </strong>
 
                         <span>
@@ -1922,7 +2257,7 @@ const olpStepText =
                           {
                             busy
                               ? 'Confirmando...'
-                              : 'Confirmar aceptación'
+                              : 'Confirmar gestión'
                           }
                         </button>
                       </div>

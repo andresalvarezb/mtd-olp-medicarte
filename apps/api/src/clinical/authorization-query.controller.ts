@@ -63,6 +63,14 @@ const querySchema =
       ])
         .optional(),
 
+    operationalStatus:
+      z.enum([
+        'UNASSIGNED',
+        'ASSIGNED',
+        'CLOSED',
+      ])
+        .optional(),
+
     coverageType:
       z.enum([
         'PBS',
@@ -183,6 +191,13 @@ export class AuthorizationQueryController {
         ? {
             coverageType:
               parsed.coverageType,
+          }
+        : {}),
+
+      ...(parsed.operationalStatus
+        ? {
+            operationalStatus:
+              parsed.operationalStatus,
           }
         : {}),
     };

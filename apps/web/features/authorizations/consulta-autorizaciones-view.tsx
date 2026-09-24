@@ -31,7 +31,7 @@ function operationalLabel(
 ) {
   const labels = {
     UNASSIGNED:
-      'Sin asignar',
+      'Pendiente de recepción/asignación',
 
     ASSIGNED:
       'Lista para entrega/aplicación',
@@ -42,6 +42,34 @@ function operationalLabel(
 
   return labels[status];
 }
+
+function singlePurchaseOrderCode(
+  value:
+    string | null,
+) {
+  if (!value) {
+    return null;
+  }
+
+  const codes =
+    value
+      .split(',')
+      .map(
+        (candidate) =>
+          candidate.trim(),
+      )
+      .filter(Boolean);
+
+  if (
+    codes.length !==
+    1
+  ) {
+    return null;
+  }
+
+  return codes[0]!;
+}
+
 
 function fulfillmentTypeLabel(
   type:
@@ -184,7 +212,7 @@ export function ConsultaAutorizacionesView() {
     authorizationNumber: '',
     commercialCode: '',
     patient: '',
-    enablementStatus: '',
+    operationalStatus: '',
     coverageType: '',
   });
 
@@ -261,10 +289,10 @@ export function ConsultaAutorizacionesView() {
             }
           : {}),
 
-        ...(appliedFilters.enablementStatus
+        ...(appliedFilters.operationalStatus
           ? {
-              enablementStatus: appliedFilters.enablementStatus as NonNullable<
-                AuthorizationQueryFilters['enablementStatus']
+              operationalStatus: appliedFilters.operationalStatus as NonNullable<
+                AuthorizationQueryFilters['operationalStatus']
               >,
             }
           : {}),
@@ -307,7 +335,7 @@ export function ConsultaAutorizacionesView() {
       authorizationNumber: '',
       commercialCode: '',
       patient: '',
-      enablementStatus: '',
+      operationalStatus: '',
       coverageType: '',
     };
 
@@ -342,12 +370,28 @@ export function ConsultaAutorizacionesView() {
   }
 
   async function confirmFulfillment() {
+    const purchaseOrderCode =
+      singlePurchaseOrderCode(
+        selected?.purchaseOrder ??
+          null,
+      );
+
     if (
       !selected ||
       !organizationId ||
       !fulfillmentDate ||
       fulfilling
     ) {
+      return;
+    }
+
+    if (
+      !purchaseOrderCode
+    ) {
+      setFulfillmentError(
+        'No existe una única orden de compra asociada a la asignación disponible.',
+      );
+
       return;
     }
 
@@ -364,7 +408,10 @@ export function ConsultaAutorizacionesView() {
         organizationId,
         selected.id,
         {
+          purchaseOrderCode,
+
           fulfillmentType,
+
           effectiveDate:
             fulfillmentDate,
         },
@@ -425,7 +472,10 @@ export function ConsultaAutorizacionesView() {
       selected.operationalStatus ===
         'ASSIGNED' &&
       selected.remainingAssignedQuantity >
-        0,
+        0 &&
+      singlePurchaseOrderCode(
+        selected.purchaseOrder,
+      ) !== null,
     );
 
   return (
@@ -499,20 +549,31 @@ export function ConsultaAutorizacionesView() {
             <FilterField label="Estado">
               <select
                 className="control"
-                value={filters.enablementStatus}
+                value={filters.operationalStatus}
                 onChange={(event) =>
                   setFilters({
                     ...filters,
 
-                    enablementStatus: event.target.value,
+                    operationalStatus:
+                      event.target.value,
                   })
                 }
               >
-                <option value="">Todos</option>
+                <option value="">
+                  Todos
+                </option>
 
-                <option value="ENABLED">Habilitada</option>
+                <option value="UNASSIGNED">
+                  Pendiente de recepción/asignación
+                </option>
 
-                <option value="BLOCKED_SOURCE_STATUS">Bloqueada</option>
+                <option value="ASSIGNED">
+                  Lista para entrega/aplicación
+                </option>
+
+                <option value="CLOSED">
+                  Cerrada
+                </option>
               </select>
             </FilterField>
 
@@ -911,7 +972,7 @@ export function ConsultaAutorizacionesView() {
             <div className="authorization-detail-grid">
               <div>
                 <span>
-                  Cantidad elegible
+                  Cantidad asignada
                 </span>
 
                 <strong>
@@ -1261,7 +1322,7 @@ export function ConsultaAutorizacionesView() {
               <div className="authorization-operation-message">
                 {selected.operationalStatus ===
                 'UNASSIGNED'
-                  ? 'La autorización todavía no tiene inventario asignado.'
+                  ? 'La autorización aún no tiene producto recibido y asignado. OLP debe gestionar la cantidad y Medicarte debe confirmar la recepción antes de entregar o aplicar.'
                   : 'La gestión está disponible únicamente para Medicarte.'}
               </div>
             )}

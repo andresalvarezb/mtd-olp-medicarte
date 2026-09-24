@@ -235,9 +235,9 @@ export class InventoryAvailabilityRepository {
               NULLIF(
                 BTRIM(
                   COALESCE(
-                    pol.product_description,
-                    tap.descripcion_comercial,
                     tap.descripcion_generica,
+                    tap.descripcion_comercial,
+                    pol.product_description,
                     ''
                   )
                 ),
@@ -335,30 +335,21 @@ export class InventoryAvailabilityRepository {
 
 
           /*
-           * Recepción directa de OC.
+           * Recepción directa quantity-only.
            *
-           * El movimiento de inventario existe únicamente
-           * después de una recepción efectivamente confirmada.
+           * purchase_order_receipt_lines es la evidencia
+           * física moderna. No requiere inventory_lots
+           * ni inventory_movements.
            */
           SELECT DISTINCT
             por.purchase_order_id,
 
             pol.commercial_code,
 
-            il.dispensing_point_id
+            pol.dispensing_point_id
 
           FROM
-            inventory_movements im
-
-          JOIN
-            inventory_lots il
-              ON il.id =
-                 im.inventory_lot_id
-
-          JOIN
             purchase_order_receipt_lines porl
-              ON porl.id =
-                 im.source_id
 
           JOIN
             purchase_order_receipts por
@@ -371,13 +362,10 @@ export class InventoryAvailabilityRepository {
                  porl.purchase_order_line_id
 
           WHERE
-            im.movement_type =
-              'RECEIPT'
+            porl.received_quantity >
+              0
 
-            AND im.source_type =
-              'PURCHASE_ORDER_RECEIPT_LINE'
-
-            AND il.dispensing_point_id
+            AND pol.dispensing_point_id
               IS NOT NULL
         ),
 
@@ -539,33 +527,32 @@ export class InventoryAvailabilityRepository {
 
         receipt_events AS (
           /*
-           * Flujo actual:
-           * recepción directa de la OC.
+           * Flujo moderno quantity-only:
+           *
+           * una cantidad confirmada por MEDICARTE
+           * en purchase_order_receipt_lines ES
+           * existencia física operacional.
+           *
+           * No inventamos lote ni vencimiento.
            */
           SELECT
             por.purchase_order_id,
 
             pol.commercial_code,
 
-            il.dispensing_point_id,
+            COALESCE(
+              pol.dispensing_point_id,
+              mapping.dispensing_point_id
+            )
+              AS dispensing_point_id,
 
             SUM(
-              im.quantity_delta
+              porl.received_quantity
             )::int
               AS quantity
 
           FROM
-            inventory_movements im
-
-          JOIN
-            inventory_lots il
-              ON il.id =
-                 im.inventory_lot_id
-
-          JOIN
             purchase_order_receipt_lines porl
-              ON porl.id =
-                 im.source_id
 
           JOIN
             purchase_order_receipts por
@@ -577,27 +564,72 @@ export class InventoryAvailabilityRepository {
               ON pol.id =
                  porl.purchase_order_line_id
 
+          LEFT JOIN
+            tariff_annex_products tap
+              ON tap.codigo_producto =
+                 pol.commercial_code
+
+             AND tap.active =
+                 true
+
+          LEFT JOIN
+            product_delivery_point_mappings mapping
+              ON pol.dispensing_point_id
+                 IS NULL
+
+             AND BTRIM(
+                   COALESCE(
+                     tap.numero_expediente_invima,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             AND BTRIM(
+                   COALESCE(
+                     tap.consecutivo_invima_presentacion,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             AND mapping.invima_record_normalized =
+                 COALESCE(
+                   NULLIF(
+                     LTRIM(
+                       BTRIM(
+                         tap.numero_expediente_invima
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+             AND mapping.invima_presentation_normalized =
+                 COALESCE(
+                   NULLIF(
+                     LTRIM(
+                       BTRIM(
+                         tap.consecutivo_invima_presentacion
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
           WHERE
-            im.movement_type =
-              'RECEIPT'
-
-            AND im.source_type =
-              'PURCHASE_ORDER_RECEIPT_LINE'
-
-            AND im.quantity_delta >
+            porl.received_quantity >
               0
-
-            AND il.expiration_date >=
-              (
-                NOW()
-                AT TIME ZONE
-                'America/Bogota'
-              )::date
 
           GROUP BY
             por.purchase_order_id,
             pol.commercial_code,
-            il.dispensing_point_id
+            COALESCE(
+              pol.dispensing_point_id,
+              mapping.dispensing_point_id
+            )
 
 
           UNION ALL

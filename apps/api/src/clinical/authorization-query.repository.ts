@@ -28,6 +28,10 @@ import {
   DATABASE,
 } from '../tokens';
 
+import {
+  resolveAuthorizationOperationalStatus,
+} from './authorization-query-status';
+
 type Database =
   ReturnType<
     typeof createDatabase
@@ -41,6 +45,11 @@ export interface AuthorizationQueryFilters {
   enablementStatus?:
     | 'ENABLED'
     | 'BLOCKED_SOURCE_STATUS';
+
+  operationalStatus?:
+    | 'UNASSIGNED'
+    | 'ASSIGNED'
+    | 'CLOSED';
 
   coverageType?:
     | 'PBS'
@@ -161,8 +170,15 @@ export class AuthorizationQueryRepository {
      * -> el punto de esa línea está dentro
      *    de los scopes del usuario.
      *
-     * La asignación física se crea después,
-     * de forma atómica, al Entregar/Aplicar.
+     * La asignación física NO se decide aquí
+     * ni al Entregar/Aplicar.
+     *
+     * Se materializa durante la recepción
+     * de MEDICARTE en
+     * inventory_authorization_allocations.
+     *
+     * La relación AUTO -> OC solamente
+     * determina visibilidad y trazabilidad.
      */
     if (
       scope.organizationCode ===
@@ -417,6 +433,170 @@ export class AuthorizationQueryRepository {
       `);
     }
 
+    /*
+     * Estado operacional REAL de la AUTO.
+     *
+     * No se deriva de estados ni referencias logísticas
+     * históricas. La autoridad para ASSIGNED es
+     * exclusivamente inventory_authorization_allocations
+     * con saldo disponible.
+     */
+    if (
+      filters.operationalStatus ===
+      'CLOSED'
+    ) {
+      conditions.push(sql`
+        (
+          exists (
+            select 1
+
+            from
+              authorization_fulfillments
+                af_filter
+
+            where
+              af_filter.authorization_item_id =
+                i.id
+          )
+
+          or
+
+          exists (
+            select 1
+
+            from
+              patient_applications
+                pa_filter
+
+            where
+              pa_filter.authorization_item_id =
+                i.id
+
+              and pa_filter.status =
+                'CONFIRMED'
+          )
+        )
+      `);
+    }
+
+    if (
+      filters.operationalStatus ===
+      'ASSIGNED'
+    ) {
+      conditions.push(sql`
+        not exists (
+          select 1
+
+          from
+            authorization_fulfillments
+              af_filter
+
+          where
+            af_filter.authorization_item_id =
+              i.id
+        )
+
+        and not exists (
+          select 1
+
+          from
+            patient_applications
+              pa_filter
+
+          where
+            pa_filter.authorization_item_id =
+              i.id
+
+            and pa_filter.status =
+              'CONFIRMED'
+        )
+
+        and exists (
+          select 1
+
+          from
+            inventory_authorization_allocations
+              iaa_filter
+
+          where
+            iaa_filter.authorization_item_id =
+              i.id
+
+            and iaa_filter.status in (
+              'ALLOCATED',
+              'PARTIALLY_CONSUMED'
+            )
+
+            and (
+              iaa_filter.allocated_quantity
+              -
+              iaa_filter.consumed_quantity
+              -
+              iaa_filter.released_quantity
+            ) > 0
+        )
+      `);
+    }
+
+    if (
+      filters.operationalStatus ===
+      'UNASSIGNED'
+    ) {
+      conditions.push(sql`
+        not exists (
+          select 1
+
+          from
+            authorization_fulfillments
+              af_filter
+
+          where
+            af_filter.authorization_item_id =
+              i.id
+        )
+
+        and not exists (
+          select 1
+
+          from
+            patient_applications
+              pa_filter
+
+          where
+            pa_filter.authorization_item_id =
+              i.id
+
+            and pa_filter.status =
+              'CONFIRMED'
+        )
+
+        and not exists (
+          select 1
+
+          from
+            inventory_authorization_allocations
+              iaa_filter
+
+          where
+            iaa_filter.authorization_item_id =
+              i.id
+
+            and iaa_filter.status in (
+              'ALLOCATED',
+              'PARTIALLY_CONSUMED'
+            )
+
+            and (
+              iaa_filter.allocated_quantity
+              -
+              iaa_filter.consumed_quantity
+              -
+              iaa_filter.released_quantity
+            ) > 0
+        )
+      `);
+    }
+
     const where =
       sql.join(
         conditions,
@@ -605,16 +785,9 @@ export class AuthorizationQueryRepository {
             'APPLIED'
 
           when
-            greatest(
-              coalesce(
-                allocation.remaining_quantity,
-                0
-              ),
-
-              coalesce(
-                eligibility.eligible_quantity,
-                0
-              )
+            coalesce(
+              allocation.remaining_quantity,
+              0
             )
             >
             0
@@ -657,16 +830,9 @@ export class AuthorizationQueryRepository {
             'CLOSED'
 
           when
-            greatest(
-              coalesce(
-                allocation.remaining_quantity,
-                0
-              ),
-
-              coalesce(
-                eligibility.eligible_quantity,
-                0
-              )
+            coalesce(
+              allocation.remaining_quantity,
+              0
             )
             >
             0
@@ -678,29 +844,15 @@ export class AuthorizationQueryRepository {
         end
           as operational_status,
 
-        greatest(
-          coalesce(
-            allocation.allocated_quantity,
-            0
-          ),
-
-          coalesce(
-            eligibility.eligible_quantity,
-            0
-          )
+        coalesce(
+          allocation.allocated_quantity,
+          0
         )::int
           as allocated_quantity,
 
-        greatest(
-          coalesce(
-            allocation.remaining_quantity,
-            0
-          ),
-
-          coalesce(
-            eligibility.eligible_quantity,
-            0
-          )
+        coalesce(
+          allocation.remaining_quantity,
+          0
         )::int
           as remaining_assigned_quantity,
 
@@ -794,14 +946,14 @@ export class AuthorizationQueryRepository {
           coalesce(
             nullif(
               btrim(
-                tap.descripcion_comercial
+                tap.descripcion_generica
               ),
               ''
             ),
 
             nullif(
               btrim(
-                tap.descripcion_generica
+                tap.descripcion_comercial
               ),
               ''
             )
@@ -1188,7 +1340,19 @@ export class AuthorizationQueryRepository {
         row.logistics_status,
 
       operationalStatus:
-        row.operational_status,
+        resolveAuthorizationOperationalStatus({
+          hasFulfillment:
+            Boolean(
+              row.fulfillment_id,
+            ),
+
+          remainingAssignedQuantity:
+            Number(
+              row.remaining_assigned_quantity
+              ??
+              0,
+            ),
+        }),
 
       allocatedQuantity:
         Number(

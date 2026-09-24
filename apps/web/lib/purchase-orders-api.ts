@@ -30,6 +30,7 @@ export type SupplierPurchaseOrderLine = {
   dispensingPointName: string | null;
   requestedQuantity: number;
   acceptedQuantity: number | null;
+  managedQuantity: number | null;
   shortage: number;
   requestedDeliveryDate: string | null;
   supplierUnitCost: string | null;
@@ -189,7 +190,7 @@ export function reviewSupplierLine(
   lineId: string,
   body: { expectedVersion: number; acceptedQuantity: number; supplierUnitCost?: number },
 ) {
-  return apiRequest<PurchaseOrderResponse>(
+  return apiRequest<SupplierPurchaseOrderResponse>(
     `/supplier/purchase-orders/${id}/lines/${lineId}/review`,
     { method: 'POST', organizationId, body: JSON.stringify(body) },
   );
@@ -199,7 +200,7 @@ export function completeSupplierReview(
   id: string,
   expectedVersion: number,
 ) {
-  return apiRequest<PurchaseOrderResponse>(`/supplier/purchase-orders/${id}/complete-review`, {
+  return apiRequest<SupplierPurchaseOrderResponse>(`/supplier/purchase-orders/${id}/complete-review`, {
     method: 'POST',
     organizationId,
     body: JSON.stringify({ expectedVersion }),
@@ -382,6 +383,8 @@ export type PurchaseOrderOperationalLine = Readonly<{
   requestedQuantity: number;
 
   acceptedQuantity: number | null;
+
+  managedQuantity: number | null;
 
   dispatchedQuantity: number;
 
@@ -584,6 +587,10 @@ export function acceptOperationalPurchaseOrder(
   id: string,
   expectedVersion: number,
   shippingDate: string,
+  lines: ReadonlyArray<{
+    purchaseOrderLineId: string;
+    managedQuantity: number;
+  }>,
   observation?: string,
 ) {
   return apiRequest<SupplierPurchaseOrderResponse>(
@@ -598,6 +605,8 @@ export function acceptOperationalPurchaseOrder(
 
         committedDate:
           shippingDate,
+
+        lines,
 
         ...(observation === undefined
           ? {}
