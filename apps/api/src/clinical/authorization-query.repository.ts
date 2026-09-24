@@ -436,14 +436,10 @@ export class AuthorizationQueryRepository {
     /*
      * Estado operacional REAL de la AUTO.
      *
-     * Nunca se deriva de:
-     * - operation_status
-     * - process_status
-     * - orden_compra
-     * - purchase_order_authorization_sources
-     *
-     * La autoridad para ASSIGNED es exclusivamente
-     * inventory_authorization_allocations con saldo.
+     * No se deriva de estados ni referencias logísticas
+     * históricas. La autoridad para ASSIGNED es
+     * exclusivamente inventory_authorization_allocations
+     * con saldo disponible.
      */
     if (
       filters.operationalStatus ===
