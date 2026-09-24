@@ -547,12 +547,16 @@ export class ReceiptRepository {
             id: string;
             commercial_code: string;
             requested_quantity: number;
+            accepted_quantity: number | null;
+            olp_managed_quantity: number | null;
             dispensing_point_id: string | null;
           }>(sql`
             select
               pol.id,
               pol.commercial_code,
               pol.requested_quantity,
+              pol.accepted_quantity,
+              pol.olp_managed_quantity,
 
               coalesce(
                 pol.dispensing_point_id,
@@ -729,7 +733,10 @@ export class ReceiptRepository {
                 ) ?? 0;
 
               const remaining =
-                line.requested_quantity -
+                Number(
+                  line.olp_managed_quantity ??
+                  0,
+                ) -
                 already;
 
               if (
@@ -820,6 +827,23 @@ export class ReceiptRepository {
         }
 
         /*
+         * La recepción física es el momento autoritativo
+         * para decidir qué autorizaciones de ESTA OC quedan
+         * cubiertas.
+         *
+         * No depende del orden en que posteriormente un
+         * usuario intente entregar/aplicar una autorización.
+         */
+        const automaticAllocation =
+          await this.allocateDirectReceiptByAuthorizationUrgency(
+            tx,
+            purchaseOrderId,
+            receiptId,
+            scope,
+          );
+
+
+        /*
          * IMPORTANTE:
          *
          * No llamamos recordConfirmedPurchaseOrderReceipt()
@@ -840,7 +864,10 @@ export class ReceiptRepository {
                 select
                   coalesce(
                     sum(
-                      requested_quantity
+                      coalesce(
+                        olp_managed_quantity,
+                        0
+                      )
                     ),
                     0
                   )::int
@@ -953,6 +980,8 @@ export class ReceiptRepository {
               historicalContinuation:
                 orderRow.origin ===
                 'LEGACY_BACKFILL',
+
+              automaticAllocation,
             })}::jsonb,
             ${scope.correlationId},
             ${scope.correlationId},
@@ -978,6 +1007,1045 @@ export class ReceiptRepository {
         };
       },
     );
+  }
+
+
+
+  /*
+   * Asignación automática de inventario recibido
+   * a las autorizaciones que originaron la OC.
+   *
+   * REGLA:
+   *
+   * 1. La asociación OC -> AUTO viene exclusivamente de
+   *    purchase_order_authorization_sources.
+   *
+   * 2. La prioridad entre AUTO se determina por:
+   *
+   *    FECHA_FINAL_VIGENCIA ASC
+   *    FECHA_ASIGNACION ASC
+   *    authorization_key ASC
+   *    authorization_item_id ASC
+   *
+   * 3. Una AUTO se asigna completa o no se asigna.
+   *
+   * 4. Una recepción posterior únicamente cubre AUTO
+   *    todavía pendientes.
+   *
+   * 5. NO usa lotes ni fecha de vencimiento física
+   *    del medicamento.
+   */
+  private async allocateDirectReceiptByAuthorizationUrgency(
+    tx: Tx,
+    purchaseOrderId: string,
+    receiptId: string,
+    scope: Scope,
+  ) {
+    /*
+     * Identificar los pools afectados en ESTA recepción.
+     *
+     * Pool:
+     * OC + producto + punto.
+     */
+    const pools =
+      await tx.execute<{
+        commercial_code: string;
+
+        dispensing_point_id:
+          string | null;
+
+        received_now:
+          number;
+      }>(sql`
+        select
+          pol.commercial_code,
+
+          coalesce(
+            pol.dispensing_point_id,
+            mapped.dispensing_point_id
+          )
+            as dispensing_point_id,
+
+          sum(
+            porl.received_quantity
+          )::int
+            as received_now
+
+        from
+          purchase_order_receipt_lines porl
+
+        join purchase_order_lines pol
+          on pol.id =
+             porl.purchase_order_line_id
+
+        left join tariff_annex_products tap
+          on tap.codigo_producto =
+             pol.commercial_code
+
+         and tap.active =
+             true
+
+        left join product_delivery_point_mappings mapped
+          on pol.dispensing_point_id
+             is null
+
+         and btrim(
+               coalesce(
+                 tap.numero_expediente_invima,
+                 ''
+               )
+             ) ~ '^[0-9]+$'
+
+         and btrim(
+               coalesce(
+                 tap.consecutivo_invima_presentacion,
+                 ''
+               )
+             ) ~ '^[0-9]+$'
+
+         and mapped.invima_record_normalized =
+             coalesce(
+               nullif(
+                 ltrim(
+                   btrim(
+                     tap.numero_expediente_invima
+                   ),
+                   '0'
+                 ),
+                 ''
+               ),
+               '0'
+             )
+
+         and mapped.invima_presentation_normalized =
+             coalesce(
+               nullif(
+                 ltrim(
+                   btrim(
+                     tap.consecutivo_invima_presentacion
+                   ),
+                   '0'
+                 ),
+                 ''
+               ),
+               '0'
+             )
+
+        where
+          porl.receipt_id =
+            ${receiptId}
+
+          and porl.received_quantity >
+            0
+
+        group by
+          pol.commercial_code,
+
+          coalesce(
+            pol.dispensing_point_id,
+            mapped.dispensing_point_id
+          )
+      `);
+
+
+    const assignments:
+      Array<{
+        authorizationItemId:
+          string;
+
+        authorizationKey:
+          string;
+
+        commercialCode:
+          string;
+
+        dispensingPointId:
+          string;
+
+        quantity:
+          number;
+
+        authorizationExpiration:
+          string;
+
+        authorizationAssignmentDate:
+          string | null;
+      }> =
+      [];
+
+
+    let totalAssigned =
+      0;
+
+
+    const allocationOwner =
+      await tx.execute<{
+        id: string;
+      }>(sql`
+        select
+          id
+
+        from
+          organizations
+
+        where code =
+          'MTD'
+
+        order by
+          id
+
+        limit 2
+      `);
+
+
+    if (
+      allocationOwner.rows.length !==
+      1
+    ) {
+      throw new Error(
+        'DIRECT_RECEIPT_MTD_ORGANIZATION_NOT_FOUND',
+      );
+    }
+
+
+    const allocationOrganizationId =
+      allocationOwner.rows[0]!.id;
+
+
+    for (
+      const pool of
+      pools.rows
+    ) {
+      if (
+        !pool.dispensing_point_id
+      ) {
+        throw new Error(
+          'DIRECT_RECEIPT_POINT_NOT_FOUND',
+        );
+      }
+
+      const dispensingPointId =
+        pool.dispensing_point_id;
+
+
+      /*
+       * Serialización por pool.
+       *
+       * Aunque la OC ya está bloqueada, este lock deja
+       * explícita la frontera de concurrencia de inventario.
+       */
+      const lockKey =
+        [
+          'OC_AUTO_ALLOCATION',
+          purchaseOrderId,
+          pool.commercial_code,
+          dispensingPointId,
+        ].join(':');
+
+      await tx.execute(sql`
+        select
+          pg_advisory_xact_lock(
+            hashtextextended(
+              ${lockKey},
+              0
+            )
+          )
+      `);
+
+
+      /*
+       * Resolver todas las líneas de la OC que pertenecen
+       * al mismo producto + punto.
+       */
+      const poolLines =
+        await tx.execute<{
+          id: string;
+        }>(sql`
+          select
+            pol.id
+
+          from
+            purchase_order_lines pol
+
+          left join tariff_annex_products tap
+            on tap.codigo_producto =
+               pol.commercial_code
+
+           and tap.active =
+               true
+
+          left join product_delivery_point_mappings mapped
+            on pol.dispensing_point_id
+               is null
+
+           and btrim(
+                 coalesce(
+                   tap.numero_expediente_invima,
+                   ''
+                 )
+               ) ~ '^[0-9]+$'
+
+           and btrim(
+                 coalesce(
+                   tap.consecutivo_invima_presentacion,
+                   ''
+                 )
+               ) ~ '^[0-9]+$'
+
+           and mapped.invima_record_normalized =
+               coalesce(
+                 nullif(
+                   ltrim(
+                     btrim(
+                       tap.numero_expediente_invima
+                     ),
+                     '0'
+                   ),
+                   ''
+                 ),
+                 '0'
+               )
+
+           and mapped.invima_presentation_normalized =
+               coalesce(
+                 nullif(
+                   ltrim(
+                     btrim(
+                       tap.consecutivo_invima_presentacion
+                     ),
+                     '0'
+                   ),
+                   ''
+                 ),
+                 '0'
+               )
+
+          where
+            pol.purchase_order_id =
+              ${purchaseOrderId}
+
+            and pol.commercial_code =
+              ${pool.commercial_code}
+
+            and coalesce(
+                  pol.dispensing_point_id,
+                  mapped.dispensing_point_id
+                ) =
+                ${dispensingPointId}
+
+          order by
+            pol.id
+
+          for share of pol
+        `);
+
+
+      const poolLineIds =
+        poolLines.rows.map(
+          (line) =>
+            line.id,
+        );
+
+      if (
+        poolLineIds.length ===
+        0
+      ) {
+        continue;
+      }
+
+
+      /*
+       * Total recibido acumulado de este pool.
+       *
+       * No usamos únicamente lo recibido "ahora",
+       * porque una segunda recepción debe continuar
+       * donde terminó la primera.
+       */
+      const received =
+        await tx.execute<{
+          quantity: number;
+        }>(sql`
+          select
+            coalesce(
+              sum(
+                porl.received_quantity
+              ),
+              0
+            )::int
+              as quantity
+
+          from
+            purchase_order_receipt_lines porl
+
+          join purchase_order_receipts por
+            on por.id =
+               porl.receipt_id
+
+          where
+            por.purchase_order_id =
+              ${purchaseOrderId}
+
+            and porl.purchase_order_line_id
+                in (
+                  ${sql.join(
+                    poolLineIds.map(
+                      (id) =>
+                        sql`${id}`,
+                    ),
+                    sql`,`,
+                  )}
+                )
+        `);
+
+
+      /*
+       * Cantidad del pool que ya fue asociada
+       * históricamente a autorizaciones.
+       *
+       * consumed_quantity NO libera capacidad:
+       * una unidad ya consumida sigue correspondiendo
+       * a una unidad recibida anteriormente.
+       *
+       * released_quantity sí la libera.
+       */
+      const allocationState =
+        await tx.execute<{
+          quantity: number;
+        }>(sql`
+          select
+            coalesce(
+              sum(
+                greatest(
+                  allocated_quantity
+                  -
+                  released_quantity,
+                  0
+                )
+              ),
+              0
+            )::int
+              as quantity
+
+          from
+            inventory_authorization_allocations
+
+          where
+            purchase_order_id =
+              ${purchaseOrderId}
+
+            and commercial_code =
+              ${pool.commercial_code}
+
+            and dispensing_point_id =
+              ${dispensingPointId}
+        `);
+
+
+      const receivedQuantity =
+        Number(
+          received.rows[0]
+            ?.quantity ??
+          0,
+        );
+
+      const alreadyAssigned =
+        Number(
+          allocationState.rows[0]
+            ?.quantity ??
+          0,
+        );
+
+      let available =
+        Math.max(
+          receivedQuantity -
+          alreadyAssigned,
+          0,
+        );
+
+      if (
+        available <=
+        0
+      ) {
+        continue;
+      }
+
+
+      /*
+       * Candidatas exclusivamente provenientes de ESTA OC.
+       *
+       * source_quantity_snapshot protege la cantidad
+       * comprometida cuando se creó la OC.
+       *
+       * Si la cantidad actual de la AUTO disminuyó,
+       * no asignamos por encima de la necesidad actual.
+       *
+       * Si aumentó, esta OC antigua tampoco cubre el aumento.
+       */
+      const candidates =
+        await tx.execute<{
+          authorization_item_id:
+            string;
+
+          authorization_key:
+            string;
+
+          authorization_version:
+            number;
+
+          required_quantity:
+            number;
+
+          expiration_date:
+            string;
+
+          assignment_date:
+            string | null;
+        }>(sql`
+          with source_snapshot as (
+            select
+              poas.authorization_item_id,
+
+              sum(
+                poas.source_quantity_snapshot
+              )::int
+                as snapshot_quantity
+
+            from
+              purchase_order_authorization_sources poas
+
+            where
+              poas.purchase_order_line_id
+                in (
+                  ${sql.join(
+                    poolLineIds.map(
+                      (id) =>
+                        sql`${id}`,
+                    ),
+                    sql`,`,
+                  )}
+                )
+
+            group by
+              poas.authorization_item_id
+          ),
+
+
+          candidates_normalized as (
+            select
+              ai.id
+                as authorization_item_id,
+
+              ai.authorization_key,
+
+              ai.version
+                as authorization_version,
+
+              case
+                when btrim(
+                       coalesce(
+                         ai.source_data
+                           ->> 'CANTIDAD',
+                         ''
+                       )
+                     )
+                     ~ '^[1-9][0-9]*$'
+
+                then least(
+                  source_snapshot.snapshot_quantity,
+
+                  (
+                    ai.source_data
+                      ->> 'CANTIDAD'
+                  )::int
+                )
+
+                else
+                  source_snapshot.snapshot_quantity
+              end::int
+                as required_quantity,
+
+
+              /*
+               * FECHA_FINAL_VIGENCIA:
+               * soportar ambos formatos que ya maneja
+               * el dominio histórico.
+               */
+              case
+                when btrim(
+                       coalesce(
+                         ai.source_data
+                           ->> 'FECHA_FINAL_VIGENCIA',
+                         ''
+                       )
+                     )
+                     ~ '^[0-9]{8}$'
+
+                then to_date(
+                  ai.source_data
+                    ->> 'FECHA_FINAL_VIGENCIA',
+
+                  'YYYYMMDD'
+                )
+
+
+                when btrim(
+                       coalesce(
+                         ai.source_data
+                           ->> 'FECHA_FINAL_VIGENCIA',
+                         ''
+                       )
+                     )
+                     ~
+                     '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+
+                then to_date(
+                  ai.source_data
+                    ->> 'FECHA_FINAL_VIGENCIA',
+
+                  'YYYY-MM-DD'
+                )
+
+
+                else
+                  null
+              end
+                as expiration_date,
+
+
+              /*
+               * FECHA_ASIGNACION es únicamente
+               * desempate secundario.
+               */
+              case
+                when btrim(
+                       coalesce(
+                         ai.source_data
+                           ->> 'FECHA_ASIGNACION',
+                         ''
+                       )
+                     )
+                     ~ '^[0-9]{8}$'
+
+                then to_date(
+                  ai.source_data
+                    ->> 'FECHA_ASIGNACION',
+
+                  'YYYYMMDD'
+                )
+
+
+                when btrim(
+                       coalesce(
+                         ai.source_data
+                           ->> 'FECHA_ASIGNACION',
+                         ''
+                       )
+                     )
+                     ~
+                     '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+
+                then to_date(
+                  ai.source_data
+                    ->> 'FECHA_ASIGNACION',
+
+                  'YYYY-MM-DD'
+                )
+
+
+                else
+                  null
+              end
+                as assignment_date
+
+            from
+              source_snapshot
+
+            join authorization_items ai
+              on ai.id =
+                 source_snapshot.authorization_item_id
+
+            where
+              ai.source_status_normalized =
+                '5'
+
+              and ai.enablement_status =
+                'ENABLED'
+
+              and not exists (
+                select
+                  1
+
+                from
+                  patient_applications pa
+
+                where
+                  pa.authorization_item_id =
+                    ai.id
+
+                  and pa.status =
+                    'CONFIRMED'
+              )
+          )
+
+
+          select
+            candidate.authorization_item_id,
+
+            candidate.authorization_key,
+
+            candidate.authorization_version,
+
+            candidate.required_quantity,
+
+            candidate.expiration_date::text
+              as expiration_date,
+
+            candidate.assignment_date::text
+              as assignment_date
+
+          from
+            candidates_normalized candidate
+
+          where
+            candidate.required_quantity >
+              0
+
+            and candidate.expiration_date
+                is not null
+
+            /*
+             * Una AUTO vencida al momento de la
+             * recepción no puede ganar asignación.
+             */
+            and candidate.expiration_date >=
+              (
+                now()
+                at time zone
+                'America/Bogota'
+              )::date
+
+            and not exists (
+              select
+                1
+
+              from
+                authorization_fulfillments af
+
+              where
+                af.authorization_item_id =
+                  candidate.authorization_item_id
+            )
+
+            and not exists (
+              select
+                1
+
+              from
+                inventory_authorization_allocations iaa
+
+              where
+                iaa.authorization_item_id =
+                  candidate.authorization_item_id
+
+                and iaa.purchase_order_id =
+                  ${purchaseOrderId}
+
+                and iaa.commercial_code =
+                  ${pool.commercial_code}
+
+                and iaa.dispensing_point_id =
+                  ${dispensingPointId}
+
+                and (
+                  iaa.allocated_quantity
+                  -
+                  iaa.released_quantity
+                ) >
+                0
+            )
+
+          order by
+            /*
+             * REGLA PRINCIPAL:
+             * la AUTO con vencimiento más próximo
+             * es la más urgente.
+             */
+            candidate.expiration_date
+              asc,
+
+            candidate.assignment_date
+              asc nulls last,
+
+            candidate.authorization_key
+              asc,
+
+            candidate.authorization_item_id
+              asc
+        `);
+
+
+      /*
+       * Whole-AUTO allocation.      /*
+       * Whole-AUTO allocation.
+       *
+       * Si una AUTO necesita 2 y queda solo 1,
+       * no se parte. Se evalúa la siguiente AUTO.
+       */
+      const planned:
+        Array<{
+          authorizationItemId:
+            string;
+
+          authorizationKey:
+            string;
+
+          authorizationVersion:
+            number;
+
+          quantity:
+            number;
+
+          expirationDate:
+            string;
+
+          assignmentDate:
+            string | null;
+        }> =
+        [];
+
+
+      for (
+        const candidate of
+        candidates.rows
+      ) {
+        const quantity =
+          Number(
+            candidate.required_quantity,
+          );
+
+        if (
+          !Number.isInteger(
+            quantity,
+          ) ||
+          quantity <=
+            0
+        ) {
+          continue;
+        }
+
+        if (
+          quantity >
+          available
+        ) {
+          continue;
+        }
+
+        planned.push({
+          authorizationItemId:
+            candidate.authorization_item_id,
+
+          authorizationKey:
+            candidate.authorization_key,
+
+          authorizationVersion:
+            candidate.authorization_version,
+
+          quantity,
+
+          expirationDate:
+            candidate.expiration_date,
+
+          assignmentDate:
+            candidate.assignment_date,
+        });
+
+        available -=
+          quantity;
+
+        if (
+          available <=
+          0
+        ) {
+          break;
+        }
+      }
+
+
+      if (
+        planned.length ===
+        0
+      ) {
+        continue;
+      }
+
+
+      const poolAssigned =
+        planned.reduce(
+          (
+            total,
+            item,
+          ) =>
+            total +
+            item.quantity,
+          0,
+        );
+
+
+      /*
+       * inventory_authorization_allocations exige batch.
+       *
+       * Reutilizamos source = UI porque el modelo actual
+       * solamente permite UI/XLSX. Este batch es interno
+       * y NO aparece en historial XLSX.
+       */
+      const batch =
+        await tx.execute<{
+          id: string;
+        }>(sql`
+          insert into
+            inventory_allocation_batches
+          (
+            organization_id,
+            source,
+            import_batch_id,
+            status,
+            total_rows,
+            valid_rows,
+            invalid_rows,
+            allocated_quantity,
+            correlation_id,
+            created_by,
+            confirmed_by,
+            confirmed_at
+          )
+          values
+          (
+            ${allocationOrganizationId},
+            'UI',
+            null,
+            'CONFIRMED',
+            ${planned.length},
+            ${planned.length},
+            0,
+            ${poolAssigned},
+            ${scope.correlationId},
+            ${scope.userId},
+            ${scope.userId},
+            now()
+          )
+          returning
+            id
+        `);
+
+
+      for (
+        const item of
+        planned
+      ) {
+        await tx.execute(sql`
+          insert into
+            inventory_authorization_allocations
+          (
+            batch_id,
+            source_import_row_id,
+            organization_id,
+            authorization_item_id,
+            purchase_order_id,
+            commercial_code,
+            dispensing_point_id,
+            allocated_quantity,
+            consumed_quantity,
+            released_quantity,
+            status,
+            authorization_version,
+            created_by,
+            updated_by
+          )
+          values
+          (
+            ${batch.rows[0]!.id},
+            null,
+            ${allocationOrganizationId},
+            ${item.authorizationItemId},
+            ${purchaseOrderId},
+            ${pool.commercial_code},
+            ${dispensingPointId},
+            ${item.quantity},
+            0,
+            0,
+            'ALLOCATED',
+            ${item.authorizationVersion},
+            ${scope.userId},
+            ${scope.userId}
+          )
+        `);
+
+
+        assignments.push({
+          authorizationItemId:
+            item.authorizationItemId,
+
+          authorizationKey:
+            item.authorizationKey,
+
+          commercialCode:
+            pool.commercial_code,
+
+          dispensingPointId,
+
+          quantity:
+            item.quantity,
+
+          authorizationExpiration:
+            item.expirationDate,
+
+          authorizationAssignmentDate:
+            item.assignmentDate,
+        });
+
+        totalAssigned +=
+          item.quantity;
+      }
+    }
+
+
+    const receivedNow =
+      pools.rows.reduce(
+        (
+          total,
+          pool,
+        ) =>
+          total +
+          Number(
+            pool.received_now,
+          ),
+        0,
+      );
+
+
+    return {
+      strategy:
+        'AUTHORIZATION_EXPIRATION_ASC',
+
+      allocationOrganizationId,
+
+      wholeAuthorization:
+        true,
+
+      receivedNow,
+
+      assignedNow:
+        totalAssigned,
+
+      unassignedNow:
+        Math.max(
+          receivedNow -
+          totalAssigned,
+          0,
+        ),
+
+      assignments,
+    };
   }
 
 

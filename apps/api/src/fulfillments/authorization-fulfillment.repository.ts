@@ -33,6 +33,12 @@ import {
   DATABASE,
 } from '../tokens';
 
+import {
+  resolveAuthorizationFulfillmentInventoryMode,
+  type AuthorizationFulfillmentInventoryMode,
+} from './authorization-fulfillment-inventory-mode';
+
+
 type Database =
   ReturnType<
     typeof createDatabase
@@ -133,15 +139,6 @@ export class AuthorizationFulfillmentRepository {
           );
         }
 
-        await this.ensureAutomaticAllocation(
-          tx,
-          authorizationItemId,
-          authorization.commercial_code,
-          body.purchaseOrderCode,
-          body.effectiveDate,
-          scope,
-        );
-
         const allocations =
           await this.lockAllocations(
             tx,
@@ -220,35 +217,62 @@ export class AuthorizationFulfillmentRepository {
           ],
         );
 
-        const lots =
-          await this.lockFefoLots(
+        /*
+         * La asignación ya fue decidida al confirmar
+         * la recepción de MEDICARTE.
+         *
+         * Fulfillment NO puede volver a escoger una AUTO.
+         *
+         * DIRECT_RECEIPT:
+         *   purchase_order_receipt_lines es la autoridad
+         *   de existencia quantity-only.
+         *
+         * LOT_LEDGER:
+         *   conserva la arquitectura histórica FEFO.
+         */
+        const inventoryMode =
+          await this.resolveInventoryMode(
             tx,
-            authorization.commercial_code,
-            dispensingPointId,
-            body.effectiveDate,
+            allocations,
           );
 
-        const physicalAvailable =
-          lots.reduce(
-            (
-              total,
-              lot,
-            ) =>
-              total +
-              Math.max(
-                lot.balance,
-                0,
-              ),
-            0,
-          );
+        const lots =
+          inventoryMode ===
+          'LOT_LEDGER'
+            ? await this.lockFefoLots(
+                tx,
+                authorization.commercial_code,
+                dispensingPointId,
+                body.effectiveDate,
+              )
+            : [];
 
         if (
-          physicalAvailable <
-          assignedQuantity
+          inventoryMode ===
+          'LOT_LEDGER'
         ) {
-          throw new Error(
-            'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY',
-          );
+          const physicalAvailable =
+            lots.reduce(
+              (
+                total,
+                lot,
+              ) =>
+                total +
+                Math.max(
+                  lot.balance,
+                  0,
+                ),
+              0,
+            );
+
+          if (
+            physicalAvailable <
+            assignedQuantity
+          ) {
+            throw new Error(
+              'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY',
+            );
+          }
         }
 
         const inserted =
@@ -284,163 +308,250 @@ export class AuthorizationFulfillmentRepository {
             `)
           ).rows[0]!;
 
-        let lotIndex = 0;
-        let lotRemaining =
-          lots[0]?.balance ?? 0;
-
-        for (
-          const allocation
-          of allocations
+        if (
+          inventoryMode ===
+          'DIRECT_RECEIPT'
         ) {
-          let allocationRemaining =
-            Math.max(
-              allocation.allocated_quantity -
-                allocation.consumed_quantity -
-                allocation.released_quantity,
-              0,
-            );
-
-          while (
-            allocationRemaining > 0
+          /*
+           * Flujo moderno quantity-only.
+           *
+           * La cantidad ya quedó reservada para esta AUTO
+           * en inventory_authorization_allocations durante
+           * la recepción de MEDICARTE.
+           *
+           * No existe lote físico y no debemos fabricarlo.
+           */
+          for (
+            const allocation
+            of allocations
           ) {
-            const lot =
-              lots[lotIndex];
-
-            if (!lot) {
-              throw new Error(
-                'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY',
+            const quantity =
+              Math.max(
+                allocation.allocated_quantity -
+                  allocation.consumed_quantity -
+                  allocation.released_quantity,
+                0,
               );
-            }
 
-            if (lotRemaining <= 0) {
-              lotIndex += 1;
-
-              lotRemaining =
-                lots[lotIndex]
-                  ?.balance ?? 0;
-
+            if (
+              quantity <= 0
+            ) {
               continue;
             }
 
-            const quantity =
-              Math.min(
-                allocationRemaining,
-                lotRemaining,
-              );
-
-            const line =
-              (
-                await tx.execute<{
-                  id: string;
-                }>(sql`
-                  insert into
-                    authorization_fulfillment_lines
-                  (
-                    fulfillment_id,
-                    inventory_authorization_allocation_id,
-                    purchase_order_id,
-                    inventory_lot_id,
-                    commercial_code,
-                    dispensing_point_id,
-                    lot_number,
-                    expiration_date,
-                    quantity
-                  )
-                  values
-                  (
-                    ${inserted.id},
-                    ${allocation.id},
-                    ${allocation.purchase_order_id},
-                    ${lot.id},
-                    ${authorization.commercial_code},
-                    ${dispensingPointId},
-                    ${lot.lot_number},
-                    ${lot.expiration_date}::date,
-                    ${quantity}
-                  )
-                  returning id
-                `)
-              ).rows[0]!;
-
-            const movementType =
-              body.fulfillmentType ===
-              'APPLICATION'
-                ? 'FULFILLMENT_APPLICATION'
-                : 'FULFILLMENT_DELIVERY';
-
             await tx.execute(sql`
               insert into
-                inventory_movements
+                authorization_fulfillment_lines
               (
+                fulfillment_id,
+                inventory_authorization_allocation_id,
+                purchase_order_id,
                 inventory_lot_id,
-                movement_type,
-                quantity_delta,
-                source_type,
-                source_id,
-                occurred_at,
-                created_by,
-                metadata
+                commercial_code,
+                dispensing_point_id,
+                lot_number,
+                expiration_date,
+                quantity
               )
               values
               (
-                ${lot.id},
-                ${movementType},
-                ${-quantity},
-                'AUTH_FULFILLMENT_LINE',
-                ${line.id},
-                (
-                  ${body.effectiveDate}::date
-                  ::timestamp
-                  at time zone
-                  'America/Bogota'
-                ),
-                ${scope.userId},
-                ${JSON.stringify({
-                  authorizationItemId,
-                  fulfillmentId:
-                    inserted.id,
-                  fulfillmentType:
-                    body.fulfillmentType,
-                  source,
-                })}::jsonb
+                ${inserted.id},
+                ${allocation.id},
+                ${allocation.purchase_order_id},
+                null,
+                ${authorization.commercial_code},
+                ${dispensingPointId},
+                null,
+                null,
+                ${quantity}
               )
             `);
 
-            allocationRemaining -=
-              quantity;
+            await tx.execute(sql`
+              update
+                inventory_authorization_allocations
 
-            lotRemaining -=
-              quantity;
+              set
+                consumed_quantity =
+                  consumed_quantity +
+                  ${quantity},
+
+                status =
+                  'CONSUMED',
+
+                updated_by =
+                  ${scope.userId},
+
+                updated_at =
+                  now()
+
+              where
+                id =
+                  ${allocation.id}
+            `);
           }
+        } else {
+          /*
+           * Compatibilidad histórica:
+           * lote real + FEFO + inventory_movements.
+           */
+          let lotIndex = 0;
+          let lotRemaining =
+            lots[0]?.balance ?? 0;
 
-          await tx.execute(sql`
-            update
-              inventory_authorization_allocations
+          for (
+            const allocation
+            of allocations
+          ) {
+            let allocationRemaining =
+              Math.max(
+                allocation.allocated_quantity -
+                  allocation.consumed_quantity -
+                  allocation.released_quantity,
+                0,
+              );
 
-            set
-              consumed_quantity =
-                consumed_quantity
-                +
-                ${Math.max(
-                  allocation.allocated_quantity -
-                    allocation.consumed_quantity -
-                    allocation.released_quantity,
-                  0,
-                )},
+            const quantityToConsume =
+              allocationRemaining;
 
-              status =
-                'CONSUMED',
+            while (
+              allocationRemaining > 0
+            ) {
+              const lot =
+                lots[lotIndex];
 
-              updated_by =
-                ${scope.userId},
+              if (!lot) {
+                throw new Error(
+                  'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY',
+                );
+              }
 
-              updated_at =
-                now()
+              if (
+                lotRemaining <= 0
+              ) {
+                lotIndex += 1;
 
-            where
-              id =
-                ${allocation.id}
-          `);
+                lotRemaining =
+                  lots[lotIndex]
+                    ?.balance ?? 0;
+
+                continue;
+              }
+
+              const quantity =
+                Math.min(
+                  allocationRemaining,
+                  lotRemaining,
+                );
+
+              const line =
+                (
+                  await tx.execute<{
+                    id: string;
+                  }>(sql`
+                    insert into
+                      authorization_fulfillment_lines
+                    (
+                      fulfillment_id,
+                      inventory_authorization_allocation_id,
+                      purchase_order_id,
+                      inventory_lot_id,
+                      commercial_code,
+                      dispensing_point_id,
+                      lot_number,
+                      expiration_date,
+                      quantity
+                    )
+                    values
+                    (
+                      ${inserted.id},
+                      ${allocation.id},
+                      ${allocation.purchase_order_id},
+                      ${lot.id},
+                      ${authorization.commercial_code},
+                      ${dispensingPointId},
+                      ${lot.lot_number},
+                      ${lot.expiration_date}::date,
+                      ${quantity}
+                    )
+                    returning id
+                  `)
+                ).rows[0]!;
+
+              const movementType =
+                body.fulfillmentType ===
+                'APPLICATION'
+                  ? 'FULFILLMENT_APPLICATION'
+                  : 'FULFILLMENT_DELIVERY';
+
+              await tx.execute(sql`
+                insert into
+                  inventory_movements
+                (
+                  inventory_lot_id,
+                  movement_type,
+                  quantity_delta,
+                  source_type,
+                  source_id,
+                  occurred_at,
+                  created_by,
+                  metadata
+                )
+                values
+                (
+                  ${lot.id},
+                  ${movementType},
+                  ${-quantity},
+                  'AUTH_FULFILLMENT_LINE',
+                  ${line.id},
+                  (
+                    ${body.effectiveDate}::date
+                    ::timestamp
+                    at time zone
+                    'America/Bogota'
+                  ),
+                  ${scope.userId},
+                  ${JSON.stringify({
+                    authorizationItemId,
+                    fulfillmentId:
+                      inserted.id,
+                    fulfillmentType:
+                      body.fulfillmentType,
+                    source,
+                  })}::jsonb
+                )
+              `);
+
+              allocationRemaining -=
+                quantity;
+
+              lotRemaining -=
+                quantity;
+            }
+
+            await tx.execute(sql`
+              update
+                inventory_authorization_allocations
+
+              set
+                consumed_quantity =
+                  consumed_quantity +
+                  ${quantityToConsume},
+
+                status =
+                  'CONSUMED',
+
+                updated_by =
+                  ${scope.userId},
+
+                updated_at =
+                  now()
+
+              where
+                id =
+                  ${allocation.id}
+            `);
+          }
         }
 
         await tx.execute(sql`
@@ -475,6 +586,7 @@ export class AuthorizationFulfillmentRepository {
                 assignedQuantity,
               dispensingPointId,
               source,
+              inventoryMode,
             })}::jsonb,
             ${scope.correlationId},
             ${scope.correlationId},
@@ -611,531 +723,130 @@ export class AuthorizationFulfillmentRepository {
     ).rows[0];
   }
 
-  private async ensureAutomaticAllocation(
+  private async resolveInventoryMode(
     tx: Tx,
-    authorizationItemId: string,
-    commercialCode: string,
-    purchaseOrderCode: string,
-    effectiveDate: string,
-    scope: Scope,
-  ): Promise<void> {
-    const existing =
-      await tx.execute<{
-        id: string;
-      }>(sql`
-        select
-          iaa.id
+    allocations: AllocationRow[],
+  ): Promise<
+    AuthorizationFulfillmentInventoryMode
+  > {
+    const purchaseOrderIds =
+      [
+        ...new Set(
+          allocations.map(
+            (row) =>
+              row.purchase_order_id,
+          ),
+        ),
+      ];
 
-        from
-          inventory_authorization_allocations iaa
-
-        join purchase_orders po
-          on po.id =
-             iaa.purchase_order_id
-
-        where
-          iaa.authorization_item_id =
-            ${authorizationItemId}
-
-          and po.purchase_order_code =
-            ${purchaseOrderCode}
-
-          and iaa.status in (
-            'ALLOCATED',
-            'PARTIALLY_CONSUMED'
-          )
-
-          and (
-            iaa.allocated_quantity
-            -
-            iaa.consumed_quantity
-            -
-            iaa.released_quantity
-          ) > 0
-
-        limit 1
-
-        for update of iaa
-      `);
+    const commercialCodes =
+      [
+        ...new Set(
+          allocations.map(
+            (row) =>
+              row.commercial_code,
+          ),
+        ),
+      ];
 
     if (
-      existing.rows[0]
+      purchaseOrderIds.length === 0 ||
+      commercialCodes.length !== 1
     ) {
-      return;
+      throw new Error(
+        'AUTHORIZATION_FULFILLMENT_ALLOCATION_REQUIRED',
+      );
     }
 
+    const commercialCode =
+      commercialCodes[0]!;
 
-    const source =
+    const flow =
       await tx.execute<{
-        purchase_order_id: string;
-        purchase_order_code: string;
-        authorization_version: number;
-        required_quantity: number;
-        dispensing_point_id: string | null;
+        has_direct_receipt: boolean;
+        has_legacy_delivery: boolean;
       }>(sql`
         select
-          po.id
-            as purchase_order_id,
-
-          po.purchase_order_code,
-
-          ai.version
-            as authorization_version,
-
-          sum(
-            poas.source_quantity_snapshot
-          )::int
-            as required_quantity,
-
-          (
+          exists (
             select
-              ps.dispensing_point_id
+              1
 
             from
-              patient_schedules ps
+              purchase_order_receipts por
+
+            join
+              purchase_order_receipt_lines porl
+                on porl.receipt_id =
+                   por.id
+
+            join
+              purchase_order_lines pol
+                on pol.id =
+                   porl.purchase_order_line_id
 
             where
-              ps.authorization_item_id =
-                ai.id
-
-              and ps.status in (
-                'SCHEDULED',
-                'RESCHEDULED'
+              por.purchase_order_id in (
+                ${sql.join(
+                  purchaseOrderIds.map(
+                    (id) =>
+                      sql`${id}`,
+                  ),
+                  sql`,`,
+                )}
               )
 
-            order by
-              ps.scheduled_date desc,
-              ps.revision desc,
-              ps.created_at desc,
-              ps.id desc
+              and pol.commercial_code =
+                ${commercialCode}
 
-            limit 1
+              and porl.received_quantity >
+                0
           )
-            as dispensing_point_id
+            as has_direct_receipt,
 
-        from
-          purchase_order_authorization_sources poas
+          exists (
+            select
+              1
 
-        join purchase_order_lines pol
-          on pol.id =
-             poas.purchase_order_line_id
+            from
+              deliveries d
 
-        join purchase_orders po
-          on po.id =
-             pol.purchase_order_id
+            join
+              delivery_lines dl
+                on dl.delivery_id =
+                   d.id
 
-        join authorization_items ai
-          on ai.id =
-             poas.authorization_item_id
+            where
+              d.purchase_order_id in (
+                ${sql.join(
+                  purchaseOrderIds.map(
+                    (id) =>
+                      sql`${id}`,
+                  ),
+                  sql`,`,
+                )}
+              )
 
-        where
-          poas.authorization_item_id =
-            ${authorizationItemId}
-
-          and po.purchase_order_code =
-            ${purchaseOrderCode}
-
-          and pol.commercial_code =
-            ${commercialCode}
-
-          and po.status not in (
-            'CANCELLED',
-            'REJECTED'
+              and dl.commercial_code =
+                ${commercialCode}
           )
-
-        group by
-          po.id,
-          po.purchase_order_code,
-          ai.id,
-          ai.version
-
-        limit 2
+            as has_legacy_delivery
       `);
 
-    if (
-      source.rows.length !==
-      1
-    ) {
-      throw new Error(
-        'AUTHORIZATION_FULFILLMENT_OC_NOT_ELIGIBLE',
-      );
-    }
+    return (
+      resolveAuthorizationFulfillmentInventoryMode({
+        hasDirectReceipt:
+          Boolean(
+            flow.rows[0]
+              ?.has_direct_receipt,
+          ),
 
-    const target =
-      source.rows[0]!;
-
-    if (
-      !target.dispensing_point_id
-    ) {
-      throw new Error(
-        'AUTHORIZATION_FULFILLMENT_SCHEDULE_REQUIRED',
-      );
-    }
-
-    if (
-      target.required_quantity <=
-      0
-    ) {
-      throw new Error(
-        'AUTHORIZATION_FULFILLMENT_QUANTITY_INVALID',
-      );
-    }
-
-
-    /*
-     * Serializa:
-     * OC + producto + punto.
-     *
-     * Dos usuarios pueden intentar consumir la última unidad
-     * al mismo tiempo; solamente uno debe ganar.
-     */
-    const poolLockKey =
-      [
-        'OC_POOL',
-        target.purchase_order_id,
-        commercialCode,
-        target.dispensing_point_id,
-      ].join(':');
-
-    await tx.execute(sql`
-      select
-        pg_advisory_xact_lock(
-          hashtextextended(
-            ${poolLockKey},
-            0
-          )
-        )
-    `);
-
-
-    /*
-     * Revalidar después del advisory lock.
-     */
-    const duplicate =
-      await tx.execute<{
-        id: string;
-      }>(sql`
-        select
-          iaa.id
-
-        from
-          inventory_authorization_allocations iaa
-
-        where
-          iaa.authorization_item_id =
-            ${authorizationItemId}
-
-          and iaa.purchase_order_id =
-            ${target.purchase_order_id}
-
-          and iaa.status in (
-            'ALLOCATED',
-            'PARTIALLY_CONSUMED'
-          )
-
-          and (
-            iaa.allocated_quantity
-            -
-            iaa.consumed_quantity
-            -
-            iaa.released_quantity
-          ) > 0
-
-        limit 1
-
-        for update
-      `);
-
-    if (
-      duplicate.rows[0]
-    ) {
-      return;
-    }
-
-
-    /*
-     * Cantidad efectivamente recibida para esta OC/producto/punto.
-     *
-     * Se usa el ledger físico (inventory_movements) porque incluye
-     * tanto la recepción histórica delivery/receipt como la recepción
-     * directa de la OC.
-     */
-    const received =
-      await tx.execute<{
-        quantity: number;
-      }>(sql`
-        with received_sources as (
-          select
-            im.quantity_delta
-              as quantity
-
-          from
-            inventory_movements im
-
-          join inventory_lots il
-            on il.id =
-               im.inventory_lot_id
-
-          join purchase_order_receipt_lines porl
-            on porl.id =
-               im.source_id
-
-          join purchase_order_receipts por
-            on por.id =
-               porl.receipt_id
-
-          join purchase_order_lines pol
-            on pol.id =
-               porl.purchase_order_line_id
-
-          where
-            im.movement_type =
-              'RECEIPT'
-
-            and im.source_type =
-              'PURCHASE_ORDER_RECEIPT_LINE'
-
-            and por.purchase_order_id =
-              ${target.purchase_order_id}
-
-            and pol.commercial_code =
-              ${commercialCode}
-
-            and il.dispensing_point_id =
-              ${target.dispensing_point_id}
-
-            and il.expiration_date >=
-              ${effectiveDate}::date
-
-          union all
-
-          select
-            im.quantity_delta
-              as quantity
-
-          from
-            inventory_movements im
-
-          join inventory_lots il
-            on il.id =
-               im.inventory_lot_id
-
-          join receipt_lines rl
-            on rl.id =
-               im.source_id
-
-          join delivery_lines dl
-            on dl.id =
-               rl.delivery_line_id
-
-          join deliveries d
-            on d.id =
-               dl.delivery_id
-
-          where
-            im.movement_type =
-              'RECEIPT'
-
-            and im.source_type =
-              'RECEIPT_LINE'
-
-            and d.purchase_order_id =
-              ${target.purchase_order_id}
-
-            and dl.commercial_code =
-              ${commercialCode}
-
-            and il.dispensing_point_id =
-              ${target.dispensing_point_id}
-
-            and il.expiration_date >=
-              ${effectiveDate}::date
-        )
-
-        select
-          coalesce(
-            sum(quantity),
-            0
-          )::int
-            as quantity
-
-        from
-          received_sources
-      `);
-
-
-    const allocationState =
-      await tx.execute<{
-        consumed: number;
-        assigned: number;
-      }>(sql`
-        select
-          coalesce(
-            sum(
-              consumed_quantity
-            ),
-            0
-          )::int
-            as consumed,
-
-          coalesce(
-            sum(
-              case
-                when status in (
-                  'ALLOCATED',
-                  'PARTIALLY_CONSUMED'
-                )
-                then greatest(
-                  allocated_quantity
-                  -
-                  consumed_quantity
-                  -
-                  released_quantity,
-                  0
-                )
-                else 0
-              end
-            ),
-            0
-          )::int
-            as assigned
-
-        from
-          inventory_authorization_allocations
-
-        where
-          purchase_order_id =
-            ${target.purchase_order_id}
-
-          and commercial_code =
-            ${commercialCode}
-
-          and dispensing_point_id =
-            ${target.dispensing_point_id}
-      `);
-
-
-    const receivedQuantity =
-      received.rows[0]?.quantity ??
-      0;
-
-    const consumedQuantity =
-      allocationState.rows[0]?.consumed ??
-      0;
-
-    const assignedQuantity =
-      allocationState.rows[0]?.assigned ??
-      0;
-
-    const availableQuantity =
-      Math.max(
-        receivedQuantity
-        -
-        consumedQuantity
-        -
-        assignedQuantity,
-        0,
-      );
-
-
-    /*
-     * Regla crítica:
-     * jamás reservar ni consumir parcialmente una autorización.
-     */
-    if (
-      availableQuantity <
-      target.required_quantity
-    ) {
-      throw new Error(
-        'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_OC_POOL',
-      );
-    }
-
-
-    /*
-     * Se conserva la tabla histórica de allocations como ledger
-     * interno, pero ya no requiere cargue manual.
-     *
-     * El batch se genera automáticamente y no aparece en el
-     * historial XLSX porque source = UI.
-     */
-    const batch =
-      await tx.execute<{
-        id: string;
-      }>(sql`
-        insert into
-          inventory_allocation_batches
-        (
-          organization_id,
-          source,
-          import_batch_id,
-          status,
-          total_rows,
-          valid_rows,
-          invalid_rows,
-          allocated_quantity,
-          correlation_id,
-          created_by,
-          confirmed_by,
-          confirmed_at
-        )
-        values
-        (
-          ${scope.organizationId},
-          'UI',
-          null,
-          'CONFIRMED',
-          1,
-          1,
-          0,
-          ${target.required_quantity},
-          ${scope.correlationId},
-          ${scope.userId},
-          ${scope.userId},
-          now()
-        )
-        returning
-          id
-      `);
-
-
-    await tx.execute(sql`
-      insert into
-        inventory_authorization_allocations
-      (
-        batch_id,
-        source_import_row_id,
-        organization_id,
-        authorization_item_id,
-        purchase_order_id,
-        commercial_code,
-        dispensing_point_id,
-        allocated_quantity,
-        consumed_quantity,
-        released_quantity,
-        status,
-        authorization_version,
-        created_by,
-        updated_by
-      )
-      values
-      (
-        ${batch.rows[0]!.id},
-        null,
-        ${scope.organizationId},
-        ${authorizationItemId},
-        ${target.purchase_order_id},
-        ${commercialCode},
-        ${target.dispensing_point_id},
-        ${target.required_quantity},
-        0,
-        0,
-        'ALLOCATED',
-        ${target.authorization_version},
-        ${scope.userId},
-        ${scope.userId}
-      )
-    `);
+        hasLegacyDelivery:
+          Boolean(
+            flow.rows[0]
+              ?.has_legacy_delivery,
+          ),
+      })
+    );
   }
 
 

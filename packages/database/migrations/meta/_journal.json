@@ -561,6 +561,27 @@
       "when": 1790546867663,
       "tag": "0080_dispensation_medicarte_access",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1790546868663,
+      "tag": "0081_purchase_order_olp_managed_quantity",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1790546869663,
+      "tag": "0082_purchase_order_olp_cumulative_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1790546870663,
+      "tag": "0083_direct_receipt_fulfillment",
+      "breakpoints": true
     }
   ]
 }

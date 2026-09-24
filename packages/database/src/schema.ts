@@ -852,6 +852,15 @@ export const purchaseOrderLines = pgTable(
       onDelete: 'restrict',
     }),
     requestedQuantity: integer('requested_quantity').notNull(),
+
+    /*
+     * Cantidad operacional que OLP confirma que gestionará
+     * dentro de la OC universal.
+     *
+     * No reemplaza accepted_quantity del flujo supplier legacy.
+     */
+    olpManagedQuantity: integer('olp_managed_quantity'),
+
     acceptedQuantity: integer('accepted_quantity'),
     requestedDeliveryDate: date('requested_delivery_date'),
     compensarUnitRateSnapshot: varchar('compensar_unit_rate_snapshot', { length: 255 }),
@@ -874,6 +883,12 @@ export const purchaseOrderLines = pgTable(
       table.projectedDemandRevision,
     ),
     check('purchase_order_lines_requested_quantity_check', sql`${table.requestedQuantity} > 0`),
+
+    check(
+      'purchase_order_lines_olp_managed_quantity_check',
+      sql`${table.olpManagedQuantity} IS NULL OR (${table.olpManagedQuantity} >= 0 AND ${table.olpManagedQuantity} <= ${table.requestedQuantity})`,
+    ),
+
     check(
       'purchase_order_lines_accepted_quantity_check',
       sql`${table.acceptedQuantity} IS NULL OR (${table.acceptedQuantity} >= 0 AND ${table.acceptedQuantity} <= ${table.requestedQuantity})`,
@@ -3598,7 +3613,6 @@ export const authorizationFulfillmentLines = pgTable(
       }),
 
     inventoryLotId: uuid('inventory_lot_id')
-      .notNull()
       .references(() => inventoryLots.id, {
         onDelete: 'restrict',
       }),
@@ -3615,9 +3629,9 @@ export const authorizationFulfillmentLines = pgTable(
 
     lotNumber: varchar('lot_number', {
       length: 255,
-    }).notNull(),
+    }),
 
-    expirationDate: date('expiration_date').notNull(),
+    expirationDate: date('expiration_date'),
 
     quantity: integer('quantity').notNull(),
   },
@@ -3630,15 +3644,49 @@ export const authorizationFulfillmentLines = pgTable(
       table.inventoryAuthorizationAllocationId,
     ),
 
-    unique('authorization_fulfillment_lines_identity_unique').on(
-      table.fulfillmentId,
-      table.inventoryAuthorizationAllocationId,
-      table.inventoryLotId,
-    ),
+    uniqueIndex(
+      'authorization_fulfillment_lines_lot_unique',
+    )
+      .on(
+        table.fulfillmentId,
+        table.inventoryAuthorizationAllocationId,
+        table.inventoryLotId,
+      )
+      .where(
+        sql`${table.inventoryLotId} IS NOT NULL`,
+      ),
+
+    uniqueIndex(
+      'authorization_fulfillment_lines_direct_unique',
+    )
+      .on(
+        table.fulfillmentId,
+        table.inventoryAuthorizationAllocationId,
+      )
+      .where(
+        sql`${table.inventoryLotId} IS NULL`,
+      ),
 
     check(
       'authorization_fulfillment_lines_quantity_check',
       sql`${table.quantity} > 0`,
+    ),
+
+    check(
+      'authorization_fulfillment_lines_evidence_check',
+      sql`
+        (
+          ${table.inventoryLotId} IS NULL
+          AND ${table.lotNumber} IS NULL
+          AND ${table.expirationDate} IS NULL
+        )
+        OR
+        (
+          ${table.inventoryLotId} IS NOT NULL
+          AND ${table.lotNumber} IS NOT NULL
+          AND ${table.expirationDate} IS NOT NULL
+        )
+      `,
     ),
   ],
 );

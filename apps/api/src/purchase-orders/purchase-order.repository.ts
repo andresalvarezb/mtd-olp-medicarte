@@ -50,6 +50,7 @@ type PurchaseOrderJoinedRow = {
   dispensing_point_name: string | null;
   requested_quantity: number | null;
   accepted_quantity: number | null;
+  olp_managed_quantity: number | null;
   requested_delivery_date: string | null;
   compensar_unit_rate_snapshot: string | null;
   supplier_unit_cost: string | null;
@@ -170,6 +171,12 @@ export class PurchaseOrderRepository {
 
       committedDate: string;
 
+      lines: ReadonlyArray<{
+        purchaseOrderLineId: string;
+
+        managedQuantity: number;
+      }>;
+
       observation?: string;
     },
 
@@ -177,28 +184,21 @@ export class PurchaseOrderRepository {
   ) {
     return this.database.db.transaction(
       async (tx) => {
-        /*
-         * La aceptación OLP es evidencia operacional nueva.
-         *
-         * Las OC LEGACY_BACKFILL permanecen técnicamente
-         * HISTORICAL_ONLY para no alterar la procedencia
-         * reconstruida ni violar purchase_orders_origin_shape_check.
-         *
-         * Su avance operacional se determina mediante
-         * olp_accepted_at / olp_committed_date.
-         */
         const result =
           await tx.execute<{
             version: number;
 
             status: string;
 
+            origin: string;
+
             olp_accepted_at:
-              Date | null;
+              Date | string | null;
           }>(sql`
             select
               version,
               status,
+              origin,
               olp_accepted_at
 
             from
@@ -234,19 +234,9 @@ export class PurchaseOrderRepository {
         }
 
         if (
-          order.olp_accepted_at !==
-          null
-        ) {
-          throw new Error(
-            'PURCHASE_ORDER_ALREADY_ACCEPTED',
-          );
-        }
-
-        if (
-          ![
-            'DRAFT',
-            'ISSUED',
-            'HISTORICAL_ONLY',
+          [
+            'REJECTED',
+            'CANCELLED',
           ].includes(
             order.status,
           )
@@ -257,21 +247,27 @@ export class PurchaseOrderRepository {
         }
 
 
-        /*
-         * Siempre exigimos al menos una línea real en la OC.
-         */
         const orderLines =
           await tx.execute<{
             id: string;
+
+            requested_quantity:
+              number;
+
+            olp_managed_quantity:
+              number | null;
           }>(sql`
             select
-              id
+              id,
+              requested_quantity,
+              olp_managed_quantity
 
             from
               purchase_order_lines
 
             where
-              purchase_order_id = ${id}
+              purchase_order_id =
+                ${id}
 
             order by
               id
@@ -289,65 +285,360 @@ export class PurchaseOrderRepository {
         }
 
 
-        /*
-         * OC operacionales:
-         * OLP acepta la totalidad solicitada.
-         *
-         * OC históricas:
-         * NO modificamos accepted_quantity porque esa columna
-         * pertenece a la evidencia reconstruida y además puede
-         * estar sujeta al constraint histórico de supplier cost.
-         */
+        const sourceById =
+          new Map(
+            orderLines.rows.map(
+              (line) => [
+                line.id,
+                line,
+              ],
+            ),
+          );
+
+        const seen =
+          new Set<string>();
+
+        const changes:
+          Array<{
+            purchaseOrderLineId:
+              string;
+
+            requestedQuantity:
+              number;
+
+            previousManagedQuantity:
+              number;
+
+            managedQuantityNow:
+              number;
+
+            managedQuantityAfter:
+              number;
+          }> =
+          [];
+
+        for (
+          const inputLine of
+          input.lines
+        ) {
+          if (
+            seen.has(
+              inputLine.purchaseOrderLineId,
+            )
+          ) {
+            throw new Error(
+              'PURCHASE_ORDER_MANAGED_LINES_MISMATCH',
+            );
+          }
+
+          seen.add(
+            inputLine.purchaseOrderLineId,
+          );
+
+          const source =
+            sourceById.get(
+              inputLine.purchaseOrderLineId,
+            );
+
+          if (!source) {
+            throw new Error(
+              'PURCHASE_ORDER_MANAGED_LINES_MISMATCH',
+            );
+          }
+
+          const requestedQuantity =
+            Number(
+              source.requested_quantity,
+            );
+
+          const previousManagedQuantity =
+            Number(
+              source.olp_managed_quantity ??
+              0,
+            );
+
+          const managedQuantityNow =
+            inputLine.managedQuantity;
+
+          const remaining =
+            Math.max(
+              requestedQuantity -
+              previousManagedQuantity,
+              0,
+            );
+
+          if (
+            !Number.isInteger(
+              managedQuantityNow,
+            ) ||
+            managedQuantityNow <=
+              0 ||
+            managedQuantityNow >
+              remaining
+          ) {
+            throw new Error(
+              'PURCHASE_ORDER_MANAGED_QUANTITY_INVALID',
+            );
+          }
+
+          changes.push({
+            purchaseOrderLineId:
+              source.id,
+
+            requestedQuantity,
+
+            previousManagedQuantity,
+
+            managedQuantityNow,
+
+            managedQuantityAfter:
+              previousManagedQuantity +
+              managedQuantityNow,
+          });
+        }
+
         if (
-          order.status !==
-          'HISTORICAL_ONLY'
+          changes.length ===
+          0
+        ) {
+          throw new Error(
+            'PURCHASE_ORDER_MANAGED_QUANTITY_REQUIRED',
+          );
+        }
+
+
+        for (
+          const change of
+          changes
         ) {
           await tx.execute(sql`
             update
               purchase_order_lines
 
             set
-              accepted_quantity =
-                requested_quantity,
+              olp_managed_quantity =
+                ${change.managedQuantityAfter},
 
               updated_at =
                 now()
 
             where
-              purchase_order_id =
+              id =
+                ${change.purchaseOrderLineId}
+
+              and purchase_order_id =
                 ${id}
           `);
         }
 
 
+        const managedAfterByLine =
+          new Map(
+            orderLines.rows.map(
+              (line) => [
+                line.id,
+
+                Number(
+                  line.olp_managed_quantity ??
+                  0,
+                ),
+              ],
+            ),
+          );
+
+        for (
+          const change of
+          changes
+        ) {
+          managedAfterByLine.set(
+            change.purchaseOrderLineId,
+            change.managedQuantityAfter,
+          );
+        }
+
+
+        const totalRequested =
+          orderLines.rows.reduce(
+            (
+              total,
+              line,
+            ) =>
+              total +
+              Number(
+                line.requested_quantity,
+              ),
+            0,
+          );
+
+        const totalManagedAfter =
+          orderLines.rows.reduce(
+            (
+              total,
+              line,
+            ) =>
+              total +
+              (
+                managedAfterByLine.get(
+                  line.id,
+                ) ??
+                0
+              ),
+            0,
+          );
+
+        const totalManagedNow =
+          changes.reduce(
+            (
+              total,
+              change,
+            ) =>
+              total +
+              change.managedQuantityNow,
+            0,
+          );
+
+        const fullyManaged =
+          orderLines.rows.every(
+            (line) =>
+              (
+                managedAfterByLine.get(
+                  line.id,
+                ) ??
+                0
+              ) >=
+              Number(
+                line.requested_quantity,
+              ),
+          );
+
+
         /*
-         * Para LEGACY_BACKFILL conservamos HISTORICAL_ONLY.
-         * Cambiarlo a ACCEPTED rompería el shape constraint.
-         *
-         * La aceptación OLP se persiste independientemente
-         * en sus columnas operacionales.
+         * Puede existir recepción Medicarte de una gestión
+         * OLP anterior. Si OLP amplía luego la cantidad
+         * gestionada, el estado vuelve a quedar pendiente
+         * de recepción por la diferencia.
          */
+        const received =
+          await tx.execute<{
+            quantity: number;
+          }>(sql`
+            with receipt_sources as (
+              select
+                porl.received_quantity
+                  as quantity
+
+              from
+                purchase_order_receipt_lines porl
+
+              join
+                purchase_order_receipts por
+                  on por.id =
+                     porl.receipt_id
+
+              where
+                por.purchase_order_id =
+                  ${id}
+
+
+              union all
+
+
+              select
+                rl.received_quantity
+                  as quantity
+
+              from
+                receipt_lines rl
+
+              join
+                receipts r
+                  on r.id =
+                     rl.receipt_id
+
+              join
+                delivery_lines dl
+                  on dl.id =
+                     rl.delivery_line_id
+
+              join
+                deliveries d
+                  on d.id =
+                     dl.delivery_id
+
+              where
+                d.purchase_order_id =
+                  ${id}
+
+                and r.status =
+                  'CONFIRMED'
+            )
+
+            select
+              coalesce(
+                sum(
+                  quantity
+                ),
+                0
+              )::int
+                as quantity
+
+            from
+              receipt_sources
+          `);
+
+        const totalReceived =
+          Number(
+            received.rows[0]
+              ?.quantity ??
+            0,
+          );
+
+
+        const nextStatus =
+          order.origin ===
+            'LEGACY_BACKFILL' ||
+          order.status ===
+            'HISTORICAL_ONLY'
+            ? 'HISTORICAL_ONLY'
+            : totalReceived >
+                0
+              ? totalReceived >=
+                  totalManagedAfter
+                ? 'RECEIVED'
+                : 'PARTIALLY_RECEIVED'
+              : fullyManaged
+                ? 'ACCEPTED'
+                : 'PARTIALLY_ACCEPTED';
+
+
         await tx.execute(sql`
           update
             purchase_orders
 
           set
             status =
-              case
-                when status =
-                  'HISTORICAL_ONLY'
-                  then
-                    'HISTORICAL_ONLY'
-                else
-                  'ACCEPTED'
-              end,
+              ${nextStatus},
 
+            /*
+             * Primera gestión OLP.
+             * No se reescribe en gestiones posteriores.
+             */
             olp_accepted_at =
-              now(),
+              coalesce(
+                olp_accepted_at,
+                now()
+              ),
 
             olp_accepted_by =
-              ${actor.userId},
+              coalesce(
+                olp_accepted_by,
+                ${actor.userId}
+              ),
 
+            /*
+             * Fecha comprometida de la gestión más reciente.
+             * Cada valor histórico permanece en audit_events.
+             */
             olp_committed_date =
               ${input.committedDate}::date,
 
@@ -361,26 +652,50 @@ export class PurchaseOrderRepository {
               ${actor.userId}
 
           where
-            id = ${id}
+            id =
+              ${id}
         `);
 
 
         await this.audit(
           tx,
           actor,
-          'PURCHASE_ORDER_OLP_ACCEPTED',
+
+          order.olp_accepted_at
+            ? 'PURCHASE_ORDER_OLP_MANAGEMENT_ADDED'
+            : 'PURCHASE_ORDER_OLP_ACCEPTED',
+
           id,
           {
             committedDate:
               input.committedDate,
+
+            managedQuantityNow:
+              totalManagedNow,
+
+            managedQuantityTotal:
+              totalManagedAfter,
+
+            requestedQuantity:
+              totalRequested,
+
+            remainingQuantity:
+              Math.max(
+                totalRequested -
+                totalManagedAfter,
+                0,
+              ),
+
+            lines:
+              changes,
 
             observation:
               input.observation ??
               null,
 
             historicalBackfill:
-              order.status ===
-              'HISTORICAL_ONLY',
+              order.origin ===
+              'LEGACY_BACKFILL',
           },
         );
 
@@ -393,6 +708,7 @@ export class PurchaseOrderRepository {
       },
     );
   }
+
 
   async reviewLine(
     id: string,
@@ -417,7 +733,11 @@ export class PurchaseOrderRepository {
         sql`update purchase_orders set status = 'UNDER_OLP_REVIEW', version = version + 1, updated_at = now(), updated_by = ${actor.userId} where id = ${id}`,
       );
       await this.audit(tx, actor, 'PURCHASE_ORDER_LINE_REVIEWED', lineId, input);
-      return this.findByIdOn(tx, id);
+      return this.findByIdOn(
+        tx,
+        id,
+        true,
+      );
     });
   }
 
@@ -511,7 +831,11 @@ export class PurchaseOrderRepository {
         sql`update purchase_orders set status = ${status}, version = version + 1, updated_at = now(), updated_by = ${actor.userId} where id = ${id}`,
       );
       await this.audit(tx, actor, 'PURCHASE_ORDER_SUPPLIER_REVIEW_COMPLETED', id, { status });
-      return this.findByIdOn(tx, id);
+      return this.findByIdOn(
+        tx,
+        id,
+        true,
+      );
     });
   }
 
@@ -1129,6 +1453,7 @@ export class PurchaseOrderRepository {
       dispensing_point_name: string | null;
       requested_quantity: number;
       accepted_quantity: number | null;
+      olp_managed_quantity: number | null;
       compensar_unit_rate_snapshot: string | null;
       supplier_unit_cost: string | null;
       dispatched_quantity: number;
@@ -1236,7 +1561,7 @@ export class PurchaseOrderRepository {
           nullif(
             btrim(
               coalesce(
-                pol.product_description,
+                tap.descripcion_generica,
                 ''
               )
             ),
@@ -1256,7 +1581,7 @@ export class PurchaseOrderRepository {
           nullif(
             btrim(
               coalesce(
-                tap.descripcion_generica,
+                pol.product_description,
                 ''
               )
             ),
@@ -1294,6 +1619,7 @@ export class PurchaseOrderRepository {
 
         pol.requested_quantity,
         pol.accepted_quantity,
+        pol.olp_managed_quantity,
         pol.compensar_unit_rate_snapshot,
         pol.supplier_unit_cost,
 
@@ -1638,6 +1964,26 @@ export class PurchaseOrderRepository {
       const requestedQuantity =
         Number(line.requested_quantity ?? 0);
 
+      const acceptedQuantity =
+        line.accepted_quantity ===
+        null
+          ? null
+          : Number(
+              line.accepted_quantity,
+            );
+
+      const olpManagedQuantity =
+        line.olp_managed_quantity ===
+        null
+          ? null
+          : Number(
+              line.olp_managed_quantity,
+            );
+
+      const managedQuantity =
+        olpManagedQuantity ??
+        0;
+
       const dispatchedQuantity =
         Number(line.dispatched_quantity ?? 0);
 
@@ -1646,21 +1992,21 @@ export class PurchaseOrderRepository {
 
       const supplierPendingQuantity =
         Math.max(
-          requestedQuantity -
+          managedQuantity -
           dispatchedQuantity,
           0,
         );
 
       const receiptPendingQuantity =
         Math.max(
-          dispatchedQuantity -
+          managedQuantity -
           receivedQuantity,
           0,
         );
 
       const pendingQuantity =
         Math.max(
-          requestedQuantity -
+          managedQuantity -
           receivedQuantity,
           0,
         );
@@ -1688,8 +2034,10 @@ export class PurchaseOrderRepository {
 
         requestedQuantity,
 
-        acceptedQuantity:
-          line.accepted_quantity,
+        acceptedQuantity,
+
+        managedQuantity:
+          olpManagedQuantity,
 
         dispatchedQuantity,
 
@@ -2073,7 +2421,10 @@ export class PurchaseOrderRepository {
       lines.every(
         (line) =>
           line.receivedQuantity >=
-          line.requestedQuantity,
+          (
+            line.managedQuantity ??
+            0
+          ),
       );
 
     const anyReceiptEvent =
@@ -3445,29 +3796,31 @@ export class PurchaseOrderRepository {
         pol.id as line_id,
         pol.commercial_code,
 
-        COALESCE(
-          NULLIF(
-            BTRIM(
-              COALESCE(
-                pol.product_description,
+        coalesce(
+          nullif(
+            btrim(
+              coalesce(
+                tap.descripcion_generica,
                 ''
               )
             ),
             ''
           ),
-          NULLIF(
-            BTRIM(
-              COALESCE(
+
+          nullif(
+            btrim(
+              coalesce(
                 tap.descripcion_comercial,
                 ''
               )
             ),
             ''
           ),
-          NULLIF(
-            BTRIM(
-              COALESCE(
-                tap.descripcion_generica,
+
+          nullif(
+            btrim(
+              coalesce(
+                pol.product_description,
                 ''
               )
             ),
@@ -3510,6 +3863,7 @@ export class PurchaseOrderRepository {
 
         pol.requested_quantity,
         pol.accepted_quantity,
+        pol.olp_managed_quantity,
         pol.requested_delivery_date,
         pol.compensar_unit_rate_snapshot,
         pol.supplier_unit_cost,
@@ -3661,7 +4015,12 @@ export class PurchaseOrderRepository {
 
             acceptedQuantity: row.accepted_quantity,
 
-            shortage: (row.requested_quantity ?? 0) - (row.accepted_quantity ?? 0),
+            managedQuantity:
+              row.olp_managed_quantity,
+
+            shortage:
+              (row.requested_quantity ?? 0) -
+              (row.olp_managed_quantity ?? 0),
 
             requestedDeliveryDate: row.requested_delivery_date,
 
@@ -3715,7 +4074,9 @@ export class PurchaseOrderRepository {
 
           acceptedQuantity: row.accepted_quantity,
 
-          shortage: (row.requested_quantity ?? 0) - (row.accepted_quantity ?? 0),
+          shortage:
+              (row.requested_quantity ?? 0) -
+              (row.olp_managed_quantity ?? 0),
 
           requestedDeliveryDate: row.requested_delivery_date,
 

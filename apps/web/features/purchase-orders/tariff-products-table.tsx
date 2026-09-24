@@ -163,7 +163,7 @@ export function TariffProductsTable() {
 
   const rows = paginatedProducts.map((product) => [
     product.codigoProducto,
-    product.descripcionComercial ?? product.descripcionGenerica ?? '—',
+    product.descripcionGenerica ?? product.descripcionComercial ?? '—',
     formatCurrency(product),
     [product.numeroExpedienteInvima, product.consecutivoInvimaPresentacion]
       .filter(Boolean)

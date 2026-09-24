@@ -268,9 +268,27 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export function PurchaseOrdersView() {
   const router = useRouter();
-  const { organizationId, hasPermission, roles } = useRole();
-  const canManage = hasPermission('purchase_orders.manage');
-  const isOlp = roles.includes('OLP');
+  const {
+    organizationId,
+    hasPermission,
+    me,
+  } = useRole();
+
+  const canManage =
+    hasPermission(
+      'purchase_orders.manage',
+    );
+
+  const activeOrganization =
+    me?.organizations.find(
+      (organization) =>
+        organization.id ===
+        organizationId,
+    );
+
+  const isOlp =
+    activeOrganization?.code ===
+    'OLP';
 
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -500,6 +518,15 @@ export function PurchaseOrdersView() {
       {error ? (
         <div className="login-error" role="alert">
           {error}
+        </div>
+      ) : null}
+
+      {orders.error ? (
+        <div
+          className="login-error"
+          role="alert"
+        >
+          {orders.error}
         </div>
       ) : null}
 

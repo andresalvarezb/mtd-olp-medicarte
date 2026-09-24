@@ -56,6 +56,12 @@ export class PurchaseOrderService {
 
       committedDate: string;
 
+      lines: ReadonlyArray<{
+        purchaseOrderLineId: string;
+
+        managedQuantity: number;
+      }>;
+
       observation?: string;
     },
 
@@ -196,6 +202,21 @@ export class PurchaseOrderService {
         PURCHASE_ORDER_NOT_ACCEPTABLE: [409, 'Purchase order is not available for OLP acceptance'],
         PURCHASE_ORDER_ALREADY_ACCEPTED: [409, 'Purchase order was already accepted by OLP'],
         PURCHASE_ORDER_LINES_REQUIRED: [409, 'Purchase order has no lines to accept'],
+
+        PURCHASE_ORDER_MANAGED_LINES_MISMATCH: [
+          400,
+          'Las cantidades gestionadas deben corresponder exactamente a las líneas de la OC',
+        ],
+
+        PURCHASE_ORDER_MANAGED_QUANTITY_INVALID: [
+          400,
+          'La cantidad gestionada por OLP no puede superar la cantidad solicitada',
+        ],
+
+        PURCHASE_ORDER_MANAGED_QUANTITY_REQUIRED: [
+          400,
+          'OLP debe gestionar al menos una unidad o devolver la OC',
+        ],
 
         PURCHASE_ORDER_SUPPLIER_COSTS_REQUIRED: [
           400,
