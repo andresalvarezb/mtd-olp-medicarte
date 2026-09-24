@@ -8,7 +8,16 @@ import type {
   ReceiptResponse,
   UpdateReceiptRequest,
 } from '@authorization/contracts';
+import type {
+  PurchaseOrderListOperationalProjection,
+} from '@authorization/contracts';
+
 import { apiRequest } from './api-client';
+
+
+export type PurchaseOrderListItem =
+  PurchaseOrderResponse &
+  PurchaseOrderListOperationalProjection;
 
 
 export type SupplierPurchaseOrderLine = {
@@ -29,10 +38,12 @@ export type SupplierPurchaseOrderLine = {
 export type SupplierPurchaseOrderResponse = {
   id: string;
   purchaseOrderCode: string | null;
-  orderType: 'STANDARD' | 'COMPLEMENTARY';
+  orderType: 'STANDARD' | 'COMPLEMENTARY' | null;
   status: string;
   version: number;
   issuedAt: string | null;
+  olpAcceptedAt?: string | null;
+  olpCommittedDate?: string | null;
   createdAt: string;
   updatedAt: string;
   lines: SupplierPurchaseOrderLine[];
@@ -65,7 +76,7 @@ export function listPurchaseOrders(
   if (query.purchaseOrderCode) params.set('purchaseOrderCode', String(query.purchaseOrderCode));
   if (query.commercialCode) params.set('commercialCode', String(query.commercialCode));
   if (query.dispensingPointId) params.set('dispensingPointId', String(query.dispensingPointId));
-  return apiRequest<{ items: PurchaseOrderResponse[] }>(`/purchase-orders?${params}`, {
+  return apiRequest<{ items: PurchaseOrderListItem[] }>(`/purchase-orders?${params}`, {
     organizationId,
   });
 }
@@ -110,10 +121,67 @@ export function listAvailableDemand(organizationId: string, planningPeriodId: st
     { organizationId },
   );
 }
-export function listSupplierPurchaseOrders(organizationId: string) {
-  return apiRequest<{ items: SupplierPurchaseOrderResponse[] }>('/supplier/purchase-orders', {
-    organizationId,
-  });
+export function listSupplierPurchaseOrders(
+  organizationId: string,
+  query: Partial<PurchaseOrderListQuery> = {},
+) {
+  const params = new URLSearchParams();
+
+  if (query.planningPeriodId) {
+    params.set(
+      'planningPeriodId',
+      query.planningPeriodId,
+    );
+  }
+
+  if (query.status) {
+    params.set(
+      'status',
+      String(query.status),
+    );
+  }
+
+  if (query.orderType) {
+    params.set(
+      'orderType',
+      String(query.orderType),
+    );
+  }
+
+  if (query.purchaseOrderCode) {
+    params.set(
+      'purchaseOrderCode',
+      String(query.purchaseOrderCode),
+    );
+  }
+
+  if (query.commercialCode) {
+    params.set(
+      'commercialCode',
+      String(query.commercialCode),
+    );
+  }
+
+  if (query.dispensingPointId) {
+    params.set(
+      'dispensingPointId',
+      String(query.dispensingPointId),
+    );
+  }
+
+  params.set(
+    'limit',
+    String(query.limit ?? 500),
+  );
+
+  return apiRequest<{
+    items: SupplierPurchaseOrderResponse[];
+  }>(
+    `/supplier/purchase-orders?${params}`,
+    {
+      organizationId,
+    },
+  );
 }
 export function reviewSupplierLine(
   organizationId: string,
@@ -400,6 +468,26 @@ export type PurchaseOrderOperationalReceipt = Readonly<{
   }>;
 }>;
 
+export type PurchaseOrderReceiptHistoryEvent =
+  Readonly<{
+    id: string;
+
+    receivedAt: string;
+
+    confirmedAt: string;
+
+    actorName: string | null;
+
+    lines: ReadonlyArray<{
+      id: string;
+
+      purchaseOrderLineId: string;
+
+      receivedQuantity: number;
+    }>;
+  }>;
+
+
 export type PurchaseOrderOperationalDetail = Readonly<{
   id: string;
 
@@ -467,6 +555,8 @@ export type PurchaseOrderOperationalDetail = Readonly<{
 
   receipts: PurchaseOrderOperationalReceipt[];
 
+  receiptHistory: PurchaseOrderReceiptHistoryEvent[];
+
   novelties: ReadonlyArray<{
     type: string;
 
@@ -489,20 +579,11 @@ export function getPurchaseOrderOperationalDetail(
 }
 
 
-export type OperationalPurchaseOrderAcceptanceLine =
-  Readonly<{
-    lineId: string;
-
-    supplierUnitCost: number;
-  }>;
-
-
 export function acceptOperationalPurchaseOrder(
   organizationId: string,
   id: string,
   expectedVersion: number,
   shippingDate: string,
-  lines: ReadonlyArray<OperationalPurchaseOrderAcceptanceLine>,
   observation?: string,
 ) {
   return apiRequest<SupplierPurchaseOrderResponse>(
@@ -517,8 +598,6 @@ export function acceptOperationalPurchaseOrder(
 
         committedDate:
           shippingDate,
-
-        lines,
 
         ...(observation === undefined
           ? {}
@@ -540,18 +619,7 @@ export type PurchaseOrderDirectReceiptInput =
     lines: ReadonlyArray<{
       purchaseOrderLineId: string;
 
-      outcome:
-        | 'RECEIVED_COMPLETE'
-        | 'RECEIVED_PARTIAL'
-        | 'NOT_RECEIVED';
-
       receivedQuantity: number;
-
-      lotNumber?: string | null;
-
-      expirationDate?: string | null;
-
-      observation?: string | null;
     }>;
   }>;
 

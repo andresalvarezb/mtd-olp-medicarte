@@ -63,6 +63,9 @@ export type AuthorizationFulfillmentImportRowResult =
     authorizationKey:
       string | null;
 
+    purchaseOrderCode:
+      string | null;
+
     fulfillmentType:
       'APPLICATION'
       | 'DELIVERY'
@@ -226,6 +229,7 @@ function rejectedWorkbook(
     XLSX.utils.aoa_to_sheet([
       [
         'CLAVE_AUTORIZACION',
+        'OC',
         'TIPO_DISPENSACION',
         'FECHA',
         'CODIGO_ERROR',
@@ -235,6 +239,8 @@ function rejectedWorkbook(
       ...rejected.map(
         (row) => [
           row.authorizationKey ?? '',
+
+          row.purchaseOrderCode ?? '',
 
           row.fulfillmentType ===
             'APPLICATION'
@@ -254,6 +260,7 @@ function rejectedWorkbook(
 
   sheet['!cols'] = [
     { wch: 42 },
+    { wch: 20 },
     { wch: 22 },
     { wch: 18 },
     { wch: 48 },
@@ -455,6 +462,9 @@ export class AuthorizationFulfillmentImportService {
         authorizationKey:
           row.authorizationKey,
 
+        purchaseOrderCode:
+          row.purchaseOrderCode,
+
         fulfillmentType:
           row.fulfillmentType,
 
@@ -483,6 +493,32 @@ export class AuthorizationFulfillmentImportService {
 
           errorMessage:
             'CLAVE_AUTORIZACION es obligatoria.',
+        });
+
+        continue;
+      }
+
+
+      if (
+        !row.purchaseOrderCode
+      ) {
+        results.push({
+          ...base,
+
+          status:
+            'REJECTED',
+
+          authorizationItemId:
+            null,
+
+          fulfillmentId:
+            null,
+
+          errorCode:
+            'PURCHASE_ORDER_CODE_REQUIRED',
+
+          errorMessage:
+            'OC es obligatoria para registrar la Entrega/Aplicación.',
         });
 
         continue;
@@ -697,6 +733,9 @@ export class AuthorizationFulfillmentImportService {
 
       const body =
         fulfillAuthorizationRequestSchema.parse({
+          purchaseOrderCode:
+            row.purchaseOrderCode,
+
           fulfillmentType:
             row.fulfillmentType,
 

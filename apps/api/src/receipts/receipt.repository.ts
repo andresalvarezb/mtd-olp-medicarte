@@ -482,16 +482,16 @@ export class ReceiptRepository {
           );
         }
 
-        if (
-          orderRow.status ===
-            'HISTORICAL_ONLY' ||
-          orderRow.origin ===
-            'LEGACY_BACKFILL'
-        ) {
-          throw new Error(
-            'DIRECT_RECEIPT_HISTORICAL_ONLY',
-          );
-        }
+        /*
+         * LEGACY_BACKFILL identifica la procedencia de la OC.
+         *
+         * No impide continuar el ciclo cuando existe evidencia
+         * operacional nueva. Una vez OLP aceptó la OC,
+         * Medicarte puede registrar recepciones.
+         *
+         * El status técnico HISTORICAL_ONLY se conserva para
+         * respetar purchase_orders_origin_shape_check.
+         */
 
         if (
           !orderRow.olp_accepted_at
@@ -501,6 +501,10 @@ export class ReceiptRepository {
           );
         }
 
+        /*
+         * El flujo nuevo de OC no puede mezclarse
+         * con el flujo legacy de deliveries.
+         */
         const legacy =
           await tx.execute<{
             found: boolean;
@@ -654,6 +658,10 @@ export class ReceiptRepository {
           points as string[],
         );
 
+        /*
+         * Recibido acumulado por línea.
+         * Cada confirmación previa sigue contando.
+         */
         const cumulative =
           await tx.execute<{
             purchase_order_line_id: string;
@@ -694,115 +702,72 @@ export class ReceiptRepository {
             ),
           );
 
+        /*
+         * El cliente solo informa cuánto llegó ahora.
+         * El backend deriva si esa recepción completa
+         * o deja pendiente la línea.
+         */
+        const normalized =
+          body.lines.map(
+            (input) => {
+              const line =
+                source.rows.find(
+                  (candidate) =>
+                    candidate.id ===
+                    input.purchaseOrderLineId,
+                );
+
+              if (!line) {
+                throw new Error(
+                  'DIRECT_RECEIPT_LINE_NOT_FOUND',
+                );
+              }
+
+              const already =
+                receivedByLine.get(
+                  line.id,
+                ) ?? 0;
+
+              const remaining =
+                line.requested_quantity -
+                already;
+
+              if (
+                remaining <= 0
+              ) {
+                throw new Error(
+                  'DIRECT_RECEIPT_ALREADY_COMPLETE',
+                );
+              }
+
+              if (
+                input.receivedQuantity >
+                remaining
+              ) {
+                throw new Error(
+                  'DIRECT_RECEIPT_OVER_RECEIVED',
+                );
+              }
+
+              return {
+                purchaseOrderLineId:
+                  input.purchaseOrderLineId,
+
+                receivedQuantity:
+                  input.receivedQuantity,
+
+                outcome:
+                  input.receivedQuantity ===
+                  remaining
+                    ? 'RECEIVED_COMPLETE' as const
+                    : 'RECEIVED_PARTIAL' as const,
+              };
+            },
+          );
+
         const receivedAt =
           body.receivedAt ??
           new Date().toISOString();
-
-        const receivedDate =
-          receivedAt.slice(
-            0,
-            10,
-          );
-
-        for (
-          const input of
-          body.lines
-        ) {
-          const line =
-            source.rows.find(
-              (candidate) =>
-                candidate.id ===
-                input.purchaseOrderLineId,
-            )!;
-
-          const already =
-            receivedByLine.get(
-              line.id,
-            ) ?? 0;
-
-          const remaining =
-            line.requested_quantity -
-            already;
-
-          if (
-            remaining <= 0
-          ) {
-            throw new Error(
-              'DIRECT_RECEIPT_ALREADY_COMPLETE',
-            );
-          }
-
-          if (
-            input.receivedQuantity >
-            remaining
-          ) {
-            throw new Error(
-              'DIRECT_RECEIPT_OVER_RECEIVED',
-            );
-          }
-
-          if (
-            input.outcome ===
-            'NOT_RECEIVED'
-          ) {
-            if (
-              input.receivedQuantity !==
-                0 ||
-              input.lotNumber ||
-              input.expirationDate
-            ) {
-              throw new Error(
-                'DIRECT_RECEIPT_OUTCOME_INVALID',
-              );
-            }
-
-            continue;
-          }
-
-          if (
-            !input.lotNumber ||
-            !input.expirationDate
-          ) {
-            throw new Error(
-              'DIRECT_RECEIPT_LOT_REQUIRED',
-            );
-          }
-
-          if (
-            input.expirationDate <
-            receivedDate
-          ) {
-            throw new Error(
-              'DIRECT_RECEIPT_EXPIRED_PRODUCT',
-            );
-          }
-
-          if (
-            input.outcome ===
-            'RECEIVED_COMPLETE' &&
-            input.receivedQuantity !==
-              remaining
-          ) {
-            throw new Error(
-              'DIRECT_RECEIPT_OUTCOME_INVALID',
-            );
-          }
-
-          if (
-            input.outcome ===
-            'RECEIVED_PARTIAL' &&
-            (
-              input.receivedQuantity <=
-                0 ||
-              input.receivedQuantity >=
-                remaining
-            )
-          ) {
-            throw new Error(
-              'DIRECT_RECEIPT_OUTCOME_INVALID',
-            );
-          }
-        }
 
         const receipt =
           await tx.execute<{
@@ -830,7 +795,7 @@ export class ReceiptRepository {
 
         for (
           const input of
-          body.lines
+          normalized
         ) {
           await tx.execute(sql`
             insert into purchase_order_receipt_lines (
@@ -847,19 +812,23 @@ export class ReceiptRepository {
               ${input.purchaseOrderLineId},
               ${input.outcome},
               ${input.receivedQuantity},
-              ${input.lotNumber ?? null},
-              ${input.expirationDate ?? null},
-              ${input.observation ?? null}
+              null,
+              null,
+              null
             )
           `);
         }
 
-        await this.inventory
-          .recordConfirmedPurchaseOrderReceipt(
-            tx,
-            receiptId,
-            scope,
-          );
+        /*
+         * IMPORTANTE:
+         *
+         * No llamamos recordConfirmedPurchaseOrderReceipt()
+         * porque esa ruta pertenece al ledger legacy basado
+         * en inventory_lots.
+         *
+         * La nueva disponibilidad operacional por OC se
+         * proyecta desde purchase_order_receipt_lines.
+         */
 
         const totals =
           await tx.execute<{
@@ -920,7 +889,16 @@ export class ReceiptRepository {
 
           set
             status =
-              ${status},
+              case
+                when origin =
+                  'LEGACY_BACKFILL'
+                  or status =
+                  'HISTORICAL_ONLY'
+                then
+                  'HISTORICAL_ONLY'
+                else
+                  ${status}
+              end,
 
             updated_at =
               now(),
@@ -954,8 +932,27 @@ export class ReceiptRepository {
             ${receiptId},
             ${JSON.stringify({
               purchaseOrderId,
+
               lineCount:
-                body.lines.length,
+                normalized.length,
+
+              receivedQuantity:
+                normalized.reduce(
+                  (
+                    total,
+                    line,
+                  ) =>
+                    total +
+                    line.receivedQuantity,
+                  0,
+                ),
+
+              purchaseOrderOrigin:
+                orderRow.origin,
+
+              historicalContinuation:
+                orderRow.origin ===
+                'LEGACY_BACKFILL',
             })}::jsonb,
             ${scope.correlationId},
             ${scope.correlationId},
@@ -977,7 +974,7 @@ export class ReceiptRepository {
           status,
 
           lines:
-            body.lines,
+            normalized,
         };
       },
     );

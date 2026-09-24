@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
 
 export function FilterBar({ children }: { children: ReactNode }) {
-  return <div className="toolbar">{children}</div>;
+  return <div className="toolbar filter-bar">{children}</div>;
 }
 
 export function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="field">
+    <div className="field filter-field">
       <label>{label}</label>
       {children}
     </div>
@@ -14,5 +14,5 @@ export function FilterField({ label, children }: { label: string; children: Reac
 }
 
 export function FilterActions({ children }: { children: ReactNode }) {
-  return <div style={{ alignSelf: 'end' }}>{children}</div>;
+  return <div className="filter-actions">{children}</div>;
 }

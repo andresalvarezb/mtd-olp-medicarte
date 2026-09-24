@@ -73,7 +73,7 @@ export function derivePurchaseOrderAllowedActions(
 
   const canAcceptOlP = actor === 'OLP' && status === 'PENDING_OLP' && !olpAccepted;
 
-  const canRecordDispatch = actor === 'OLP' && status === 'PENDING_OLP' && olpAccepted;
+  const canRecordDispatch = false;
 
   const canRecordReceipt =
     actor === 'MEDICARTE' && (status === 'PENDING_MEDICARTE' || status === 'RECEIVED_WITH_PENDING');
@@ -103,7 +103,7 @@ export function derivePurchaseOrderFieldAccess(
   return {
     requestedQuantity: 'READ',
 
-    dispatchedQuantity: actions.canRecordDispatch ? 'EDIT' : 'READ',
+    dispatchedQuantity: 'READ',
 
     receivedQuantity: actions.canRecordReceipt ? 'EDIT' : 'READ',
 
@@ -111,11 +111,11 @@ export function derivePurchaseOrderFieldAccess(
 
     committedDispatchDate: actions.canAcceptOlP ? 'EDIT' : 'READ',
 
-    dispatchDate: actions.canRecordDispatch ? 'EDIT' : 'READ',
+    dispatchDate: 'READ',
 
     receiptDate: actions.canRecordReceipt ? 'EDIT' : 'READ',
 
-    olpObservation: actions.canAcceptOlP || actions.canRecordDispatch ? 'EDIT' : 'READ',
+    olpObservation: actions.canAcceptOlP ? 'EDIT' : 'READ',
 
     medicarteObservation: actions.canRecordReceipt ? 'EDIT' : 'READ',
 

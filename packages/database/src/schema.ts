@@ -1226,8 +1226,6 @@ export const purchaseOrderReceiptLines = pgTable(
         (
           ${table.outcome} = 'NOT_RECEIVED'
           AND ${table.receivedQuantity} = 0
-          AND ${table.lotNumber} IS NULL
-          AND ${table.expirationDate} IS NULL
         )
         OR
         (
@@ -1236,9 +1234,6 @@ export const purchaseOrderReceiptLines = pgTable(
             'RECEIVED_PARTIAL'
           )
           AND ${table.receivedQuantity} > 0
-          AND ${table.lotNumber} IS NOT NULL
-          AND length(btrim(${table.lotNumber})) > 0
-          AND ${table.expirationDate} IS NOT NULL
         )
       `,
     ),

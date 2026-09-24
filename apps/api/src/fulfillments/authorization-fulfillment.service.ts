@@ -113,6 +113,8 @@ export class AuthorizationFulfillmentService {
           'AUTHORIZATION_FULFILLMENT_ALREADY_CLOSED',
           'AUTHORIZATION_FULFILLMENT_ALREADY_APPLIED',
           'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY',
+          'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_OC_POOL',
+          'AUTHORIZATION_FULFILLMENT_OC_NOT_ELIGIBLE',
         ].includes(code)
       ) {
         throw new ConflictException({
@@ -120,9 +122,15 @@ export class AuthorizationFulfillmentService {
 
           message:
             code ===
-            'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY'
-              ? 'No existe inventario físico suficiente para completar la operación.'
-              : 'La autorización ya cuenta con un cierre operativo.',
+            'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_OC_POOL'
+              ? 'La OC no tiene cantidad recibida suficiente para atender completamente esta autorización.'
+              : code ===
+                  'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY'
+                ? 'No existe inventario físico suficiente para completar la operación.'
+                : code ===
+                    'AUTHORIZATION_FULFILLMENT_OC_NOT_ELIGIBLE'
+                  ? 'La autorización no está incluida en la OC indicada para este producto.'
+                  : 'La autorización ya cuenta con un cierre operativo.',
         });
       }
 

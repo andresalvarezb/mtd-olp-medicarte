@@ -77,65 +77,144 @@ export class InventoryAvailabilityRepository {
   ) {}
 
   async list(scope: Scope, filters: AvailabilityFilters) {
-    const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
 
-    const conditions = [sql`po.status NOT IN ('CANCELLED','REJECTED')`];
+    const limit =
+      Math.min(
+        Math.max(
+          filters.limit ?? 100,
+          1,
+        ),
+        500,
+      );
+
+    const conditions = [
+      sql`
+        po.status NOT IN (
+          'CANCELLED',
+          'REJECTED'
+        )
+      `,
+    ];
+
+    /*
+     * MEDICARTE solo consulta inventario de OC que
+     * ya fueron aceptadas por OLP y únicamente de
+     * sus puntos explícitamente autorizados.
+     */
+    if (
+      scope.organizationCode ===
+      'MEDICARTE'
+    ) {
+      conditions.push(
+        sql`
+          po.olp_accepted_at
+            IS NOT NULL
+        `,
+      );
+
+      conditions.push(
+        sql`
+          ppp.dispensing_point_id IN (
+            SELECT
+              ups.dispensing_point_id
+
+            FROM
+              user_point_scopes ups
+
+            WHERE
+              ups.user_id =
+                ${scope.userId}::uuid
+
+              AND ups.revoked_at
+                IS NULL
+          )
+        `,
+      );
+    }
 
     if (filters.search) {
-      const search = `%${filters.search.trim()}%`;
+      const search =
+        `%${filters.search.trim()}%`;
 
-      conditions.push(sql`(
-        ppp.commercial_code ILIKE ${search}
-        OR
-        COALESCE(
-          ppp.product_description,
-          ''
-        ) ILIKE ${search}
-      )`);
+      conditions.push(sql`
+        (
+          ppp.commercial_code
+            ILIKE ${search}
+
+          OR
+
+          COALESCE(
+            ppp.product_description,
+            ''
+          )
+            ILIKE ${search}
+        )
+      `);
     }
 
     if (filters.purchaseOrder) {
-      const purchaseOrder = `%${filters.purchaseOrder.trim()}%`;
+      const purchaseOrder =
+        `%${filters.purchaseOrder.trim()}%`;
 
       conditions.push(sql`
         COALESCE(
           ppp.purchase_order_code,
           ''
-        ) ILIKE ${purchaseOrder}
+        )
+          ILIKE ${purchaseOrder}
       `);
     }
 
     if (filters.dispensingPoint) {
-      const dispensingPoint = `%${filters.dispensingPoint.trim()}%`;
+      const dispensingPoint =
+        `%${filters.dispensingPoint.trim()}%`;
 
       conditions.push(sql`
         COALESCE(
           dp.code,
           ''
-        ) ILIKE ${dispensingPoint}
+        )
+          ILIKE ${dispensingPoint}
       `);
     }
 
-    const result = await this.database.db.execute<{
-      purchase_order_id: string;
 
-      purchase_order_code: string;
+    const result =
+      await this.database.db.execute<{
+        purchase_order_id: string;
 
-      commercial_code: string;
+        purchase_order_code: string;
 
-      product_description: string | null;
+        commercial_code: string;
 
-      dispensing_point_id: string | null;
+        product_description:
+          string | null;
 
-      dispensing_point_code: string | null;
+        dispensing_point_id:
+          string | null;
 
-      received_quantity: number;
+        dispensing_point_code:
+          string | null;
 
-      consumed_quantity: number;
+        requested_quantity:
+          number;
 
-      assigned_quantity: number;
-    }>(sql`
-        WITH po_products AS (
+        received_quantity:
+          number;
+
+        fulfilled_quantity:
+          number;
+      }>(sql`
+        WITH
+        po_products AS (
+          /*
+           * Total solicitado por:
+           *
+           * OC + producto.
+           *
+           * La línea logística puede estar fragmentada,
+           * pero Disponibilidad debe consolidarla.
+           */
           SELECT
             po.id
               AS purchase_order_id,
@@ -143,6 +222,14 @@ export class InventoryAvailabilityRepository {
             po.purchase_order_code,
 
             pol.commercial_code,
+
+            COALESCE(
+              SUM(
+                pol.requested_quantity
+              ),
+              0
+            )::int
+              AS requested_quantity,
 
             MAX(
               NULLIF(
@@ -181,13 +268,11 @@ export class InventoryAvailabilityRepository {
             pol.commercial_code
         ),
 
+
         operational_point_candidates AS (
           /*
-           * Prioridad 1:
-           * hechos operacionales/históricos ya persistidos.
-           *
-           * Nunca reemplazamos un punto histórico por el mapping
-           * vigente del Anexo Tarifario.
+           * El punto operacional real tiene prioridad
+           * sobre cualquier mapping vigente.
            */
 
           SELECT DISTINCT
@@ -204,7 +289,9 @@ export class InventoryAvailabilityRepository {
             pol.dispensing_point_id
               IS NOT NULL
 
+
           UNION
+
 
           SELECT DISTINCT
             d.purchase_order_id,
@@ -225,7 +312,9 @@ export class InventoryAvailabilityRepository {
             dl.dispensing_point_id
               IS NOT NULL
 
+
           UNION
+
 
           SELECT DISTINCT
             iaa.purchase_order_id,
@@ -240,21 +329,69 @@ export class InventoryAvailabilityRepository {
           WHERE
             iaa.dispensing_point_id
               IS NOT NULL
+
+
+          UNION
+
+
+          /*
+           * Recepción directa de OC.
+           *
+           * El movimiento de inventario existe únicamente
+           * después de una recepción efectivamente confirmada.
+           */
+          SELECT DISTINCT
+            por.purchase_order_id,
+
+            pol.commercial_code,
+
+            il.dispensing_point_id
+
+          FROM
+            inventory_movements im
+
+          JOIN
+            inventory_lots il
+              ON il.id =
+                 im.inventory_lot_id
+
+          JOIN
+            purchase_order_receipt_lines porl
+              ON porl.id =
+                 im.source_id
+
+          JOIN
+            purchase_order_receipts por
+              ON por.id =
+                 porl.receipt_id
+
+          JOIN
+            purchase_order_lines pol
+              ON pol.id =
+                 porl.purchase_order_line_id
+
+          WHERE
+            im.movement_type =
+              'RECEIPT'
+
+            AND im.source_type =
+              'PURCHASE_ORDER_RECEIPT_LINE'
+
+            AND il.dispensing_point_id
+              IS NOT NULL
         ),
+
 
         canonical_point_candidates AS (
           /*
-           * Prioridad 2:
-           * cuando la OC/producto no tiene un punto operacional
-           * histórico, resolvemos el punto vigente por:
+           * Si aún no hay un hecho operacional,
+           * usamos el mapping canónico:
            *
-           * código producto
-           * -> AT activo
-           * -> INVIMA + presentación normalizados
-           * -> product_delivery_point_mappings
-           * -> dispensing_points.
+           * producto
+           * -> Anexo Tarifario
+           * -> INVIMA/presentación
+           * -> punto Medicarte.
            */
-
           SELECT DISTINCT
             pp.purchase_order_id,
 
@@ -334,6 +471,7 @@ export class InventoryAvailabilityRepository {
             )
         ),
 
+
         point_candidates AS (
           SELECT
             purchase_order_id,
@@ -343,7 +481,9 @@ export class InventoryAvailabilityRepository {
           FROM
             operational_point_candidates
 
+
           UNION
+
 
           SELECT
             purchase_order_id,
@@ -354,16 +494,12 @@ export class InventoryAvailabilityRepository {
             canonical_point_candidates
         ),
 
+
         po_product_points AS (
           /*
-           * Grain operacional de esta vista:
+           * Grain definitivo:
            *
-           * 1 fila =
            * OC + producto + punto.
-           *
-           * Una misma OC puede contener más de una línea física
-           * del mismo producto, pero Disponibilidad debe exponer
-           * una sola fila para esa combinación.
            */
           SELECT
             pp.purchase_order_id,
@@ -371,6 +507,8 @@ export class InventoryAvailabilityRepository {
             pp.purchase_order_code,
 
             pp.commercial_code,
+
+            pp.requested_quantity,
 
             MAX(
               pp.product_description
@@ -394,32 +532,105 @@ export class InventoryAvailabilityRepository {
             pp.purchase_order_id,
             pp.purchase_order_code,
             pp.commercial_code,
+            pp.requested_quantity,
             pc.dispensing_point_id
         ),
 
-        received AS (
+
+        receipt_events AS (
+          /*
+           * Flujo actual:
+           * recepción directa de la OC.
+           */
+          SELECT
+            por.purchase_order_id,
+
+            pol.commercial_code,
+
+            il.dispensing_point_id,
+
+            SUM(
+              im.quantity_delta
+            )::int
+              AS quantity
+
+          FROM
+            inventory_movements im
+
+          JOIN
+            inventory_lots il
+              ON il.id =
+                 im.inventory_lot_id
+
+          JOIN
+            purchase_order_receipt_lines porl
+              ON porl.id =
+                 im.source_id
+
+          JOIN
+            purchase_order_receipts por
+              ON por.id =
+                 porl.receipt_id
+
+          JOIN
+            purchase_order_lines pol
+              ON pol.id =
+                 porl.purchase_order_line_id
+
+          WHERE
+            im.movement_type =
+              'RECEIPT'
+
+            AND im.source_type =
+              'PURCHASE_ORDER_RECEIPT_LINE'
+
+            AND im.quantity_delta >
+              0
+
+            AND il.expiration_date >=
+              (
+                NOW()
+                AT TIME ZONE
+                'America/Bogota'
+              )::date
+
+          GROUP BY
+            por.purchase_order_id,
+            pol.commercial_code,
+            il.dispensing_point_id
+
+
+          UNION ALL
+
+
+          /*
+           * Compatibilidad histórica:
+           * delivery -> receipt.
+           */
           SELECT
             d.purchase_order_id,
 
             dl.commercial_code,
 
-            dl.dispensing_point_id,
+            il.dispensing_point_id,
 
-            COALESCE(
-              SUM(
-                rl.accepted_quantity
-              ),
-              0
+            SUM(
+              im.quantity_delta
             )::int
-              AS received_quantity
+              AS quantity
 
           FROM
-            receipts r
+            inventory_movements im
+
+          JOIN
+            inventory_lots il
+              ON il.id =
+                 im.inventory_lot_id
 
           JOIN
             receipt_lines rl
-              ON rl.receipt_id =
-                 r.id
+              ON rl.id =
+                 im.source_id
 
           JOIN
             delivery_lines dl
@@ -432,17 +643,16 @@ export class InventoryAvailabilityRepository {
                  dl.delivery_id
 
           WHERE
-            r.status =
-              'CONFIRMED'
+            im.movement_type =
+              'RECEIPT'
 
-            AND
-            rl.accepted_quantity
-              >
+            AND im.source_type =
+              'RECEIPT_LINE'
+
+            AND im.quantity_delta >
               0
 
-            AND
-            rl.received_expiration_date
-              >=
+            AND il.expiration_date >=
               (
                 NOW()
                 AT TIME ZONE
@@ -452,56 +662,67 @@ export class InventoryAvailabilityRepository {
           GROUP BY
             d.purchase_order_id,
             dl.commercial_code,
-            dl.dispensing_point_id
+            il.dispensing_point_id
         ),
 
-        allocation_state AS (
+
+        received AS (
           SELECT
-            iaa.purchase_order_id,
+            purchase_order_id,
 
-            iaa.commercial_code,
+            commercial_code,
 
-            iaa.dispensing_point_id,
-
-            COALESCE(
-              SUM(
-                iaa.consumed_quantity
-              ),
-              0
-            )::int
-              AS consumed_quantity,
+            dispensing_point_id,
 
             COALESCE(
               SUM(
-                CASE
-                  WHEN iaa.status IN (
-                    'ALLOCATED',
-                    'PARTIALLY_CONSUMED'
-                  )
-                  THEN GREATEST(
-                    iaa.allocated_quantity
-                    -
-                    iaa.consumed_quantity
-                    -
-                    iaa.released_quantity,
-                    0
-                  )
-
-                  ELSE 0
-                END
+                quantity
               ),
               0
             )::int
-              AS assigned_quantity
+              AS received_quantity
 
           FROM
-            inventory_authorization_allocations iaa
+            receipt_events
 
           GROUP BY
-            iaa.purchase_order_id,
-            iaa.commercial_code,
-            iaa.dispensing_point_id
+            purchase_order_id,
+            commercial_code,
+            dispensing_point_id
+        ),
+
+
+        fulfilled AS (
+          /*
+           * Solo cuenta una Entrega/Aplicación
+           * realmente confirmada.
+           *
+           * No usa cantidad reservada ni asignada.
+           */
+          SELECT
+            afl.purchase_order_id,
+
+            afl.commercial_code,
+
+            afl.dispensing_point_id,
+
+            COALESCE(
+              SUM(
+                afl.quantity
+              ),
+              0
+            )::int
+              AS fulfilled_quantity
+
+          FROM
+            authorization_fulfillment_lines afl
+
+          GROUP BY
+            afl.purchase_order_id,
+            afl.commercial_code,
+            afl.dispensing_point_id
         )
+
 
         SELECT
           ppp.purchase_order_id,
@@ -522,22 +743,22 @@ export class InventoryAvailabilityRepository {
             AS dispensing_point_code,
 
           COALESCE(
+            ppp.requested_quantity,
+            0
+          )::int
+            AS requested_quantity,
+
+          COALESCE(
             received.received_quantity,
             0
           )::int
             AS received_quantity,
 
           COALESCE(
-            allocation_state.consumed_quantity,
+            fulfilled.fulfilled_quantity,
             0
           )::int
-            AS consumed_quantity,
-
-          COALESCE(
-            allocation_state.assigned_quantity,
-            0
-          )::int
-            AS assigned_quantity
+            AS fulfilled_quantity
 
         FROM
           po_product_points ppp
@@ -565,60 +786,110 @@ export class InventoryAvailabilityRepository {
                ppp.dispensing_point_id
 
         LEFT JOIN
-          allocation_state
-            ON allocation_state.purchase_order_id =
+          fulfilled
+            ON fulfilled.purchase_order_id =
                ppp.purchase_order_id
 
-           AND allocation_state.commercial_code =
+           AND fulfilled.commercial_code =
                ppp.commercial_code
 
-           AND allocation_state.dispensing_point_id
+           AND fulfilled.dispensing_point_id
                IS NOT DISTINCT FROM
                ppp.dispensing_point_id
 
         WHERE
-          ${sql.join(conditions, sql` AND `)}
+          ${sql.join(
+            conditions,
+            sql` AND `,
+          )}
 
         ORDER BY
           ppp.commercial_code,
           purchase_order_code,
-          dispensing_point_code NULLS LAST,
+          dispensing_point_code
+            NULLS LAST,
           ppp.purchase_order_id
 
         LIMIT
           ${limit}
       `);
 
+
     return {
-      items: result.rows.map((row) => {
-        const totalQuantity = Math.max(row.received_quantity - row.consumed_quantity, 0);
+      items:
+        result.rows.map(
+          (row) => {
+            const requestedQuantity =
+              Math.max(
+                row.requested_quantity,
+                0,
+              );
 
-        const assignedQuantity = Math.max(row.assigned_quantity, 0);
+            const receivedQuantity =
+              Math.max(
+                row.received_quantity,
+                0,
+              );
 
-        const availableQuantity = Math.max(totalQuantity - assignedQuantity, 0);
+            const fulfilledQuantity =
+              Math.max(
+                row.fulfilled_quantity,
+                0,
+              );
 
-        return {
-          purchaseOrderId: row.purchase_order_id,
+            /*
+             * Pool fungible:
+             *
+             * no existe reserva previa por paciente.
+             */
+            const availableQuantity =
+              Math.max(
+                receivedQuantity -
+                fulfilledQuantity,
+                0,
+              );
 
-          purchaseOrderCode: row.purchase_order_code,
+            const pendingReceiptQuantity =
+              Math.max(
+                requestedQuantity -
+                receivedQuantity,
+                0,
+              );
 
-          commercialCode: row.commercial_code,
+            return {
+              purchaseOrderId:
+                row.purchase_order_id,
 
-          productDescription: row.product_description,
+              purchaseOrderCode:
+                row.purchase_order_code,
 
-          dispensingPointId: row.dispensing_point_id,
+              commercialCode:
+                row.commercial_code,
 
-          dispensingPointCode: row.dispensing_point_code,
+              productDescription:
+                row.product_description,
 
-          availableQuantity,
+              dispensingPointId:
+                row.dispensing_point_id,
 
-          assignedQuantity,
+              dispensingPointCode:
+                row.dispensing_point_code,
 
-          totalQuantity,
-        };
-      }),
+              requestedQuantity,
+
+              receivedQuantity,
+
+              fulfilledQuantity,
+
+              availableQuantity,
+
+              pendingReceiptQuantity,
+            };
+          },
+        ),
     };
   }
+
 
   async listImports(scope: Scope, limit = 50) {
     const safeLimit = Math.min(Math.max(limit, 1), 100);

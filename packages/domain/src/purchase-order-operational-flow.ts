@@ -139,7 +139,7 @@ export function derivePurchaseOrderMacroStatus(
     return 'RECEIVED_WITH_PENDING';
   }
 
-  if (snapshot.dispatchRecorded) {
+  if (snapshot.olpAccepted) {
     return 'PENDING_MEDICARTE';
   }
 
@@ -154,11 +154,16 @@ export function derivePurchaseOrderActions(
   const orderClosed = status === 'RECEIVED';
 
   return {
-    olpCanAccept: !snapshot.olpAccepted && !snapshot.dispatchRecorded && !orderClosed,
+    olpCanAccept:
+      !snapshot.olpAccepted &&
+      !orderClosed,
 
-    olpCanRecordDispatch: snapshot.olpAccepted && !snapshot.dispatchRecorded && !orderClosed,
+    olpCanRecordDispatch:
+      false,
 
-    medicarteCanReceive: snapshot.dispatchRecorded && !orderClosed,
+    medicarteCanReceive:
+      snapshot.olpAccepted &&
+      !orderClosed,
 
     orderClosed,
   };

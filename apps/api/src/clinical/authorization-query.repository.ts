@@ -149,13 +149,20 @@ export class AuthorizationQueryRepository {
     }
 
     /*
-     * Una autorización se vuelve visible
-     * operacionalmente para MEDICARTE
-     * cuando ya tiene una asignación
-     * de inventario en uno de sus puntos.
+     * MEDICARTE no necesita una reserva previa
+     * de inventario para consultar la autorización.
      *
-     * CONSUNED se conserva para que una
-     * autorización cerrada siga consultable.
+     * Es visible cuando:
+     *
+     * AUTO
+     * -> pertenece a una línea de OC
+     * -> OLP ya aceptó la OC
+     * -> producto coincide
+     * -> el punto de esa línea está dentro
+     *    de los scopes del usuario.
+     *
+     * La asignación física se crea después,
+     * de forma atómica, al Entregar/Aplicar.
      */
     if (
       scope.organizationCode ===
@@ -163,30 +170,111 @@ export class AuthorizationQueryRepository {
     ) {
       return sql`
         exists (
-          select 1
+          select
+            1
 
           from
-            inventory_authorization_allocations iaa_visibility
+            purchase_order_authorization_sources
+              poas_visibility
 
-          join dispensing_points dp_visibility
-            on dp_visibility.id =
-               iaa_visibility.dispensing_point_id
+          join
+            purchase_order_lines
+              pol_visibility
+              on pol_visibility.id =
+                 poas_visibility.purchase_order_line_id
+
+          join
+            purchase_orders
+              po_visibility
+              on po_visibility.id =
+                 pol_visibility.purchase_order_id
+
+          left join
+            tariff_annex_products
+              tap_visibility
+              on tap_visibility.codigo_producto =
+                 pol_visibility.commercial_code
+
+             and tap_visibility.active =
+                 true
+
+          left join
+            product_delivery_point_mappings
+              mapping_visibility
+              on pol_visibility.dispensing_point_id
+                 is null
+
+             and btrim(
+                   coalesce(
+                     tap_visibility.numero_expediente_invima,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             and btrim(
+                   coalesce(
+                     tap_visibility.consecutivo_invima_presentacion,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             and mapping_visibility.invima_record_normalized =
+                 coalesce(
+                   nullif(
+                     ltrim(
+                       btrim(
+                         tap_visibility.numero_expediente_invima
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+             and mapping_visibility.invima_presentation_normalized =
+                 coalesce(
+                   nullif(
+                     ltrim(
+                       btrim(
+                         tap_visibility.consecutivo_invima_presentacion
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+          join
+            dispensing_points
+              dp_visibility
+              on dp_visibility.id =
+                 coalesce(
+                   pol_visibility.dispensing_point_id,
+                   mapping_visibility.dispensing_point_id
+                 )
 
           where
-            iaa_visibility.authorization_item_id =
+            poas_visibility.authorization_item_id =
               i.id
 
-            and iaa_visibility.status in (
-              'ALLOCATED',
-              'PARTIALLY_CONSUMED',
-              'CONSUMED'
+            and pol_visibility.commercial_code =
+              i.codigo_medicamento
+
+            and po_visibility.olp_accepted_at
+              is not null
+
+            and po_visibility.status not in (
+              'CANCELLED',
+              'REJECTED'
             )
 
             and dp_visibility.organization_id =
               ${scope.organizationId}
 
             and ${applyPointScope(
-              sql`iaa_visibility.dispensing_point_id`,
+              sql`dp_visibility.id`,
               scope,
             )}
         )
@@ -364,6 +452,7 @@ export class AuthorizationQueryRepository {
         where,
         filters.limit,
         offset,
+        scope,
       );
 
     return {
@@ -411,6 +500,7 @@ export class AuthorizationQueryRepository {
         ),
         1,
         0,
+        scope,
       );
 
     const row =
@@ -432,7 +522,26 @@ export class AuthorizationQueryRepository {
 
     offset:
       number,
+
+    scope:
+      Scope,
   ) {
+    const eligibilityScope =
+      scope.organizationCode ===
+      'MEDICARTE'
+        ? sql`
+            dp_eligibility.organization_id =
+              ${scope.organizationId}
+
+            and
+
+            ${applyPointScope(
+              sql`dp_eligibility.id`,
+              scope,
+            )}
+          `
+        : sql`true`;
+
     return this.database.db.execute<
       AuthorizationQueryRow
     >(sql`
@@ -496,9 +605,16 @@ export class AuthorizationQueryRepository {
             'APPLIED'
 
           when
-            coalesce(
-              allocation.remaining_quantity,
-              0
+            greatest(
+              coalesce(
+                allocation.remaining_quantity,
+                0
+              ),
+
+              coalesce(
+                eligibility.eligible_quantity,
+                0
+              )
             )
             >
             0
@@ -541,9 +657,16 @@ export class AuthorizationQueryRepository {
             'CLOSED'
 
           when
-            coalesce(
-              allocation.remaining_quantity,
-              0
+            greatest(
+              coalesce(
+                allocation.remaining_quantity,
+                0
+              ),
+
+              coalesce(
+                eligibility.eligible_quantity,
+                0
+              )
             )
             >
             0
@@ -555,52 +678,49 @@ export class AuthorizationQueryRepository {
         end
           as operational_status,
 
-        coalesce(
-          allocation.allocated_quantity,
-          0
+        greatest(
+          coalesce(
+            allocation.allocated_quantity,
+            0
+          ),
+
+          coalesce(
+            eligibility.eligible_quantity,
+            0
+          )
         )::int
           as allocated_quantity,
 
-        coalesce(
-          allocation.remaining_quantity,
-          0
+        greatest(
+          coalesce(
+            allocation.remaining_quantity,
+            0
+          ),
+
+          coalesce(
+            eligibility.eligible_quantity,
+            0
+          )
         )::int
           as remaining_assigned_quantity,
 
         coalesce(
           allocation.purchase_order,
-          (
-            select
-              string_agg(
-                distinct
-                coalesce(
-                  po_source.purchase_order_code,
-                  po_source.id::text
-                ),
-                ', '
-              )
-
-            from
-              purchase_order_authorization_sources poas
-
-            join purchase_order_lines pol_source
-              on pol_source.id =
-                 poas.purchase_order_line_id
-
-            join purchase_orders po_source
-              on po_source.id =
-                 pol_source.purchase_order_id
-
-            where
-              poas.authorization_item_id =
-                i.id
-          )
+          eligibility.purchase_order
         )
           as purchase_order,
 
-        allocation.dispensing_point_code,
+        coalesce(
+          allocation.dispensing_point_code,
+          eligibility.dispensing_point_code
+        )
+          as dispensing_point_code,
 
-        allocation.dispensing_point_name,
+        coalesce(
+          allocation.dispensing_point_name,
+          eligibility.dispensing_point_name
+        )
+          as dispensing_point_name,
 
         coalesce(
           fulfillment.id,
@@ -705,6 +825,142 @@ export class AuthorizationQueryRepository {
         limit 1
       ) product
         on true
+
+      left join lateral (
+        select
+          coalesce(
+            sum(
+              poas_eligibility.source_quantity_snapshot
+            ),
+            0
+          )::int
+            as eligible_quantity,
+
+          string_agg(
+            distinct
+              coalesce(
+                po_eligibility.purchase_order_code,
+                po_eligibility.id::text
+              ),
+            ', '
+          )
+            as purchase_order,
+
+          string_agg(
+            distinct
+              dp_eligibility.code,
+            ', '
+          )
+            as dispensing_point_code,
+
+          string_agg(
+            distinct
+              dp_eligibility.name,
+            ', '
+          )
+            as dispensing_point_name
+
+        from
+          purchase_order_authorization_sources
+            poas_eligibility
+
+        join
+          purchase_order_lines
+            pol_eligibility
+            on pol_eligibility.id =
+               poas_eligibility.purchase_order_line_id
+
+        join
+          purchase_orders
+            po_eligibility
+            on po_eligibility.id =
+               pol_eligibility.purchase_order_id
+
+        left join
+          tariff_annex_products
+            tap_eligibility
+            on tap_eligibility.codigo_producto =
+               pol_eligibility.commercial_code
+
+           and tap_eligibility.active =
+               true
+
+        left join
+          product_delivery_point_mappings
+            mapping_eligibility
+            on pol_eligibility.dispensing_point_id
+               is null
+
+           and btrim(
+                 coalesce(
+                   tap_eligibility.numero_expediente_invima,
+                   ''
+                 )
+               ) ~ '^[0-9]+$'
+
+           and btrim(
+                 coalesce(
+                   tap_eligibility.consecutivo_invima_presentacion,
+                   ''
+                 )
+               ) ~ '^[0-9]+$'
+
+           and mapping_eligibility.invima_record_normalized =
+               coalesce(
+                 nullif(
+                   ltrim(
+                     btrim(
+                       tap_eligibility.numero_expediente_invima
+                     ),
+                     '0'
+                   ),
+                   ''
+                 ),
+                 '0'
+               )
+
+           and mapping_eligibility.invima_presentation_normalized =
+               coalesce(
+                 nullif(
+                   ltrim(
+                     btrim(
+                       tap_eligibility.consecutivo_invima_presentacion
+                     ),
+                     '0'
+                   ),
+                   ''
+                 ),
+                 '0'
+               )
+
+        join
+          dispensing_points
+            dp_eligibility
+            on dp_eligibility.id =
+               coalesce(
+                 pol_eligibility.dispensing_point_id,
+                 mapping_eligibility.dispensing_point_id
+               )
+
+        where
+          poas_eligibility.authorization_item_id =
+            i.id
+
+          and pol_eligibility.commercial_code =
+            i.codigo_medicamento
+
+          and po_eligibility.olp_accepted_at
+            is not null
+
+          and po_eligibility.status not in (
+            'CANCELLED',
+            'REJECTED'
+          )
+
+          and ${eligibilityScope}
+      ) eligibility
+        on true
+
 
       left join lateral (
         select

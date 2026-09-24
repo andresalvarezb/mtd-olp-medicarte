@@ -1173,6 +1173,39 @@ export const purchaseOrderStatusSchema = z.enum([
   'RECEIVED',
 ]);
 export type PurchaseOrderStatus = z.infer<typeof purchaseOrderStatusSchema>;
+
+
+export const purchaseOrderOperationalStateSchema =
+  z.enum([
+    'PENDING_OLP',
+    'PENDING_MEDICARTE',
+    'RECEIVED_WITH_PENDING',
+    'RECEIVED',
+    'REJECTED',
+    'CANCELLED',
+  ]);
+
+
+export type PurchaseOrderOperationalState =
+  z.infer<
+    typeof purchaseOrderOperationalStateSchema
+  >;
+
+
+export type PurchaseOrderListOperationalProjection =
+  Readonly<{
+    olpAcceptedAt: string | null;
+
+    operationalState:
+      PurchaseOrderOperationalState;
+
+    requestedQuantity: number;
+
+    receivedQuantity: number;
+
+    pendingQuantity: number;
+  }>;
+
 export const purchaseOrderTransitions: Record<PurchaseOrderStatus, readonly PurchaseOrderStatus[]> =
   {
     DRAFT: ['ISSUED', 'CANCELLED'],
@@ -1407,32 +1440,10 @@ export const purchaseOrderDirectReceiptLineSchema =
     purchaseOrderLineId:
       z.string().uuid(),
 
-    outcome:
-      purchaseOrderReceiptOutcomeSchema,
-
     receivedQuantity:
-      z.number().int().nonnegative(),
-
-    lotNumber:
-      z.string()
-        .trim()
-        .min(1)
-        .max(255)
-        .optional()
-        .nullable(),
-
-    expirationDate:
-      z.string()
-        .date()
-        .optional()
-        .nullable(),
-
-    observation:
-      z.string()
-        .trim()
-        .max(2000)
-        .optional()
-        .nullable(),
+      z.number()
+        .int()
+        .positive(),
   });
 
 
@@ -2451,6 +2462,12 @@ export type AuthorizationFulfillmentType =
 
 export const fulfillAuthorizationRequestSchema =
   z.object({
+    purchaseOrderCode:
+      z.string()
+        .trim()
+        .min(1)
+        .max(255),
+
     fulfillmentType:
       authorizationFulfillmentTypeSchema,
 

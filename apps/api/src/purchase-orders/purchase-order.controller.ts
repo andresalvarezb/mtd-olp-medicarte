@@ -50,23 +50,6 @@ const acceptPurchaseOrderSchema = z
         .min(3)
         .max(2000)
         .optional(),
-
-    lines:
-      z.array(
-        z.object({
-          lineId:
-            z.string()
-              .uuid(),
-
-          supplierUnitCost:
-            z.number()
-              .finite()
-              .positive(),
-        })
-        .strict(),
-      )
-      .min(1)
-      .max(500),
   })
   .strict();
 
@@ -266,9 +249,6 @@ export class SupplierPurchaseOrderController {
 
         committedDate:
           body.committedDate,
-
-        lines:
-          body.lines,
 
         ...(body.observation === undefined
           ? {}

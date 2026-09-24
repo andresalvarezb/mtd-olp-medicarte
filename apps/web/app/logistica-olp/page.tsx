@@ -1,2 +1,5 @@
-import { SupplierPurchaseOrdersView } from '@/features/purchase-orders/supplier-purchase-orders-view';
-export default function SupplierPurchaseOrdersPage() { return <SupplierPurchaseOrdersView />; }
+import { redirect } from 'next/navigation';
+
+export default function LegacyOlpRoute() {
+  redirect('/ordenes-compra');
+}

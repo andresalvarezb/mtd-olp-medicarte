@@ -15,6 +15,11 @@ export const metadata: Metadata = {
   title: 'Operación de alto costo | MTD',
   description:
     'Gestión operacional de autorizaciones, abastecimiento, inventario y aplicación de medicamentos.',
+  icons: {
+    icon: '/icon.png',
+    shortcut: '/icon.png',
+    apple: '/icon.png',
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

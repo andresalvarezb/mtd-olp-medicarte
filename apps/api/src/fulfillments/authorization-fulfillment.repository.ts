@@ -26,7 +26,6 @@ import type {
 } from '../common/request-scope';
 
 import {
-  applyPointScope,
   lockActivePointGrants,
 } from '../common/point-scope.sql';
 
@@ -91,6 +90,7 @@ export class AuthorizationFulfillmentRepository {
             tx,
             authorizationItemId,
             scope,
+            body.purchaseOrderCode,
           );
 
         if (!authorization) {
@@ -133,10 +133,20 @@ export class AuthorizationFulfillmentRepository {
           );
         }
 
+        await this.ensureAutomaticAllocation(
+          tx,
+          authorizationItemId,
+          authorization.commercial_code,
+          body.purchaseOrderCode,
+          body.effectiveDate,
+          scope,
+        );
+
         const allocations =
           await this.lockAllocations(
             tx,
             authorizationItemId,
+            body.purchaseOrderCode,
           );
 
         const pointIds =
@@ -517,6 +527,7 @@ export class AuthorizationFulfillmentRepository {
     tx: Tx,
     authorizationItemId: string,
     scope: Scope,
+    purchaseOrderCode: string,
   ): Promise<
     AuthorizationRow | undefined
   > {
@@ -531,29 +542,27 @@ export class AuthorizationFulfillmentRepository {
                 select 1
 
                 from
-                  inventory_authorization_allocations iaa
+                  purchase_order_authorization_sources poas
 
-                join dispensing_points dp
-                  on dp.id =
-                     iaa.dispensing_point_id
+                join purchase_order_lines pol
+                  on pol.id =
+                     poas.purchase_order_line_id
+
+                join purchase_orders po
+                  on po.id =
+                     pol.purchase_order_id
 
                 where
-                  iaa.authorization_item_id =
+                  poas.authorization_item_id =
                     i.id
 
-                  and iaa.status in (
-                    'ALLOCATED',
-                    'PARTIALLY_CONSUMED',
-                    'CONSUMED'
+                  and po.purchase_order_code =
+                    ${purchaseOrderCode}
+
+                  and po.status not in (
+                    'CANCELLED',
+                    'REJECTED'
                   )
-
-                  and dp.organization_id =
-                    ${scope.organizationId}
-
-                  and ${applyPointScope(
-                    sql`iaa.dispensing_point_id`,
-                    scope,
-                  )}
               )
             `
 
@@ -602,9 +611,538 @@ export class AuthorizationFulfillmentRepository {
     ).rows[0];
   }
 
+  private async ensureAutomaticAllocation(
+    tx: Tx,
+    authorizationItemId: string,
+    commercialCode: string,
+    purchaseOrderCode: string,
+    effectiveDate: string,
+    scope: Scope,
+  ): Promise<void> {
+    const existing =
+      await tx.execute<{
+        id: string;
+      }>(sql`
+        select
+          iaa.id
+
+        from
+          inventory_authorization_allocations iaa
+
+        join purchase_orders po
+          on po.id =
+             iaa.purchase_order_id
+
+        where
+          iaa.authorization_item_id =
+            ${authorizationItemId}
+
+          and po.purchase_order_code =
+            ${purchaseOrderCode}
+
+          and iaa.status in (
+            'ALLOCATED',
+            'PARTIALLY_CONSUMED'
+          )
+
+          and (
+            iaa.allocated_quantity
+            -
+            iaa.consumed_quantity
+            -
+            iaa.released_quantity
+          ) > 0
+
+        limit 1
+
+        for update of iaa
+      `);
+
+    if (
+      existing.rows[0]
+    ) {
+      return;
+    }
+
+
+    const source =
+      await tx.execute<{
+        purchase_order_id: string;
+        purchase_order_code: string;
+        authorization_version: number;
+        required_quantity: number;
+        dispensing_point_id: string | null;
+      }>(sql`
+        select
+          po.id
+            as purchase_order_id,
+
+          po.purchase_order_code,
+
+          ai.version
+            as authorization_version,
+
+          sum(
+            poas.source_quantity_snapshot
+          )::int
+            as required_quantity,
+
+          (
+            select
+              ps.dispensing_point_id
+
+            from
+              patient_schedules ps
+
+            where
+              ps.authorization_item_id =
+                ai.id
+
+              and ps.status in (
+                'SCHEDULED',
+                'RESCHEDULED'
+              )
+
+            order by
+              ps.scheduled_date desc,
+              ps.revision desc,
+              ps.created_at desc,
+              ps.id desc
+
+            limit 1
+          )
+            as dispensing_point_id
+
+        from
+          purchase_order_authorization_sources poas
+
+        join purchase_order_lines pol
+          on pol.id =
+             poas.purchase_order_line_id
+
+        join purchase_orders po
+          on po.id =
+             pol.purchase_order_id
+
+        join authorization_items ai
+          on ai.id =
+             poas.authorization_item_id
+
+        where
+          poas.authorization_item_id =
+            ${authorizationItemId}
+
+          and po.purchase_order_code =
+            ${purchaseOrderCode}
+
+          and pol.commercial_code =
+            ${commercialCode}
+
+          and po.status not in (
+            'CANCELLED',
+            'REJECTED'
+          )
+
+        group by
+          po.id,
+          po.purchase_order_code,
+          ai.id,
+          ai.version
+
+        limit 2
+      `);
+
+    if (
+      source.rows.length !==
+      1
+    ) {
+      throw new Error(
+        'AUTHORIZATION_FULFILLMENT_OC_NOT_ELIGIBLE',
+      );
+    }
+
+    const target =
+      source.rows[0]!;
+
+    if (
+      !target.dispensing_point_id
+    ) {
+      throw new Error(
+        'AUTHORIZATION_FULFILLMENT_SCHEDULE_REQUIRED',
+      );
+    }
+
+    if (
+      target.required_quantity <=
+      0
+    ) {
+      throw new Error(
+        'AUTHORIZATION_FULFILLMENT_QUANTITY_INVALID',
+      );
+    }
+
+
+    /*
+     * Serializa:
+     * OC + producto + punto.
+     *
+     * Dos usuarios pueden intentar consumir la última unidad
+     * al mismo tiempo; solamente uno debe ganar.
+     */
+    const poolLockKey =
+      [
+        'OC_POOL',
+        target.purchase_order_id,
+        commercialCode,
+        target.dispensing_point_id,
+      ].join(':');
+
+    await tx.execute(sql`
+      select
+        pg_advisory_xact_lock(
+          hashtextextended(
+            ${poolLockKey},
+            0
+          )
+        )
+    `);
+
+
+    /*
+     * Revalidar después del advisory lock.
+     */
+    const duplicate =
+      await tx.execute<{
+        id: string;
+      }>(sql`
+        select
+          iaa.id
+
+        from
+          inventory_authorization_allocations iaa
+
+        where
+          iaa.authorization_item_id =
+            ${authorizationItemId}
+
+          and iaa.purchase_order_id =
+            ${target.purchase_order_id}
+
+          and iaa.status in (
+            'ALLOCATED',
+            'PARTIALLY_CONSUMED'
+          )
+
+          and (
+            iaa.allocated_quantity
+            -
+            iaa.consumed_quantity
+            -
+            iaa.released_quantity
+          ) > 0
+
+        limit 1
+
+        for update
+      `);
+
+    if (
+      duplicate.rows[0]
+    ) {
+      return;
+    }
+
+
+    /*
+     * Cantidad efectivamente recibida para esta OC/producto/punto.
+     *
+     * Se usa el ledger físico (inventory_movements) porque incluye
+     * tanto la recepción histórica delivery/receipt como la recepción
+     * directa de la OC.
+     */
+    const received =
+      await tx.execute<{
+        quantity: number;
+      }>(sql`
+        with received_sources as (
+          select
+            im.quantity_delta
+              as quantity
+
+          from
+            inventory_movements im
+
+          join inventory_lots il
+            on il.id =
+               im.inventory_lot_id
+
+          join purchase_order_receipt_lines porl
+            on porl.id =
+               im.source_id
+
+          join purchase_order_receipts por
+            on por.id =
+               porl.receipt_id
+
+          join purchase_order_lines pol
+            on pol.id =
+               porl.purchase_order_line_id
+
+          where
+            im.movement_type =
+              'RECEIPT'
+
+            and im.source_type =
+              'PURCHASE_ORDER_RECEIPT_LINE'
+
+            and por.purchase_order_id =
+              ${target.purchase_order_id}
+
+            and pol.commercial_code =
+              ${commercialCode}
+
+            and il.dispensing_point_id =
+              ${target.dispensing_point_id}
+
+            and il.expiration_date >=
+              ${effectiveDate}::date
+
+          union all
+
+          select
+            im.quantity_delta
+              as quantity
+
+          from
+            inventory_movements im
+
+          join inventory_lots il
+            on il.id =
+               im.inventory_lot_id
+
+          join receipt_lines rl
+            on rl.id =
+               im.source_id
+
+          join delivery_lines dl
+            on dl.id =
+               rl.delivery_line_id
+
+          join deliveries d
+            on d.id =
+               dl.delivery_id
+
+          where
+            im.movement_type =
+              'RECEIPT'
+
+            and im.source_type =
+              'RECEIPT_LINE'
+
+            and d.purchase_order_id =
+              ${target.purchase_order_id}
+
+            and dl.commercial_code =
+              ${commercialCode}
+
+            and il.dispensing_point_id =
+              ${target.dispensing_point_id}
+
+            and il.expiration_date >=
+              ${effectiveDate}::date
+        )
+
+        select
+          coalesce(
+            sum(quantity),
+            0
+          )::int
+            as quantity
+
+        from
+          received_sources
+      `);
+
+
+    const allocationState =
+      await tx.execute<{
+        consumed: number;
+        assigned: number;
+      }>(sql`
+        select
+          coalesce(
+            sum(
+              consumed_quantity
+            ),
+            0
+          )::int
+            as consumed,
+
+          coalesce(
+            sum(
+              case
+                when status in (
+                  'ALLOCATED',
+                  'PARTIALLY_CONSUMED'
+                )
+                then greatest(
+                  allocated_quantity
+                  -
+                  consumed_quantity
+                  -
+                  released_quantity,
+                  0
+                )
+                else 0
+              end
+            ),
+            0
+          )::int
+            as assigned
+
+        from
+          inventory_authorization_allocations
+
+        where
+          purchase_order_id =
+            ${target.purchase_order_id}
+
+          and commercial_code =
+            ${commercialCode}
+
+          and dispensing_point_id =
+            ${target.dispensing_point_id}
+      `);
+
+
+    const receivedQuantity =
+      received.rows[0]?.quantity ??
+      0;
+
+    const consumedQuantity =
+      allocationState.rows[0]?.consumed ??
+      0;
+
+    const assignedQuantity =
+      allocationState.rows[0]?.assigned ??
+      0;
+
+    const availableQuantity =
+      Math.max(
+        receivedQuantity
+        -
+        consumedQuantity
+        -
+        assignedQuantity,
+        0,
+      );
+
+
+    /*
+     * Regla crítica:
+     * jamás reservar ni consumir parcialmente una autorización.
+     */
+    if (
+      availableQuantity <
+      target.required_quantity
+    ) {
+      throw new Error(
+        'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_OC_POOL',
+      );
+    }
+
+
+    /*
+     * Se conserva la tabla histórica de allocations como ledger
+     * interno, pero ya no requiere cargue manual.
+     *
+     * El batch se genera automáticamente y no aparece en el
+     * historial XLSX porque source = UI.
+     */
+    const batch =
+      await tx.execute<{
+        id: string;
+      }>(sql`
+        insert into
+          inventory_allocation_batches
+        (
+          organization_id,
+          source,
+          import_batch_id,
+          status,
+          total_rows,
+          valid_rows,
+          invalid_rows,
+          allocated_quantity,
+          correlation_id,
+          created_by,
+          confirmed_by,
+          confirmed_at
+        )
+        values
+        (
+          ${scope.organizationId},
+          'UI',
+          null,
+          'CONFIRMED',
+          1,
+          1,
+          0,
+          ${target.required_quantity},
+          ${scope.correlationId},
+          ${scope.userId},
+          ${scope.userId},
+          now()
+        )
+        returning
+          id
+      `);
+
+
+    await tx.execute(sql`
+      insert into
+        inventory_authorization_allocations
+      (
+        batch_id,
+        source_import_row_id,
+        organization_id,
+        authorization_item_id,
+        purchase_order_id,
+        commercial_code,
+        dispensing_point_id,
+        allocated_quantity,
+        consumed_quantity,
+        released_quantity,
+        status,
+        authorization_version,
+        created_by,
+        updated_by
+      )
+      values
+      (
+        ${batch.rows[0]!.id},
+        null,
+        ${scope.organizationId},
+        ${authorizationItemId},
+        ${target.purchase_order_id},
+        ${commercialCode},
+        ${target.dispensing_point_id},
+        ${target.required_quantity},
+        0,
+        0,
+        'ALLOCATED',
+        ${target.authorization_version},
+        ${scope.userId},
+        ${scope.userId}
+      )
+    `);
+  }
+
+
   private async lockAllocations(
     tx: Tx,
     authorizationItemId: string,
+    purchaseOrderCode: string,
   ): Promise<AllocationRow[]> {
     return (
       await tx.execute<AllocationRow>(
@@ -636,6 +1174,9 @@ export class AuthorizationFulfillmentRepository {
           where
             iaa.authorization_item_id =
               ${authorizationItemId}
+
+            and po.purchase_order_code =
+              ${purchaseOrderCode}
 
             and iaa.status in (
               'ALLOCATED',

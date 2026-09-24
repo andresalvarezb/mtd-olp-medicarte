@@ -1,2 +1,5 @@
-import { SupplierDeliveriesView } from '@/features/deliveries/deliveries-view';
-export default function SupplierDeliveriesPage() { return <SupplierDeliveriesView />; }
+import { redirect } from 'next/navigation';
+
+export default function LegacyOlpRoute() {
+  redirect('/ordenes-compra');
+}

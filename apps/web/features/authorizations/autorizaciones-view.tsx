@@ -157,6 +157,18 @@ export function AutorizacionesView() {
     useState(false);
 
   const [
+    page,
+    setPage,
+  ] =
+    useState(1);
+
+  const [
+    pageSize,
+    setPageSize,
+  ] =
+    useState(10);
+
+  const [
     error,
     setError,
   ] =
@@ -185,6 +197,40 @@ export function AutorizacionesView() {
             'AUTHORIZATIONS',
         ),
       [jobs.data],
+    );
+
+  const totalPages =
+    Math.max(
+      Math.ceil(
+        authorizationJobs.length /
+          pageSize,
+      ),
+      1,
+    );
+
+  const safePage =
+    Math.min(
+      page,
+      totalPages,
+    );
+
+  const firstVisible =
+    authorizationJobs.length > 0
+      ? (safePage - 1) *
+          pageSize +
+        1
+      : 0;
+
+  const lastVisible =
+    Math.min(
+      safePage * pageSize,
+      authorizationJobs.length,
+    );
+
+  const pagedAuthorizationJobs =
+    authorizationJobs.slice(
+      (safePage - 1) * pageSize,
+      safePage * pageSize,
     );
 
   async function downloadTemplate() {
@@ -471,7 +517,7 @@ export function AutorizacionesView() {
               },
             ]}
             rows={
-              authorizationJobs.map(
+              pagedAuthorizationJobs.map(
                 (job) => [
                   job.originalFilename,
 
@@ -510,6 +556,96 @@ export function AutorizacionesView() {
             emptyTitle="Sin cargas"
             emptyDescription="Aún no se han procesado archivos de autorizaciones."
           />
+          </div>
+
+          <div className="authorization-imports-pagination list-pagination">
+            <div className="authorization-imports-pagination-summary">
+              <span>
+                {`Mostrando ${firstVisible}–${lastVisible} de ${authorizationJobs.length}`}
+              </span>
+
+              <label className="authorization-imports-page-size-field">
+                <span>
+                  Filas
+                </span>
+
+                <select
+                  className="control authorization-imports-page-size"
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(
+                      Number(
+                        event.target.value,
+                      ),
+                    );
+
+                    setPage(1);
+                  }}
+                >
+                  <option value={10}>
+                    10
+                  </option>
+
+                  <option value={25}>
+                    25
+                  </option>
+
+                  <option value={50}>
+                    50
+                  </option>
+
+                  <option value={100}>
+                    100
+                  </option>
+                </select>
+              </label>
+            </div>
+
+            <div className="authorization-imports-pagination-controls">
+              <button
+                type="button"
+                className="btn"
+                disabled={
+                  safePage <= 1 ||
+                  jobs.loading
+                }
+                onClick={() =>
+                  setPage(
+                    (current) =>
+                      Math.max(
+                        current - 1,
+                        1,
+                      ),
+                  )
+                }
+              >
+                Anterior
+              </button>
+
+              <strong>
+                Página {safePage} de {totalPages}
+              </strong>
+
+              <button
+                type="button"
+                className="btn"
+                disabled={
+                  safePage >= totalPages ||
+                  jobs.loading
+                }
+                onClick={() =>
+                  setPage(
+                    (current) =>
+                      Math.min(
+                        current + 1,
+                        totalPages,
+                      ),
+                  )
+                }
+              >
+                Siguiente
+              </button>
+            </div>
           </div>
         </CardBody>
       </Card>

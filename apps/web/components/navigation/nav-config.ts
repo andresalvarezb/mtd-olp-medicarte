@@ -188,7 +188,7 @@ export const NAV_SECTIONS: NavSection[] = [
 
             permission: 'authorizations.read',
 
-            roles: MTD_ROLES,
+            roles: [...MTD_ROLES, 'MEDICARTE'],
           },
         ],
       },
@@ -212,7 +212,7 @@ export const NAV_SECTIONS: NavSection[] = [
 
             permission: 'inventory.read',
 
-            roles: MTD_ROLES,
+            roles: [...MTD_ROLES, 'MEDICARTE'],
           },
 
           {
@@ -226,7 +226,7 @@ export const NAV_SECTIONS: NavSection[] = [
 
             permission: 'purchase_orders.read',
 
-            roles: MTD_ROLES,
+            roles: [...MTD_ROLES, 'OLP', 'MEDICARTE'],
           },
 
           {

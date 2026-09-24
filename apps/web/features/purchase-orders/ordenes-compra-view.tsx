@@ -4,7 +4,11 @@ import { useRef, useState } from 'react';
 
 import { useRouter } from 'next/navigation';
 
-import type { PurchaseOrderListQuery, PurchaseOrderResponse } from '@authorization/contracts';
+import type {
+  PurchaseOrderListQuery,
+  PurchaseOrderOperationalState,
+  PurchaseOrderResponse,
+} from '@authorization/contracts';
 
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
@@ -14,92 +18,234 @@ import { useRole } from '@/components/layout/role-context';
 import {
   downloadPurchaseOrderTemplate,
   listPurchaseOrders,
+  listSupplierPurchaseOrders,
   uploadPurchaseOrderImport,
   type PurchaseOrderImportResult,
 } from '@/lib/purchase-orders-api';
 import { issuePurchaseOrder } from '@/lib/purchase-orders-api';
 
-type DetailedOrder = PurchaseOrderResponse & {
-  latestSupplierObservation?: string | null;
-};
+type DetailedOrder =
+  Omit<
+    PurchaseOrderResponse,
+    'status' | 'orderType'
+  > & {
+    status: string;
+
+    orderType:
+      | 'STANDARD'
+      | 'COMPLEMENTARY'
+      | null;
+
+    olpAcceptedAt?:
+      | string
+      | null;
+
+    olpCommittedDate?:
+      | string
+      | null;
+
+    latestSupplierObservation?:
+      | string
+      | null;
+
+    operationalState?:
+      PurchaseOrderOperationalState;
+
+    requestedQuantity?:
+      number;
+
+    receivedQuantity?:
+      number;
+
+    pendingQuantity?:
+      number;
+  };
 
 type OrderStatusGroup =
   | ''
-  | 'PENDING_OLP'
-  | 'PENDING_MEDICARTE'
-  | 'PARTIALLY_RECEIVED'
-  | 'RECEIVED';
+  | PurchaseOrderOperationalState;
 
-const STATUS_GROUP_LABELS: Record<Exclude<OrderStatusGroup, ''>, string> = {
-  PENDING_OLP: 'Pendiente OLP',
-  PENDING_MEDICARTE: 'Pendiente Medicarte',
-  PARTIALLY_RECEIVED: 'Recibida con pendientes',
-  RECEIVED: 'Recibida',
-};
 
-function statusGroup(status: string): Exclude<OrderStatusGroup, ''> {
+const STATUS_GROUP_LABELS:
+  Record<
+    PurchaseOrderOperationalState,
+    string
+  > = {
+    PENDING_OLP:
+      'Pendiente OLP',
+
+    PENDING_MEDICARTE:
+      'Pendiente Medicarte',
+
+    RECEIVED_WITH_PENDING:
+      'Recibida con pendiente',
+
+    RECEIVED:
+      'Recibida',
+
+    REJECTED:
+      'Rechazada',
+
+    CANCELLED:
+      'Cancelada',
+  };
+
+
+const STATUS_GROUP_CLASSES:
+  Record<
+    PurchaseOrderOperationalState,
+    string
+  > = {
+    PENDING_OLP:
+      'status-pending-olp',
+
+    PENDING_MEDICARTE:
+      'status-pending-medicarte',
+
+    RECEIVED_WITH_PENDING:
+      'status-received-with-pending',
+
+    RECEIVED:
+      'status-received',
+
+    REJECTED:
+      'status-rejected',
+
+    CANCELLED:
+      'status-cancelled',
+  };
+
+
+function statusGroup(
+  order: Pick<
+    DetailedOrder,
+    | 'status'
+    | 'olpAcceptedAt'
+    | 'operationalState'
+  >,
+): PurchaseOrderOperationalState {
   /*
-   * Estados técnicos del backend.
-   * La UI expone únicamente el estado operacional.
+   * Fuente autoritativa para la bandeja:
+   * estado operacional calculado por backend a partir
+   * de aceptación OLP + recepción acumulada real.
    */
+  if (
+    order.operationalState
+  ) {
+    return order.operationalState;
+  }
 
-  if (['DRAFT', 'ISSUED', 'UNDER_OLP_REVIEW'].includes(status)) {
-    return 'PENDING_OLP';
+  /*
+   * Fallback defensivo para respuestas antiguas.
+   */
+  if (
+    order.status ===
+    'CANCELLED'
+  ) {
+    return 'CANCELLED';
   }
 
   if (
+    order.status ===
+    'REJECTED'
+  ) {
+    return 'REJECTED';
+  }
+
+  if (
+    order.status ===
+    'RECEIVED'
+  ) {
+    return 'RECEIVED';
+  }
+
+  if (
+    order.status ===
+    'PARTIALLY_RECEIVED'
+  ) {
+    return 'RECEIVED_WITH_PENDING';
+  }
+
+  if (
+    order.olpAcceptedAt ||
     [
       'ACCEPTED',
       'PARTIALLY_ACCEPTED',
       'IN_FULFILLMENT',
       'PARTIALLY_DISPATCHED',
       'FULLY_DISPATCHED',
-    ].includes(status)
+    ].includes(
+      order.status,
+    )
   ) {
     return 'PENDING_MEDICARTE';
-  }
-
-  if (status === 'PARTIALLY_RECEIVED') {
-    return 'PARTIALLY_RECEIVED';
-  }
-
-  if (status === 'RECEIVED') {
-    return 'RECEIVED';
   }
 
   return 'PENDING_OLP';
 }
 
-function statusGroupLabel(status: string) {
-  return STATUS_GROUP_LABELS[statusGroup(status)];
+
+function statusGroupLabel(
+  order: Pick<
+    DetailedOrder,
+    | 'status'
+    | 'olpAcceptedAt'
+    | 'operationalState'
+  >,
+) {
+  return STATUS_GROUP_LABELS[
+    statusGroup(
+      order,
+    )
+  ];
 }
 
-function statusReasonLabel(status: string) {
-  if (status === 'PARTIALLY_RECEIVED') {
-    return 'OLP no entregó completo';
-  }
 
-  return null;
+function statusGroupClass(
+  order: Pick<
+    DetailedOrder,
+    | 'status'
+    | 'olpAcceptedAt'
+    | 'operationalState'
+  >,
+) {
+  return STATUS_GROUP_CLASSES[
+    statusGroup(
+      order,
+    )
+  ];
 }
 
-function issueOutcomeLabel(status: string) {
-  if (status === 'REJECTED') {
+
+function issueOutcomeLabel(
+  status: string,
+) {
+  if (
+    status ===
+    'REJECTED'
+  ) {
     return 'Devuelta por OLP';
   }
 
-  if (status === 'CANCELLED') {
+  if (
+    status ===
+    'CANCELLED'
+  ) {
     return 'Cancelada';
   }
 
   return null;
 }
 
-function rowStatusReason(status: string) {
-  return (
-    statusReasonLabel(status) ??
-    issueOutcomeLabel(status)
+
+function rowStatusReason(
+  status: string,
+) {
+  return issueOutcomeLabel(
+    status,
   );
 }
+
 
 function money(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -122,8 +268,9 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export function PurchaseOrdersView() {
   const router = useRouter();
-  const { organizationId, hasPermission } = useRole();
+  const { organizationId, hasPermission, roles } = useRole();
   const canManage = hasPermission('purchase_orders.manage');
+  const isOlp = roles.includes('OLP');
 
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -149,37 +296,89 @@ export function PurchaseOrdersView() {
   const [pageSize, setPageSize] = useState(10);
 
   const orders = useApiData(async () => {
+    /*
+     * Los filtros de texto/tipo se ejecutan en el backend.
+     * El filtro de macroestado se aplica en frontend porque
+     * PENDING_OLP/PENDING_MEDICARTE son estados operacionales
+     * y no necesariamente coinciden con po.status.
+     */
     const query = {
-      purchaseOrderCode: appliedFilters.purchaseOrderCode || undefined,
+      purchaseOrderCode:
+        appliedFilters.purchaseOrderCode ||
+        undefined,
 
-      commercialCode: appliedFilters.commercialCode || undefined,
+      commercialCode:
+        appliedFilters.commercialCode ||
+        undefined,
 
-      orderType: appliedFilters.orderType,
+      orderType:
+        appliedFilters.orderType,
+
+      limit: 500,
     };
 
-    /*
-     * La consulta estándar excluye CANCELLED.
-     * Se consulta ese estado adicionalmente para que
-     * el macroestado "Cerrada" sea completo.
-     */
-    const [active, cancelled] = await Promise.all([
-      listPurchaseOrders(organizationId, query),
+    const list =
+      isOlp
+        ? listSupplierPurchaseOrders
+        : listPurchaseOrders;
 
-      listPurchaseOrders(organizationId, {
-        ...query,
-        status: 'CANCELLED',
-      }),
-    ]);
+    const [
+      active,
+      cancelled,
+    ] =
+      await Promise.all([
+        list(
+          organizationId,
+          query,
+        ),
 
-    const unique = new Map([...active.items, ...cancelled.items].map((order) => [order.id, order]));
+        list(
+          organizationId,
+          {
+            ...query,
+            status:
+              'CANCELLED',
+          },
+        ),
+      ]);
+
+    const unique =
+      new Map<
+        string,
+        DetailedOrder
+      >();
+
+    for (
+      const raw
+      of [
+        ...active.items,
+        ...cancelled.items,
+      ]
+    ) {
+      const order =
+        raw as DetailedOrder;
+
+      unique.set(
+        order.id,
+        order,
+      );
+    }
 
     return {
-      items: Array.from(unique.values()),
+      items:
+        Array.from(
+          unique.values(),
+        ),
     };
-  }, [organizationId, appliedFilters]);
+  }, [
+    organizationId,
+    appliedFilters,
+    isOlp,
+  ]);
+
 
   const visibleOrders = (orders.data?.items ?? []).filter(
-    (order) => !appliedFilters.status || statusGroup(order.status) === appliedFilters.status,
+    (order) => !appliedFilters.status || statusGroup(order) === appliedFilters.status,
   );
 
   const totalPages =
@@ -265,7 +464,7 @@ export function PurchaseOrdersView() {
             <>
               <button
                 type="button"
-                className="button"
+                className="btn"
                 onClick={() => {
                   void downloadPurchaseOrderTemplate(organizationId).then((blob) =>
                     downloadBlob(blob, 'plantilla-ordenes-compra.xlsx'),
@@ -277,7 +476,7 @@ export function PurchaseOrdersView() {
 
               <button
                 type="button"
-                className="button primary"
+                className="btn primary"
                 disabled={busy}
                 onClick={() => fileInput.current?.click()}
               >
@@ -339,7 +538,7 @@ export function PurchaseOrdersView() {
               {importResult.rejectedRows > 0 && importResult.rejectedWorkbookBase64 ? (
                 <button
                   type="button"
-                  className="button"
+                  className="btn"
                   onClick={() => {
                     const rejectedWorkbook = importResult.rejectedWorkbookBase64;
 
@@ -371,10 +570,9 @@ export function PurchaseOrdersView() {
         </Card>
       ) : null}
 
-      <Card className="purchase-orders-list-workspace operational-list-workspace orders-workspace-card">
+      <Card className="operational-list-workspace">
         <CardBody>
-          <div className="orders-filters-block">
-            <FilterBar>
+          <FilterBar>
               <FilterField label="Código OC">
                 <input
                   className="control"
@@ -433,19 +631,31 @@ export function PurchaseOrdersView() {
                   }
                 >
                   <option value="">Todos</option>
-
-                  {Object.entries(STATUS_GROUP_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                  <option value="PENDING_OLP">
+                    Pendiente OLP
+                  </option>
+                  <option value="PENDING_MEDICARTE">
+                    Pendiente Medicarte
+                  </option>
+                  <option value="RECEIVED_WITH_PENDING">
+                    Recibida con pendiente
+                  </option>
+                  <option value="RECEIVED">
+                    Recibida
+                  </option>
+                  <option value="REJECTED">
+                    Rechazada
+                  </option>
+                  <option value="CANCELLED">
+                    Cancelada
+                  </option>
+</select>
               </FilterField>
 
               <FilterActions>
                 <button
                   type="button"
-                  className="button primary"
+                  className="btn primary"
                   onClick={() => {
                     setAppliedFilters(filters);
                     setPage(1);
@@ -456,7 +666,7 @@ export function PurchaseOrdersView() {
 
                 <button
                   type="button"
-                  className="button"
+                  className="btn"
                   onClick={() => {
                     const cleared = {
                       purchaseOrderCode: '',
@@ -473,12 +683,11 @@ export function PurchaseOrdersView() {
                   Limpiar
                 </button>
               </FilterActions>
-            </FilterBar>
-          </div>
+          </FilterBar>
 
           <div className="operational-list-table-section">
             <div className="table-wrap operational-list-table-wrap">
-              <table>
+              <table className="purchase-orders-table">
                 <thead>
                   <tr>
                     <th>OC</th>
@@ -519,7 +728,15 @@ export function PurchaseOrdersView() {
 
                           <td>{new Date(order.createdAt).toLocaleDateString('es-CO')}</td>
 
-                          <td>{order.orderType === 'STANDARD' ? 'Estándar' : 'Complementaria'}</td>
+                          <td>{
+  order.orderType ===
+  'STANDARD'
+    ? 'Estándar'
+    : order.orderType ===
+        'COMPLEMENTARY'
+      ? 'Complementaria'
+      : 'Sin tipo'
+}</td>
 
                           <td>{order.lines.length}</td>
 
@@ -527,7 +744,17 @@ export function PurchaseOrdersView() {
 
                           <td>
                             <div className="oc-status-cell">
-                              <span className="status-chip">{statusGroupLabel(order.status)}</span>
+                              <span
+                                className={`status-chip ${statusGroupClass(
+                                  order,
+                                )}`}
+                              >
+                                {
+                                  statusGroupLabel(
+                                    order,
+                                  )
+                                }
+                              </span>
 
                               {rowStatusReason(order.status) ? (
                                 <span className="oc-status-reason">
@@ -540,7 +767,7 @@ export function PurchaseOrdersView() {
                           <td>
                             <button
                               type="button"
-                              className="button"
+                              className="btn"
                               onClick={() =>
                                 router.push(
                                   `/ordenes-compra/${order.id}`,
@@ -559,7 +786,7 @@ export function PurchaseOrdersView() {
             </div>
           </div>
 
-          <div className="purchase-orders-pagination">
+          <div className="purchase-orders-pagination list-pagination">
             <div className="purchase-orders-pagination-summary">
               <span>
                 {`Mostrando ${firstVisible}–${lastVisible} de ${visibleOrders.length}`}
@@ -650,7 +877,7 @@ export function PurchaseOrdersView() {
                 <h2>{selectedOrder.purchaseOrderCode ?? 'Borrador'}</h2>
 
                 <p>
-                  {statusGroupLabel(selectedOrder.status)}
+                  {statusGroupLabel(selectedOrder)}
 
                   {rowStatusReason(selectedOrder.status)
                     ? ` · ${rowStatusReason(selectedOrder.status)}`
@@ -749,7 +976,7 @@ export function PurchaseOrdersView() {
               {canManage && selectedOrder.status === 'DRAFT' ? (
                 <button
                   type="button"
-                  className="button primary"
+                  className="btn primary"
                   disabled={busy}
                   onClick={() => {
                     void issue(selectedOrder);

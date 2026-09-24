@@ -7,10 +7,11 @@ import type {
 
 /*
  * Contrato oficial:
- * CLAVE_AUTORIZACION,TIPO_DISPENSACION,FECHA
+ * CLAVE_AUTORIZACION,OC,TIPO_DISPENSACION,FECHA
  */
 export const AUTHORIZATION_FULFILLMENT_XLSX_COLUMNS = [
   'CLAVE_AUTORIZACION',
+  'OC',
   'TIPO_DISPENSACION',
   'FECHA',
 ] as const;
@@ -24,6 +25,9 @@ export type AuthorizationFulfillmentImportRow =
     rowNumber: number;
 
     authorizationKey:
+      string | null;
+
+    purchaseOrderCode:
       string | null;
 
     fulfillmentType:
@@ -413,6 +417,7 @@ export function createAuthorizationFulfillmentTemplate():
 
   sheet['!cols'] = [
     { wch: 42 },
+    { wch: 20 },
     { wch: 22 },
     { wch: 18 },
   ];
@@ -569,11 +574,14 @@ export function parseAuthorizationFulfillmentWorkbook(
     const authorizationKey =
       text(values[0]);
 
-    const rawFulfillmentType =
+    const purchaseOrderCode =
       text(values[1]);
 
+    const rawFulfillmentType =
+      text(values[2]);
+
     const rawDate =
-      values[2];
+      values[3];
 
 
     const hasDate =
@@ -584,6 +592,7 @@ export function parseAuthorizationFulfillmentWorkbook(
 
     if (
       !authorizationKey &&
+      !purchaseOrderCode &&
       !rawFulfillmentType &&
       !hasDate
     ) {
@@ -596,6 +605,8 @@ export function parseAuthorizationFulfillmentWorkbook(
         index + 1,
 
       authorizationKey,
+
+      purchaseOrderCode,
 
       rawFulfillmentType,
 

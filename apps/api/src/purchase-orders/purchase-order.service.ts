@@ -57,12 +57,6 @@ export class PurchaseOrderService {
       committedDate: string;
 
       observation?: string;
-
-      lines: readonly {
-        lineId: string;
-
-        supplierUnitCost: number;
-      }[];
     },
 
     actor: Scope,

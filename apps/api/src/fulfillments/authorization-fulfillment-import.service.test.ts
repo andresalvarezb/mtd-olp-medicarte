@@ -205,7 +205,7 @@ describe(
   'AuthorizationFulfillment XLSX',
   () => {
     it(
-      'genera exactamente las tres columnas oficiales',
+      'genera exactamente las cuatro columnas oficiales',
       () => {
         const output =
           createAuthorizationFulfillmentTemplate();
@@ -242,6 +242,7 @@ describe(
         ).toEqual([
           [
             'CLAVE_AUTORIZACION',
+            'OC',
             'TIPO_DISPENSACION',
             'FECHA',
           ],
@@ -258,16 +259,19 @@ describe(
             workbook([
               [
                 'CLAVE_AUTORIZACION',
+                'OC',
                 'TIPO_DISPENSACION',
                 'FECHA',
               ],
               [
                 'AUTH-1',
+                'OC-1001',
                 'ENTREGA',
                 '22/09/2026',
               ],
               [
                 'AUTH-2',
+                'OC-1002',
                 'APLICACIÓN',
                 '2026-09-21',
               ],
@@ -279,6 +283,9 @@ describe(
         ).toMatchObject({
           authorizationKey:
             'AUTH-1',
+
+          purchaseOrderCode:
+            'OC-1001',
 
           fulfillmentType:
             'DELIVERY',
@@ -292,6 +299,9 @@ describe(
         ).toMatchObject({
           authorizationKey:
             'AUTH-2',
+
+          purchaseOrderCode:
+            'OC-1002',
 
           fulfillmentType:
             'APPLICATION',
@@ -338,16 +348,19 @@ describe(
               workbook([
                 [
                   'CLAVE_AUTORIZACION',
+                  'OC',
                   'TIPO_DISPENSACION',
                   'FECHA',
                 ],
                 [
                   'AUTH-DUP',
+                  'OC-DUP',
                   'ENTREGA',
                   '2026-09-20',
                 ],
                 [
                   'AUTH-DUP',
+                  'OC-DUP',
                   'APLICACION',
                   '2026-09-20',
                 ],
@@ -394,11 +407,13 @@ describe(
               workbook([
                 [
                   'CLAVE_AUTORIZACION',
+                  'OC',
                   'TIPO_DISPENSACION',
                   'FECHA',
                 ],
                 [
                   'AUTH-VALIDA',
+                  'OC-VALIDA',
                   'ENTREGA',
                   '2026-09-20',
                 ],
@@ -424,6 +439,9 @@ describe(
         ).toHaveBeenCalledWith(
           AUTH_ID,
           {
+            purchaseOrderCode:
+              'OC-VALIDA',
+
             fulfillmentType:
               'DELIVERY',
 
@@ -462,11 +480,13 @@ describe(
               workbook([
                 [
                   'CLAVE_AUTORIZACION',
+                  'OC',
                   'TIPO_DISPENSACION',
                   'FECHA',
                 ],
                 [
                   'AUTH-SIN-STOCK',
+                  'OC-SIN-STOCK',
                   'APLICACION',
                   '2026-09-20',
                 ],
@@ -518,11 +538,13 @@ describe(
               workbook([
                 [
                   'CLAVE_AUTORIZACION',
+                  'OC',
                   'TIPO_DISPENSACION',
                   'FECHA',
                 ],
                 [
                   'AUTH-NO-EXISTE',
+                  'OC-NO-EXISTE',
                   'ENTREGA',
                   '2026-09-20',
                 ],
