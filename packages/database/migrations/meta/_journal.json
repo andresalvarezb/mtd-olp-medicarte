@@ -610,6 +610,13 @@
       "when": 1790546874663,
       "tag": "0087_tariff_minimum_quantity",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1790546875663,
+      "tag": "0088_authorization_ingest_all",
+      "breakpoints": true
     }
   ]
 }

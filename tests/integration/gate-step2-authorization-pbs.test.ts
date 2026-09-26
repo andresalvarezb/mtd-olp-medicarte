@@ -434,7 +434,7 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
     expect(executedRows[0]?.entityReference).toBeTruthy();
   });
 
-  it('2. NO_PBS activo queda INVALID en upload y no materializa autorización', async () => {
+  it('2. NO_PBS activo se persiste y queda pendiente de direccionamiento', async () => {
     const uploaded = await uploadAuthorization({
       authorizationNumber: AUTH_NO_PBS,
       commercialCode: CODE_NO_PBS,
@@ -445,20 +445,52 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
 
     const job = (await uploaded.json()) as Job;
 
-    expect(job.status).toBe('INVALID');
-    expect(job.validRows).toBe(0);
-    expect(job.invalidRows).toBe(1);
+    expect(job.status).toBe('READY');
+    expect(job.validRows).toBe(1);
+    expect(job.invalidRows).toBe(0);
 
-    const rejectedRows = await rows(job.id);
+    const confirmedResponse = await confirm(job.id);
 
-    expect(rejectedRows).toHaveLength(1);
-    expect(rejectedRows[0]?.validationStatus).toBe('INVALID');
-    expect(rejectedRows[0]?.errorCode).toBe('TARIFF_ANNEX_PRODUCT_NO_PBS');
+    expect(confirmedResponse.status).toBe(200);
 
-    expect(await authorizationCount(AUTH_NO_PBS)).toBe(0);
+    const confirmed = (await confirmedResponse.json()) as Job;
+
+    expect(confirmed.succeededRows).toBe(1);
+    expect(confirmed.failedRows).toBe(0);
+
+    const executedRows = await rows(job.id);
+
+    expect(executedRows).toHaveLength(1);
+    expect(executedRows[0]?.validationStatus).toBe('VALID');
+    expect(executedRows[0]?.executionStatus).toBe('SUCCEEDED');
+    expect(executedRows[0]?.errorCode).toBeNull();
+    expect(executedRows[0]?.entityReference).toBeTruthy();
+
+    const item = await database.query<{
+      coverage_type: string;
+      direction_status: string;
+      tariff_membership_status: string;
+    }>(
+      `select
+         coverage_type,
+         direction_status,
+         tariff_membership_status
+       from authorization_items
+       where numero_autorizacion = $1
+         and codigo_medicamento = $2`,
+      [AUTH_NO_PBS, CODE_NO_PBS],
+    );
+
+    expect(item.rows).toHaveLength(1);
+
+    expect(item.rows[0]).toMatchObject({
+      coverage_type: 'NO_PBS',
+      direction_status: 'PENDING',
+      tariff_membership_status: 'LISTED',
+    });
   });
 
-  it('3. clasificación AT ausente/inválida queda INVALID y no materializa autorización', async () => {
+  it('3. clasificación AT ausente se persiste como UNCLASSIFIED', async () => {
     const uploaded = await uploadAuthorization({
       authorizationNumber: AUTH_INVALID,
       commercialCode: CODE_INVALID,
@@ -469,20 +501,50 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
 
     const job = (await uploaded.json()) as Job;
 
-    expect(job.status).toBe('INVALID');
-    expect(job.validRows).toBe(0);
-    expect(job.invalidRows).toBe(1);
+    expect(job.status).toBe('READY');
+    expect(job.validRows).toBe(1);
+    expect(job.invalidRows).toBe(0);
 
-    const rejectedRows = await rows(job.id);
+    const confirmedResponse = await confirm(job.id);
 
-    expect(rejectedRows).toHaveLength(1);
-    expect(rejectedRows[0]?.validationStatus).toBe('INVALID');
-    expect(rejectedRows[0]?.errorCode).toBe('TARIFF_ANNEX_PRODUCT_INCLUSION_INVALID');
+    expect(confirmedResponse.status).toBe(200);
 
-    expect(await authorizationCount(AUTH_INVALID)).toBe(0);
+    const confirmed = (await confirmedResponse.json()) as Job;
+
+    expect(confirmed.succeededRows).toBe(1);
+    expect(confirmed.failedRows).toBe(0);
+
+    const executedRows = await rows(job.id);
+
+    expect(executedRows).toHaveLength(1);
+    expect(executedRows[0]?.executionStatus).toBe('SUCCEEDED');
+    expect(executedRows[0]?.errorCode).toBeNull();
+
+    const item = await database.query<{
+      coverage_type: string;
+      direction_status: string;
+      tariff_membership_status: string;
+    }>(
+      `select
+         coverage_type,
+         direction_status,
+         tariff_membership_status
+       from authorization_items
+       where numero_autorizacion = $1
+         and codigo_medicamento = $2`,
+      [AUTH_INVALID, CODE_INVALID],
+    );
+
+    expect(item.rows).toHaveLength(1);
+
+    expect(item.rows[0]).toMatchObject({
+      coverage_type: 'UNCLASSIFIED',
+      direction_status: 'PENDING',
+      tariff_membership_status: 'LISTED',
+    });
   });
 
-  it('4. revalida AT al confirmar y bloquea PBS→NO_PBS ocurrido después del upload', async () => {
+  it('4. revalida AT al confirmar y materializa la clasificación vigente PBS→NO_PBS', async () => {
     const uploaded = await uploadAuthorization({
       authorizationNumber: AUTH_TOCTOU,
       commercialCode: CODE_TOCTOU,
@@ -505,7 +567,11 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
               updated_at = now()
         where codigo_producto = $1
           and organization_id = $3`,
-      [CODE_TOCTOU, foundationUserId, ORGANIZATION_IDS.MTD],
+      [
+        CODE_TOCTOU,
+        foundationUserId,
+        ORGANIZATION_IDS.MTD,
+      ],
     );
 
     const confirmedResponse = await confirm(job.id);
@@ -514,17 +580,41 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
 
     const confirmed = (await confirmedResponse.json()) as Job;
 
-    expect(confirmed.succeededRows).toBe(0);
-    expect(confirmed.failedRows).toBe(1);
+    expect(confirmed.succeededRows).toBe(1);
+    expect(confirmed.failedRows).toBe(0);
 
     const executedRows = await rows(job.id);
 
     expect(executedRows).toHaveLength(1);
-    expect(executedRows[0]?.executionStatus).toBe('FAILED');
-    expect(executedRows[0]?.errorCode).toBe('TARIFF_ANNEX_PRODUCT_NO_PBS');
-    expect(executedRows[0]?.entityReference).toBeNull();
+    expect(executedRows[0]?.executionStatus).toBe('SUCCEEDED');
+    expect(executedRows[0]?.errorCode).toBeNull();
+    expect(executedRows[0]?.entityReference).toBeTruthy();
 
-    expect(await authorizationCount(AUTH_TOCTOU)).toBe(0);
+    const item = await database.query<{
+      coverage_type: string;
+      direction_status: string;
+      tariff_membership_status: string;
+      tariff_rule_version: string;
+    }>(
+      `select
+         coverage_type,
+         direction_status,
+         tariff_membership_status,
+         tariff_rule_version
+       from authorization_items
+       where numero_autorizacion = $1
+         and codigo_medicamento = $2`,
+      [AUTH_TOCTOU, CODE_TOCTOU],
+    );
+
+    expect(item.rows).toHaveLength(1);
+
+    expect(item.rows[0]).toMatchObject({
+      coverage_type: 'NO_PBS',
+      direction_status: 'PENDING',
+      tariff_membership_status: 'LISTED',
+      tariff_rule_version: 'TARIFF-ANNEX-1:2',
+    });
   });
 
   it('5. vigencia igual a hoy America/Bogota es válida y materializa', async () => {
@@ -585,7 +675,7 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
     expect(await authorizationCount(AUTH_EXP_FUTURE)).toBe(1);
   });
 
-  it('7. vigencia anterior a hoy queda INVALID y no materializa', async () => {
+  it('7. vigencia anterior a hoy se persiste para evaluación de vigencia', async () => {
     const uploaded = await uploadAuthorization({
       authorizationNumber: AUTH_EXP_EXPIRED,
       commercialCode: CODE_EXP_EXPIRED,
@@ -597,20 +687,45 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
 
     const job = (await uploaded.json()) as Job;
 
-    expect(job.status).toBe('INVALID');
-    expect(job.validRows).toBe(0);
-    expect(job.invalidRows).toBe(1);
+    expect(job.status).toBe('READY');
+    expect(job.validRows).toBe(1);
+    expect(job.invalidRows).toBe(0);
 
-    const rejectedRows = await rows(job.id);
+    const confirmedResponse = await confirm(job.id);
 
-    expect(rejectedRows).toHaveLength(1);
-    expect(rejectedRows[0]?.validationStatus).toBe('INVALID');
-    expect(rejectedRows[0]?.errorCode).toBe('AUTHORIZATION_EXPIRED');
+    expect(confirmedResponse.status).toBe(200);
 
-    expect(await authorizationCount(AUTH_EXP_EXPIRED)).toBe(0);
+    const confirmed = (await confirmedResponse.json()) as Job;
+
+    expect(confirmed.succeededRows).toBe(1);
+    expect(confirmed.failedRows).toBe(0);
+
+    expect(
+      await authorizationCount(
+        AUTH_EXP_EXPIRED,
+      ),
+    ).toBe(1);
+
+    const item = await database.query<{
+      source_data: Record<string, unknown>;
+    }>(
+      `select source_data
+       from authorization_items
+       where numero_autorizacion = $1
+         and codigo_medicamento = $2`,
+      [
+        AUTH_EXP_EXPIRED,
+        CODE_EXP_EXPIRED,
+      ],
+    );
+
+    expect(
+      item.rows[0]?.source_data
+        .FECHA_FINAL_VIGENCIA,
+    ).toBe('2000-01-01');
   });
 
-  it('8. FECHA_FINAL_VIGENCIA ausente queda INVALID y no materializa', async () => {
+  it('8. FECHA_FINAL_VIGENCIA ausente se persiste para evaluación posterior', async () => {
     const uploaded = await uploadAuthorization({
       authorizationNumber: AUTH_EXP_MISSING,
       commercialCode: CODE_EXP_MISSING,
@@ -622,16 +737,42 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
 
     const job = (await uploaded.json()) as Job;
 
-    expect(job.status).toBe('INVALID');
-    expect(job.validRows).toBe(0);
-    expect(job.invalidRows).toBe(1);
+    expect(job.status).toBe('READY');
+    expect(job.validRows).toBe(1);
+    expect(job.invalidRows).toBe(0);
 
-    const rejectedRows = await rows(job.id);
+    const confirmedResponse = await confirm(job.id);
 
-    expect(rejectedRows).toHaveLength(1);
-    expect(rejectedRows[0]?.validationStatus).toBe('INVALID');
-    expect(rejectedRows[0]?.errorCode).toBe('AUTHORIZATION_EXPIRATION_INVALID');
+    expect(confirmedResponse.status).toBe(200);
 
-    expect(await authorizationCount(AUTH_EXP_MISSING)).toBe(0);
+    const confirmed = (await confirmedResponse.json()) as Job;
+
+    expect(confirmed.succeededRows).toBe(1);
+    expect(confirmed.failedRows).toBe(0);
+
+    expect(
+      await authorizationCount(
+        AUTH_EXP_MISSING,
+      ),
+    ).toBe(1);
+
+    const item = await database.query<{
+      source_data: Record<string, unknown>;
+    }>(
+      `select source_data
+       from authorization_items
+       where numero_autorizacion = $1
+         and codigo_medicamento = $2`,
+      [
+        AUTH_EXP_MISSING,
+        CODE_EXP_MISSING,
+      ],
+    );
+
+    expect(
+      item.rows[0]?.source_data
+        .FECHA_FINAL_VIGENCIA,
+    ).toBe('');
   });
+
 });
