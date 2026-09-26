@@ -19,7 +19,6 @@ import {
   canConfirmBulkImportJob,
   canResumeBulkImportJob,
   canRetryFailedBulkImportJob,
-  currentBogotaDate,
   initialExecutionStatus,
   phiSafeBulkImportLog,
   PointAccessDeniedError,
@@ -152,139 +151,143 @@ export class BulkImportService {
         message: 'The XLSX file has no data rows',
       });
     }
-    const commercialCodes = [
-      ...new Set(
-        parsed.rows
-          .map((row) => textValue(row.values.CODIGO_COMERCIAL))
-          .filter((value): value is string => Boolean(value)),
-      ),
-    ];
-    const activeTariffProducts = await this.repository.findActiveTariffAnnexProducts(
-      input.actor.organizationId,
-      commercialCodes,
-    );
-    const todayBogota = currentBogotaDate();
-    const rows: BulkImportRowInsert[] = parsed.rows.map((row) => {
-      const payload = Object.fromEntries(
-        Object.entries(row.values).map(([key, value]) => [
-          key,
-          key === 'FECHA_ASIGNACION' || key === 'FECHA_FINAL_VIGENCIA'
-            ? dateValue(value)
-            : textValue(value),
-        ]),
-      );
-      const required = [
-        'NUMERO_AUTORIZACION',
-        'CODIGO_COMERCIAL',
-        'CANTIDAD',
-        'FECHA_ASIGNACION',
-        'FECHA_FINAL_VIGENCIA',
-        'ESTADO_AUTORIZACION',
-      ];
-      const missing = required.filter((key) => !payload[key]);
-      const quantity = Number(payload.CANTIDAD);
-      const assignmentDate = payload.FECHA_ASIGNACION;
-      const expirationDate = payload.FECHA_FINAL_VIGENCIA;
-      const expirationIsValid =
-        typeof expirationDate === 'string' &&
-        isIsoDate(expirationDate) &&
-        expirationDate >= todayBogota;
-      const commercialCode =
-        typeof payload.CODIGO_COMERCIAL === 'string' ? payload.CODIGO_COMERCIAL : null;
-      const tariffProduct = commercialCode ? activeTariffProducts.get(commercialCode) : undefined;
-      const tariffMatch = tariffProduct !== undefined;
-      const tariffInclusion =
-        tariffProduct?.tipoInclusion?.trim().toUpperCase().replace(/\s+/g, '_') ?? '';
+    /*
+     * INGESTA COMPLETA DE AUTORIZACIONES
+     * ==================================
+     *
+     * El upload valida únicamente si la fila tiene identidad operacional:
+     *
+     *   NUMERO_AUTORIZACION + CODIGO_COMERCIAL
+     *
+     * Las reglas de negocio NO impiden persistir la AUTO:
+     *
+     * - producto ausente del AT;
+     * - PBS / NO PBS;
+     * - cantidad inferior al mínimo;
+     * - cantidad inválida;
+     * - vigencia vencida;
+     * - fechas inválidas;
+     * - estado de autorización no habilitante.
+     *
+     * Esas condiciones se conservan y se proyectan después como
+     * validación / vigencia de la autorización.
+     */
+    const rows: BulkImportRowInsert[] =
+      parsed.rows.map((row) => {
+        const payload =
+          Object.fromEntries(
+            Object.entries(
+              row.values,
+            ).map(
+              ([key, value]) => [
+                key,
 
-      const tariffIsPbs =
-        tariffMatch &&
-        tariffInclusion ===
-          'PBS';
+                key ===
+                    'FECHA_ASIGNACION' ||
+                key ===
+                    'FECHA_FINAL_VIGENCIA'
+                  ? dateValue(value)
+                  : textValue(value),
+              ],
+            ),
+          );
 
-      const minimumQuantity =
-        tariffProduct?.minimumQuantity ??
-        1;
+        const authorizationNumber =
+          typeof payload
+            .NUMERO_AUTORIZACION ===
+            'string' &&
+          payload
+            .NUMERO_AUTORIZACION
+            .trim()
+            ? payload
+                .NUMERO_AUTORIZACION
+                .trim()
+            : null;
 
-      const quantityIsValid =
-        Number.isInteger(
+        const commercialCode =
+          typeof payload
+            .CODIGO_COMERCIAL ===
+            'string' &&
+          payload
+            .CODIGO_COMERCIAL
+            .trim()
+            ? payload
+                .CODIGO_COMERCIAL
+                .trim()
+            : null;
+
+        const hasIdentity =
+          authorizationNumber !==
+            null &&
+          commercialCode !==
+            null;
+
+        const quantityRaw =
+          Number(
+            payload.CANTIDAD,
+          );
+
+        const quantity =
+          Number.isInteger(
+            quantityRaw,
+          )
+            ? quantityRaw
+            : null;
+
+        return {
+          rowNumber:
+            row.rowNumber,
+
+          rawPayload:
+            row.rawData,
+
+          normalizedPayload:
+            payload,
+
+          validationStatus:
+            hasIdentity
+              ? 'VALID'
+              : 'INVALID',
+
+          errorCode:
+            hasIdentity
+              ? null
+              : 'AUTHORIZATION_IDENTITY_REQUIRED',
+
+          errorMessage:
+            hasIdentity
+              ? null
+              : 'NUMERO_AUTORIZACION y CODIGO_COMERCIAL son obligatorios para identificar la autorización',
+
+          errorColumn:
+            null,
+
+          executionStatus:
+            initialExecutionStatus(
+              hasIdentity
+                ? 'VALID'
+                : 'INVALID',
+            ),
+
+          authorizationNumber,
+
+          commercialCode,
+
+          dispensingPointCode:
+            null,
+
+          assignmentDate:
+            typeof payload
+              .FECHA_ASIGNACION ===
+              'string'
+              ? payload
+                  .FECHA_ASIGNACION
+              : null,
+
           quantity,
-        ) &&
-        quantity >
-          0;
+        };
+      });
 
-      const quantityMeetsMinimum =
-        quantityIsValid &&
-        quantity >=
-          minimumQuantity;
-      const valid =
-        missing.length === 0 &&
-        quantityMeetsMinimum &&
-        typeof assignmentDate === 'string' &&
-        isIsoDate(assignmentDate) &&
-        expirationIsValid &&
-        tariffIsPbs;
-      return {
-        rowNumber: row.rowNumber,
-        rawPayload: row.rawData,
-        normalizedPayload: payload,
-        validationStatus: valid ? 'VALID' : 'INVALID',
-        errorCode: valid
-          ? null
-          : !tariffMatch
-            ? 'TARIFF_ANNEX_PRODUCT_NOT_FOUND'
-            : !tariffIsPbs
-              ? tariffInclusion === 'NO_PBS'
-                ? 'TARIFF_ANNEX_PRODUCT_NO_PBS'
-                : 'TARIFF_ANNEX_PRODUCT_INCLUSION_INVALID'
-              : !quantityIsValid
-                ? 'INVALID_AUTHORIZATION_ROW'
-                : quantity < minimumQuantity
-                  ? 'AUTHORIZATION_QUANTITY_BELOW_PRODUCT_MINIMUM'
-                  : missing.includes('FECHA_ASIGNACION') ||
-                  typeof assignmentDate !== 'string' ||
-                  !isIsoDate(assignmentDate)
-                ? 'AUTHORIZATION_ASSIGNMENT_INVALID'
-                : missing.includes('FECHA_FINAL_VIGENCIA') ||
-                    typeof expirationDate !== 'string' ||
-                    !isIsoDate(expirationDate)
-                  ? 'AUTHORIZATION_EXPIRATION_INVALID'
-                  : expirationDate < todayBogota
-                    ? 'AUTHORIZATION_EXPIRED'
-                    : 'INVALID_AUTHORIZATION_ROW',
-        errorMessage: valid
-          ? null
-          : !tariffMatch
-            ? `El código comercial ${commercialCode ?? '(vacío)'} no existe en el anexo tarifario activo`
-            : !tariffIsPbs
-              ? tariffInclusion === 'NO_PBS'
-                ? `El código comercial ${commercialCode ?? '(vacío)'} está clasificado NO_PBS en el anexo tarifario activo`
-                : `El código comercial ${commercialCode ?? '(vacío)'} no tiene una clasificación PBS válida en el anexo tarifario activo`
-              : !quantityIsValid
-                ? 'CANTIDAD debe ser un entero positivo'
-                : quantity < minimumQuantity
-                  ? `La cantidad autorizada ${quantity} es menor al producto mínimo ${minimumQuantity} para ${commercialCode ?? '(vacío)'}`
-                  : missing.includes('FECHA_ASIGNACION') ||
-                  typeof assignmentDate !== 'string' ||
-                  !isIsoDate(assignmentDate)
-                ? 'FECHA_ASIGNACION es obligatoria y debe ser una fecha válida'
-                : missing.includes('FECHA_FINAL_VIGENCIA') ||
-                    typeof expirationDate !== 'string' ||
-                    !isIsoDate(expirationDate)
-                  ? 'FECHA_FINAL_VIGENCIA es obligatoria y debe ser una fecha válida'
-                  : expirationDate < todayBogota
-                    ? `La autorización venció el ${expirationDate}; fecha actual America/Bogota: ${todayBogota}`
-                    : `Missing or invalid fields: ${missing.join(', ') || 'CANTIDAD o ESTADO_AUTORIZACION'}`,
-        errorColumn: null,
-        executionStatus: initialExecutionStatus(valid ? 'VALID' : 'INVALID'),
-        authorizationNumber:
-          typeof payload.NUMERO_AUTORIZACION === 'string' ? payload.NUMERO_AUTORIZACION : null,
-        commercialCode,
-        dispensingPointCode: null,
-        assignmentDate:
-          typeof payload.FECHA_ASIGNACION === 'string' ? payload.FECHA_ASIGNACION : null,
-        quantity: valid ? quantity : null,
-      };
-    });
     const validRows = rows.filter((row) => row.validationStatus === 'VALID').length;
     const fileHash = createHash('sha256').update(file.buffer).digest('hex');
     const duplicateFile = await this.repository.hasDuplicateHash(input.actor.userId, fileHash);
@@ -553,12 +556,6 @@ function dateValue(value: unknown): string | null {
   if (!text) return null;
   const match = /^(\d{4})[-/]?(\d{2})[-/]?(\d{2})/.exec(text);
   return match ? `${match[1]}-${match[2]}-${match[3]}` : text;
-}
-
-function isIsoDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function mapDomainError(error: unknown): { code: string; message: string } {

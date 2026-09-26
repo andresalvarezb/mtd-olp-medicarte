@@ -72,172 +72,204 @@ function createService() {
 }
 
 describe('BulkImportService', () => {
-  it('rechaza filas cuyo código no existe en el anexo tarifario activo', async () => {
-    const { service, repository } = createService();
-    const file = {
-      buffer: buildAuthorizationWorkbook(['TAR-001', 'TAR-999']),
-      originalname: 'autorizaciones.xlsx',
-      mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      size: 1,
-    };
-    await service.uploadAuthorizations({
-      file,
-      actor: {
-        organizationId: 'org-1',
-        userId: 'user-1',
-        correlationId: '11111111-1111-1111-1111-111111111111',
-      } as unknown as Scope,
-    });
-    expect(repository.findActiveTariffAnnexProducts).toHaveBeenCalledWith('org-1', [
-      'TAR-001',
-      'TAR-999',
-    ]);
-    const createJobInput = repository.createJob.mock.calls[0]?.[0] as {
-      rows: Array<Record<string, unknown>>;
-    };
-    expect(createJobInput.rows).toHaveLength(2);
-    expect(createJobInput.rows[0]).toMatchObject({
-      validationStatus: 'VALID',
-      errorCode: null,
-      commercialCode: 'TAR-001',
-    });
-    expect(createJobInput.rows[1]).toMatchObject({
-      validationStatus: 'INVALID',
-      errorCode: 'TARIFF_ANNEX_PRODUCT_NOT_FOUND',
-      commercialCode: 'TAR-999',
-    });
-  });
-
-  it('rechaza producto NO_PBS del anexo tarifario activo', async () => {
-    const { service, repository } = createService();
-    repository.findActiveTariffAnnexProducts.mockResolvedValue(
-      new Map([
-        [
-          'TAR-001',
-          {
-            tipoInclusion:
-              'NO_PBS',
-            minimumQuantity:
-              1,
-          },
-        ],
-      ]),
-    );
-
-    await service.uploadAuthorizations({
-      file: {
-        buffer: buildAuthorizationWorkbook(['TAR-001']),
-        originalname: 'autorizaciones-no-pbs.xlsx',
-        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        size: 1,
-      },
-      actor: {
-        organizationId: 'org-1',
-        userId: 'user-1',
-        correlationId: '11111111-1111-1111-1111-111111111111',
-      } as unknown as Scope,
-    });
-
-    const input = repository.createJob.mock.calls[0]?.[0] as {
-      rows: Array<Record<string, unknown>>;
-    };
-
-    expect(input.rows[0]).toMatchObject({
-      validationStatus: 'INVALID',
-      errorCode: 'TARIFF_ANNEX_PRODUCT_NO_PBS',
-    });
-  });
-
-  it('rechaza producto activo sin clasificación PBS válida', async () => {
-    const { service, repository } = createService();
-    repository.findActiveTariffAnnexProducts.mockResolvedValue(
-      new Map([
-        [
-          'TAR-001',
-          {
-            tipoInclusion:
-              null,
-            minimumQuantity:
-              1,
-          },
-        ],
-      ]),
-    );
-
-    await service.uploadAuthorizations({
-      file: {
-        buffer: buildAuthorizationWorkbook(['TAR-001']),
-        originalname: 'autorizaciones-sin-clasificacion.xlsx',
-        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        size: 1,
-      },
-      actor: {
-        organizationId: 'org-1',
-        userId: 'user-1',
-        correlationId: '11111111-1111-1111-1111-111111111111',
-      } as unknown as Scope,
-    });
-
-    const input = repository.createJob.mock.calls[0]?.[0] as {
-      rows: Array<Record<string, unknown>>;
-    };
-
-    expect(input.rows[0]).toMatchObject({
-      validationStatus: 'INVALID',
-      errorCode: 'TARIFF_ANNEX_PRODUCT_INCLUSION_INVALID',
-    });
-  });
-
-  it('rechaza una AUTO cuya CANTIDAD sea menor al producto mínimo del AT', async () => {
+  it('prepara para persistencia una AUTO aunque el producto no exista en el AT', async () => {
     const {
       service,
       repository,
-    } =
-      createService();
+    } = createService();
 
-    repository
-      .findActiveTariffAnnexProducts
-      .mockResolvedValue(
-        new Map([
-          [
+    await service.uploadAuthorizations({
+      file: {
+        buffer:
+          buildAuthorizationWorkbook([
             'TAR-001',
-            {
-              tipoInclusion:
-                'PBS',
+            'TAR-999',
+          ]),
+        originalname:
+          'autorizaciones.xlsx',
+        mimetype:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: 1,
+      },
+      actor: {
+        organizationId:
+          'org-1',
+        userId:
+          'user-1',
+        correlationId:
+          '11111111-1111-1111-1111-111111111111',
+      } as unknown as Scope,
+    });
 
-              minimumQuantity:
-                30,
-            },
-          ],
-        ]),
-      );
+    expect(
+      repository
+        .findActiveTariffAnnexProducts,
+    ).not.toHaveBeenCalled();
+
+    const input =
+      repository.createJob
+        .mock.calls[0]?.[0] as {
+          rows:
+            Array<
+              Record<
+                string,
+                unknown
+              >
+            >;
+        };
+
+    expect(
+      input.rows,
+    ).toHaveLength(2);
+
+    expect(
+      input.rows[0],
+    ).toMatchObject({
+      validationStatus:
+        'VALID',
+      errorCode:
+        null,
+      commercialCode:
+        'TAR-001',
+    });
+
+    expect(
+      input.rows[1],
+    ).toMatchObject({
+      validationStatus:
+        'VALID',
+      errorCode:
+        null,
+      commercialCode:
+        'TAR-999',
+    });
+  });
+
+  it('prepara para persistencia una AUTO vencida', async () => {
+    const {
+      service,
+      repository,
+    } = createService();
 
     await service.uploadAuthorizations({
       file: {
         buffer:
           buildAuthorizationWorkbook(
-            [
-              'TAR-001',
-            ],
+            ['TAR-001'],
+            '2020-01-01',
           ),
-
         originalname:
-          'autorizaciones-producto-minimo.xlsx',
-
+          'autorizaciones-vencidas.xlsx',
         mimetype:
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-
-        size:
-          1,
+        size: 1,
       },
-
       actor: {
         organizationId:
           'org-1',
-
         userId:
           'user-1',
+        correlationId:
+          '11111111-1111-1111-1111-111111111111',
+      } as unknown as Scope,
+    });
 
+    const input =
+      repository.createJob
+        .mock.calls[0]?.[0] as {
+          rows:
+            Array<
+              Record<
+                string,
+                unknown
+              >
+            >;
+        };
+
+    expect(
+      input.rows[0],
+    ).toMatchObject({
+      validationStatus:
+        'VALID',
+      errorCode:
+        null,
+    });
+  });
+
+  it('prepara para persistencia una AUTO con vigencia inválida', async () => {
+    const {
+      service,
+      repository,
+    } = createService();
+
+    await service.uploadAuthorizations({
+      file: {
+        buffer:
+          buildAuthorizationWorkbook(
+            ['TAR-001'],
+            '',
+          ),
+        originalname:
+          'autorizaciones-sin-vigencia.xlsx',
+        mimetype:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: 1,
+      },
+      actor: {
+        organizationId:
+          'org-1',
+        userId:
+          'user-1',
+        correlationId:
+          '11111111-1111-1111-1111-111111111111',
+      } as unknown as Scope,
+    });
+
+    const input =
+      repository.createJob
+        .mock.calls[0]?.[0] as {
+          rows:
+            Array<
+              Record<
+                string,
+                unknown
+              >
+            >;
+        };
+
+    expect(
+      input.rows[0],
+    ).toMatchObject({
+      validationStatus:
+        'VALID',
+      errorCode:
+        null,
+    });
+  });
+
+  it('solo rechaza en staging una AUTO que no tenga identidad operacional', async () => {
+    const {
+      service,
+      repository,
+    } = createService();
+
+    await service.uploadAuthorizations({
+      file: {
+        buffer:
+          buildAuthorizationWorkbook([
+            '',
+          ]),
+        originalname:
+          'autorizaciones-sin-identidad.xlsx',
+        mimetype:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: 1,
+      },
+      actor: {
+        organizationId:
+          'org-1',
+        userId:
+          'user-1',
         correlationId:
           '11111111-1111-1111-1111-111111111111',
       } as unknown as Scope,
@@ -260,139 +292,8 @@ describe('BulkImportService', () => {
     ).toMatchObject({
       validationStatus:
         'INVALID',
-
       errorCode:
-        'AUTHORIZATION_QUANTITY_BELOW_PRODUCT_MINIMUM',
-    });
-  });
-
-
-  it('acepta autorización cuya FECHA_FINAL_VIGENCIA es hoy en America/Bogota', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2030-02-01T03:30:00.000Z'));
-
-    try {
-      const { service, repository } = createService();
-
-      await service.uploadAuthorizations({
-        file: {
-          buffer: buildAuthorizationWorkbook(['TAR-001'], '2030-01-31'),
-          originalname: 'autorizaciones-vigencia-hoy.xlsx',
-          mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          size: 1,
-        },
-        actor: {
-          organizationId: 'org-1',
-          userId: 'user-1',
-          correlationId: '11111111-1111-1111-1111-111111111111',
-        } as unknown as Scope,
-      });
-
-      const input = repository.createJob.mock.calls[0]?.[0] as {
-        rows: Array<Record<string, unknown>>;
-      };
-
-      expect(input.rows[0]).toMatchObject({
-        validationStatus: 'VALID',
-        errorCode: null,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('acepta autorización con FECHA_FINAL_VIGENCIA posterior a hoy en America/Bogota', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2030-02-01T03:30:00.000Z'));
-
-    try {
-      const { service, repository } = createService();
-
-      await service.uploadAuthorizations({
-        file: {
-          buffer: buildAuthorizationWorkbook(['TAR-001'], '2030-02-01'),
-          originalname: 'autorizaciones-vigencia-futura.xlsx',
-          mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          size: 1,
-        },
-        actor: {
-          organizationId: 'org-1',
-          userId: 'user-1',
-          correlationId: '11111111-1111-1111-1111-111111111111',
-        } as unknown as Scope,
-      });
-
-      const input = repository.createJob.mock.calls[0]?.[0] as {
-        rows: Array<Record<string, unknown>>;
-      };
-
-      expect(input.rows[0]).toMatchObject({
-        validationStatus: 'VALID',
-        errorCode: null,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('rechaza autorización cuya FECHA_FINAL_VIGENCIA es anterior a hoy en America/Bogota', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2030-02-01T06:30:00.000Z'));
-
-    try {
-      const { service, repository } = createService();
-
-      await service.uploadAuthorizations({
-        file: {
-          buffer: buildAuthorizationWorkbook(['TAR-001'], '2030-01-31'),
-          originalname: 'autorizaciones-vencidas.xlsx',
-          mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          size: 1,
-        },
-        actor: {
-          organizationId: 'org-1',
-          userId: 'user-1',
-          correlationId: '11111111-1111-1111-1111-111111111111',
-        } as unknown as Scope,
-      });
-
-      const input = repository.createJob.mock.calls[0]?.[0] as {
-        rows: Array<Record<string, unknown>>;
-      };
-
-      expect(input.rows[0]).toMatchObject({
-        validationStatus: 'INVALID',
-        errorCode: 'AUTHORIZATION_EXPIRED',
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('rechaza autorización sin FECHA_FINAL_VIGENCIA válida', async () => {
-    const { service, repository } = createService();
-
-    await service.uploadAuthorizations({
-      file: {
-        buffer: buildAuthorizationWorkbook(['TAR-001'], ''),
-        originalname: 'autorizaciones-sin-vigencia.xlsx',
-        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        size: 1,
-      },
-      actor: {
-        organizationId: 'org-1',
-        userId: 'user-1',
-        correlationId: '11111111-1111-1111-1111-111111111111',
-      } as unknown as Scope,
-    });
-
-    const input = repository.createJob.mock.calls[0]?.[0] as {
-      rows: Array<Record<string, unknown>>;
-    };
-
-    expect(input.rows[0]).toMatchObject({
-      validationStatus: 'INVALID',
-      errorCode: 'AUTHORIZATION_EXPIRATION_INVALID',
+        'AUTHORIZATION_IDENTITY_REQUIRED',
     });
   });
 

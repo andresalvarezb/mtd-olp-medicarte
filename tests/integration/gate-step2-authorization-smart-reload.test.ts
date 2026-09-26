@@ -652,7 +652,7 @@ afterAll(async () => {
   }
 });
 
-describe('Macro 2 / 2C + 2D — smart reload + purchase order lock', () => {
+describe('Macro 2 / 2C + 2D — smart reload + purchase order lineage', () => {
   it('1. identidad nueva hace INSERT con version inicial 1', async () => {
     await seedTariffProduct(CODE_INSERT);
 
@@ -741,104 +741,247 @@ describe('Macro 2 / 2C + 2D — smart reload + purchase order lock', () => {
     expect(Number(after.source_data.CANTIDAD)).toBe(5);
   });
 
-  it('4. una OC efectiva bloquea UPDATE en todos los estados operativos no liberados', async () => {
-    await seedTariffProduct(CODE_LOCK);
-
-    const initial = await uploadAndConfirm({
-      authorizationNumber: AUTH_LOCK,
-      commercialCode: CODE_LOCK,
-      filename: `m2cd-lock-initial-${suffix}.xlsx`,
-      quantity: 2,
-      workbookNonce: randomUUID(),
-    });
-
-    expect(initial.confirmed.succeededRows).toBe(1);
-
-    const before = await snapshot(AUTH_LOCK, CODE_LOCK);
-
-    const orderId = await createPurchaseOrderFixture({
-      authorizationItemId: before.id,
-      commercialCode: CODE_LOCK,
-      tag: 'LOCK',
-      month: 7,
-      status: 'DRAFT',
-    });
-
-    const lineageBefore = await database.query<{ count: number }>(
-      `select count(*)::int count
-       from purchase_order_authorization_sources source
-       join purchase_order_lines pol
-         on pol.id = source.purchase_order_line_id
-       where source.authorization_item_id = $1
-         and pol.purchase_order_id = $2`,
-      [before.id, orderId],
+  it('4. una OC efectiva permite UPDATE y conserva el lineage histórico', async () => {
+    await seedTariffProduct(
+      CODE_LOCK,
     );
 
-    expect(lineageBefore.rows[0]?.count).toBe(1);
+    const initial =
+      await uploadAndConfirm({
+        authorizationNumber:
+          AUTH_LOCK,
+        commercialCode:
+          CODE_LOCK,
+        filename:
+          `m2cd-lock-initial-${suffix}.xlsx`,
+        quantity:
+          2,
+        workbookNonce:
+          randomUUID(),
+      });
 
-    const liveDemand = await database.query<{
-      projected_demand_line_id: string;
-    }>(
-      `select projected_demand_line_id
-       from purchase_order_lines
-       where purchase_order_id = $1
-       limit 1`,
-      [orderId],
-    );
+    expect(
+      initial.confirmed
+        .succeededRows,
+    ).toBe(1);
 
-    const liveDemandLineId = liveDemand.rows[0]!.projected_demand_line_id;
+    const before =
+      await snapshot(
+        AUTH_LOCK,
+        CODE_LOCK,
+      );
+
+    const orderId =
+      await createPurchaseOrderFixture({
+        authorizationItemId:
+          before.id,
+        commercialCode:
+          CODE_LOCK,
+        tag:
+          'LOCK',
+        month:
+          7,
+        status:
+          'DRAFT',
+      });
+
+    const lineageBefore =
+      await database.query<{
+        count:
+          number;
+      }>(
+        `select count(*)::int count
+         from purchase_order_authorization_sources source
+         join purchase_order_lines pol
+           on pol.id = source.purchase_order_line_id
+         where source.authorization_item_id = $1
+           and pol.purchase_order_id = $2`,
+        [
+          before.id,
+          orderId,
+        ],
+      );
+
+    expect(
+      lineageBefore
+        .rows[0]
+        ?.count,
+    ).toBe(1);
+
+    /*
+     * El lineage de la OC debe ser suficiente por sí mismo.
+     * demand_sources/projection son estado vivo y se eliminan a propósito.
+     */
+    const liveDemand =
+      await database.query<{
+        projected_demand_line_id:
+          string;
+      }>(
+        `select projected_demand_line_id
+         from purchase_order_lines
+         where purchase_order_id = $1
+         limit 1`,
+        [orderId],
+      );
+
+    const liveDemandLineId =
+      liveDemand.rows[0]!
+        .projected_demand_line_id;
 
     await database.query(
       `delete from demand_sources
        where projected_demand_line_id = $1`,
-      [liveDemandLineId],
+      [
+        liveDemandLineId,
+      ],
     );
 
     await database.query(
       `delete from projected_demand_lines
        where id = $1`,
-      [liveDemandLineId],
+      [
+        liveDemandLineId,
+      ],
     );
 
-    const lineageAfter = await database.query<{ count: number }>(
-      `select count(*)::int count
-       from purchase_order_authorization_sources source
-       join purchase_order_lines pol
-         on pol.id = source.purchase_order_line_id
-       where source.authorization_item_id = $1
-         and pol.purchase_order_id = $2`,
-      [before.id, orderId],
-    );
-
-    expect(lineageAfter.rows[0]?.count).toBe(1);
-
-    for (const status of BLOCKING_PO_STATUSES) {
+    for (
+      const [
+        index,
+        status,
+      ] of
+        BLOCKING_PO_STATUSES
+          .entries()
+    ) {
       await database.query(
         `update purchase_orders
          set status = $1
          where id = $2`,
-        [status, orderId],
+        [
+          status,
+          orderId,
+        ],
       );
 
-      const attempt = await uploadAndConfirm({
-        authorizationNumber: AUTH_LOCK,
-        commercialCode: CODE_LOCK,
-        filename: `m2cd-lock-${status.toLowerCase()}-${suffix}.xlsx`,
-        quantity: 5,
-        workbookNonce: `${status}-${randomUUID()}`,
-      });
+      const beforeAttempt =
+        await snapshot(
+          AUTH_LOCK,
+          CODE_LOCK,
+        );
 
-      expect(attempt.confirmed.succeededRows).toBe(0);
-      expect(attempt.confirmed.failedRows).toBe(1);
-      expect(attempt.rows).toHaveLength(1);
-      expect(attempt.rows[0]?.executionStatus).toBe('FAILED');
-      expect(attempt.rows[0]?.errorCode).toBe('AUTHORIZATION_PURCHASE_ORDER_LOCKED');
+      const quantity =
+        5 +
+        index;
 
-      const unchanged = await snapshot(AUTH_LOCK, CODE_LOCK);
+      const attempt =
+        await uploadAndConfirm({
+          authorizationNumber:
+            AUTH_LOCK,
+          commercialCode:
+            CODE_LOCK,
+          filename:
+            `m2cd-lock-${status.toLowerCase()}-${suffix}.xlsx`,
+          quantity,
+          workbookNonce:
+            `${status}-${randomUUID()}`,
+        });
 
-      expect(unchanged.id).toBe(before.id);
-      expect(unchanged.version).toBe(before.version);
-      expect(Number(unchanged.source_data.CANTIDAD)).toBe(2);
+      expect(
+        attempt.confirmed
+          .succeededRows,
+      ).toBe(1);
+
+      expect(
+        attempt.confirmed
+          .failedRows,
+      ).toBe(0);
+
+      expect(
+        attempt.rows,
+      ).toHaveLength(1);
+
+      expect(
+        attempt.rows[0]
+          ?.executionStatus,
+      ).toBe(
+        'SUCCEEDED',
+      );
+
+      expect(
+        attempt.rows[0]
+          ?.errorCode,
+      ).toBeNull();
+
+      const after =
+        await snapshot(
+          AUTH_LOCK,
+          CODE_LOCK,
+        );
+
+      expect(
+        after.id,
+      ).toBe(
+        before.id,
+      );
+
+      expect(
+        after.version,
+      ).toBe(
+        beforeAttempt.version +
+          1,
+      );
+
+      expect(
+        Number(
+          after
+            .source_data
+            .CANTIDAD,
+        ),
+      ).toBe(
+        quantity,
+      );
+
+      const lineage =
+        await database.query<{
+          count:
+            number;
+        }>(
+          `select count(*)::int count
+           from purchase_order_authorization_sources source
+           join purchase_order_lines pol
+             on pol.id = source.purchase_order_line_id
+           where source.authorization_item_id = $1
+             and pol.purchase_order_id = $2`,
+          [
+            before.id,
+            orderId,
+          ],
+        );
+
+      expect(
+        lineage
+          .rows[0]
+          ?.count,
+      ).toBe(1);
+
+      const order =
+        await database.query<{
+          status:
+            string;
+        }>(
+          `select status
+           from purchase_orders
+           where id = $1`,
+          [
+            orderId,
+          ],
+        );
+
+      expect(
+        order.rows[0]
+          ?.status,
+      ).toBe(
+        status,
+      );
     }
   });
 
@@ -923,4 +1066,155 @@ describe('Macro 2 / 2C + 2D — smart reload + purchase order lock', () => {
     expect(after.version).toBe(before.version + 1);
     expect(Number(after.source_data.CANTIDAD)).toBe(5);
   });
+
+  it('7. AUTO sin producto en AT se persiste como NOT_LISTED + UNCLASSIFIED', async () => {
+    const code =
+      `M2CD-NOTLISTED-${suffix}`;
+
+    const authorization =
+      `M2CD-AUTH-NOTLISTED-${suffix}`;
+
+    const result =
+      await uploadAndConfirm({
+        authorizationNumber:
+          authorization,
+        commercialCode:
+          code,
+        filename:
+          `m2cd-notlisted-${suffix}.xlsx`,
+        quantity:
+          2,
+        workbookNonce:
+          randomUUID(),
+      });
+
+    expect(
+      result.confirmed
+        .succeededRows,
+    ).toBe(1);
+
+    expect(
+      result.confirmed
+        .failedRows,
+    ).toBe(0);
+
+    const stored =
+      await database.query<{
+        coverage_type:
+          string;
+
+        direction_status:
+          string;
+
+        tariff_membership_status:
+          string;
+      }>(
+        `select
+           coverage_type,
+           direction_status,
+           tariff_membership_status
+         from authorization_items
+         where numero_autorizacion = $1
+           and codigo_medicamento = $2`,
+        [
+          authorization,
+          code,
+        ],
+      );
+
+    expect(
+      stored.rows,
+    ).toHaveLength(1);
+
+    expect(
+      stored.rows[0],
+    ).toMatchObject({
+      coverage_type:
+        'UNCLASSIFIED',
+
+      direction_status:
+        'PENDING',
+
+      tariff_membership_status:
+        'NOT_LISTED',
+    });
+  });
+
+  it('8. AUTO NO PBS se persiste y queda pendiente de direccionamiento', async () => {
+    const code =
+      `M2CD-NOPBS-${suffix}`;
+
+    const authorization =
+      `M2CD-AUTH-NOPBS-${suffix}`;
+
+    await seedTariffProduct(
+      code,
+    );
+
+    await database.query(
+      `update tariff_annex_products
+       set tipo_inclusion = 'NO_PBS'
+       where codigo_producto = $1`,
+      [
+        code,
+      ],
+    );
+
+    const result =
+      await uploadAndConfirm({
+        authorizationNumber:
+          authorization,
+        commercialCode:
+          code,
+        filename:
+          `m2cd-nopbs-${suffix}.xlsx`,
+        quantity:
+          2,
+        workbookNonce:
+          randomUUID(),
+      });
+
+    expect(
+      result.confirmed
+        .succeededRows,
+    ).toBe(1);
+
+    const stored =
+      await database.query<{
+        coverage_type:
+          string;
+
+        direction_status:
+          string;
+
+        tariff_membership_status:
+          string;
+      }>(
+        `select
+           coverage_type,
+           direction_status,
+           tariff_membership_status
+         from authorization_items
+         where numero_autorizacion = $1
+           and codigo_medicamento = $2`,
+        [
+          authorization,
+          code,
+        ],
+      );
+
+    expect(
+      stored.rows[0],
+    ).toMatchObject({
+      coverage_type:
+        'NO_PBS',
+
+      direction_status:
+        'PENDING',
+
+      tariff_membership_status:
+        'LISTED',
+    });
+  });
+
 });

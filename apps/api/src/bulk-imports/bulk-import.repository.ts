@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type {
   BulkImportJobResponse,
@@ -11,7 +11,6 @@ import type { createDatabase } from '@authorization/database';
 import {
   BULK_IMPORT_ROW_CLAIM_LEASE_SECONDS,
   POINT_ACCESS_DENIED,
-  currentBogotaDate,
   decideBulkImportCompletion,
   isAuthorizationSourceEnabled,
   rowIdempotencyKey,
@@ -773,147 +772,110 @@ export class BulkImportRepository {
     const commercialCode = text('CODIGO_COMERCIAL');
     const sourceStatus = text('ESTADO_AUTORIZACION');
     const prescriptionNumber = text('NUMERO_PRESCRIPCION');
-    const assignmentDate = text('FECHA_ASIGNACION');
-    const expirationDate = text('FECHA_FINAL_VIGENCIA');
-    const quantity = Number(
-      p.CANTIDAD,
-    );
     const serializedPayload = JSON.stringify(p);
 
     /*
-     * Wave 1:
-     * FECHA_ASIGNACION se conserva como inicio de vigencia operativa de la AUTO.
-     * Una fecha perteneciente a un mes futuro NO impide persistir la AUTO:
-     * la frontera mensual se aplica al consolidar demanda.
+     * INGESTA COMPLETA
+     * ================
      *
-     * Sí se exige que el dato tenga formato de fecha válido.
+     * Ninguna regla comercial evita la persistencia.
+     *
+     * El AT se consulta para clasificar la AUTO al momento del cargue,
+     * pero NO para decidir si la AUTO existe o no en el sistema.
+     *
+     * Producto fuera del AT:
+     *   tariff_membership_status = NOT_LISTED
+     *   coverage_type = UNCLASSIFIED
+     *   direction_status = PENDING
+     *
+     * PBS:
+     *   coverage_type = PBS
+     *   direction_status = NOT_APPLICABLE
+     *
+     * NO PBS:
+     *   coverage_type = NO_PBS
+     *   direction_status = PENDING
+     *
+     * Cantidad, mínimo y vigencia se evalúan posteriormente en la
+     * consulta de autorizaciones. source_data conserva la evidencia.
      */
-    const assignmentInstant = new Date(`${assignmentDate}T00:00:00Z`);
-    const validAssignment =
-      /^\d{4}-\d{2}-\d{2}$/.test(assignmentDate) &&
-      !Number.isNaN(assignmentInstant.getTime()) &&
-      assignmentInstant.toISOString().slice(0, 10) === assignmentDate;
+    const tariff =
+      await tx.execute<{
+        tipo_inclusion:
+          string | null;
 
-    if (!validAssignment) {
-      throw new BadRequestException({
-        code: 'AUTHORIZATION_ASSIGNMENT_INVALID',
-        message: 'FECHA_ASIGNACION es obligatoria y debe ser una fecha válida',
-      });
-    }
+        version:
+          number;
+      }>(sql`
+        select
+          tipo_inclusion,
+          version
 
-    /*
-     * Macro 2 / 2B:
-     * La vigencia final se vuelve a validar dentro de la transacción de confirmación.
-     * Upload válido no garantiza que la fila siga siendo válida al materializar.
-     */
-    const expirationInstant = new Date(`${expirationDate}T00:00:00Z`);
-    const validExpiration =
-      /^\d{4}-\d{2}-\d{2}$/.test(expirationDate) &&
-      !Number.isNaN(expirationInstant.getTime()) &&
-      expirationInstant.toISOString().slice(0, 10) === expirationDate;
+        from
+          tariff_annex_products
 
-    if (!validExpiration) {
-      throw new BadRequestException({
-        code: 'AUTHORIZATION_EXPIRATION_INVALID',
-        message: 'FECHA_FINAL_VIGENCIA es obligatoria y debe ser una fecha válida',
-      });
-    }
+        where
+          organization_id =
+            ${input.actor.organizationId}
 
-    const todayBogota = currentBogotaDate();
+          and codigo_producto =
+            ${commercialCode}
 
-    if (expirationDate < todayBogota) {
-      throw new BadRequestException({
-        code: 'AUTHORIZATION_EXPIRED',
-        message: `La autorización venció el ${expirationDate}`,
-      });
-    }
+          and active =
+            true
 
-    /*
-     * Macro 2 / 2A:
-     * AT activo y PBS se revalidan dentro de la misma transacción que
-     * materializa INSERT/UPDATE. El dato cargado en el XLSX no es fuente
-     * de verdad para coverage_type.
-     */
-    const tariff = await tx.execute<{
-      tipo_inclusion: string | null;
-      minimum_quantity: number;
-      version: number;
-    }>(sql`
-      select
-        tipo_inclusion,
-        minimum_quantity,
-        version
-      from tariff_annex_products
-      where organization_id = ${input.actor.organizationId}
-        and codigo_producto = ${commercialCode}
-        and active = true
-      for share
-    `);
+        limit 1
+
+        for share
+      `);
+
+    const tariffRow =
+      tariff.rows[0];
 
     const tariffInclusion =
-      tariff.rows[0]?.tipo_inclusion?.trim().toUpperCase().replace(/\s+/g, '_') ?? '';
+      tariffRow
+        ?.tipo_inclusion
+        ?.trim()
+        .toUpperCase()
+        .replace(
+          /\s+/g,
+          '_',
+        )
+      ??
+      '';
+
+    const tariffMembershipStatus:
+      'LISTED' |
+      'NOT_LISTED' =
+      tariffRow
+        ? 'LISTED'
+        : 'NOT_LISTED';
+
+    const coverageType:
+      'UNCLASSIFIED' |
+      'PBS' |
+      'NO_PBS' =
+      tariffInclusion ===
+        'PBS'
+        ? 'PBS'
+        : tariffInclusion ===
+            'NO_PBS'
+          ? 'NO_PBS'
+          : 'UNCLASSIFIED';
+
+    const defaultDirectionStatus:
+      'NOT_APPLICABLE' |
+      'PENDING' =
+      coverageType ===
+        'PBS'
+        ? 'NOT_APPLICABLE'
+        : 'PENDING';
 
     const tariffRuleVersion =
       `TARIFF-ANNEX-1:${Number(
-        tariff.rows[0]?.version ??
+        tariffRow?.version ??
         0,
       )}`;
-
-    if (tariff.rows.length === 0) {
-      throw new BadRequestException({
-        code: 'TARIFF_ANNEX_PRODUCT_NOT_FOUND',
-        message: `El código comercial ${commercialCode || '(vacío)'} no existe en el anexo tarifario activo`,
-      });
-    }
-
-    if (tariffInclusion !== 'PBS') {
-      throw new BadRequestException({
-        code:
-          tariffInclusion === 'NO_PBS'
-            ? 'TARIFF_ANNEX_PRODUCT_NO_PBS'
-            : 'TARIFF_ANNEX_PRODUCT_INCLUSION_INVALID',
-        message:
-          tariffInclusion === 'NO_PBS'
-            ? `El código comercial ${commercialCode || '(vacío)'} está clasificado NO_PBS en el anexo tarifario activo`
-            : `El código comercial ${commercialCode || '(vacío)'} no tiene una clasificación PBS válida en el anexo tarifario activo`,
-      });
-    }
-
-    const minimumQuantity =
-      Number(
-        tariff.rows[0]
-          ?.minimum_quantity ??
-        1,
-      );
-
-    if (
-      !Number.isInteger(
-        quantity,
-      ) ||
-      quantity <=
-        0
-    ) {
-      throw new BadRequestException({
-        code:
-          'AUTHORIZATION_QUANTITY_INVALID',
-
-        message:
-          'CANTIDAD debe ser un entero positivo',
-      });
-    }
-
-    if (
-      quantity <
-      minimumQuantity
-    ) {
-      throw new BadRequestException({
-        code:
-          'AUTHORIZATION_QUANTITY_BELOW_PRODUCT_MINIMUM',
-
-        message:
-          `La cantidad autorizada ${quantity} es menor al producto mínimo ${minimumQuantity} para ${commercialCode}`,
-      });
-    }
 
     /*
      * Wave 1:
@@ -973,10 +935,10 @@ export class BulkImportRepository {
           ${prescriptionNumber},
           ${prescriptionNumber},
           ${enablementStatus},
-          ${tariffInclusion},
-          'NOT_APPLICABLE',
+          ${coverageType},
+          ${defaultDirectionStatus},
           'AUTHORIZATIONS_V1',
-          'LISTED',
+          ${tariffMembershipStatus},
           now(),
           ${tariffRuleVersion},
           ${batchId},
@@ -1009,37 +971,165 @@ export class BulkImportRepository {
      * y en los campos derivados que este import controla. filename, job,
      * batch, last_load_id, timestamps y evidencia externa no participan.
      */
-    const existing = await tx.execute<{
-      id: string;
-      version: number;
-      semantic_same: boolean;
-    }>(sql`
-      select
-        id,
-        version,
-        (
-          source_data = ${serializedPayload}::jsonb
-          and source_status_normalized = ${sourceStatus}
-          and coalesce(source_prescripcion_normalized, '') = ${prescriptionNumber}
-          and coalesce(no_prescripcion, '') = ${prescriptionNumber}
-          and enablement_status = ${enablementStatus}
-          and coverage_type = ${tariffInclusion}
-          and direction_status = 'NOT_APPLICABLE'
-          and coverage_rule_version = 'AUTHORIZATIONS_V1'
-           and tariff_membership_status = 'LISTED'
-           and tariff_rule_version = ${tariffRuleVersion}
-        ) as semantic_same
-      from authorization_items
-      where numero_autorizacion = ${authorizationNumber}
-        and codigo_medicamento = ${commercialCode}
-      for update
-    `);
+    const existing =
+      await tx.execute<{
+        id:
+          string;
+
+        version:
+          number;
+
+        coverage_type:
+          'UNCLASSIFIED' |
+          'PBS' |
+          'NO_PBS';
+
+        direction_status:
+          'NOT_APPLICABLE' |
+          'PENDING' |
+          'CONFIRMED' |
+          'QUERY_ERROR';
+
+        semantic_same:
+          boolean;
+      }>(sql`
+        select
+          id,
+          version,
+          coverage_type,
+          direction_status,
+
+          (
+            source_data =
+              ${serializedPayload}::jsonb
+
+            and
+            source_status_normalized =
+              ${sourceStatus}
+
+            and
+            coalesce(
+              source_prescripcion_normalized,
+              ''
+            ) =
+              ${prescriptionNumber}
+
+            and
+            coalesce(
+              no_prescripcion,
+              ''
+            ) =
+              ${prescriptionNumber}
+
+            and
+            enablement_status =
+              ${enablementStatus}
+
+            and
+            coverage_type =
+              ${coverageType}
+
+            and (
+              (
+                ${coverageType} =
+                  'PBS'
+
+                and
+                direction_status =
+                  'NOT_APPLICABLE'
+              )
+
+              or
+
+              (
+                ${coverageType} =
+                  'NO_PBS'
+
+                and
+                direction_status in (
+                  'PENDING',
+                  'CONFIRMED',
+                  'QUERY_ERROR'
+                )
+              )
+
+              or
+
+              (
+                ${coverageType} =
+                  'UNCLASSIFIED'
+
+                and
+                direction_status =
+                  'PENDING'
+              )
+            )
+
+            and
+            coverage_rule_version =
+              'AUTHORIZATIONS_V1'
+
+            and
+            tariff_membership_status =
+              ${tariffMembershipStatus}
+
+            and
+            tariff_rule_version =
+              ${tariffRuleVersion}
+          )
+            as semantic_same
+
+        from
+          authorization_items
+
+        where
+          numero_autorizacion =
+            ${authorizationNumber}
+
+          and
+          codigo_medicamento =
+            ${commercialCode}
+
+        for update
+      `);
 
     const existingRow = existing.rows[0];
 
     if (!existingRow) {
       throw new Error('AUTHORIZATION_CONCURRENT_UPSERT_NOT_FOUND');
     }
+
+    /*
+     * Un direccionamiento NO PBS ya confirmado es evidencia downstream
+     * y no se degrada por una recarga de la AUTO.
+     */
+    const nextDirectionStatus:
+      'NOT_APPLICABLE' |
+      'PENDING' |
+      'CONFIRMED' |
+      'QUERY_ERROR' =
+      coverageType ===
+        'PBS'
+        ? 'NOT_APPLICABLE'
+        : coverageType ===
+              'NO_PBS' &&
+            existingRow
+              .coverage_type ===
+              'NO_PBS' &&
+            (
+              existingRow
+                .direction_status ===
+                'PENDING' ||
+              existingRow
+                .direction_status ===
+                'CONFIRMED' ||
+              existingRow
+                .direction_status ===
+                'QUERY_ERROR'
+            )
+          ? existingRow
+              .direction_status
+          : 'PENDING';
 
     /*
      * Macro 2 / 2C - NO_OP real.
@@ -1061,56 +1151,13 @@ export class BulkImportRepository {
     }
 
     /*
-     * Macro 2 / 2D - PO LOCK.
-     *
-     * No usa la referencia histórica directa de OC almacenada en la autorización.
-     *
-     * Ruta moderna e inmutable:
-     * authorization_item
-     *   -> purchase_order_authorization_sources
-     *   -> purchase_order_line
-     *   -> purchase_order
-     *
-     * demand_sources es estado vivo y puede ser reconciliado o eliminado.
-     * El snapshot de provenance de la OC preserva el vínculo histórico.
-     *
-     * Una OC distinta de REJECTED/CANCELLED bloquea el UPDATE.
-     */
-    const blockingPurchaseOrder = await tx.execute<{
-      id: string;
-      status: string;
-      purchase_order_code: string | null;
-    }>(sql`
-      select distinct
-        po.id,
-        po.status,
-        po.purchase_order_code
-      from purchase_order_authorization_sources source
-      join purchase_order_lines pol
-        on pol.id = source.purchase_order_line_id
-      join purchase_orders po
-        on po.id = pol.purchase_order_id
-      where source.authorization_item_id = ${existingRow.id}
-        and po.status not in ('REJECTED', 'CANCELLED')
-      order by po.id
-      limit 1
-    `);
-
-    const blockingOrder = blockingPurchaseOrder.rows[0];
-
-    if (blockingOrder) {
-      throw new BadRequestException({
-        code: 'AUTHORIZATION_PURCHASE_ORDER_LOCKED',
-        message: `La autorización no puede actualizarse porque tiene demanda comprometida en una orden de compra con estado ${blockingOrder.status}`,
-      });
-    }
-
-    /*
      * Macro 2 / 2C - UPDATE.
      *
-     * Solo ocurre cuando cambió el estado semántico y 2D confirmó que la
-     * autorización continúa libre. Los estados operacionales downstream
-     * (aplicación, auditoría, admisión, etc.) no se sobrescriben.
+     * Solo modifica la evidencia fuente y la clasificación derivada.
+     *
+     * Los estados y relaciones downstream NO se sobrescriben:
+     * OC, líneas OC, allocations, fulfillment, auditoría y admisión
+     * conservan su identidad e historia.
      */
     const updated = await tx.execute<{ id: string; version: number }>(sql`
       update authorization_items
@@ -1120,10 +1167,10 @@ export class BulkImportRepository {
         source_prescripcion_normalized = ${prescriptionNumber},
         no_prescripcion = ${prescriptionNumber},
         enablement_status = ${enablementStatus},
-        coverage_type = ${tariffInclusion},
-        direction_status = 'NOT_APPLICABLE',
+        coverage_type = ${coverageType},
+        direction_status = ${nextDirectionStatus},
         coverage_rule_version = 'AUTHORIZATIONS_V1',
-        tariff_membership_status = 'LISTED',
+        tariff_membership_status = ${tariffMembershipStatus},
         tariff_membership_evaluated_at = now(),
         tariff_rule_version = ${tariffRuleVersion},
         last_load_id = ${batchId},
