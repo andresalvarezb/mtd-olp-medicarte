@@ -1073,6 +1073,256 @@ export class AuthorizationQueryRepository {
           `
         : sql`true`;
 
+    /*
+     * PRIORIDAD VISUAL DE CONSULTA
+     * ============================
+     *
+     * La prioridad usa las mismas dimensiones que ya ve
+     * el usuario en la tabla:
+     *
+     * 1. Cerradas siempre al final.
+     * 2. Validación:
+     *    Cumple -> Pendiente -> No cumple.
+     * 3. Vigencia:
+     *    Dentro de rango -> Fuera +30 -> Vencida -> Fecha inválida.
+     * 4. Estado operativo:
+     *    Lista para entrega/aplicación -> Pendiente.
+     *
+     * No modifica estados ni reglas funcionales.
+     */
+
+    const quantityText =
+      sql`
+        btrim(
+          coalesce(
+            i.source_data
+              ->>
+              'CANTIDAD',
+            ''
+          )
+        )
+      `;
+
+    const quantityNumeric =
+      sql`
+        case
+          when
+            ${quantityText}
+            ~
+            '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
+          then
+            (${quantityText})::numeric
+
+          else null
+        end
+      `;
+
+    /*
+     * Debe reflejar exactamente initialValidationStatus:
+     *
+     * 0 = PASSED
+     * 1 = PENDING
+     * 2 = FAILED
+     */
+    const validationPriority =
+      sql`
+        case
+          when
+            coalesce(
+              i.enablement_status,
+              ''
+            ) <>
+            'ENABLED'
+          then 2
+
+          when
+            i.tariff_membership_status =
+            'NOT_LISTED'
+          then 2
+
+          when
+            coalesce(
+              i.tariff_membership_status,
+              ''
+            ) <>
+            'LISTED'
+          then 1
+
+          when
+            ${quantityNumeric}
+              is null
+
+            or
+
+            ${quantityNumeric}
+              <= 0
+
+            or
+
+            trunc(
+              ${quantityNumeric}
+            ) <>
+            ${quantityNumeric}
+
+            or
+
+            coalesce(
+              product.minimum_quantity,
+              1
+            ) <= 0
+
+            or
+
+            ${quantityNumeric}
+              <
+            coalesce(
+              product.minimum_quantity,
+              1
+            )
+          then 2
+
+          when
+            i.coverage_type =
+            'PBS'
+          then
+            case
+              when
+                i.direction_status =
+                'NOT_APPLICABLE'
+              then 0
+
+              else 1
+            end
+
+          when
+            i.coverage_type =
+            'NO_PBS'
+          then
+            case
+              when
+                i.direction_status =
+                'CONFIRMED'
+              then 0
+
+              else 1
+            end
+
+          else 1
+        end
+      `;
+
+    const {
+      today,
+      horizon,
+    } =
+      authorizationQueryValidityWindow();
+
+    const todayKey =
+      today.replace(
+        /-/g,
+        '',
+      );
+
+    const horizonKey =
+      horizon.replace(
+        /-/g,
+        '',
+      );
+
+    const assignmentDateKey =
+      this.sourceDateKey(
+        'FECHA_ASIGNACION',
+      );
+
+    const validityEndDateKey =
+      this.sourceDateKey(
+        'FECHA_FINAL_VIGENCIA',
+      );
+
+    /*
+     * Refleja validityStatus:
+     *
+     * 0 = IN_WINDOW
+     * 1 = OUTSIDE_HORIZON
+     * 2 = EXPIRED
+     * 3 = INVALID_DATE
+     */
+    const validityPriority =
+      sql`
+        case
+          when (
+            ${this.validityWindow()}
+          )
+          then 0
+
+          when
+            ${assignmentDateKey}
+              is null
+
+            or
+
+            ${validityEndDateKey}
+              is null
+          then 3
+
+          when
+            ${validityEndDateKey}
+              <
+            ${todayKey}
+          then 2
+
+          when
+            ${assignmentDateKey}
+              >
+            ${horizonKey}
+          then 1
+
+          else 3
+        end
+      `;
+
+    /*
+     * CLOSED tiene prioridad absoluta de salida:
+     * cualquier AUTO cerrada va después de todas las
+     * AUTO que aún requieren gestión.
+     */
+    const closedPriority =
+      sql`
+        case
+          when
+            fulfillment.id
+              is not null
+
+            or
+
+            legacy_application.id
+              is not null
+          then 1
+
+          else 0
+        end
+      `;
+
+    /*
+     * Entre AUTO activas:
+     *
+     * 0 = ASSIGNED / lista para entrega-aplicación
+     * 1 = UNASSIGNED / pendiente recepción-asignación
+     */
+    const operationalPriority =
+      sql`
+        case
+          when
+            coalesce(
+              allocation.remaining_quantity,
+              0
+            ) > 0
+          then 0
+
+          else 1
+        end
+      `;
+
     return this.database.db.execute<
       AuthorizationQueryRow
     >(sql`
@@ -1666,43 +1916,54 @@ export class AuthorizationQueryRepository {
 
       order by
         /*
-         * PRIORIDAD CONSULTA
-         *
-         * Primero:
-         * ENABLED + ventana operacional HOY+30.
-         *
-         * Después:
-         * todas las demás AUTO, sin ocultarlas.
+         * 1. Cerradas siempre al final.
          */
-        case
-          when
-            i.enablement_status =
-              'ENABLED'
-
-            and (
-              ${this.validityWindow()}
-            )
-          then 0
-
-          else 1
-        end asc,
+        ${closedPriority} asc,
 
         /*
-         * Dentro del grupo operacionalmente elegible,
-         * vence primero la AUTO más próxima.
+         * 2. Validación:
+         *    Cumple -> Pendiente -> No cumple.
+         */
+        ${validationPriority} asc,
+
+        /*
+         * 3. Vigencia:
+         *    Dentro de rango
+         *    -> Fuera de rango +30
+         *    -> Vencida
+         *    -> Fecha inválida.
+         */
+        ${validityPriority} asc,
+
+        /*
+         * 4. Estado operativo:
+         *    Lista para entrega/aplicación
+         *    -> Pendiente de recepción/asignación.
+         */
+        ${operationalPriority} asc,
+
+        /*
+         * Dentro de rango:
+         * primero la AUTO que vence antes.
          */
         case
           when
-            i.enablement_status =
-              'ENABLED'
-
-            and (
-              ${this.validityWindow()}
-            )
+            ${validityPriority} = 0
           then
-            ${this.sourceDateKey(
-              'FECHA_FINAL_VIGENCIA',
-            )}
+            ${validityEndDateKey}
+
+          else null
+        end asc nulls last,
+
+        /*
+         * Fuera +30:
+         * primero la que entrará antes a la ventana.
+         */
+        case
+          when
+            ${validityPriority} = 1
+          then
+            ${assignmentDateKey}
 
           else null
         end asc nulls last,
