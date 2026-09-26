@@ -79,15 +79,40 @@ function safeSpreadsheetValue(
     return value.toISOString();
   }
 
-  const text =
+  let text: string;
+
+  if (
     typeof value ===
-      'object'
-      ? JSON.stringify(
-          value,
-        )
-      : String(
-          value,
-        );
+      'string'
+  ) {
+    text =
+      value;
+  } else if (
+    typeof value ===
+      'bigint'
+  ) {
+    text =
+      value.toString();
+  } else if (
+    typeof value ===
+      'symbol'
+  ) {
+    text =
+      value.description ??
+      '';
+  } else if (
+    typeof value ===
+      'function'
+  ) {
+    text =
+      value.name;
+  } else {
+    text =
+      JSON.stringify(
+        value,
+      ) ??
+      '';
+  }
 
   /*
    * Formula injection.
@@ -1949,12 +1974,9 @@ export class ExportablesService {
 
 
           const initial =
-            String(
-              row[
-                'initial_validation_status'
-              ] ??
-              '',
-            );
+            row[
+              'initial_validation_status'
+            ];
 
           output[
             'VALIDACION_INICIAL'
@@ -1969,12 +1991,9 @@ export class ExportablesService {
 
 
           const lifecycle =
-            String(
-              row[
-                'lifecycle_enablement_status'
-              ] ??
-              '',
-            );
+            row[
+              'lifecycle_enablement_status'
+            ];
 
           output[
             'HABILITACION'
@@ -1989,12 +2008,9 @@ export class ExportablesService {
 
 
           const validity =
-            String(
-              row[
-                'validity_status'
-              ] ??
-              '',
-            );
+            row[
+              'validity_status'
+            ];
 
           output[
             'VIGENCIA'
@@ -2093,12 +2109,9 @@ export class ExportablesService {
             ];
 
           const fulfillment =
-            String(
-              row[
-                'fulfillment_type'
-              ] ??
-              '',
-            );
+            row[
+              'fulfillment_type'
+            ];
 
           output[
             'ENTREGA_APLICACION'
@@ -2126,12 +2139,9 @@ export class ExportablesService {
             ];
 
           const audit =
-            String(
-              row[
-                'resolved_audit_status'
-              ] ??
-              '',
-            );
+            row[
+              'resolved_audit_status'
+            ];
 
           output[
             'AUDITORIA'

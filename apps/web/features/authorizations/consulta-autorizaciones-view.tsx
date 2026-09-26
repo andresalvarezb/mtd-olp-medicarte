@@ -1044,9 +1044,9 @@ export function ConsultaAutorizacionesView() {
                       <button
                         type="button"
                         className="button"
-                        onClick={() =>
-                          openDetail(item)
-                        }
+                        onClick={() => {
+                          void openDetail(item);
+                        }}
                       >
                         Ver
                       </button>

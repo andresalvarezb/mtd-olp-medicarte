@@ -173,6 +173,8 @@ export class AuthorizationQueryRepository {
   private visibility(
     _scope: Scope,
   ): SQL {
+    void _scope;
+
     /*
      * CONSULTA DE AUTORIZACIONES
      * ==========================
