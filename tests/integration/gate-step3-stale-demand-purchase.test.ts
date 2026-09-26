@@ -225,7 +225,7 @@ describe('Wave 2B — stale authorization demand purchase boundary', () => {
 
     todayBogota = dateRow.today_bogota;
 
-    futureAssignment = dateRow.future_assignment;
+    futureAssignment = dateRow.valid_expiration;
 
     validExpiration = dateRow.valid_expiration;
 
@@ -602,7 +602,7 @@ describe('Wave 2B — stale authorization demand purchase boundary', () => {
     );
   });
 
-  it('blocks stale consolidated demand when FECHA_ASIGNACION moved to a future month', async () => {
+  it('blocks stale consolidated demand when FECHA_ASIGNACION moved outside HOY+30', async () => {
     await database.query(
       `update authorization_items
               set source_data =

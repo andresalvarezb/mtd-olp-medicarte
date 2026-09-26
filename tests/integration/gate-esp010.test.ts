@@ -95,6 +95,7 @@ async function createSchedule(quantity = 1, code = product, point = pointId) {
           IDENTIFICACION_PACIENTE: `DOC-${suffix}`,
           NOMBRE_PACIENTE: 'Paciente ESP-010',
           CANTIDAD: String(quantity),
+          FECHA_ASIGNACION: '2000-01-01',
           FECHA_FINAL_VIGENCIA: '2099-12-31',
         }),
         batch,
