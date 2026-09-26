@@ -262,7 +262,7 @@ export const authorizationItems = pgTable(
     ),
     check(
       'authorization_items_coverage_type_check',
-      sql`${table.coverageType} IN ('PBS', 'NO_PBS')`,
+      sql`${table.coverageType} IN ('UNCLASSIFIED', 'PBS', 'NO_PBS')`,
     ),
     check(
       'authorization_items_direction_status_check',
@@ -275,16 +275,6 @@ export const authorizationItems = pgTable(
     check(
       'authorization_items_process_status_check',
       sql`${table.processStatus} IS NULL OR ${table.processStatus} IN ('NOVEDAD', 'PENDIENTE_VALIDACION_MIPRES', 'LISTO_PARA_DISPENSAR', 'PENDIENTE_ORDEN_COMPRA', 'PENDIENTE_DISPENSACION', 'PENDIENTE_APLICACION', 'LISTO_PARA_AUDITORIA', 'AUDITORIA_APROBADA', 'AUDITORIA_RECHAZADA')`,
-    ),
-    check(
-      'authorization_items_ready_prerequisites_check',
-      sql`${table.operationStatus} IS NULL OR ${table.operationStatus} <> 'READY_TO_DISPENSE' OR (
-        ${table.enablementStatus} = 'ENABLED' AND
-        ${table.tariffMembershipStatus} = 'LISTED' AND (
-          (${table.coverageType} = 'PBS' AND ${table.directionStatus} = 'NOT_APPLICABLE') OR
-          (${table.coverageType} = 'NO_PBS' AND ${table.directionStatus} = 'CONFIRMED')
-        )
-      )`,
     ),
     check(
       'authorization_items_audit_status_check',
