@@ -17,13 +17,165 @@ import {
   getAuthorizationQueryItem,
   listAuthorizationQuery,
   type AuthorizationFulfillmentType,
+  type AuthorizationQueryAuditStatus,
   type AuthorizationQueryFilters,
   type AuthorizationQueryItem,
 } from '@/lib/authorization-query-api';
 
-function enablementLabel(status: string) {
-  return status === 'ENABLED' ? 'Habilitada' : 'Bloqueada';
+import {
+  downloadExportable,
+  saveExportable,
+} from '@/lib/exportables-api';
+
+function initialValidationLabel(
+  status:
+    AuthorizationQueryItem['initialValidationStatus'],
+) {
+  const labels = {
+    PASSED:
+      'Cumple',
+
+    PENDING:
+      'Validación pendiente',
+
+    FAILED:
+      'No cumple',
+  } satisfies Record<
+    AuthorizationQueryItem['initialValidationStatus'],
+    string
+  >;
+
+  return labels[status];
 }
+
+
+function authorizationLifecycleLabel(
+  item: AuthorizationQueryItem,
+): 'Habilitada' | 'Inhabilitada' | 'Pendiente' {
+  /*
+   * Habilitación funcional:
+   *
+   * 1. La validación inicial es prerrequisito.
+   * 2. Una AUTO pendiente de validación no puede
+   *    considerarse habilitada todavía.
+   * 3. Si ya pasó la validación, el vencimiento
+   *    solo la inhabilita cuando NO existe OC
+   *    relacionada.
+   *
+   * La existencia histórica de una OC nunca se
+   * elimina por esta decisión.
+   */
+  if (
+    item.initialValidationStatus ===
+      'FAILED'
+  ) {
+    return 'Inhabilitada';
+  }
+
+  if (
+    item.initialValidationStatus ===
+      'PENDING'
+  ) {
+    return 'Pendiente';
+  }
+
+  const expiredWithoutPurchaseOrder =
+    item.validityStatus ===
+      'EXPIRED'
+    &&
+    item.purchaseOrders.length ===
+      0;
+
+  return expiredWithoutPurchaseOrder
+    ? 'Inhabilitada'
+    : 'Habilitada';
+}
+
+
+function validityLabel(
+  status:
+    AuthorizationQueryItem['validityStatus'],
+) {
+  const labels = {
+    IN_WINDOW:
+      'Dentro de rango',
+
+    EXPIRED:
+      'Vencida',
+
+    OUTSIDE_HORIZON:
+      'Fuera de rango +30',
+
+    INVALID_DATE:
+      'Fecha inválida',
+  } satisfies Record<
+    AuthorizationQueryItem['validityStatus'],
+    string
+  >;
+
+  return labels[status];
+}
+
+
+function fulfillmentStatusLabel(
+  status:
+    AuthorizationQueryItem['fulfillmentStatus'],
+) {
+  const labels = {
+    PENDING:
+      'Pendiente',
+
+    DELIVERED:
+      'Entregada',
+
+    APPLIED:
+      'Aplicada',
+  } satisfies Record<
+    AuthorizationQueryItem['fulfillmentStatus'],
+    string
+  >;
+
+  return labels[status];
+}
+
+
+function auditStatusLabel(
+  status:
+    AuthorizationQueryAuditStatus,
+) {
+  const labels = {
+    PENDING:
+      'Pendiente',
+
+    IN_REVIEW:
+      'En auditoría',
+
+    APPROVED:
+      'Se puede facturar',
+
+    REJECTED:
+      'No se puede facturar',
+  } satisfies Record<
+    AuthorizationQueryAuditStatus,
+    string
+  >;
+
+  return labels[status];
+}
+
+
+function authorizationAuditStatus(
+  item:
+    AuthorizationQueryItem,
+): AuthorizationQueryAuditStatus {
+  const {
+    auditStatus,
+  } =
+    item;
+
+  return auditStatus;
+}
+
 
 function operationalLabel(
   status:
@@ -258,6 +410,50 @@ export function ConsultaAutorizacionesView() {
   ] =
     useState(false);
 
+  const [
+    exportingAuthorizations,
+    setExportingAuthorizations,
+  ] =
+    useState(
+      false,
+    );
+
+
+  async function exportAuthorizations() {
+    setFulfillmentError(
+      null,
+    );
+
+    setExportingAuthorizations(
+      true,
+    );
+
+    try {
+      const blob =
+        await downloadExportable(
+          organizationId,
+          'authorizations',
+        );
+
+      saveExportable(
+        blob,
+        'autorizaciones-consolidado.xlsx',
+      );
+    } catch (
+      cause
+    ) {
+      setFulfillmentError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible exportar las autorizaciones.',
+      );
+    } finally {
+      setExportingAuthorizations(
+        false,
+      );
+    }
+  }
+
 
   const canFulfill =
     hasPermission(
@@ -344,10 +540,18 @@ export function ConsultaAutorizacionesView() {
     setPage(1);
   }
 
-  function openDetail(
+  async function openDetail(
     item:
       AuthorizationQueryItem,
   ) {
+    /*
+     * La lista trae purchaseOrders[] vacío
+     * intencionalmente para mantenerse liviana.
+     *
+     * Al abrir Ver recuperamos el detail real,
+     * que contiene la relación durable
+     * AUTO -> purchase_order_authorization_sources -> OC.
+     */
     setSelected(
       item,
     );
@@ -367,7 +571,37 @@ export function ConsultaAutorizacionesView() {
     setManagingAuthorization(
       false,
     );
+
+    if (!organizationId) {
+      return;
+    }
+
+    try {
+      const detail =
+        await getAuthorizationQueryItem(
+          organizationId,
+          item.id,
+        );
+
+      /*
+       * Evita que una respuesta tardía reabra o
+       * reemplace otra autorización seleccionada.
+       */
+      setSelected(
+        (current) =>
+          current?.id === item.id
+            ? detail
+            : current,
+      );
+    } catch (cause) {
+      setFulfillmentError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible cargar el detalle completo de la autorización.',
+      );
+    }
   }
+
 
   async function confirmFulfillment() {
     const purchaseOrderCode =
@@ -382,6 +616,16 @@ export function ConsultaAutorizacionesView() {
       !fulfillmentDate ||
       fulfilling
     ) {
+      return;
+    }
+
+    if (
+      !selected.operationalEligible
+    ) {
+      setFulfillmentError(
+        'La autorización no está habilitada para entrega/aplicación porque está fuera de la ventana operacional Hoy + 30 o no superó la validación.',
+      );
+
       return;
     }
 
@@ -468,6 +712,7 @@ export function ConsultaAutorizacionesView() {
   const canFulfillSelected =
     Boolean(
       selected &&
+      selected.operationalEligible &&
       canFulfill &&
       selected.operationalStatus ===
         'ASSIGNED' &&
@@ -484,15 +729,38 @@ export function ConsultaAutorizacionesView() {
         title="Consulta de Autorizaciones"
         description="Consulta las autorizaciones registradas y su estado actual."
         actions={
-          <FulfillmentBulkActions
-            organizationId={organizationId}
-            canManage={hasPermission(
-              'patient_applications.manage',
-            )}
-            onImported={() => {
-              window.location.reload();
-            }}
-          />
+          <>
+            {hasPermission(
+              'operational_exports.create',
+            ) ? (
+              <button
+                type="button"
+                className="btn"
+                disabled={
+                  exportingAuthorizations
+                }
+                onClick={() => {
+                  void exportAuthorizations();
+                }}
+              >
+                {
+                  exportingAuthorizations
+                    ? 'Generando…'
+                    : 'Exportar autorizaciones'
+                }
+              </button>
+            ) : null}
+
+            <FulfillmentBulkActions
+              organizationId={organizationId}
+              canManage={hasPermission(
+                'patient_applications.manage',
+              )}
+              onImported={() => {
+                window.location.reload();
+              }}
+            />
+          </>
         }
       />
 
@@ -617,7 +885,24 @@ export function ConsultaAutorizacionesView() {
           </FilterBar>
 
           <div className="table-wrap">
-            <table>
+            <table
+              style={{
+                minWidth: '1245px',
+                tableLayout: 'fixed',
+              }}
+            >
+              <colgroup>
+                <col style={{ width: '145px' }} />
+                <col style={{ width: '170px' }} />
+                <col style={{ width: '205px' }} />
+                <col style={{ width: '60px' }} />
+                <col style={{ width: '145px' }} />
+                <col style={{ width: '225px' }} />
+                <col style={{ width: '155px' }} />
+                <col style={{ width: '130px' }} />
+                <col style={{ width: '85px' }} />
+              </colgroup>
+
               <thead>
                 <tr>
                   <th>Autorización</th>
@@ -626,15 +911,27 @@ export function ConsultaAutorizacionesView() {
 
                   <th>Producto</th>
 
-                  <th>Cantidad</th>
+                  <th>Cant.</th>
 
-                  <th>Vencimiento</th>
-
-                  <th>Punto</th>
+                  <th>Vigencia</th>
 
                   <th>Estado operativo</th>
 
-                  <th />
+                  <th>Validación</th>
+
+                  <th>Auditoría</th>
+
+                  <th
+                    style={{
+                      position: 'sticky',
+                      right: 0,
+                      zIndex: 2,
+                      background: 'inherit',
+                      textAlign: 'center',
+                    }}
+                  >
+                    Acción
+                  </th>
                 </tr>
               </thead>
 
@@ -662,42 +959,110 @@ export function ConsultaAutorizacionesView() {
                     <td>
                       <div className="authorization-cell-stack">
                         <strong>
-                          {item.commercialCode}
+                          {item.productDescription ??
+                            'Sin nombre de producto'}
                         </strong>
 
                         <span>
-                          {item.productDescription ?? 'Sin nombre de producto'}
+                          COD: {item.commercialCode}
                         </span>
                       </div>
                     </td>
 
                     <td>
-                      {item.quantity ?? '—'}
+                      <strong>
+                        {item.quantity ?? '—'}
+                      </strong>
                     </td>
 
                     <td>
-                      {authorizationDateLabel(
-                        item.validityEndDate,
-                      )}
+                      <div className="authorization-cell-stack">
+                        <strong>
+                          {validityLabel(
+                            item.validityStatus,
+                          )}
+                        </strong>
+
+                        <span>
+                          {item.validityStatus ===
+                          'OUTSIDE_HORIZON'
+                            ? `Inicia: ${authorizationDateLabel(
+                                item.assignmentDate,
+                              )}`
+                            : item.validityStatus ===
+                                'EXPIRED'
+                              ? `Venció: ${authorizationDateLabel(
+                                  item.validityEndDate,
+                                )}`
+                              : item.validityStatus ===
+                                  'IN_WINDOW'
+                                ? `Vence: ${authorizationDateLabel(
+                                    item.validityEndDate,
+                                  )}`
+                                : 'Fechas no válidas'}
+                        </span>
+                      </div>
                     </td>
 
-                    <td>
-                      {item.dispensingPointCode ?? '—'}
-                    </td>
-
-                    <td>
+                    <td
+                      style={{
+                        verticalAlign: 'middle',
+                        overflow: 'hidden',
+                      }}
+                    >
                       <span
                         className={`authorization-operational-status ${item.operationalStatus.toLowerCase()}`}
+                        style={{
+                          whiteSpace: 'normal',
+                          lineHeight: 1.25,
+                          maxWidth: '100%',
+                          textAlign: 'left',
+                        }}
                       >
-                        {operationalLabel(item.operationalStatus)}
+                        {operationalLabel(
+                          item.operationalStatus,
+                        )}
                       </span>
                     </td>
 
+                    <td
+                      style={{
+                        verticalAlign: 'middle',
+                        paddingLeft: '20px',
+                      }}
+                    >
+                      <strong>
+                        {initialValidationLabel(
+                          item.initialValidationStatus,
+                        )}
+                      </strong>
+                    </td>
+
                     <td>
+                      <strong>
+                        {auditStatusLabel(
+                          authorizationAuditStatus(
+                            item,
+                          ),
+                        )}
+                      </strong>
+                    </td>
+
+                    <td
+                      style={{
+                        position: 'sticky',
+                        right: 0,
+                        zIndex: 1,
+                        background: 'white',
+                        textAlign: 'center',
+                      }}
+                    >
                       <button
                         type="button"
                         className="button"
-                        onClick={() => openDetail(item)}
+                        onClick={() => {
+                          void openDetail(item);
+                        }}
                       >
                         Ver
                       </button>
@@ -705,9 +1070,11 @@ export function ConsultaAutorizacionesView() {
                   </tr>
                 ))}
 
-                {!query.loading && (data?.items.length ?? 0) === 0 ? (
+                {!query.loading &&
+                (data?.items.length ?? 0) ===
+                  0 ? (
                   <tr>
-                    <td colSpan={8}>
+                    <td colSpan={9}>
                       <div className="table-empty-state">
                         <strong>
                           Sin resultados
@@ -929,12 +1296,24 @@ export function ConsultaAutorizacionesView() {
 
               <div>
                 <span>
-                  Estado
+                  Habilitación
                 </span>
 
                 <strong>
-                  {enablementLabel(
-                    selected.enablementStatus,
+                  {authorizationLifecycleLabel(
+                    selected,
+                  )}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Validación inicial
+                </span>
+
+                <strong>
+                  {initialValidationLabel(
+                    selected.initialValidationStatus,
                   )}
                 </strong>
               </div>
@@ -962,7 +1341,56 @@ export function ConsultaAutorizacionesView() {
                   )}
                 </strong>
               </div>
+
+              <div>
+                <span>
+                  Vigencia
+                </span>
+
+                <strong>
+                  {validityLabel(
+                    selected.validityStatus,
+                  )}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Entrega / aplicación
+                </span>
+
+                <strong>
+                  {fulfillmentStatusLabel(
+                    selected.fulfillmentStatus,
+                  )}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Auditoría
+                </span>
+
+                <strong>
+                  {auditStatusLabel(
+                    authorizationAuditStatus(
+                      selected,
+                    ),
+                  )}
+                </strong>
+              </div>
             </div>
+
+
+            {!selected.operationalEligible ? (
+              <div className="authorization-operation-message">
+                Esta autorización se conserva visible para consulta,
+                pero no está habilitada para operaciones. Para entregar,
+                aplicar o participar en gestión de compra debe haber superado
+                la validación inicial y estar dentro de la ventana operacional
+                Hoy + 30.
+              </div>
+            ) : null}
 
 
             <div className="operation-section-title">
@@ -988,8 +1416,14 @@ export function ConsultaAutorizacionesView() {
                 </span>
 
                 <strong>
-                  {selected.purchaseOrder ??
-                    'Sin OC'}
+                  {selected.purchaseOrders.length > 0
+                    ? selected.purchaseOrders
+                        .map(
+                          (order) =>
+                            order.purchaseOrderCode,
+                        )
+                        .join(', ')
+                    : 'Sin OC'}
                 </strong>
               </div>
 

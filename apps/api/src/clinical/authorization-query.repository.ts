@@ -32,6 +32,17 @@ import {
   resolveAuthorizationOperationalStatus,
 } from './authorization-query-status';
 
+import {
+  resolveAuthorizationAuditStatus,
+  resolveAuthorizationFulfillmentStatus,
+  resolveAuthorizationInitialValidationStatus,
+  resolveAuthorizationValidityStatus,
+} from './authorization-query-state';
+
+import {
+  authorizationQueryValidityWindow,
+} from './authorization-query-validity';
+
 type Database =
   ReturnType<
     typeof createDatabase
@@ -70,6 +81,9 @@ interface AuthorizationQueryRow
   product_description:
     string | null;
 
+  minimum_quantity:
+    number | null;
+
   patient_document:
     string | null;
 
@@ -86,6 +100,12 @@ interface AuthorizationQueryRow
     string | null;
 
   enablement_status:
+    string;
+
+  tariff_membership_status:
+    string;
+
+  direction_status:
     string;
 
   coverage_type:
@@ -132,6 +152,9 @@ interface AuthorizationQueryRow
   fulfillment_source:
     string | null;
 
+  review_status:
+    string | null;
+
   created_at:
     Date | string;
 
@@ -148,169 +171,151 @@ export class AuthorizationQueryRepository {
   ) {}
 
   private visibility(
-    scope: Scope,
+    _scope: Scope,
   ): SQL {
-    if (
-      scope.organizationCode ===
-      'MTD'
-    ) {
-      return sql`true`;
-    }
+    void _scope;
 
     /*
-     * MEDICARTE no necesita una reserva previa
-     * de inventario para consultar la autorización.
+     * CONSULTA DE AUTORIZACIONES
+     * ==========================
      *
-     * Es visible cuando:
+     * Toda AUTO es consultable.
      *
-     * AUTO
-     * -> pertenece a una línea de OC
-     * -> OLP ya aceptó la OC
-     * -> producto coincide
-     * -> el punto de esa línea está dentro
-     *    de los scopes del usuario.
+     * La visibilidad NO depende de:
+     * - enablement_status;
+     * - ventana HOY + 30;
+     * - existencia de OC;
+     * - aceptación OLP;
+     * - punto de dispensación;
+     * - allocation de inventario;
+     * - estado de cumplimiento.
      *
-     * La asignación física NO se decide aquí
-     * ni al Entregar/Aplicar.
+     * El acceso al módulo continúa protegido por
+     * autenticación/permisos del endpoint.
      *
-     * Se materializa durante la recepción
-     * de MEDICARTE en
-     * inventory_authorization_allocations.
-     *
-     * La relación AUTO -> OC solamente
-     * determina visibilidad y trazabilidad.
+     * Las reglas operacionales se aplican después,
+     * de forma independiente.
      */
-    if (
-      scope.organizationCode ===
-      'MEDICARTE'
-    ) {
-      return sql`
-        exists (
-          select
-            1
+    return sql`true`;
+  }
 
-          from
-            purchase_order_authorization_sources
-              poas_visibility
 
-          join
-            purchase_order_lines
-              pol_visibility
-              on pol_visibility.id =
-                 poas_visibility.purchase_order_line_id
-
-          join
-            purchase_orders
-              po_visibility
-              on po_visibility.id =
-                 pol_visibility.purchase_order_id
-
-          left join
-            tariff_annex_products
-              tap_visibility
-              on tap_visibility.codigo_producto =
-                 pol_visibility.commercial_code
-
-             and tap_visibility.active =
-                 true
-
-          left join
-            product_delivery_point_mappings
-              mapping_visibility
-              on pol_visibility.dispensing_point_id
-                 is null
-
-             and btrim(
-                   coalesce(
-                     tap_visibility.numero_expediente_invima,
-                     ''
-                   )
-                 ) ~ '^[0-9]+$'
-
-             and btrim(
-                   coalesce(
-                     tap_visibility.consecutivo_invima_presentacion,
-                     ''
-                   )
-                 ) ~ '^[0-9]+$'
-
-             and mapping_visibility.invima_record_normalized =
-                 coalesce(
-                   nullif(
-                     ltrim(
-                       btrim(
-                         tap_visibility.numero_expediente_invima
-                       ),
-                       '0'
-                     ),
-                     ''
-                   ),
-                   '0'
-                 )
-
-             and mapping_visibility.invima_presentation_normalized =
-                 coalesce(
-                   nullif(
-                     ltrim(
-                       btrim(
-                         tap_visibility.consecutivo_invima_presentacion
-                       ),
-                       '0'
-                     ),
-                     ''
-                   ),
-                   '0'
-                 )
-
-          join
-            dispensing_points
-              dp_visibility
-              on dp_visibility.id =
-                 coalesce(
-                   pol_visibility.dispensing_point_id,
-                   mapping_visibility.dispensing_point_id
-                 )
-
-          where
-            poas_visibility.authorization_item_id =
-              i.id
-
-            and pol_visibility.commercial_code =
-              i.codigo_medicamento
-
-            and po_visibility.olp_accepted_at
-              is not null
-
-            and po_visibility.status not in (
-              'CANCELLED',
-              'REJECTED'
+  private sourceDateKey(
+    field:
+      | 'FECHA_ASIGNACION'
+      | 'FECHA_FINAL_VIGENCIA',
+  ): SQL {
+    return sql`
+      case
+        when
+          btrim(
+            coalesce(
+              i.source_data
+                ->>
+                ${field},
+              ''
             )
+          )
+          ~
+          '^[0-9]{8}$'
+        then
+          btrim(
+            i.source_data
+              ->>
+              ${field}
+          )
 
-            and dp_visibility.organization_id =
-              ${scope.organizationId}
+        when
+          btrim(
+            coalesce(
+              i.source_data
+                ->>
+                ${field},
+              ''
+            )
+          )
+          ~
+          '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+        then
+          replace(
+            substring(
+              btrim(
+                i.source_data
+                  ->>
+                  ${field}
+              )
+              from 1 for 10
+            ),
+            '-',
+            ''
+          )
 
-            and ${applyPointScope(
-              sql`dp_visibility.id`,
-              scope,
-            )}
-        )
-      `;
-    }
+        else
+          null
+      end
+    `;
+  }
+
+
+  /*
+   * Ventana operacional de la AUTO:
+   *
+   * FECHA_FINAL_VIGENCIA >= HOY
+   * FECHA_ASIGNACION <= HOY + 30 dias
+   *
+   * Los limites son inclusivos.
+   *
+   * La vigencia NO controla visibilidad:
+   * todas las AUTO permitidas por scope son consultables.
+   *
+   * Esta ventana se usa para prioridad y elegibilidad
+   * de las acciones operacionales.
+   *
+   * Una AUTO vencida puede conservar su allocation durante
+   * los 5 dias de gracia, aunque ya no puede operar.
+   *
+   * La liberacion posterior a la gracia es automatica.
+   * El XLS solo asigna saldo disponible.
+   */
+  private validityWindow(): SQL {
+    const {
+      today,
+      horizon,
+    } =
+      authorizationQueryValidityWindow();
+
+    const todayKey =
+      today.replace(
+        /-/g,
+        '',
+      );
+
+    const horizonKey =
+      horizon.replace(
+        /-/g,
+        '',
+      );
+
+    const assignmentDate =
+      this.sourceDateKey(
+        'FECHA_ASIGNACION',
+      );
+
+    const validityEndDate =
+      this.sourceDateKey(
+        'FECHA_FINAL_VIGENCIA',
+      );
 
     return sql`
-      exists (
-        select 1
+      ${validityEndDate}
+      >=
+      ${todayKey}
 
-        from
-          authorization_item_organizations aio
+      and
 
-        where
-          aio.authorization_item_id =
-            i.id
-
-          and aio.organization_id =
-            ${scope.organizationId}
-      )
+      ${assignmentDate}
+      <=
+      ${horizonKey}
     `;
   }
 
@@ -686,12 +691,358 @@ export class AuthorizationQueryRepository {
     const row =
       result.rows[0];
 
-    return row
-      ? this.toResponse(
-          row,
-        )
-      : null;
+    if (!row) {
+      return null;
+    }
+
+    const purchaseOrders =
+      await this.linkedPurchaseOrders(
+        row.id,
+        row.commercial_code,
+        scope,
+      );
+
+    const response =
+      this.toResponse(
+        row,
+      );
+
+    /*
+     * INVARIANTE OC:
+     *
+     * Una línea de orden de compra representa
+     * producto + punto de dispensación.
+     *
+     * Por ello, cuando el detalle conoce la relación
+     * durable AUTO -> OC, el punto debe provenir de
+     * esas mismas líneas de OC y no de la elegibilidad
+     * posterior de OLP/inventario.
+     */
+    const linkedPointCodes =
+      [
+        ...new Set(
+          purchaseOrders
+            .map(
+              (order) =>
+                order.dispensingPointCode,
+            )
+            .filter(
+              (
+                value,
+              ): value is string =>
+                Boolean(
+                  value,
+                ),
+            ),
+        ),
+      ];
+
+    const linkedPointNames =
+      [
+        ...new Set(
+          purchaseOrders
+            .map(
+              (order) =>
+                order.dispensingPointName,
+            )
+            .filter(
+              (
+                value,
+              ): value is string =>
+                Boolean(
+                  value,
+                ),
+            ),
+        ),
+      ];
+
+    return {
+      ...response,
+
+      /*
+       * El contrato público de purchaseOrders
+       * permanece sin cambios.
+       */
+      purchaseOrders:
+        purchaseOrders.map(
+          (order) => ({
+            id:
+              order.id,
+
+            purchaseOrderCode:
+              order.purchaseOrderCode,
+
+            sourceQuantity:
+              order.sourceQuantity,
+          }),
+        ),
+
+      dispensingPointCode:
+        linkedPointCodes.length >
+          0
+          ? linkedPointCodes.join(
+              ', ',
+            )
+          : response.dispensingPointCode,
+
+      dispensingPointName:
+        linkedPointNames.length >
+          0
+          ? linkedPointNames.join(
+              ', ',
+            )
+          : response.dispensingPointName,
+    };
   }
+
+
+  private async linkedPurchaseOrders(
+    authorizationItemId: string,
+    commercialCode: string,
+    scope: Scope,
+  ) {
+    /*
+     * Relación durable AUTO -> OC.
+     *
+     * NO determina ASSIGNED.
+     * NO depende de inventory_authorization_allocations.
+     *
+     * MTD puede consultar la relación operacional completa.
+     *
+     * MEDICARTE conserva la frontera ya existente:
+     * - OLP debe haber aceptado la OC.
+     * - el punto debe pertenecer a la organización.
+     * - se respeta el scope de puntos del usuario.
+     */
+    /*
+     * Relación durable de consulta.
+     *
+     * La OC vinculada se muestra aunque todavía:
+     * - no haya sido aceptada por OLP;
+     * - no tenga inventario asignado.
+     *
+     * El punto forma parte de la línea de OC.
+     * Para histórico se resuelve mediante el mapping
+     * producto/INVIMA ya existente.
+     *
+     * Esto NO modifica operationalStatus.
+     */
+    void scope;
+
+    const orderScope =
+      sql`true`;
+
+    const result =
+      await this.database.db.execute<{
+        id: string;
+
+        purchase_order_code:
+          string | null;
+
+        source_quantity:
+          number;
+
+        dispensing_point_code:
+          string | null;
+
+        dispensing_point_name:
+          string | null;
+      }>(sql`
+        select
+          po_link.id,
+
+          po_link.purchase_order_code,
+
+          coalesce(
+            sum(
+              poas_link
+                .source_quantity_snapshot
+            ),
+            0
+          )::int
+            as source_quantity,
+
+          string_agg(
+            distinct
+              dp_link.code,
+            ', '
+          )
+            as dispensing_point_code,
+
+          string_agg(
+            distinct
+              dp_link.name,
+            ', '
+          )
+            as dispensing_point_name
+
+        from
+          purchase_order_authorization_sources
+            poas_link
+
+        join
+          purchase_order_lines
+            pol_link
+            on pol_link.id =
+               poas_link
+                 .purchase_order_line_id
+
+        join
+          purchase_orders
+            po_link
+            on po_link.id =
+               pol_link.purchase_order_id
+
+        /*
+         * Las líneas modernas ya tienen punto.
+         *
+         * Para líneas históricas que no lo tengan,
+         * conservamos la misma resolución por
+         * producto/INVIMA usada actualmente.
+         */
+        left join lateral (
+          select
+            mapping_link
+              .dispensing_point_id
+
+          from
+            tariff_annex_products
+              tap_link
+
+          join
+            product_delivery_point_mappings
+              mapping_link
+              on btrim(
+                   coalesce(
+                     tap_link
+                       .numero_expediente_invima,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             and btrim(
+                   coalesce(
+                     tap_link
+                       .consecutivo_invima_presentacion,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             and mapping_link
+                   .invima_record_normalized =
+                 coalesce(
+                   nullif(
+                     ltrim(
+                       btrim(
+                         tap_link
+                           .numero_expediente_invima
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+             and mapping_link
+                   .invima_presentation_normalized =
+                 coalesce(
+                   nullif(
+                     ltrim(
+                       btrim(
+                         tap_link
+                           .consecutivo_invima_presentacion
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+          where
+            pol_link.dispensing_point_id
+              is null
+
+            and tap_link.codigo_producto =
+              pol_link.commercial_code
+
+            and tap_link.active =
+              true
+
+          order by
+            tap_link.updated_at desc,
+            tap_link.id desc
+
+          limit 1
+        ) resolved_point
+          on true
+
+        left join
+          dispensing_points
+            dp_link
+            on dp_link.id =
+               coalesce(
+                 pol_link
+                   .dispensing_point_id,
+
+                 resolved_point
+                   .dispensing_point_id
+               )
+
+        where
+          poas_link.authorization_item_id =
+            ${authorizationItemId}
+
+          and pol_link.commercial_code =
+            ${commercialCode}
+
+          /*
+           * Canceladas/rechazadas conservan su
+           * trazabilidad en BD, pero no participan
+           * de la vista operacional activa.
+           */
+          and po_link.status not in (
+            'CANCELLED',
+            'REJECTED'
+          )
+
+          and ${orderScope}
+
+        group by
+          po_link.id,
+          po_link.purchase_order_code,
+          po_link.created_at
+
+        order by
+          po_link.created_at,
+          po_link.id
+      `);
+
+    return result.rows.map(
+      (row) => ({
+        id:
+          row.id,
+
+        purchaseOrderCode:
+          row.purchase_order_code ??
+          row.id,
+
+        sourceQuantity:
+          Number(
+            row.source_quantity ??
+            0,
+          ),
+
+        dispensingPointCode:
+          row.dispensing_point_code,
+
+        dispensingPointName:
+          row.dispensing_point_name,
+      }),
+    );
+  }
+
 
   private queryRows(
     where:
@@ -736,6 +1087,8 @@ export class AuthorizationQueryRepository {
 
         product.product_description,
 
+        product.minimum_quantity,
+
         coalesce(
           i.source_data
             ->>
@@ -768,6 +1121,10 @@ export class AuthorizationQueryRepository {
           as validity_end_date,
 
         i.enablement_status,
+
+        i.tariff_membership_status,
+
+        i.direction_status,
 
         i.coverage_type,
 
@@ -934,6 +1291,17 @@ export class AuthorizationQueryRepository {
         end
           as fulfillment_source,
 
+        case
+          when fulfillment.id is not null
+          then fulfillment_audit.status
+
+          when legacy_application.id is not null
+          then application_audit.status
+
+          else null
+        end
+          as review_status,
+
         i.created_at,
 
         i.updated_at
@@ -958,7 +1326,9 @@ export class AuthorizationQueryRepository {
               ''
             )
           )
-            as product_description
+            as product_description,
+
+          tap.minimum_quantity
 
         from
           tariff_annex_products tap
@@ -1256,10 +1626,90 @@ export class AuthorizationQueryRepository {
       ) legacy_application
         on true
 
+      left join lateral (
+        select
+          ar.status
+
+        from
+          audit_reviews ar
+
+        where
+          ar.authorization_fulfillment_id =
+            fulfillment.id
+
+        limit 1
+      ) fulfillment_audit
+        on true
+
+
+      left join lateral (
+        select
+          paa.status
+
+        from
+          patient_application_audits paa
+
+        where
+          paa.patient_application_id =
+            legacy_application.id
+
+          and fulfillment.id
+            is null
+
+        limit 1
+      ) application_audit
+        on true
+
       where
         ${where}
 
+
       order by
+        /*
+         * PRIORIDAD CONSULTA
+         *
+         * Primero:
+         * ENABLED + ventana operacional HOY+30.
+         *
+         * Después:
+         * todas las demás AUTO, sin ocultarlas.
+         */
+        case
+          when
+            i.enablement_status =
+              'ENABLED'
+
+            and (
+              ${this.validityWindow()}
+            )
+          then 0
+
+          else 1
+        end asc,
+
+        /*
+         * Dentro del grupo operacionalmente elegible,
+         * vence primero la AUTO más próxima.
+         */
+        case
+          when
+            i.enablement_status =
+              'ENABLED'
+
+            and (
+              ${this.validityWindow()}
+            )
+          then
+            ${this.sourceDateKey(
+              'FECHA_FINAL_VIGENCIA',
+            )}
+
+          else null
+        end asc nulls last,
+
+        /*
+         * Desempate determinístico.
+         */
         i.created_at desc,
         i.id desc
 
@@ -1302,6 +1752,53 @@ export class AuthorizationQueryRepository {
           }
         : null;
 
+    const {
+      today,
+    } =
+      authorizationQueryValidityWindow();
+
+    const validityStatus =
+      resolveAuthorizationValidityStatus({
+        assignmentDate:
+          row.assignment_date,
+
+        validityEndDate:
+          row.validity_end_date,
+
+        today,
+      });
+
+    const initialValidationStatus =
+      resolveAuthorizationInitialValidationStatus({
+        enablementStatus:
+          row.enablement_status,
+
+        tariffMembershipStatus:
+          row.tariff_membership_status,
+
+        coverageType:
+          row.coverage_type,
+
+        directionStatus:
+          row.direction_status,
+
+        quantity:
+          row.quantity,
+
+        minimumQuantity:
+          row.minimum_quantity,
+      });
+
+    const fulfillmentStatus =
+      resolveAuthorizationFulfillmentStatus(
+        row.fulfillment_type,
+      );
+
+    const auditStatus =
+      resolveAuthorizationAuditStatus(
+        row.review_status,
+      );
+
     return {
       id:
         row.id,
@@ -1332,6 +1829,21 @@ export class AuthorizationQueryRepository {
 
       enablementStatus:
         row.enablement_status,
+
+      initialValidationStatus,
+
+      validityStatus,
+
+      operationalEligible:
+        initialValidationStatus ===
+          'PASSED'
+        &&
+        validityStatus ===
+          'IN_WINDOW',
+
+      fulfillmentStatus,
+
+      auditStatus,
 
       coverageType:
         row.coverage_type,
@@ -1370,6 +1882,12 @@ export class AuthorizationQueryRepository {
 
       purchaseOrder:
         row.purchase_order,
+
+      /*
+       * Se completa únicamente en detail().
+       * La lista permanece liviana.
+       */
+      purchaseOrders: [],
 
       dispensingPointCode:
         row.dispensing_point_code,

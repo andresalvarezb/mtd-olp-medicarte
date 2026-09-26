@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import {
-  authorizationPurchaseMonthEnd,
+  authorizationOperationalHorizonEnd,
   currentBogotaDate,
   isAuthorizationSourceEnabled,
 } from '@authorization/domain';
@@ -3596,7 +3596,10 @@ export class PurchaseOrderRepository {
 
     const todayBogota = currentBogotaDate();
 
-    const monthEnd = authorizationPurchaseMonthEnd(todayBogota);
+    const operationalHorizonEnd =
+      authorizationOperationalHorizonEnd(
+        todayBogota,
+      );
 
     const isStrictIsoDate = (value: string | null): value is string => {
       if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -3637,7 +3640,7 @@ export class PurchaseOrderRepository {
         sourceQuantity > 0 &&
         sourceQuantity === source.quantity &&
         isStrictIsoDate(assignmentDate) &&
-        assignmentDate <= monthEnd &&
+        assignmentDate <= operationalHorizonEnd &&
         isStrictIsoDate(expirationDate) &&
         expirationDate >= todayBogota;
 

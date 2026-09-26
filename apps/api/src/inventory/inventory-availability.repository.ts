@@ -8,6 +8,10 @@ import type { Scope } from '../common/request-scope';
 
 import { DATABASE } from '../tokens';
 
+import {
+  calculateUnassignedAvailability,
+} from './inventory-availability-balance';
+
 import type { InventoryAvailabilityImportRow } from './inventory-availability-xlsx';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -203,6 +207,9 @@ export class InventoryAvailabilityRepository {
           number;
 
         fulfilled_quantity:
+          number;
+
+        assigned_quantity:
           number;
       }>(sql`
         WITH
@@ -753,6 +760,44 @@ export class InventoryAvailabilityRepository {
             afl.purchase_order_id,
             afl.commercial_code,
             afl.dispensing_point_id
+        ),
+
+        assigned AS (
+          SELECT
+            iaa.purchase_order_id,
+
+            iaa.commercial_code,
+
+            iaa.dispensing_point_id,
+
+            COALESCE(
+              SUM(
+                GREATEST(
+                  iaa.allocated_quantity
+                  -
+                  iaa.consumed_quantity
+                  -
+                  iaa.released_quantity,
+                  0
+                )
+              ),
+              0
+            )::int
+              AS assigned_quantity
+
+          FROM
+            inventory_authorization_allocations iaa
+
+          WHERE
+            iaa.status IN (
+              'ALLOCATED',
+              'PARTIALLY_CONSUMED'
+            )
+
+          GROUP BY
+            iaa.purchase_order_id,
+            iaa.commercial_code,
+            iaa.dispensing_point_id
         )
 
 
@@ -790,7 +835,13 @@ export class InventoryAvailabilityRepository {
             fulfilled.fulfilled_quantity,
             0
           )::int
-            AS fulfilled_quantity
+            AS fulfilled_quantity,
+
+          COALESCE(
+            assigned.assigned_quantity,
+            0
+          )::int
+            AS assigned_quantity
 
         FROM
           po_product_points ppp
@@ -826,6 +877,19 @@ export class InventoryAvailabilityRepository {
                ppp.commercial_code
 
            AND fulfilled.dispensing_point_id
+               IS NOT DISTINCT FROM
+               ppp.dispensing_point_id
+
+
+        LEFT JOIN
+          assigned
+            ON assigned.purchase_order_id =
+               ppp.purchase_order_id
+
+           AND assigned.commercial_code =
+               ppp.commercial_code
+
+           AND assigned.dispensing_point_id
                IS NOT DISTINCT FROM
                ppp.dispensing_point_id
 
@@ -869,16 +933,17 @@ export class InventoryAvailabilityRepository {
                 0,
               );
 
-            /*
-             * Pool fungible:
-             *
-             * no existe reserva previa por paciente.
-             */
-            const availableQuantity =
+            const assignedQuantity =
               Math.max(
-                receivedQuantity -
-                fulfilledQuantity,
+                row.assigned_quantity,
                 0,
+              );
+
+            const availableQuantity =
+              calculateUnassignedAvailability(
+                receivedQuantity,
+                fulfilledQuantity,
+                assignedQuantity,
               );
 
             const pendingReceiptQuantity =
@@ -912,6 +977,8 @@ export class InventoryAvailabilityRepository {
               receivedQuantity,
 
               fulfilledQuantity,
+
+              assignedQuantity,
 
               availableQuantity,
 
@@ -2327,9 +2394,25 @@ export class InventoryAvailabilityRepository {
         ${scope.userId}
       )
     `);
+
   }
 
   private async reconcileIneligibleTx(tx: Tx, scope: Scope) {
+    /*
+     * La expiracion de una autorizacion NO libera inventario
+     * automaticamente.
+     *
+     * Regla operativa:
+     * - al vencer, la AUTO deja de estar disponible para nuevas
+     *   asignaciones;
+     * - durante los primeros 5 dias puede actualizarse su vigencia;
+     * - si permanece vencida despues de ese periodo, la liberacion
+     *   se realiza exclusivamente mediante el cargue manual de
+     *   Disponibilidad.
+     *
+     * Esta conciliacion conserva las liberaciones automaticas por
+     * otras causas de inelegibilidad.
+     */
     const released = await tx.execute<{
       id: string;
     }>(sql`
@@ -2346,53 +2429,7 @@ export class InventoryAvailabilityRepository {
             ),
 
           status =
-            CASE
-              WHEN (
-                CASE
-                  WHEN BTRIM(
-                    COALESCE(
-                      ai.source_data
-                        ->> 'FECHA_FINAL_VIGENCIA',
-                      ''
-                    )
-                  ) ~ '^[0-9]{8}$'
-                  THEN TO_DATE(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA',
-                    'YYYYMMDD'
-                  )
-
-                  WHEN BTRIM(
-                    COALESCE(
-                      ai.source_data
-                        ->> 'FECHA_FINAL_VIGENCIA',
-                      ''
-                    )
-                  )
-                    ~
-                    '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-                  THEN TO_DATE(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA',
-                    'YYYY-MM-DD'
-                  )
-
-                  ELSE NULL
-                END
-              )
-              <
-              (
-                NOW()
-                AT TIME ZONE
-                'America/Bogota'
-              )::date
-
-              THEN
-                'EXPIRED'
-
-              ELSE
-                'RELEASED'
-            END,
+            'RELEASED',
 
           updated_by =
             ${scope.userId},
@@ -2436,48 +2473,6 @@ export class InventoryAvailabilityRepository {
               'CANCELLED',
               'REJECTED'
             )
-
-            OR
-
-            (
-              CASE
-                WHEN BTRIM(
-                  COALESCE(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA',
-                    ''
-                  )
-                ) ~ '^[0-9]{8}$'
-                THEN TO_DATE(
-                  ai.source_data
-                    ->> 'FECHA_FINAL_VIGENCIA',
-                  'YYYYMMDD'
-                )
-
-                WHEN BTRIM(
-                  COALESCE(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA',
-                    ''
-                  )
-                )
-                  ~
-                  '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-                THEN TO_DATE(
-                  ai.source_data
-                    ->> 'FECHA_FINAL_VIGENCIA',
-                  'YYYY-MM-DD'
-                )
-
-                ELSE NULL
-              END
-            )
-            <
-            (
-              NOW()
-              AT TIME ZONE
-              'America/Bogota'
-            )::date
 
             OR
 

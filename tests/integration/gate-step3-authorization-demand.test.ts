@@ -22,17 +22,34 @@ function bogotaDateForGate(now: Date = new Date()): string {
   }).format(now);
 }
 
-function nextMonthFirst(todayBogota: string): string {
-  const [yearText, monthText] = todayBogota.split('-');
-  const year = Number(yearText);
-  const month = Number(monthText);
+function plusDays(
+  value: string,
+  days: number,
+): string {
+  const date =
+    new Date(
+      `${value}T00:00:00Z`,
+    );
 
-  return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+  date.setUTCDate(
+    date.getUTCDate() +
+      days,
+  );
+
+  return date
+    .toISOString()
+    .slice(
+      0,
+      10,
+    );
 }
 
 const TODAY_BOGOTA = bogotaDateForGate();
 const CURRENT_MONTH_ASSIGNMENT = `${TODAY_BOGOTA.slice(0, 7)}-01`;
-const NEXT_MONTH_ASSIGNMENT = nextMonthFirst(TODAY_BOGOTA);
+const OUTSIDE_HORIZON_ASSIGNMENT = plusDays(
+  TODAY_BOGOTA,
+  31,
+);
 
 const CODE_A = `M3A-A-${suffix}`;
 const CODE_B = `M3A-B-${suffix}`;
@@ -302,12 +319,12 @@ beforeAll(async () => {
   });
 
   // Debe persistir como AUTO habilitada, pero no participar en demanda
-  // mientras FECHA_ASIGNACION pertenezca a un mes futuro.
+  // mientras FECHA_ASIGNACION supere el horizonte HOY + 30.
   futureId = await insertAuthorization({
     label: 'FUTURE',
     commercialCode: CODE_A,
     quantity: 13,
-    assignmentDate: NEXT_MONTH_ASSIGNMENT,
+    assignmentDate: OUTSIDE_HORIZON_ASSIGNMENT,
   });
 
   // La asignación ocurrió en un mes anterior y la AUTO continúa
@@ -608,7 +625,7 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
     expect(scheduleSources.rows[0]?.count).toBe(0);
   });
 
-  it('keeps a future-month AUTO persisted but outside purchase demand', async () => {
+  it('keeps an AUTO outside HOY+30 persisted but outside purchase demand', async () => {
     const authorization = await database.query<{
       enablement_status: string;
       assignment_date: string;
@@ -624,7 +641,7 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
     expect(authorization.rows).toEqual([
       {
         enablement_status: 'ENABLED',
-        assignment_date: NEXT_MONTH_ASSIGNMENT,
+        assignment_date: OUTSIDE_HORIZON_ASSIGNMENT,
       },
     ]);
 
@@ -725,7 +742,7 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
     expect(afterSources.rows).toEqual(beforeSources.rows);
   });
 
-  it('reconciles demand when an AUTO moves to a future month and restores it when eligible again', async () => {
+  it('reconciles demand when an AUTO moves outside HOY+30 and restores it when eligible again', async () => {
     await database.query(
       `update authorization_items
        set source_data = jsonb_set(
@@ -737,7 +754,7 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
            version = version + 1,
            updated_at = now()
        where id = $1`,
-      [authA2Id, NEXT_MONTH_ASSIGNMENT],
+      [authA2Id, OUTSIDE_HORIZON_ASSIGNMENT],
     );
 
     const futureResponse = await consolidate();

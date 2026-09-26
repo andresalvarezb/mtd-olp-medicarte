@@ -64,13 +64,41 @@ describe('authorization purchase eligibility', () => {
 
   it.each([
     {
-      label: 'October to October',
+      label: 'October to October inside rolling horizon',
       assignmentDate: '2026-10-01',
       expirationDate: '2026-10-31',
     },
     {
-      label: 'October to November',
+      label: 'October to November inside rolling horizon',
       assignmentDate: '2026-10-01',
+      expirationDate: '2026-11-30',
+    },
+    {
+      label: 'starts exactly on today plus 30',
+      assignmentDate: '2026-10-19',
+      expirationDate: '2026-11-30',
+    },
+  ])(
+    'allows $label while inside today plus 30',
+    ({ assignmentDate, expirationDate }) => {
+      expect(
+        evaluateAuthorizationPurchaseEligibility({
+          sourceStatus: '5',
+          assignmentDate,
+          expirationDate,
+          todayBogota: today,
+        }),
+      ).toMatchObject({
+        eligible: true,
+        reason: 'ELIGIBLE',
+      });
+    },
+  );
+
+  it.each([
+    {
+      label: 'day after today plus 30',
+      assignmentDate: '2026-10-20',
       expirationDate: '2026-11-30',
     },
     {
@@ -79,7 +107,7 @@ describe('authorization purchase eligibility', () => {
       expirationDate: '2026-12-31',
     },
   ])(
-    'blocks $label while the operational month is September',
+    'blocks $label outside today plus 30',
     ({ assignmentDate, expirationDate }) => {
       expect(
         evaluateAuthorizationPurchaseEligibility({
@@ -149,27 +177,29 @@ describe('authorization purchase eligibility', () => {
     });
   });
 
-  it('automatically becomes eligible when its month arrives', () => {
-    const september = evaluateAuthorizationPurchaseEligibility({
-      sourceStatus: '5',
-      assignmentDate: '2026-10-01',
-      expirationDate: '2026-11-30',
-      todayBogota: '2026-09-19',
-    });
+  it('automatically becomes eligible when it enters the rolling horizon', () => {
+    const outsideHorizon =
+      evaluateAuthorizationPurchaseEligibility({
+        sourceStatus: '5',
+        assignmentDate: '2026-10-20',
+        expirationDate: '2026-11-30',
+        todayBogota: '2026-09-19',
+      });
 
-    expect(september).toMatchObject({
+    expect(outsideHorizon).toMatchObject({
       eligible: false,
       reason: 'FUTURE_VIGENCY',
     });
 
-    const october = evaluateAuthorizationPurchaseEligibility({
-      sourceStatus: '5',
-      assignmentDate: '2026-10-01',
-      expirationDate: '2026-11-30',
-      todayBogota: '2026-10-01',
-    });
+    const insideHorizon =
+      evaluateAuthorizationPurchaseEligibility({
+        sourceStatus: '5',
+        assignmentDate: '2026-10-20',
+        expirationDate: '2026-11-30',
+        todayBogota: '2026-09-20',
+      });
 
-    expect(october).toMatchObject({
+    expect(insideHorizon).toMatchObject({
       eligible: true,
       reason: 'ELIGIBLE',
     });

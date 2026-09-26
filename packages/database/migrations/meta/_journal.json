@@ -582,6 +582,34 @@
       "when": 1790546870663,
       "tag": "0083_direct_receipt_fulfillment",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1790546871663,
+      "tag": "0084_inventory_availability_manual_release",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1790546872663,
+      "tag": "0085_inventory_expiration_auto_release",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1790546873663,
+      "tag": "0086_authorization_fulfillment_audit_link",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1790546874663,
+      "tag": "0087_tariff_minimum_quantity",
+      "breakpoints": true
     }
   ]
 }

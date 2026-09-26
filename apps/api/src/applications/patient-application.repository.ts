@@ -7,13 +7,13 @@ import type {
   UpdatePatientApplicationRequest,
 } from '@authorization/contracts';
 import {
-  evaluateScheduleAuthorizationEligibility,
   parseAuthorizationExpiration,
   scheduleToday,
 } from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
 import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
+import { evaluatePatientApplicationAuthorization } from './patient-application-authorization';
 
 type Database = ReturnType<typeof createDatabase>;
 type Tx = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -31,6 +31,7 @@ type Schedule = {
   authorization_number: string;
   patient_document: string | null;
   patient_name: string | null;
+  authorization_assignment_on: string | null;
   authorization_expires_on: string | null;
   enablement_status: string;
   coverage_type: string;
@@ -93,7 +94,7 @@ export class PatientApplicationRepository {
       const schedule = await this.lockSchedule(tx, body.patientScheduleId);
       await lockActivePointGrants(tx, scope, [schedule.dispensing_point_id]);
       this.assertSchedule(schedule, body.scheduleRevision);
-      this.assertAuthorization(schedule);
+      this.assertAuthorization(schedule, body.applicationDate);
       const id = (
         await tx.execute<{ id: string }>(sql`insert into patient_applications
           (patient_schedule_id,schedule_revision,authorization_item_id,commercial_code,dispensing_point_id,scheduled_date,application_date,created_by)
@@ -120,7 +121,7 @@ export class PatientApplicationRepository {
       {
         const schedule = await this.lockSchedule(tx, application.patient_schedule_id);
         this.assertSchedule(schedule, application.schedule_revision);
-        this.assertAuthorization(schedule);
+        this.assertAuthorization(schedule, applicationDate);
         if (body.lines !== undefined) {
           await this.replaceLines(tx, id, schedule, body.lines);
         }
@@ -323,20 +324,24 @@ export class PatientApplicationRepository {
     const rows = await this.database.db
       .execute<Schedule>(sql`select ps.id,ps.revision,ps.authorization_item_id,ps.commercial_code,ps.dispensing_point_id,ps.scheduled_date::text,ps.quantity,ps.status,
       ai.numero_autorizacion authorization_number,coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE',ai.source_data->>'NUM_DOCUMENTO') patient_document,ai.source_data->>'NOMBRE_PACIENTE' patient_name,
-      ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,ai.enablement_status,ai.coverage_type,ai.direction_status
+      ai.source_data->>'FECHA_ASIGNACION' authorization_assignment_on,ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,ai.enablement_status,ai.coverage_type,ai.direction_status
       from patient_schedules ps join authorization_items ai on ai.id=ps.authorization_item_id join dispensing_points dp on dp.id=ps.dispensing_point_id
       where ps.status in ('SCHEDULED','RESCHEDULED') and not exists (select 1 from patient_applications pa where pa.patient_schedule_id=ps.id and pa.status in ('DRAFT','CONFIRMED'))
       and (${['MTD', 'MEDICARTE'].includes(scope.organizationCode)} or dp.organization_id=${scope.organizationId})
       and ${applyPointScope(sql`ps.dispensing_point_id`, scope)} order by ps.scheduled_date,ps.id limit 500`);
+    const todayBogota = scheduleToday();
+
     return rows.rows
       .filter((row) => {
-        const result = evaluateScheduleAuthorizationEligibility({
+        const result = evaluatePatientApplicationAuthorization({
           enablementStatus: row.enablement_status,
           coverageType: row.coverage_type,
           directionStatus: row.direction_status,
-          expirationDate: parseAuthorizationExpiration(row.authorization_expires_on),
-          todayBogota: scheduleToday(),
+          assignmentDate: row.authorization_assignment_on,
+          expirationDate: row.authorization_expires_on,
+          todayBogota,
         });
+
         return result.eligible;
       })
       .map((row) => ({
@@ -375,7 +380,7 @@ export class PatientApplicationRepository {
   private async lockSchedule(tx: Tx, id: string): Promise<Schedule> {
     const row = (
       await tx.execute<Schedule>(sql`select ps.id,ps.revision,ps.authorization_item_id,ps.commercial_code,ps.dispensing_point_id,ps.scheduled_date::text,ps.quantity,ps.status,
-      ai.numero_autorizacion authorization_number,coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE',ai.source_data->>'NUM_DOCUMENTO') patient_document,ai.source_data->>'NOMBRE_PACIENTE' patient_name,ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,ai.enablement_status,ai.coverage_type,ai.direction_status
+      ai.numero_autorizacion authorization_number,coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE',ai.source_data->>'NUM_DOCUMENTO') patient_document,ai.source_data->>'NOMBRE_PACIENTE' patient_name,ai.source_data->>'FECHA_ASIGNACION' authorization_assignment_on,ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,ai.enablement_status,ai.coverage_type,ai.direction_status
       from patient_schedules ps join authorization_items ai on ai.id=ps.authorization_item_id where ps.id=${id} for update`)
     ).rows[0];
     if (!row) throw new Error('PATIENT_SCHEDULE_NOT_FOUND');
@@ -395,18 +400,17 @@ export class PatientApplicationRepository {
   }
 
   private assertAuthorization(schedule: Schedule, applicationDate?: string) {
-    const expiration = parseAuthorizationExpiration(schedule.authorization_expires_on);
-    const eligibility = evaluateScheduleAuthorizationEligibility({
+    const eligibility = evaluatePatientApplicationAuthorization({
       enablementStatus: schedule.enablement_status,
       coverageType: schedule.coverage_type,
       directionStatus: schedule.direction_status,
-      expirationDate: expiration,
+      assignmentDate: schedule.authorization_assignment_on,
+      expirationDate: schedule.authorization_expires_on,
       todayBogota: scheduleToday(),
+      applicationDate,
     });
-    if (!eligibility.eligible)
-      throw new Error(eligibility.code ?? 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE');
-    if (expiration && applicationDate !== undefined && applicationDate > expiration)
-      throw new Error('PATIENT_APPLICATION_AUTHORIZATION_EXPIRED');
+
+    if (!eligibility.eligible) throw new Error(eligibility.code);
   }
 
   private async replaceLines(

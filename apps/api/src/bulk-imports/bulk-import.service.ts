@@ -195,11 +195,30 @@ export class BulkImportService {
       const tariffMatch = tariffProduct !== undefined;
       const tariffInclusion =
         tariffProduct?.tipoInclusion?.trim().toUpperCase().replace(/\s+/g, '_') ?? '';
-      const tariffIsPbs = tariffMatch && tariffInclusion === 'PBS';
+
+      const tariffIsPbs =
+        tariffMatch &&
+        tariffInclusion ===
+          'PBS';
+
+      const minimumQuantity =
+        tariffProduct?.minimumQuantity ??
+        1;
+
+      const quantityIsValid =
+        Number.isInteger(
+          quantity,
+        ) &&
+        quantity >
+          0;
+
+      const quantityMeetsMinimum =
+        quantityIsValid &&
+        quantity >=
+          minimumQuantity;
       const valid =
         missing.length === 0 &&
-        Number.isInteger(quantity) &&
-        quantity > 0 &&
+        quantityMeetsMinimum &&
         typeof assignmentDate === 'string' &&
         isIsoDate(assignmentDate) &&
         expirationIsValid &&
@@ -217,7 +236,11 @@ export class BulkImportService {
               ? tariffInclusion === 'NO_PBS'
                 ? 'TARIFF_ANNEX_PRODUCT_NO_PBS'
                 : 'TARIFF_ANNEX_PRODUCT_INCLUSION_INVALID'
-              : missing.includes('FECHA_ASIGNACION') ||
+              : !quantityIsValid
+                ? 'INVALID_AUTHORIZATION_ROW'
+                : quantity < minimumQuantity
+                  ? 'AUTHORIZATION_QUANTITY_BELOW_PRODUCT_MINIMUM'
+                  : missing.includes('FECHA_ASIGNACION') ||
                   typeof assignmentDate !== 'string' ||
                   !isIsoDate(assignmentDate)
                 ? 'AUTHORIZATION_ASSIGNMENT_INVALID'
@@ -236,7 +259,11 @@ export class BulkImportService {
               ? tariffInclusion === 'NO_PBS'
                 ? `El código comercial ${commercialCode ?? '(vacío)'} está clasificado NO_PBS en el anexo tarifario activo`
                 : `El código comercial ${commercialCode ?? '(vacío)'} no tiene una clasificación PBS válida en el anexo tarifario activo`
-              : missing.includes('FECHA_ASIGNACION') ||
+              : !quantityIsValid
+                ? 'CANTIDAD debe ser un entero positivo'
+                : quantity < minimumQuantity
+                  ? `La cantidad autorizada ${quantity} es menor al producto mínimo ${minimumQuantity} para ${commercialCode ?? '(vacío)'}`
+                  : missing.includes('FECHA_ASIGNACION') ||
                   typeof assignmentDate !== 'string' ||
                   !isIsoDate(assignmentDate)
                 ? 'FECHA_ASIGNACION es obligatoria y debe ser una fecha válida'

@@ -46,7 +46,19 @@ function createService() {
   const repository = {
     findActiveTariffAnnexProducts: vi
       .fn()
-      .mockResolvedValue(new Map([['TAR-001', { tipoInclusion: 'PBS' }]])),
+      .mockResolvedValue(
+        new Map([
+          [
+            'TAR-001',
+            {
+              tipoInclusion:
+                'PBS',
+              minimumQuantity:
+                1,
+            },
+          ],
+        ]),
+      ),
     hasDuplicateHash: vi.fn().mockResolvedValue(false),
     createJob: vi.fn().mockResolvedValue({ id: 'job-1' }),
     findJob: vi.fn().mockResolvedValue({ id: 'job-1', status: 'READY' }),
@@ -99,7 +111,17 @@ describe('BulkImportService', () => {
   it('rechaza producto NO_PBS del anexo tarifario activo', async () => {
     const { service, repository } = createService();
     repository.findActiveTariffAnnexProducts.mockResolvedValue(
-      new Map([['TAR-001', { tipoInclusion: 'NO_PBS' }]]),
+      new Map([
+        [
+          'TAR-001',
+          {
+            tipoInclusion:
+              'NO_PBS',
+            minimumQuantity:
+              1,
+          },
+        ],
+      ]),
     );
 
     await service.uploadAuthorizations({
@@ -129,7 +151,17 @@ describe('BulkImportService', () => {
   it('rechaza producto activo sin clasificación PBS válida', async () => {
     const { service, repository } = createService();
     repository.findActiveTariffAnnexProducts.mockResolvedValue(
-      new Map([['TAR-001', { tipoInclusion: null }]]),
+      new Map([
+        [
+          'TAR-001',
+          {
+            tipoInclusion:
+              null,
+            minimumQuantity:
+              1,
+          },
+        ],
+      ]),
     );
 
     await service.uploadAuthorizations({
@@ -155,6 +187,85 @@ describe('BulkImportService', () => {
       errorCode: 'TARIFF_ANNEX_PRODUCT_INCLUSION_INVALID',
     });
   });
+
+  it('rechaza una AUTO cuya CANTIDAD sea menor al producto mínimo del AT', async () => {
+    const {
+      service,
+      repository,
+    } =
+      createService();
+
+    repository
+      .findActiveTariffAnnexProducts
+      .mockResolvedValue(
+        new Map([
+          [
+            'TAR-001',
+            {
+              tipoInclusion:
+                'PBS',
+
+              minimumQuantity:
+                30,
+            },
+          ],
+        ]),
+      );
+
+    await service.uploadAuthorizations({
+      file: {
+        buffer:
+          buildAuthorizationWorkbook(
+            [
+              'TAR-001',
+            ],
+          ),
+
+        originalname:
+          'autorizaciones-producto-minimo.xlsx',
+
+        mimetype:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+
+        size:
+          1,
+      },
+
+      actor: {
+        organizationId:
+          'org-1',
+
+        userId:
+          'user-1',
+
+        correlationId:
+          '11111111-1111-1111-1111-111111111111',
+      } as unknown as Scope,
+    });
+
+    const input =
+      repository.createJob
+        .mock.calls[0]?.[0] as {
+          rows:
+            Array<
+              Record<
+                string,
+                unknown
+              >
+            >;
+        };
+
+    expect(
+      input.rows[0],
+    ).toMatchObject({
+      validationStatus:
+        'INVALID',
+
+      errorCode:
+        'AUTHORIZATION_QUANTITY_BELOW_PRODUCT_MINIMUM',
+    });
+  });
+
 
   it('acepta autorización cuya FECHA_FINAL_VIGENCIA es hoy en America/Bogota', async () => {
     vi.useFakeTimers();

@@ -484,6 +484,57 @@ export const applicationAuditResponseSchema = z.object({
 });
 export type ApplicationAuditResponse = z.infer<typeof applicationAuditResponseSchema>;
 
+export const fulfillmentAuditListQuerySchema = z.object({
+  status: applicationAuditStatusSchema.optional(),
+  effectiveDateFrom: z.string().date().optional(),
+  effectiveDateTo: z.string().date().optional(),
+  patientDocument: z.string().trim().min(1).max(255).optional(),
+  authorization: z.string().trim().min(1).max(255).optional(),
+  commercialCode: commercialCodeSchema.optional(),
+  auditorId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+export type FulfillmentAuditListQuery = z.infer<typeof fulfillmentAuditListQuerySchema>;
+
+export const approveFulfillmentAuditRequestSchema = z.object({});
+export type ApproveFulfillmentAuditRequest = z.infer<
+  typeof approveFulfillmentAuditRequestSchema
+>;
+
+export const rejectFulfillmentAuditRequestSchema = z.object({
+  observation: z.string().trim().min(1).max(1000),
+});
+export type RejectFulfillmentAuditRequest = z.infer<
+  typeof rejectFulfillmentAuditRequestSchema
+>;
+
+export const fulfillmentAuditResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+  status: applicationAuditStatusSchema,
+  fulfillmentId: z.string().uuid(),
+  fulfillmentType: z.enum(['APPLICATION', 'DELIVERY']),
+  authorizationItemId: z.string().uuid(),
+  authorizationNumber: z.string(),
+  patientDocument: z.string().nullable(),
+  patientName: z.string().nullable(),
+  commercialCode: commercialCodeSchema,
+  effectiveDate: z.string().date(),
+  quantity: z.number().int().positive(),
+  source: z.string(),
+  confirmedAt: isoDateTimeSchema,
+  dispensingPointCode: z.string().nullable(),
+  dispensingPointName: z.string().nullable(),
+  purchaseOrders: z.array(z.string()),
+  startedAt: isoDateTimeSchema.nullable(),
+  startedBy: z.string().uuid().nullable(),
+  startedByName: z.string().nullable(),
+  decidedAt: isoDateTimeSchema.nullable(),
+  decidedBy: z.string().uuid().nullable(),
+  decidedByName: z.string().nullable(),
+  observation: z.string().nullable(),
+});
+export type FulfillmentAuditResponse = z.infer<typeof fulfillmentAuditResponseSchema>;
+
 export const patientOperationalStatusSchema = z.enum([
   'SCHEDULED',
   'APPLIED',

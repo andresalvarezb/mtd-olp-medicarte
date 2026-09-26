@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
 import {
-  authorizationPurchaseMonthEnd,
+  authorizationOperationalHorizonEnd,
   currentBogotaDate,
   projectFungibleAuthorizationCoverage,
   sumDemandQuantities,
@@ -187,13 +187,16 @@ export class ProjectedDemandRepository {
       //
       // Wave 1:
       // FECHA_ASIGNACION representa el inicio de vigencia operativa de la AUTO.
-      // Una AUTO participa si su inicio pertenece al mes operativo actual
-      // o a un mes anterior. No se anticipan compras de meses futuros.
+      // Una AUTO participa si FECHA_ASIGNACION no supera
+      // el horizonte operacional inclusivo HOY + 30 días.
       //
-      // No se exige FECHA_ASIGNACION <= hoy: una autorización que inicia
-      // posteriormente dentro del mismo mes actual sí puede participar.
+      // No se exige FECHA_ASIGNACION <= hoy: una autorización futura
+      // puede participar mientras esté dentro del horizonte +30.
       const todayBogota = currentBogotaDate();
-      const currentMonthEnd = authorizationPurchaseMonthEnd(todayBogota);
+      const operationalHorizonEnd =
+        authorizationOperationalHorizonEnd(
+          todayBogota,
+        );
 
       const authorizations = await tx.execute<LoadedAuthorizationRow>(sql`
           select
@@ -223,7 +226,7 @@ export class ProjectedDemandRepository {
             and (ai.source_data->>'FECHA_ASIGNACION')
                   ~ '^\\d{4}-\\d{2}-\\d{2}$'
             and (ai.source_data->>'FECHA_ASIGNACION')
-                  <= ${currentMonthEnd}
+                  <= ${operationalHorizonEnd}
             and (ai.source_data->>'FECHA_FINAL_VIGENCIA')
                   ~ '^\\d{4}-\\d{2}-\\d{2}$'
             and (ai.source_data->>'FECHA_FINAL_VIGENCIA')

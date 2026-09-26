@@ -13,6 +13,7 @@ export default defineConfig({
 
     include: [
       './tests/integration/product-allocation-flow.prodshadow.test.ts',
+      './tests/integration/inventory-expiration-auto-release.prodshadow.test.ts',
     ],
 
     testTimeout:

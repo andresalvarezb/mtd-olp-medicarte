@@ -19,12 +19,13 @@ import {
   startPatientApplicationAudit,
 } from '@/lib/patient-application-audits-api';
 import { FilterBar, FilterField } from '@/components/ui/filter-bar';
+import { AuthorizationFulfillmentAuditsSection } from './authorization-fulfillment-audits-section';
 
 const statusMeta: Record<ApplicationAuditStatus, { label: string; tone: PillTone }> = {
   READY_FOR_AUDIT: { label: 'Lista para auditar', tone: 'blue' },
   IN_REVIEW: { label: 'En revisión', tone: 'orange' },
-  APPROVED: { label: 'Aprobada', tone: 'green' },
-  REJECTED: { label: 'Rechazada', tone: 'red' },
+  APPROVED: { label: 'Se puede facturar', tone: 'green' },
+  REJECTED: { label: 'No se puede facturar', tone: 'red' },
 };
 const rejectionCodes: ApplicationAuditRejectionCode[] = [
   'APPLICATION_DATA_INCONSISTENT',
@@ -102,9 +103,12 @@ export function PatientApplicationAuditsView() {
   return (
     <main>
       <PageHeader
-        title="Auditoría de aplicaciones"
-        description="MTD valida aplicaciones confirmadas sin modificar el hecho físico ni el inventario."
+        title="Auditoría"
+        description="MTD decide si una entrega o aplicación puede facturarse sin modificar el hecho físico ni el inventario."
       />
+
+      <AuthorizationFulfillmentAuditsSection />
+
       <Card className="operational-list-workspace">
         <CardBody>
           <label>

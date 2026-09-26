@@ -72,7 +72,12 @@ const COLUMNS = [
 
   {
     label:
-      'Disponible',
+      'Asignado',
+  },
+
+  {
+    label:
+      'Disponible sin asignar',
   },
 
   {
@@ -365,6 +370,10 @@ export function DisponibilidadView() {
         ),
 
         quantity(
+          item.assignedQuantity,
+        ),
+
+        quantity(
           item.availableQuantity,
         ),
 
@@ -379,7 +388,7 @@ export function DisponibilidadView() {
     <>
       <PageHeader
         title="Disponibilidad"
-        description="Inventario operativo por OC, producto y punto. La recepción de Medicarte crea disponibilidad automáticamente y la Entrega/Aplicación la consume."
+        description="Inventario operativo por OC, producto y punto. Disponible sin asignar corresponde a lo recibido menos lo entregado/aplicado y menos el saldo reservado en autorizaciones."
         actions={null}
       />
 

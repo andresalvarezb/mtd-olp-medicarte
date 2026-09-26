@@ -51,6 +51,7 @@ const COLUMNS = [
   { label: 'Código' },
   { label: 'Producto' },
   { label: 'Tarifa unidad' },
+  { label: 'Producto mínimo' },
   { label: 'INVIMA / presentación' },
   { label: 'CUM' },
   { label: 'Laboratorio' },
@@ -165,6 +166,7 @@ export function TariffProductsTable() {
     product.codigoProducto,
     product.descripcionGenerica ?? product.descripcionComercial ?? '—',
     formatCurrency(product),
+    product.minimumQuantity,
     [product.numeroExpedienteInvima, product.consecutivoInvimaPresentacion]
       .filter(Boolean)
       .join(' / ') || '—',

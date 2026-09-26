@@ -1015,10 +1015,19 @@ describe(
         expect(
           numberField(
             inventory1,
-            'availableQuantity',
+            'assignedQuantity',
           ),
         ).toBe(
           1,
+        );
+
+        expect(
+          numberField(
+            inventory1,
+            'availableQuantity',
+          ),
+        ).toBe(
+          0,
         );
 
 
@@ -1272,10 +1281,19 @@ describe(
         expect(
           numberField(
             inventory3,
-            'availableQuantity',
+            'assignedQuantity',
           ),
         ).toBe(
           2,
+        );
+
+        expect(
+          numberField(
+            inventory3,
+            'availableQuantity',
+          ),
+        ).toBe(
+          0,
         );
 
 

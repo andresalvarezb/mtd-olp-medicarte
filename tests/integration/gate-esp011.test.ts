@@ -69,6 +69,7 @@ async function schedule(quantity = 1, point = pointId, code = `ESP011-${randomUU
         JSON.stringify({
           IDENTIFICACION_PACIENTE: `DOC-${suffix}`,
           NOMBRE_PACIENTE: 'Paciente ESP-011',
+          FECHA_ASIGNACION: '2000-01-01',
           FECHA_FINAL_VIGENCIA: '2099-12-31',
         }),
         batch,

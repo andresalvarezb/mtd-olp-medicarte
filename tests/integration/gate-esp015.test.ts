@@ -159,6 +159,7 @@ async function insertAuthorization(authorizationNumber: string): Promise<string>
         IDENTIFICACION_PACIENTE: DOC,
         NOMBRE_PACIENTE: 'Paciente ESP-015',
         CANTIDAD: '5',
+        FECHA_ASIGNACION: '2000-01-01',
         FECHA_FINAL_VIGENCIA: '2099-12-31',
       }),
       batch.rows[0]!.id,

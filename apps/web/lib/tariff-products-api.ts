@@ -11,6 +11,7 @@ export interface TariffProductListItem {
   descripcionComercial: string | null;
   laboratorio: string | null;
   tipoInclusion: string | null;
+  minimumQuantity: number;
   active: boolean;
   sourceCumCode: string | null;
   defaultApplicationPoint: {

@@ -7,6 +7,40 @@ export type AuthorizationOperationalStatus =
   | 'ASSIGNED'
   | 'CLOSED';
 
+export type AuthorizationValidityStatus =
+  | 'IN_WINDOW'
+  | 'EXPIRED'
+  | 'OUTSIDE_HORIZON'
+  | 'INVALID_DATE';
+
+export type AuthorizationQueryFulfillmentStatus =
+  | 'PENDING'
+  | 'DELIVERED'
+  | 'APPLIED';
+
+export type AuthorizationInitialValidationStatus =
+  | 'PASSED'
+  | 'PENDING'
+  | 'FAILED';
+
+export type AuthorizationQueryAuditStatus =
+  | 'PENDING'
+  | 'IN_REVIEW'
+  | 'APPROVED'
+  | 'REJECTED';
+
+export type AuthorizationLinkedPurchaseOrder =
+  Readonly<{
+    id: string;
+
+    purchaseOrderCode:
+      string;
+
+    sourceQuantity:
+      number;
+  }>;
+
+
 export type AuthorizationFulfillmentType =
   | 'APPLICATION'
   | 'DELIVERY';
@@ -58,6 +92,21 @@ export type AuthorizationQueryItem = {
   enablementStatus:
     string;
 
+  initialValidationStatus:
+    AuthorizationInitialValidationStatus;
+
+  validityStatus:
+    AuthorizationValidityStatus;
+
+  operationalEligible:
+    boolean;
+
+  fulfillmentStatus:
+    AuthorizationQueryFulfillmentStatus;
+
+  auditStatus:
+    AuthorizationQueryAuditStatus;
+
   coverageType:
     string;
 
@@ -75,6 +124,15 @@ export type AuthorizationQueryItem = {
 
   purchaseOrder:
     string | null;
+
+  /*
+   * Relación durable de la AUTO con las OCs
+   * que utilizaron su Clave autorización.
+   *
+   * No implica asignación de inventario.
+   */
+  purchaseOrders:
+    AuthorizationLinkedPurchaseOrder[];
 
   dispensingPointCode:
     string | null;
