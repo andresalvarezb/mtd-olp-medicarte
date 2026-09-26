@@ -19,6 +19,8 @@ export type InventoryAvailabilityItem = Readonly<{
 
   fulfilledQuantity: number;
 
+  assignedQuantity: number;
+
   availableQuantity: number;
 
   pendingReceiptQuantity: number;

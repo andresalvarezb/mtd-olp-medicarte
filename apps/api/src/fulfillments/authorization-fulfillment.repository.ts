@@ -18,6 +18,7 @@ import type {
 import {
   assertAuthorizationFulfillment,
   currentBogotaDate,
+  evaluateAuthorizationOperationalWindow,
   parseAuthorizationExpiration,
 } from '@authorization/domain';
 
@@ -55,6 +56,8 @@ type AuthorizationRow = {
   id: string;
   commercial_code: string;
   expiration_raw: string | null;
+  assignment_raw: string | null;
+  enablement_status: string;
 };
 
 type AllocationRow = {
@@ -170,6 +173,30 @@ export class AuthorizationFulfillmentRepository {
             0,
           );
 
+        const todayBogota =
+          currentBogotaDate();
+
+        const operationalWindow =
+          evaluateAuthorizationOperationalWindow({
+            assignmentDate:
+              authorization.assignment_raw,
+
+            expirationDate:
+              authorization.expiration_raw,
+
+            todayBogota,
+          });
+
+        if (
+          authorization.enablement_status !==
+            'ENABLED' ||
+          !operationalWindow.eligible
+        ) {
+          throw new Error(
+            'AUTHORIZATION_FULFILLMENT_AUTHORIZATION_NOT_ELIGIBLE',
+          );
+        }
+
         const expiration =
           parseAuthorizationExpiration(
             authorization.expiration_raw,
@@ -182,8 +209,7 @@ export class AuthorizationFulfillmentRepository {
           validityEndDate:
             expiration,
 
-          todayBogota:
-            currentBogotaDate(),
+          todayBogota,
 
           assignedQuantity,
 
@@ -706,7 +732,14 @@ export class AuthorizationFulfillmentRepository {
             i.source_data
               ->>
               'FECHA_FINAL_VIGENCIA'
-              as expiration_raw
+              as expiration_raw,
+
+            i.source_data
+              ->>
+              'FECHA_ASIGNACION'
+              as assignment_raw,
+
+            i.enablement_status
 
           from
             authorization_items i

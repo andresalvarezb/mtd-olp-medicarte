@@ -23,6 +23,10 @@ import {
   type PurchaseOrderImportResult,
 } from '@/lib/purchase-orders-api';
 import { issuePurchaseOrder } from '@/lib/purchase-orders-api';
+import {
+  downloadExportable,
+  saveExportable,
+} from '@/lib/exportables-api';
 
 type DetailedOrder =
   Omit<
@@ -290,6 +294,14 @@ export function PurchaseOrdersView() {
     activeOrganization?.code ===
     'OLP';
 
+  const canExport =
+    activeOrganization?.code ===
+      'MTD'
+    &&
+    hasPermission(
+      'operational_exports.create',
+    );
+
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [filters, setFilters] = useState<{
@@ -309,6 +321,16 @@ export function PurchaseOrdersView() {
   const [importResult, setImportResult] = useState<PurchaseOrderImportResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [
+    exporting,
+    setExporting,
+  ] =
+    useState<
+      | 'AUTO_OC'
+      | 'OC'
+      | null
+    >(null);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -430,6 +452,64 @@ export function PurchaseOrdersView() {
       safePage * pageSize,
     );
 
+  async function exportPurchaseOrderWorkbook(
+    kind:
+      'AUTO_OC'
+      | 'OC',
+  ) {
+    setError(
+      null,
+    );
+
+    setExporting(
+      kind,
+    );
+
+    try {
+      if (
+        kind ===
+          'AUTO_OC'
+      ) {
+        const blob =
+          await downloadExportable(
+            organizationId,
+            'purchase-order-candidates',
+          );
+
+        saveExportable(
+          blob,
+          'AUTO-para-generar-OC.xlsx',
+        );
+
+        return;
+      }
+
+      const blob =
+        await downloadExportable(
+          organizationId,
+          'purchase-orders',
+        );
+
+      saveExportable(
+        blob,
+        'ordenes-compra.xlsx',
+      );
+    } catch (
+      cause
+    ) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible generar la exportación.',
+      );
+    } finally {
+      setExporting(
+        null,
+      );
+    }
+  }
+
+
   async function uploadOc(file: File | undefined) {
     if (!file) {
       return;
@@ -478,40 +558,88 @@ export function PurchaseOrdersView() {
         title="Órdenes de compra"
         description="Carga y consulta las órdenes de compra que serán revisadas por OLP y recibidas por Medicarte."
         actions={
-          canManage ? (
-            <>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  void downloadPurchaseOrderTemplate(organizationId).then((blob) =>
-                    downloadBlob(blob, 'plantilla-ordenes-compra.xlsx'),
-                  );
-                }}
-              >
-                Descargar plantilla
-              </button>
+          <>
+            {canExport ? (
+              <>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={
+                    exporting !==
+                    null
+                  }
+                  onClick={() => {
+                    void exportPurchaseOrderWorkbook(
+                      'AUTO_OC',
+                    );
+                  }}
+                >
+                  {
+                    exporting ===
+                      'AUTO_OC'
+                      ? 'Generando…'
+                      : 'Exportar AUTO para OC'
+                  }
+                </button>
 
-              <button
-                type="button"
-                className="btn primary"
-                disabled={busy}
-                onClick={() => fileInput.current?.click()}
-              >
-                Cargar OC
-              </button>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={
+                    exporting !==
+                    null
+                  }
+                  onClick={() => {
+                    void exportPurchaseOrderWorkbook(
+                      'OC',
+                    );
+                  }}
+                >
+                  {
+                    exporting ===
+                      'OC'
+                      ? 'Generando…'
+                      : 'Exportar OC'
+                  }
+                </button>
+              </>
+            ) : null}
 
-              <input
-                ref={fileInput}
-                hidden
-                type="file"
-                accept=".xlsx"
-                onChange={(event) => {
-                  void uploadOc(event.target.files?.[0]);
-                }}
-              />
-            </>
-          ) : null
+            {canManage ? (
+              <>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    void downloadPurchaseOrderTemplate(organizationId).then((blob) =>
+                      downloadBlob(blob, 'plantilla-ordenes-compra.xlsx'),
+                    );
+                  }}
+                >
+                  Descargar plantilla
+                </button>
+
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={busy}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  Cargar OC
+                </button>
+
+                <input
+                  ref={fileInput}
+                  hidden
+                  type="file"
+                  accept=".xlsx"
+                  onChange={(event) => {
+                    void uploadOc(event.target.files?.[0]);
+                  }}
+                />
+              </>
+            ) : null}
+          </>
         }
       />
 

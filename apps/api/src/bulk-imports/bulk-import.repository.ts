@@ -318,14 +318,26 @@ export class BulkImportRepository {
   async findActiveTariffAnnexProducts(
     organizationId: string,
     codes: readonly string[],
-  ): Promise<Map<string, { tipoInclusion: string | null }>> {
+  ): Promise<
+    Map<
+      string,
+      {
+        tipoInclusion: string | null;
+        minimumQuantity: number;
+      }
+    >
+  > {
     if (codes.length === 0) return new Map();
 
     const result = await this.database.db.execute<{
       codigo_producto: string;
       tipo_inclusion: string | null;
+      minimum_quantity: number;
     }>(sql`
-      select codigo_producto, tipo_inclusion
+      select
+        codigo_producto,
+        tipo_inclusion,
+        minimum_quantity
       from tariff_annex_products
       where organization_id = ${organizationId}
         and active = true
@@ -336,7 +348,21 @@ export class BulkImportRepository {
     `);
 
     return new Map(
-      result.rows.map((row) => [row.codigo_producto, { tipoInclusion: row.tipo_inclusion }]),
+      result.rows.map(
+        (row) => [
+          row.codigo_producto,
+          {
+            tipoInclusion:
+              row.tipo_inclusion,
+
+            minimumQuantity:
+              Number(
+                row.minimum_quantity ??
+                1,
+              ),
+          },
+        ],
+      ),
     );
   }
 
@@ -749,6 +775,9 @@ export class BulkImportRepository {
     const prescriptionNumber = text('NUMERO_PRESCRIPCION');
     const assignmentDate = text('FECHA_ASIGNACION');
     const expirationDate = text('FECHA_FINAL_VIGENCIA');
+    const quantity = Number(
+      p.CANTIDAD,
+    );
     const serializedPayload = JSON.stringify(p);
 
     /*
@@ -805,8 +834,15 @@ export class BulkImportRepository {
      * materializa INSERT/UPDATE. El dato cargado en el XLSX no es fuente
      * de verdad para coverage_type.
      */
-    const tariff = await tx.execute<{ tipo_inclusion: string | null }>(sql`
-      select tipo_inclusion
+    const tariff = await tx.execute<{
+      tipo_inclusion: string | null;
+      minimum_quantity: number;
+      version: number;
+    }>(sql`
+      select
+        tipo_inclusion,
+        minimum_quantity,
+        version
       from tariff_annex_products
       where organization_id = ${input.actor.organizationId}
         and codigo_producto = ${commercialCode}
@@ -816,6 +852,12 @@ export class BulkImportRepository {
 
     const tariffInclusion =
       tariff.rows[0]?.tipo_inclusion?.trim().toUpperCase().replace(/\s+/g, '_') ?? '';
+
+    const tariffRuleVersion =
+      `TARIFF-ANNEX-1:${Number(
+        tariff.rows[0]?.version ??
+        0,
+      )}`;
 
     if (tariff.rows.length === 0) {
       throw new BadRequestException({
@@ -834,6 +876,42 @@ export class BulkImportRepository {
           tariffInclusion === 'NO_PBS'
             ? `El código comercial ${commercialCode || '(vacío)'} está clasificado NO_PBS en el anexo tarifario activo`
             : `El código comercial ${commercialCode || '(vacío)'} no tiene una clasificación PBS válida en el anexo tarifario activo`,
+      });
+    }
+
+    const minimumQuantity =
+      Number(
+        tariff.rows[0]
+          ?.minimum_quantity ??
+        1,
+      );
+
+    if (
+      !Number.isInteger(
+        quantity,
+      ) ||
+      quantity <=
+        0
+    ) {
+      throw new BadRequestException({
+        code:
+          'AUTHORIZATION_QUANTITY_INVALID',
+
+        message:
+          'CANTIDAD debe ser un entero positivo',
+      });
+    }
+
+    if (
+      quantity <
+      minimumQuantity
+    ) {
+      throw new BadRequestException({
+        code:
+          'AUTHORIZATION_QUANTITY_BELOW_PRODUCT_MINIMUM',
+
+        message:
+          `La cantidad autorizada ${quantity} es menor al producto mínimo ${minimumQuantity} para ${commercialCode}`,
       });
     }
 
@@ -878,6 +956,9 @@ export class BulkImportRepository {
           coverage_type,
           direction_status,
           coverage_rule_version,
+          tariff_membership_status,
+          tariff_membership_evaluated_at,
+          tariff_rule_version,
           created_from_batch_id,
           updated_by,
           last_load_id
@@ -895,6 +976,9 @@ export class BulkImportRepository {
           ${tariffInclusion},
           'NOT_APPLICABLE',
           'AUTHORIZATIONS_V1',
+          'LISTED',
+          now(),
+          ${tariffRuleVersion},
           ${batchId},
           ${input.actor.userId},
           ${batchId}
@@ -942,6 +1026,8 @@ export class BulkImportRepository {
           and coverage_type = ${tariffInclusion}
           and direction_status = 'NOT_APPLICABLE'
           and coverage_rule_version = 'AUTHORIZATIONS_V1'
+           and tariff_membership_status = 'LISTED'
+           and tariff_rule_version = ${tariffRuleVersion}
         ) as semantic_same
       from authorization_items
       where numero_autorizacion = ${authorizationNumber}
@@ -1037,6 +1123,9 @@ export class BulkImportRepository {
         coverage_type = ${tariffInclusion},
         direction_status = 'NOT_APPLICABLE',
         coverage_rule_version = 'AUTHORIZATIONS_V1',
+        tariff_membership_status = 'LISTED',
+        tariff_membership_evaluated_at = now(),
+        tariff_rule_version = ${tariffRuleVersion},
         last_load_id = ${batchId},
         updated_by = ${input.actor.userId},
         updated_at = now(),

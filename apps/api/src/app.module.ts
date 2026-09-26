@@ -73,6 +73,9 @@ import { PatientOutcomeService } from './outcomes/patient-outcome.service';
 import { PatientApplicationAuditController } from './audits/patient-application-audit.controller';
 import { PatientApplicationAuditRepository } from './audits/patient-application-audit.repository';
 import { PatientApplicationAuditService } from './audits/patient-application-audit.service';
+import { AuthorizationFulfillmentAuditController } from './audits/authorization-fulfillment-audit.controller';
+import { AuthorizationFulfillmentAuditRepository } from './audits/authorization-fulfillment-audit.repository';
+import { AuthorizationFulfillmentAuditService } from './audits/authorization-fulfillment-audit.service';
 import { AnalyticsController } from './analytics/analytics.controller';
 import { AnalyticsRepository } from './analytics/analytics.repository';
 import { AnalyticsService } from './analytics/analytics.service';
@@ -81,6 +84,8 @@ import { BulkImportRepository } from './bulk-imports/bulk-import.repository';
 import { BulkImportService } from './bulk-imports/bulk-import.service';
 import { AuthorizationQueryController } from './clinical/authorization-query.controller';
 import { AuthorizationQueryRepository } from './clinical/authorization-query.repository';
+import { ExportablesController } from './exportables/exportables.controller';
+import { ExportablesService } from './exportables/exportables.service';
 import { TariffAnnexRepository } from './tariff-annex/tariff-annex.repository';
 import { TariffAnnexService } from './tariff-annex/tariff-annex.service';
 import { TariffAnnexController } from './tariff-annex/tariff-annex.controller';
@@ -173,9 +178,11 @@ ClinicalModule.register(database),
     AuthorizationFulfillmentImportController,
     PatientOutcomeController,
     PatientApplicationAuditController,
+    AuthorizationFulfillmentAuditController,
     AnalyticsController,
     BulkImportController,
     AuthorizationQueryController,
+    ExportablesController,
     TariffAnnexController,
     ProductDeliveryPointController,
     AccessScopeController,
@@ -220,6 +227,8 @@ ClinicalModule.register(database),
     PatientOutcomeService,
     PatientApplicationAuditRepository,
     PatientApplicationAuditService,
+    AuthorizationFulfillmentAuditRepository,
+    AuthorizationFulfillmentAuditService,
     LegacyAuthorizationHistoryRepository,
     LegacyCompatibilityProjectionService,
     AnalyticsRepository,
@@ -227,6 +236,7 @@ ClinicalModule.register(database),
     BulkImportRepository,
     BulkImportService,
     AuthorizationQueryRepository,
+    ExportablesService,
     TariffAnnexRepository,
     TariffAnnexService,
     ProductDeliveryPointRepository,

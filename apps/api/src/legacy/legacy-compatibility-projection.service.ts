@@ -65,6 +65,33 @@ export class LegacyCompatibilityProjectionService {
     `);
   }
 
+  async projectFulfillmentAuditDecision(
+    tx: LegacyProjectionTx,
+    input: {
+      authorizationItemId: string;
+      modernStatus: 'IN_REVIEW' | 'APPROVED' | 'REJECTED';
+      actorUserId: string;
+    },
+  ): Promise<void> {
+    const projection = auditCompatibilityProjection(input.modernStatus);
+
+    /*
+     * El fulfillment moderno tiene su propia auditoría.
+     * audit_status se mantiene únicamente como proyección de compatibilidad.
+     *
+     * A diferencia de patient_application_audits, esta aprobación NO fuerza
+     * admission_status=READY: admisión sigue siendo un downstream separado.
+     */
+    await tx.execute(sql`
+      update authorization_items
+      set audit_status = ${projection.auditStatus},
+          version = version + 1,
+          updated_by = ${input.actorUserId},
+          updated_at = now()
+      where id = ${input.authorizationItemId}
+    `);
+  }
+
   async findAuditCompatibilityDrift(): Promise<AuditCompatibilityDrift[]> {
     const result = await this.database.db.execute<AuditCompatibilityDrift>(sql`
       select paa.authorization_item_id as "authorizationItemId",

@@ -383,3 +383,5 @@ export type {
   AuthorizationFulfillmentInput,
   AuthorizationFulfillmentType,
 } from './authorization-fulfillment';
+
+export * from './authorization-operational-window';

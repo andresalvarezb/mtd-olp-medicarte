@@ -17,6 +17,9 @@ import { eq } from 'drizzle-orm';
 import IORedis from 'ioredis';
 import pino from 'pino';
 import { DATABASE, WORKER_CONFIG } from './tokens';
+import {
+  runInventoryExpirationReleaseSweep,
+} from './inventory-expiration-release';
 
 type Database = ReturnType<typeof createDatabase>;
 type OutboxRow = {
@@ -36,6 +39,46 @@ type DeadLetterJob = {
   failedAt: string;
 };
 
+
+function currentBogotaDate(): string {
+  const parts =
+    new Intl.DateTimeFormat(
+      'en-US',
+      {
+        timeZone:
+          'America/Bogota',
+
+        year:
+          'numeric',
+
+        month:
+          '2-digit',
+
+        day:
+          '2-digit',
+      },
+    ).formatToParts(
+      new Date(),
+    );
+
+  const value = (
+    type: string,
+  ) =>
+    parts.find(
+      (part) =>
+        part.type === type,
+    )?.value ?? '';
+
+  return [
+    value('year'),
+    value('month'),
+    value('day'),
+  ].join(
+    '-',
+  );
+}
+
+
 @Injectable()
 export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger: pino.Logger;
@@ -45,6 +88,13 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private readonly queueEvents: QueueEvents;
   private readonly worker: Worker<FoundationJob>;
   private timer?: NodeJS.Timeout;
+
+  private expirationSweepTimer?:
+    NodeJS.Timeout;
+
+  private expirationSweeping =
+    false;
+
   private dispatching = false;
 
   constructor(
@@ -78,6 +128,87 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         this.config.OUTBOX_POLL_INTERVAL_MS,
       );
       void this.dispatchOutbox();
+
+      /*
+       * Vencimiento de autorizaciones:
+       *
+       * se ejecuta inmediatamente al iniciar
+       * el worker y luego cada 5 minutos.
+       *
+       * El helper es idempotente y usa
+       * advisory lock transaccional.
+       */
+      this.expirationSweepTimer =
+        setInterval(
+          () =>
+            void this.runExpirationSweep(),
+          5 * 60 * 1000,
+        );
+
+      void this.runExpirationSweep();
+    }
+  }
+
+  private async runExpirationSweep(): Promise<void> {
+    if (
+      this.expirationSweeping
+    ) {
+      return;
+    }
+
+    this.expirationSweeping =
+      true;
+
+    try {
+      const today =
+        currentBogotaDate();
+
+      const result =
+        await runInventoryExpirationReleaseSweep(
+          this.database,
+          today,
+        );
+
+      if (
+        result.expiredAuthorizations > 0
+        ||
+        result.releasedAllocations > 0
+      ) {
+        this.logger.info(
+          {
+            today,
+
+            expiredAuthorizations:
+              result.expiredAuthorizations,
+
+            releasedAllocations:
+              result.releasedAllocations,
+
+            releasedQuantity:
+              result.releasedQuantity,
+
+            clearedAuthorizations:
+              result.clearedAuthorizations,
+          },
+          'authorization expiration inventory sweep applied',
+        );
+      }
+    } catch (
+      error
+    ) {
+      this.logger.error(
+        {
+          error,
+        },
+        'authorization expiration inventory sweep failed',
+      );
+
+      Sentry.captureException(
+        error,
+      );
+    } finally {
+      this.expirationSweeping =
+        false;
     }
   }
 
@@ -227,7 +358,22 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async onApplicationShutdown(): Promise<void> {
-    if (this.timer) clearInterval(this.timer);
+    if (
+      this.timer
+    ) {
+      clearInterval(
+        this.timer,
+      );
+    }
+
+    if (
+      this.expirationSweepTimer
+    ) {
+      clearInterval(
+        this.expirationSweepTimer,
+      );
+    }
+
     await this.worker.close();
     await this.queueEvents.close();
     await this.queue.close();

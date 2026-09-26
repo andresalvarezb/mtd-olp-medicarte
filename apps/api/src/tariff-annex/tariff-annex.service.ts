@@ -73,6 +73,7 @@ type TariffProductListRow = Record<string, unknown> & {
   descripcion_comercial: string | null;
   laboratorio: string | null;
   tipo_inclusion: string | null;
+  minimum_quantity: number;
   active: boolean;
   source_cum_code: string | null;
   dispensing_point_id: string | null;
@@ -92,6 +93,7 @@ export type TariffProductListItem = Readonly<{
   descripcionComercial: string | null;
   laboratorio: string | null;
   tipoInclusion: string | null;
+  minimumQuantity: number;
   active: boolean;
   sourceCumCode: string | null;
   defaultApplicationPoint: Readonly<{
@@ -313,6 +315,7 @@ export class TariffAnnexService {
         product.descripcion_comercial,
         product.laboratorio,
         product.tipo_inclusion,
+        product.minimum_quantity,
         product.active,
         mapping.source_cum_code,
         point.id as dispensing_point_id,
@@ -397,6 +400,9 @@ export class TariffAnnexService {
       descripcionComercial: row.descripcion_comercial,
       laboratorio: row.laboratorio,
       tipoInclusion: row.tipo_inclusion,
+      minimumQuantity: Number(
+        row.minimum_quantity ?? 1,
+      ),
       active: row.active,
       sourceCumCode: row.source_cum_code,
       defaultApplicationPoint:

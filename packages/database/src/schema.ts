@@ -2179,6 +2179,10 @@ export const auditReviews = pgTable(
     authorizationItemId: uuid('authorization_item_id')
       .notNull()
       .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+    authorizationFulfillmentId: uuid('authorization_fulfillment_id').references(
+      () => authorizationFulfillments.id,
+      { onDelete: 'restrict' },
+    ),
     reviewNumber: integer('review_number').notNull(),
     status: varchar('status', { length: 20 }).notNull().default('IN_REVIEW'),
     observations: text('observations'),
@@ -2193,6 +2197,12 @@ export const auditReviews = pgTable(
   },
   (table) => [
     uniqueIndex('audit_reviews_item_number_idx').on(table.authorizationItemId, table.reviewNumber),
+    uniqueIndex('audit_reviews_authorization_fulfillment_unique')
+      .on(table.authorizationFulfillmentId)
+      .where(sql`${table.authorizationFulfillmentId} IS NOT NULL`),
+    index('audit_reviews_authorization_fulfillment_status_idx')
+      .on(table.authorizationFulfillmentId, table.status)
+      .where(sql`${table.authorizationFulfillmentId} IS NOT NULL`),
     index('audit_reviews_item_status_idx').on(table.authorizationItemId, table.status),
     check(
       'audit_reviews_status_check',
@@ -2257,6 +2267,7 @@ export const tariffAnnexProducts = pgTable(
     descripcionComercial: text('descripcion_comercial'),
     laboratorio: varchar('laboratorio', { length: 500 }),
     tipoInclusion: varchar('tipo_inclusion', { length: 100 }),
+    minimumQuantity: integer('minimum_quantity').notNull().default(1),
     active: boolean('active').notNull().default(true),
     organizationId: uuid('organization_id')
       .notNull()
@@ -2274,6 +2285,10 @@ export const tariffAnnexProducts = pgTable(
     index('tariff_annex_products_active_idx').on(table.active, table.codigoProducto),
     check('tariff_annex_products_version_check', sql`${table.version} > 0`),
     check('tariff_annex_products_code_length_check', sql`length(${table.codigoProducto}) > 0`),
+    check(
+      'tariff_annex_products_minimum_quantity_check',
+      sql`${table.minimumQuantity} > 0`,
+    ),
   ],
 );
 
@@ -2510,6 +2525,7 @@ export const tariffProductRevisions = pgTable(
     tarifaUnidadRaw: text('tarifa_unidad_raw'),
     tarifaUnidadCanonical: numeric('tarifa_unidad_canonical', { precision: 18, scale: 4 }),
     tipoInclusion: varchar('tipo_inclusion', { length: 100 }),
+    minimumQuantity: integer('minimum_quantity').notNull().default(1),
     commercialSnapshot: jsonb('commercial_snapshot').notNull(),
     validFrom: timestamp('valid_from', { withTimezone: true }).notNull(),
     validTo: timestamp('valid_to', { withTimezone: true }),
@@ -2519,6 +2535,10 @@ export const tariffProductRevisions = pgTable(
   (table) => [
     unique('tariff_product_revisions_product_revision_unique').on(table.productId, table.revision),
     index('tariff_product_revisions_code_idx').on(table.codigoProducto, table.validFrom),
+    check(
+      'tariff_product_revisions_minimum_quantity_check',
+      sql`${table.minimumQuantity} > 0`,
+    ),
   ],
 );
 
@@ -2541,6 +2561,7 @@ export const authorizationTariffSnapshots = pgTable(
     tarifaUnidadRaw: text('tarifa_unidad_raw'),
     tarifaUnidadCanonical: numeric('tarifa_unidad_canonical', { precision: 18, scale: 4 }),
     tipoInclusion: varchar('tipo_inclusion', { length: 100 }),
+    minimumQuantity: integer('minimum_quantity'),
     snapshotAt: timestamp('snapshot_at', { withTimezone: true }).notNull().defaultNow(),
     provenance: text('provenance').notNull(),
     unresolvedReason: text('unresolved_reason'),
@@ -2551,6 +2572,10 @@ export const authorizationTariffSnapshots = pgTable(
     check(
       'authorization_tariff_snapshots_status_check',
       sql`${table.status} IN ('RESOLVED', 'UNRESOLVED', 'NOT_APPLICABLE')`,
+    ),
+    check(
+      'authorization_tariff_snapshots_minimum_quantity_check',
+      sql`${table.minimumQuantity} IS NULL OR ${table.minimumQuantity} > 0`,
     ),
   ],
 );

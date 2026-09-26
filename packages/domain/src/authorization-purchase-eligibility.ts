@@ -1,3 +1,5 @@
+import { authorizationOperationalHorizonEnd } from './authorization-operational-window';
+
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function isStrictIsoDate(value: string): boolean {
@@ -62,14 +64,13 @@ export function authorizationPurchaseMonthEnd(todayBogota: string): string {
 /**
  * Regla temporal canónica de elegibilidad para compra.
  *
- * Una AUTO puede participar durante el mes actual cuando:
+ * Una AUTO puede participar dentro de la ventana operacional cuando:
  * - ESTADO_AUTORIZACION = 5;
- * - FECHA_ASIGNACION es válida y no pertenece a un mes futuro;
+ * - FECHA_ASIGNACION es válida y no supera HOY + 30 días;
  * - FECHA_FINAL_VIGENCIA es válida y no está vencida.
  *
- * La fecha de asignación puede ser posterior a "hoy" siempre que pertenezca
- * al mismo mes operativo. Ejemplo: el 19 de septiembre una AUTO que inicia
- * el 25 de septiembre puede participar.
+ * La fecha de asignación puede ser posterior a "hoy" siempre que no supere
+ * el horizonte inclusivo de 30 días calendario.
  *
  * La presencia en AT y clasificación PBS se verifican en la frontera
  * correspondiente porque dependen del estado persistido del Anexo Tarifario.
@@ -78,6 +79,8 @@ export function evaluateAuthorizationPurchaseEligibility(
   input: AuthorizationPurchaseEligibilityInput,
 ): AuthorizationPurchaseEligibility {
   const currentMonthEnd = authorizationPurchaseMonthEnd(input.todayBogota);
+
+  const operationalHorizonEnd = authorizationOperationalHorizonEnd(input.todayBogota);
 
   if (!isAuthorizationSourceEnabled(input.sourceStatus)) {
     return {
@@ -111,7 +114,7 @@ export function evaluateAuthorizationPurchaseEligibility(
     };
   }
 
-  if (input.assignmentDate > currentMonthEnd) {
+  if (input.assignmentDate > operationalHorizonEnd) {
     return {
       eligible: false,
       reason: 'FUTURE_VIGENCY',

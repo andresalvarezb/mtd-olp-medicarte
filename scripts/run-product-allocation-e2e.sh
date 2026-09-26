@@ -523,6 +523,7 @@ if [ "$API_READY" -eq 1 ]; then
   AUTH_DEV_ADMIN_PASSWORD="$E2E_ADMIN_PASSWORD" \
   pnpm exec vitest run \
     tests/integration/product-allocation-flow.prodshadow.test.ts \
+    tests/integration/inventory-expiration-auto-release.prodshadow.test.ts \
     --config tests/vitest.product-allocation.config.ts \
     --reporter=verbose
 
