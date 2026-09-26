@@ -998,7 +998,7 @@ describe(
         expect(
           day6.clearedAuthorizations,
         ).toBe(
-          1,
+          0,
         );
 
 
@@ -1024,11 +1024,11 @@ describe(
 
 
         /*
-         * La AUTO pierde la OC operacional.
+         * La liberación de inventario NO elimina
+         * la trazabilidad histórica AUTO -> OC.
          *
-         * El código del medicamento NO se borra:
-         * identifica el producto autorizado,
-         * no la reserva.
+         * El código del medicamento tampoco se borra:
+         * identifica el producto autorizado.
          */
         const authorizationAfter =
           await database.query<{
@@ -1059,7 +1059,9 @@ describe(
           authorizationAfter
             .rows[0]
             ?.orden_compra,
-        ).toBeNull();
+        ).toBe(
+          PO_CODE,
+        );
 
         expect(
           authorizationAfter

@@ -1241,8 +1241,6 @@ export class ExportablesService {
               ai.tariff_membership_status,
               ai.coverage_type,
               ai.direction_status,
-              ai.operation_status,
-              ai.audit_status,
               ai.created_at,
               ai.updated_at,
 
@@ -1455,11 +1453,8 @@ export class ExportablesService {
 
               fulfillment.fulfillment_quantity,
 
-              coalesce(
-                audit_review.status,
-                ai.audit_status
-              )
-                as resolved_audit_status,
+              audit_review.status
+                as resolved_review_status,
 
               audit_review.observations
                 as audit_observations
@@ -1783,7 +1778,34 @@ export class ExportablesService {
               else
                 'HABILITADA'
             end
-              as lifecycle_enablement_status
+              as lifecycle_enablement_status,
+
+
+            /*
+             * Estado operativo derivado únicamente
+             * de hechos modernos:
+             *
+             * fulfillment -> CLOSED
+             * reserva activa -> ASSIGNED
+             * resto -> UNASSIGNED
+             */
+            case
+              when
+                fulfillment_type
+                  is not null
+              then
+                'CLOSED'
+
+              when
+                remaining_quantity
+                  > 0
+              then
+                'ASSIGNED'
+
+              else
+                'UNASSIGNED'
+            end
+              as operational_state
 
           from evaluated
 
@@ -2045,7 +2067,7 @@ export class ExportablesService {
             'ESTADO_OPERACION'
           ] =
             row[
-              'operation_status'
+              'operational_state'
             ];
 
           output[
@@ -2140,7 +2162,7 @@ export class ExportablesService {
 
           const audit =
             row[
-              'resolved_audit_status'
+              'resolved_review_status'
             ];
 
           output[

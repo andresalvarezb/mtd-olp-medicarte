@@ -2395,32 +2395,6 @@ export class InventoryAvailabilityRepository {
       )
     `);
 
-    await tx.execute(sql`
-      UPDATE
-        authorization_items
-
-      SET
-        orden_compra =
-          ${resolved.purchaseOrderCode},
-
-        operational_version =
-          operational_version + 1,
-
-        updated_by =
-          ${scope.userId},
-
-        updated_at =
-          NOW()
-
-      WHERE
-        id =
-          ${resolved.authorizationItemId}
-
-        AND orden_compra
-          IS DISTINCT FROM
-          ${resolved.purchaseOrderCode}
-    `);
-
   }
 
   private async reconcileIneligibleTx(tx: Tx, scope: Scope) {

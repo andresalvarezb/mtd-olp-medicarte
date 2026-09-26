@@ -152,7 +152,7 @@ interface AuthorizationQueryRow
   fulfillment_source:
     string | null;
 
-  audit_status:
+  review_status:
     string | null;
 
   created_at:
@@ -1300,7 +1300,7 @@ export class AuthorizationQueryRepository {
 
           else null
         end
-          as audit_status,
+          as review_status,
 
         i.created_at,
 
@@ -1796,7 +1796,7 @@ export class AuthorizationQueryRepository {
 
     const auditStatus =
       resolveAuthorizationAuditStatus(
-        row.audit_status,
+        row.review_status,
       );
 
     return {

@@ -42,7 +42,7 @@ type ContextRow = {
   dispensing_point_name: string | null;
   purchase_orders: string | null;
   audit_id: string | null;
-  audit_status: AuditRow['status'] | null;
+  review_status: AuditRow['status'] | null;
   observations: string | null;
   started_at: string | null;
   started_by: string | null;
@@ -365,7 +365,7 @@ export class AuthorizationFulfillmentAuditRepository {
           logistics.dispensing_point_name,
           logistics.purchase_orders,
           ar.id as audit_id,
-          ar.status as audit_status,
+          ar.status as review_status,
           ar.observations,
           to_char(
             ar.started_at at time zone 'UTC',
@@ -413,7 +413,7 @@ export class AuthorizationFulfillmentAuditRepository {
 
     return {
       id: context.audit_id,
-      status: context.audit_status ?? 'READY_FOR_AUDIT',
+      status: context.review_status ?? 'READY_FOR_AUDIT',
       fulfillmentId: context.fulfillment_id,
       fulfillmentType: context.fulfillment_type,
       authorizationItemId: context.authorization_item_id,

@@ -122,138 +122,6 @@ export async function runInventoryExpirationReleaseSweep(
 
 
     /*
-     * Primero marca la AUTO vencida.
-     *
-     * Esto ocurre desde el primer día posterior
-     * a FECHA_FINAL_VIGENCIA.
-     */
-    const expired =
-      await client.query<{
-        id: string;
-      }>(
-        `
-          WITH validity AS (
-            SELECT
-              ai.id,
-
-              CASE
-                WHEN
-                  BTRIM(
-                    COALESCE(
-                      ai.source_data
-                        ->> 'FECHA_FINAL_VIGENCIA',
-                      ''
-                    )
-                  ) ~ '^[0-9]{8}$'
-
-                  AND TO_CHAR(
-                    TO_DATE(
-                      BTRIM(
-                        ai.source_data
-                          ->> 'FECHA_FINAL_VIGENCIA'
-                      ),
-                      'YYYYMMDD'
-                    ),
-                    'YYYYMMDD'
-                  )
-                  =
-                  BTRIM(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA'
-                  )
-
-                THEN TO_DATE(
-                  BTRIM(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA'
-                  ),
-                  'YYYYMMDD'
-                )
-
-
-                WHEN
-                  BTRIM(
-                    COALESCE(
-                      ai.source_data
-                        ->> 'FECHA_FINAL_VIGENCIA',
-                      ''
-                    )
-                  )
-                  ~
-                  '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-
-                  AND TO_CHAR(
-                    TO_DATE(
-                      BTRIM(
-                        ai.source_data
-                          ->> 'FECHA_FINAL_VIGENCIA'
-                      ),
-                      'YYYY-MM-DD'
-                    ),
-                    'YYYY-MM-DD'
-                  )
-                  =
-                  BTRIM(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA'
-                  )
-
-                THEN TO_DATE(
-                  BTRIM(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA'
-                  ),
-                  'YYYY-MM-DD'
-                )
-
-                ELSE NULL
-              END
-                AS expiration_date
-
-            FROM
-              authorization_items ai
-          )
-
-          UPDATE
-            authorization_items ai
-
-          SET
-            operation_status =
-              'EXPIRED',
-
-            version =
-              ai.version + 1,
-
-            updated_at =
-              NOW()
-
-          FROM
-            validity v
-
-          WHERE
-            ai.id =
-              v.id
-
-            AND ai.operation_status =
-              'READY_TO_DISPENSE'
-
-            AND v.expiration_date
-              IS NOT NULL
-
-            AND v.expiration_date
-              <
-              $1::date
-
-          RETURNING
-            ai.id
-        `,
-        [
-          todayBogota,
-        ],
-      );
-
-
-    /*
      * A partir del día 6 libera automáticamente
      * el saldo activo.
      */
@@ -456,71 +324,15 @@ export async function runInventoryExpirationReleaseSweep(
 
 
     /*
-     * Una AUTO liberada queda sin OC operacional
-     * cuando ya no posee ninguna reserva activa.
+     * La liberación afecta exclusivamente la reserva
+     * de inventario.
      *
-     * codigo_medicamento NO se borra:
-     * sigue siendo la molécula/producto autorizado.
+     * La relación histórica AUTO -> OC permanece
+     * intacta y continúa consultándose desde
+     * purchase_order_authorization_sources.
      */
-    let clearedAuthorizations =
+    const clearedAuthorizations =
       0;
-
-    if (
-      authorizationIds.length > 0
-    ) {
-      const cleared =
-        await client.query(
-          `
-            UPDATE
-              authorization_items ai
-
-            SET
-              orden_compra =
-                NULL,
-
-              operational_version =
-                ai.operational_version + 1,
-
-              updated_at =
-                NOW()
-
-            WHERE
-              ai.id =
-                ANY($1::uuid[])
-
-              AND NOT EXISTS (
-                SELECT
-                  1
-
-                FROM
-                  inventory_authorization_allocations active
-
-                WHERE
-                  active.authorization_item_id =
-                    ai.id
-
-                  AND active.status IN (
-                    'ALLOCATED',
-                    'PARTIALLY_CONSUMED'
-                  )
-
-                  AND (
-                    active.allocated_quantity
-                    -
-                    active.consumed_quantity
-                    -
-                    active.released_quantity
-                  ) > 0
-              )
-          `,
-          [
-            authorizationIds,
-          ],
-        );
-
-      clearedAuthorizations =
-        cleared.rowCount ?? 0;
-    }
 
 
     /*
@@ -598,7 +410,7 @@ export async function runInventoryExpirationReleaseSweep(
 
     return {
       expiredAuthorizations:
-        expired.rowCount ?? 0,
+        authorizationIds.length,
 
       releasedAllocations:
         released.rowCount ?? 0,

@@ -17,6 +17,7 @@ import {
   getAuthorizationQueryItem,
   listAuthorizationQuery,
   type AuthorizationFulfillmentType,
+  type AuthorizationQueryAuditStatus,
   type AuthorizationQueryFilters,
   type AuthorizationQueryItem,
 } from '@/lib/authorization-query-api';
@@ -140,7 +141,7 @@ function fulfillmentStatusLabel(
 
 function auditStatusLabel(
   status:
-    AuthorizationQueryItem['auditStatus'],
+    AuthorizationQueryAuditStatus,
 ) {
   const labels = {
     PENDING:
@@ -155,11 +156,24 @@ function auditStatusLabel(
     REJECTED:
       'No se puede facturar',
   } satisfies Record<
-    AuthorizationQueryItem['auditStatus'],
+    AuthorizationQueryAuditStatus,
     string
   >;
 
   return labels[status];
+}
+
+
+function authorizationAuditStatus(
+  item:
+    AuthorizationQueryItem,
+): AuthorizationQueryAuditStatus {
+  const {
+    auditStatus,
+  } =
+    item;
+
+  return auditStatus;
 }
 
 
@@ -1027,7 +1041,9 @@ export function ConsultaAutorizacionesView() {
                     <td>
                       <strong>
                         {auditStatusLabel(
-                          item.auditStatus,
+                          authorizationAuditStatus(
+                            item,
+                          ),
                         )}
                       </strong>
                     </td>
@@ -1357,7 +1373,9 @@ export function ConsultaAutorizacionesView() {
 
                 <strong>
                   {auditStatusLabel(
-                    selected.auditStatus,
+                    authorizationAuditStatus(
+                      selected,
+                    ),
                   )}
                 </strong>
               </div>
