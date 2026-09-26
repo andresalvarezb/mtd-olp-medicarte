@@ -29,6 +29,7 @@ function product(overrides: Partial<ActiveTariffProduct> = {}): ActiveTariffProd
     descripcionComercial: 'Producto comercial',
     laboratorio: 'Laboratorio',
     tipoInclusion: 'PBS',
+    minimumQuantity: 1,
     version: 1,
     active: true,
     ...overrides,
@@ -255,6 +256,109 @@ describe('tariff annex preview', () => {
       anomalyCode: 'DUPLICATE_PRODUCT_IN_FILE',
     });
   });
+  it('lee y conserva CANTIDAD_MINIMA en el snapshot comercial', () => {
+    const preview = buildTariffPreview({
+      content: workbookBuffer([
+        [...headers, 'CANTIDAD_MINIMA'],
+        [
+          'MED-MIN-01',
+          '100',
+          'EXP-1',
+          'PRES-1',
+          'Gen',
+          'Com',
+          'Lab',
+          'PBS',
+          30,
+        ],
+      ]),
+      activeProducts: [],
+    });
+
+    expect(preview.rejected).toBe(0);
+    expect(preview.rows[0]?.next?.minimumQuantity).toBe(30);
+  });
+
+  it('detecta un cambio exclusivo de CANTIDAD_MINIMA', () => {
+    const preview = buildTariffPreview({
+      content: workbookBuffer([
+        [...headers, 'CANTIDAD_MINIMA'],
+        [
+          'MED-001',
+          '10.25',
+          'EXP-1',
+          'PRES-1',
+          'Producto genérico',
+          'Producto comercial',
+          'Laboratorio',
+          'PBS',
+          30,
+        ],
+      ]),
+      activeProducts: [product()],
+    });
+
+    expect(preview.changed).toBe(1);
+    expect(preview.rows[0]).toMatchObject({
+      state: 'CHANGED',
+      action: 'UPDATE',
+      tariffChanged: true,
+    });
+    expect(preview.rows[0]?.next?.minimumQuantity).toBe(30);
+  });
+
+  it('rechaza CANTIDAD_MINIMA vacía cuando la columna está presente', () => {
+    const preview = buildTariffPreview({
+      content: workbookBuffer([
+        [...headers, 'CANTIDAD_MINIMA'],
+        ['MED-MIN-02', '100', 'EXP-2', 'PRES-2', 'Gen', 'Com', 'Lab', 'PBS', null],
+      ]),
+      activeProducts: [],
+    });
+
+    expect(preview.rejected).toBe(1);
+    expect(preview.rows[0]?.anomalyCode).toBe('MINIMUM_QUANTITY_REQUIRED');
+  });
+
+  it('rechaza CANTIDAD_MINIMA que no sea entero positivo', () => {
+    const preview = buildTariffPreview({
+      content: workbookBuffer([
+        [...headers, 'CANTIDAD_MINIMA'],
+        ['MED-MIN-03', '100', 'EXP-3', 'PRES-3', 'Gen', 'Com', 'Lab', 'PBS', 0],
+      ]),
+      activeProducts: [],
+    });
+
+    expect(preview.rejected).toBe(1);
+    expect(preview.rows[0]?.anomalyCode).toBe('INVALID_MINIMUM_QUANTITY');
+  });
+
+  it('mantiene compatibilidad con archivos históricos sin CANTIDAD_MINIMA', () => {
+    const preview = buildTariffPreview({
+      content: workbookBuffer([
+        headers,
+        [
+          'MED-001',
+          '10.25',
+          'EXP-1',
+          'PRES-1',
+          'Producto genérico',
+          'Producto comercial',
+          'Laboratorio',
+          'PBS',
+        ],
+      ]),
+      activeProducts: [
+        product({
+          minimumQuantity: 30,
+        }),
+      ],
+    });
+
+    expect(preview.unchanged).toBe(1);
+    expect(preview.rows[0]?.next?.minimumQuantity).toBe(30);
+  });
+
 });
 
 describe('unified tariff + default delivery point preview', () => {
@@ -350,6 +454,9 @@ describe('unified tariff + default delivery point preview', () => {
 
       tipoInclusion:
         'PBS',
+
+      minimumQuantity:
+        1,
 
       version:
         1,
@@ -461,4 +568,77 @@ describe('unified tariff + default delivery point preview', () => {
         'CUM_INVIMA_MISMATCH',
     });
   });
+
+  it('permite CUM sin punto y carga el producto sin crear mapeo', () => {
+    const preview =
+      buildTariffPreview({
+        content:
+          workbookBuffer([
+            unifiedHeaders,
+            [
+              'MED-POINT-04',
+              '125000',
+              '20039088',
+              '03',
+              'Genérico',
+              'Comercial',
+              'Laboratorio',
+              'PBS',
+              '20039088-03-0S01LA05',
+              'APLICACION',
+              null,
+            ],
+          ]),
+
+        activeProducts: [],
+
+        activeDeliveryPoints: [],
+      });
+
+    expect(preview.rejected).toBe(0);
+
+    expect(
+      preview.rows[0],
+    ).toMatchObject({
+      state:
+        'CHANGED',
+
+      action:
+        'NEW',
+
+      deliveryPointChanged:
+        false,
+    });
+  });
+
+  it('rechaza punto informado sin CUM', () => {
+    const preview =
+      buildTariffPreview({
+        content:
+          workbookBuffer([
+            unifiedHeaders,
+            [
+              'MED-POINT-05',
+              '125000',
+              '20039088',
+              '03',
+              'Genérico',
+              'Comercial',
+              'Laboratorio',
+              'PBS',
+              null,
+              'APLICACION',
+              'CENTUM',
+            ],
+          ]),
+
+        activeProducts: [],
+
+        activeDeliveryPoints: [],
+      });
+
+    expect(preview.rejected).toBe(1);
+    expect(preview.rows[0]?.anomalyCode).toBe('CUM_REQUIRED');
+  });
+
 });

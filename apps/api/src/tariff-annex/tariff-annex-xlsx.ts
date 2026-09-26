@@ -16,6 +16,7 @@ export type TariffCommercialSnapshot = Readonly<{
   descripcionComercial: string | null;
   laboratorio: string | null;
   tipoInclusion: string | null;
+  minimumQuantity: number;
 }>;
 
 export type ActiveTariffProduct =
@@ -128,6 +129,11 @@ const FIELD_HEADERS = {
     'TIPO_INCLUSION',
   ],
 
+  minimumQuantity: [
+    'CANTIDAD_MINIMA',
+    'MINIMUM_QUANTITY',
+  ],
+
   codigoCumFinal: [
     'CODIGO_CUM_FINAL',
     'CODIGO_CUM',
@@ -149,6 +155,34 @@ export function normalizeTariffProductCode(
   return cellText(value)
     .trim()
     .toUpperCase();
+}
+
+export function parseMinimumQuantity(
+  value: unknown,
+): number | null {
+  const raw =
+    cellText(value).trim();
+
+  if (
+    !raw ||
+    !/^\d+$/.test(raw)
+  ) {
+    return null;
+  }
+
+  const numeric =
+    Number(raw);
+
+  if (
+    !Number.isSafeInteger(
+      numeric,
+    ) ||
+    numeric <= 0
+  ) {
+    return null;
+  }
+
+  return numeric;
 }
 
 export function canonicalTariffValue(
@@ -309,6 +343,12 @@ export function buildTariffPreview(
       findHeader(
         headers,
         FIELD_HEADERS.tipoInclusion,
+      ),
+
+    minimumQuantity:
+      findHeader(
+        headers,
+        FIELD_HEADERS.minimumQuantity,
       ),
 
     codigoCumFinal:
@@ -510,6 +550,59 @@ export function buildTariffPreview(
       continue;
     }
 
+    const minimumQuantityRaw =
+      valueAt(
+        values,
+        indexes.minimumQuantity,
+      );
+
+    const minimumQuantity =
+      indexes.minimumQuantity === -1
+        ? previous?.minimumQuantity ?? 1
+        : parseMinimumQuantity(
+            minimumQuantityRaw,
+          );
+
+    if (
+      indexes.minimumQuantity !== -1 &&
+      cellText(
+        minimumQuantityRaw,
+      ).trim() === ''
+    ) {
+      rows.push(
+        rejectedRow({
+          rowNumber,
+          codigoProducto,
+          anomalyCode:
+            'MINIMUM_QUANTITY_REQUIRED',
+          rawData,
+          deliveryPointManaged,
+          previous,
+        }),
+      );
+
+      continue;
+    }
+
+    if (
+      indexes.minimumQuantity !== -1 &&
+      minimumQuantity === null
+    ) {
+      rows.push(
+        rejectedRow({
+          rowNumber,
+          codigoProducto,
+          anomalyCode:
+            'INVALID_MINIMUM_QUANTITY',
+          rawData,
+          deliveryPointManaged,
+          previous,
+        }),
+      );
+
+      continue;
+    }
+
     const next:
       TariffCommercialSnapshot = {
       codigoProducto,
@@ -568,6 +661,9 @@ export function buildTariffPreview(
             indexes.tipoInclusion,
           ),
         ),
+
+      minimumQuantity:
+        minimumQuantity ?? 1,
     };
 
     let deliveryPointChanged =
@@ -618,7 +714,10 @@ export function buildTariffPreview(
           ),
         );
 
-      if (!cumRaw) {
+      if (
+        pointName &&
+        !cumRaw
+      ) {
         rows.push(
           rejectedRow({
             rowNumber,
@@ -634,144 +733,130 @@ export function buildTariffPreview(
         continue;
       }
 
-      if (!pointName) {
-        rows.push(
-          rejectedRow({
-            rowNumber,
-            codigoProducto,
-            anomalyCode:
-              'DEFAULT_DELIVERY_POINT_REQUIRED',
-            rawData,
-            deliveryPointManaged,
-            previous,
-          }),
-        );
+      if (pointName) {
+        const cumIdentity =
+          parseCumProductIdentity(
+            cumRaw,
+          );
 
-        continue;
-      }
+        if (!cumIdentity) {
+          rows.push(
+            rejectedRow({
+              rowNumber,
+              codigoProducto,
+              anomalyCode:
+                'INVALID_CUM_CODE',
+              rawData,
+              deliveryPointManaged,
+              previous,
+            }),
+          );
 
-      const cumIdentity =
-        parseCumProductIdentity(
-          cumRaw,
-        );
+          continue;
+        }
 
-      if (!cumIdentity) {
-        rows.push(
-          rejectedRow({
-            rowNumber,
-            codigoProducto,
-            anomalyCode:
-              'INVALID_CUM_CODE',
-            rawData,
-            deliveryPointManaged,
-            previous,
-          }),
-        );
+        const tariffInvimaRecord =
+          normalizeInvimaComponent(
+            next.numeroExpedienteInvima,
+          );
 
-        continue;
-      }
+        const tariffInvimaPresentation =
+          normalizeInvimaComponent(
+            next.consecutivoInvimaPresentacion,
+          );
 
-      const tariffInvimaRecord =
-        normalizeInvimaComponent(
-          next.numeroExpedienteInvima,
-        );
+        if (
+          !tariffInvimaRecord ||
+          !tariffInvimaPresentation
+        ) {
+          rows.push(
+            rejectedRow({
+              rowNumber,
+              codigoProducto,
+              anomalyCode:
+                'INVIMA_IDENTITY_REQUIRED_FOR_DEFAULT_POINT',
+              rawData,
+              deliveryPointManaged,
+              previous,
+            }),
+          );
 
-      const tariffInvimaPresentation =
-        normalizeInvimaComponent(
-          next.consecutivoInvimaPresentacion,
-        );
+          continue;
+        }
 
-      if (
-        !tariffInvimaRecord ||
-        !tariffInvimaPresentation
-      ) {
-        rows.push(
-          rejectedRow({
-            rowNumber,
-            codigoProducto,
-            anomalyCode:
-              'INVIMA_IDENTITY_REQUIRED_FOR_DEFAULT_POINT',
-            rawData,
-            deliveryPointManaged,
-            previous,
-          }),
-        );
+        if (
+          cumIdentity.invimaRecord !==
+            tariffInvimaRecord ||
+          cumIdentity.invimaPresentation !==
+            tariffInvimaPresentation
+        ) {
+          rows.push(
+            rejectedRow({
+              rowNumber,
+              codigoProducto,
+              anomalyCode:
+                'CUM_INVIMA_MISMATCH',
+              rawData,
+              deliveryPointManaged,
+              previous,
+            }),
+          );
 
-        continue;
-      }
+          continue;
+        }
 
-      if (
-        cumIdentity.invimaRecord !==
-          tariffInvimaRecord ||
-        cumIdentity.invimaPresentation !==
-          tariffInvimaPresentation
-      ) {
-        rows.push(
-          rejectedRow({
-            rowNumber,
-            codigoProducto,
-            anomalyCode:
-              'CUM_INVIMA_MISMATCH',
-            rawData,
-            deliveryPointManaged,
-            previous,
-          }),
-        );
-
-        continue;
-      }
-
-      const pointCode =
-        normalizeDeliveryPointCode(
-          pointName,
-        );
-
-      if (!pointCode) {
-        rows.push(
-          rejectedRow({
-            rowNumber,
-            codigoProducto,
-            anomalyCode:
-              'INVALID_DEFAULT_DELIVERY_POINT',
-            rawData,
-            deliveryPointManaged,
-            previous,
-          }),
-        );
-
-        continue;
-      }
-
-      const currentMapping =
-        activeMappingByIdentity.get(
-          mappingIdentity(
-            cumIdentity.invimaRecord,
-            cumIdentity.invimaPresentation,
-          ),
-        );
-
-      deliveryPointChanged =
-        !currentMapping ||
-        normalizeUpper(
-          currentMapping.cumCode,
-        ) !==
-          normalizeUpper(
-            cumIdentity.cumCode,
-          ) ||
-        normalizeText(
-          currentMapping.serviceModel,
-        ) !==
-          normalizeText(
-            serviceModel,
-          ) ||
-        normalizeText(
-          currentMapping.siteName,
-        ) !==
-          normalizeText(
+        const pointCode =
+          normalizeDeliveryPointCode(
             pointName,
-          ) ||
-        currentMapping.dispensingPointCode !==
-          pointCode;
+          );
+
+        if (!pointCode) {
+          rows.push(
+            rejectedRow({
+              rowNumber,
+              codigoProducto,
+              anomalyCode:
+                'INVALID_DEFAULT_DELIVERY_POINT',
+              rawData,
+              deliveryPointManaged,
+              previous,
+            }),
+          );
+
+          continue;
+        }
+
+        const currentMapping =
+          activeMappingByIdentity.get(
+            mappingIdentity(
+              cumIdentity.invimaRecord,
+              cumIdentity.invimaPresentation,
+            ),
+          );
+
+        deliveryPointChanged =
+          !currentMapping ||
+          normalizeUpper(
+            currentMapping.cumCode,
+          ) !==
+            normalizeUpper(
+              cumIdentity.cumCode,
+            ) ||
+          normalizeText(
+            currentMapping.serviceModel,
+          ) !==
+            normalizeText(
+              serviceModel,
+            ) ||
+          normalizeText(
+            currentMapping.siteName,
+          ) !==
+            normalizeText(
+              pointName,
+            ) ||
+          currentMapping.dispensingPointCode !==
+            pointCode;
+      }
     }
 
     const tariffChanged =
@@ -978,7 +1063,10 @@ export function commerciallyEqual(
     ) ===
       normalizeText(
         next.tipoInclusion,
-      )
+      ) &&
+
+    previous.minimumQuantity ===
+      next.minimumQuantity
   );
 }
 
