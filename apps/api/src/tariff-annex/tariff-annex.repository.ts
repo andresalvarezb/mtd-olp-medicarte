@@ -78,6 +78,7 @@ type PreparedImportRow = {
     tariffChanged?: boolean;
     deliveryPointManaged?: boolean;
     deliveryPointChanged?: boolean;
+    minimumQuantity?: number;
   } | null;
 };
 
@@ -112,6 +113,7 @@ type ProductRow = {
   descripcion_comercial: string | null;
   laboratorio: string | null;
   tipo_inclusion: string | null;
+  minimum_quantity: number;
   version: number;
   active: boolean;
 };
@@ -417,6 +419,7 @@ export class TariffAnnexRepository {
         descripcion_comercial,
         laboratorio,
         tipo_inclusion,
+        minimum_quantity,
         active,
         organization_id,
         created_by,
@@ -432,6 +435,7 @@ export class TariffAnnexRepository {
         ${snapshot.descripcionComercial},
         ${snapshot.laboratorio},
         ${snapshot.tipoInclusion},
+        ${snapshot.minimumQuantity},
         true,
         ${input.actor.organizationId},
         ${input.actor.userId},
@@ -448,6 +452,7 @@ export class TariffAnnexRepository {
         descripcion_comercial,
         laboratorio,
         tipo_inclusion,
+        minimum_quantity,
         version,
         active,
         organization_id
@@ -500,6 +505,7 @@ export class TariffAnnexRepository {
         descripcion_comercial,
         laboratorio,
         tipo_inclusion,
+        minimum_quantity,
         version,
         active,
         organization_id
@@ -549,6 +555,7 @@ export class TariffAnnexRepository {
         descripcion_comercial = ${next.descripcionComercial},
         laboratorio = ${next.laboratorio},
         tipo_inclusion = ${next.tipoInclusion},
+        minimum_quantity = ${next.minimumQuantity},
         active = true,
         version = version + 1,
         updated_by = ${input.actor.userId},
@@ -566,6 +573,7 @@ export class TariffAnnexRepository {
         descripcion_comercial,
         laboratorio,
         tipo_inclusion,
+        minimum_quantity,
         version,
         active,
         organization_id
@@ -761,6 +769,7 @@ export class TariffAnnexRepository {
         tarifa_unidad_raw,
         tarifa_unidad_canonical,
         tipo_inclusion,
+        minimum_quantity,
         commercial_snapshot,
         valid_from,
         changed_by,
@@ -775,6 +784,7 @@ export class TariffAnnexRepository {
         ${input.product.tarifa_unidad},
         ${input.product.tarifa_unidad_canonical},
         ${input.product.tipo_inclusion},
+        ${input.product.minimum_quantity},
         ${JSON.stringify(productSnapshot(input.product))}::jsonb,
         now(),
         ${input.changedBy},
@@ -1324,6 +1334,7 @@ export class TariffAnnexRepository {
         descripcion_comercial,
         laboratorio,
         tipo_inclusion,
+        minimum_quantity,
         version,
         active
       from tariff_annex_products
@@ -1342,6 +1353,7 @@ export class TariffAnnexRepository {
       descripcionComercial: row.descripcion_comercial,
       laboratorio: row.laboratorio,
       tipoInclusion: row.tipo_inclusion,
+      minimumQuantity: row.minimum_quantity,
       version: row.version,
       active: row.active,
     }));
@@ -1398,6 +1410,11 @@ export class TariffAnnexRepository {
 
           deliveryPointChanged:
             row.deliveryPointChanged,
+
+          minimumQuantity:
+            row.next?.minimumQuantity ??
+            row.previous?.minimumQuantity ??
+            1,
         })}::jsonb
       )
     `);
@@ -1457,6 +1474,7 @@ function preparedSnapshot(row: PreparedImportRow): {
   descripcionComercial: string | null;
   laboratorio: string | null;
   tipoInclusion: string | null;
+  minimumQuantity: number;
 } {
   const raw = row.raw_data ?? {};
 
@@ -1476,6 +1494,7 @@ function preparedSnapshot(row: PreparedImportRow): {
       rawText(raw, 'DESCRIPCION_COMERCIAL') ?? rawText(raw, 'DESCRIPCION_COMERCIAL_MEDICAMENTO'),
     laboratorio: rawText(raw, 'LABORATORIO') ?? rawText(raw, 'LABORATORIO_MEDICAMENTO'),
     tipoInclusion: rawText(raw, 'TIPO_INCLUSION_MEDICAMENTO', 'TIPO_INCLUSION'),
+    minimumQuantity: row.provenance?.minimumQuantity ?? 1,
   };
 }
 
@@ -1508,6 +1527,7 @@ function productSnapshot(product: AppliedProductRow): Record<string, unknown> {
     descripcionComercial: product.descripcion_comercial,
     laboratorio: product.laboratorio,
     tipoInclusion: product.tipo_inclusion,
+    minimumQuantity: product.minimum_quantity,
     active: product.active,
     version: product.version,
     organizationId: product.organization_id,
