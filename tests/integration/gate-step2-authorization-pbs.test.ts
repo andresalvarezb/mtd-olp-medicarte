@@ -769,10 +769,15 @@ describe('Macro 2 / 2A + 2B — elegibilidad AT + PBS + vigencia', () => {
       ],
     );
 
+    /*
+     * Las fechas vacías se canonicalizan a null durante la ingesta.
+     * null representa ausencia de fecha y permite que la capa de
+     * vigencia la clasifique posteriormente como fecha inválida.
+     */
     expect(
       item.rows[0]?.source_data
         .FECHA_FINAL_VIGENCIA,
-    ).toBe('');
+    ).toBeNull();
   });
 
 });
