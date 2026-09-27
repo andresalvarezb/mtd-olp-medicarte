@@ -183,6 +183,7 @@ export function AutorizacionesView() {
           organizationId,
         ),
       [organizationId],
+      ['IMPORTS', 'AUTHORIZATIONS'],
     );
 
   const authorizationJobs =

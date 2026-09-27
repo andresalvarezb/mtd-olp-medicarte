@@ -18,10 +18,11 @@ import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 export function StockTransfersView() {
   const { organizationId, hasPermission } = useRole();
   const canManage = hasPermission('stock_transfers.manage');
-  const transfers = useApiData(() => listStockTransfers(organizationId), [organizationId]);
+  const transfers = useApiData(() => listStockTransfers(organizationId), [organizationId], ['INVENTORY']);
   const inventory = useApiData(
     () => listInventory(organizationId, { usable: 'true' }),
     [organizationId],
+    ['INVENTORY'],
   );
   const [source, setSource] = useState('');
   const [destination, setDestination] = useState('');

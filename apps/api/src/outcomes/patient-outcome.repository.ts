@@ -10,6 +10,7 @@ import {
 import type { Scope } from '../common/request-scope';
 import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 type Database = ReturnType<typeof createDatabase>;
 type Tx = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -293,6 +294,13 @@ export class PatientOutcomeRepository {
   private async audit(tx: Tx, scope: Scope, action: string, id: string, after: unknown) {
     await tx.execute(
       sql`insert into audit_events (actor_type,actor_id,organization_id,action,resource_type,resource_id,after,correlation_id,request_id,result) values ('USER',${scope.userId},${scope.organizationId},${action},'patient_schedule_outcome',${id},${JSON.stringify(after)}::jsonb,${scope.correlationId},${scope.correlationId},'SUCCESS')`,
+    );
+    await tx.execute(
+      realtimeInvalidationSql({
+        organizationCodes: REALTIME_AUDIENCE.INVENTORY,
+        topics: ['AUTHORIZATIONS', 'NOVELTIES', 'INVENTORY', 'DASHBOARD'],
+        correlationId: scope.correlationId,
+      }),
     );
   }
 }

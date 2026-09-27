@@ -71,6 +71,7 @@ export function DashboardView() {
         organizationId,
       ),
     [organizationId],
+    ['DASHBOARD'],
   );
 
   const data = dashboard.data;

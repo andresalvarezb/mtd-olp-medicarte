@@ -19,8 +19,8 @@ import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 export function SupplierDeliveriesView() {
   const { organizationId, hasPermission } = useRole();
   const canManage = hasPermission('supplier_deliveries.manage');
-  const deliveries = useApiData(() => listSupplierDeliveries(organizationId), [organizationId]);
-  const orders = useApiData(() => listSupplierPurchaseOrders(organizationId), [organizationId]);
+  const deliveries = useApiData(() => listSupplierDeliveries(organizationId), [organizationId], ['PURCHASE_ORDERS']);
+  const orders = useApiData(() => listSupplierPurchaseOrders(organizationId), [organizationId], ['PURCHASE_ORDERS']);
   const [error, setError] = useState<string | null>(null);
   const [lotNumber, setLotNumber] = useState('');
   const [expirationDate, setExpirationDate] = useState('');
@@ -195,7 +195,7 @@ export function SupplierDeliveriesView() {
 
 export function MedicarteDeliveriesView() {
   const { organizationId } = useRole();
-  const deliveries = useApiData(() => listMedicarteDeliveries(organizationId), [organizationId]);
+  const deliveries = useApiData(() => listMedicarteDeliveries(organizationId), [organizationId], ['PURCHASE_ORDERS', 'INVENTORY']);
   const [filter, setFilter] = useState({ reference: '', commercialCode: '' });
   return (
     <PointScopeGuard>

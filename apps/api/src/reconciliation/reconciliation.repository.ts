@@ -14,6 +14,7 @@ import {
   type ReconciliationSeverity,
 } from '@authorization/domain';
 import { DATABASE } from '../tokens';
+import { appendReconciliationRealtime } from './reconciliation-realtime';
 import type { PersistedFinding, ReconciliationRunScope } from './reconciliation.types';
 import type { EngineRuleResult } from './reconciliation.types';
 
@@ -266,14 +267,41 @@ export class ReconciliationRepository {
         input.operationExecutionId ?? null,
       ],
     );
-    return result.rows[0]!.id;
+    const runId = result.rows[0]!.id;
+
+    await appendReconciliationRealtime(this.database.pool, {
+      organizationId: input.tenantId,
+      resource: {
+        type: 'reconciliation_run',
+        id: runId,
+      },
+    });
+
+    return runId;
   }
 
   async markRunning(id: string): Promise<void> {
-    await this.database.pool.query(
-      `update reconciliation_runs set status = 'RUNNING' where id = $1`,
+    const result = await this.database.pool.query<{
+      tenant_id: string;
+    }>(
+      `update reconciliation_runs
+          set status = 'RUNNING'
+        where id = $1
+        returning tenant_id`,
       [id],
     );
+
+    const tenantId = result.rows[0]?.tenant_id;
+
+    if (tenantId) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: tenantId,
+        resource: {
+          type: 'reconciliation_run',
+          id,
+        },
+      });
+    }
   }
 
   async insertFindings(
@@ -291,6 +319,15 @@ export class ReconciliationRepository {
       for (const finding of findings) {
         await linkFindingToIssue(client, runId, tenantId, finding);
       }
+
+      await appendReconciliationRealtime(client, {
+        organizationId: tenantId,
+        resource: {
+          type: 'reconciliation_run',
+          id: runId,
+        },
+      });
+
       await client.query('COMMIT');
     } catch (error) {
       try {
@@ -333,7 +370,8 @@ export class ReconciliationRepository {
               info_findings = $9,
               duration_ms = $10,
               metadata = $11::jsonb
-        where id = $1`,
+        where id = $1
+        returning tenant_id`,
       [
         id,
         input.status,
@@ -348,6 +386,27 @@ export class ReconciliationRepository {
         JSON.stringify(input.metadata),
       ],
     );
+
+    const tenant = await this.database.pool.query<{
+      tenant_id: string;
+    }>(
+      `select tenant_id
+         from reconciliation_runs
+        where id = $1`,
+      [id],
+    );
+
+    const tenantId = tenant.rows[0]?.tenant_id;
+
+    if (tenantId) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: tenantId,
+        resource: {
+          type: 'reconciliation_run',
+          id,
+        },
+      });
+    }
   }
 
   async listRuns(tenantId: string): Promise<ReconciliationRunRow[]> {

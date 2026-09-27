@@ -132,7 +132,7 @@ export function PatientSchedulingView() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const points = useApiData(() => listDispensingPoints(organizationId), [organizationId]);
+  const points = useApiData(() => listDispensingPoints(organizationId), [organizationId], ['AUTHORIZATIONS', 'DASHBOARD']);
   const schedules = useApiData(
     () =>
       listPatientSchedules(organizationId, {
@@ -147,10 +147,12 @@ export function PatientSchedulingView() {
           : {}),
       }),
     [organizationId, appliedFilters],
+    ['AUTHORIZATIONS', 'NOVELTIES', 'DASHBOARD'],
   );
   const operationalStatuses = useApiData(
     () => listOperationalStatuses(organizationId),
     [organizationId],
+    ['AUTHORIZATIONS', 'NOVELTIES', 'INVENTORY', 'DASHBOARD'],
   );
   const history = useApiData(
     () =>
@@ -158,6 +160,7 @@ export function PatientSchedulingView() {
         ? getPatientScheduleHistory(organizationId, selectedSchedule.id)
         : Promise.resolve({ items: [] }),
     [organizationId, selectedSchedule?.id],
+    ['AUTHORIZATIONS', 'DASHBOARD'],
   );
 
   useEffect(() => {

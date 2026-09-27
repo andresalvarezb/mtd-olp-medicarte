@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import type { createDatabase } from '@authorization/database';
 import type { ReconciliationIssueListQuery } from '@authorization/contracts';
 import { DATABASE } from '../tokens';
+import { appendReconciliationRealtime } from './reconciliation-realtime';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -324,6 +325,14 @@ export class ReconciliationIssuesRepository {
         JSON.stringify(input.metadata ?? {}),
       ],
     );
+
+    await appendReconciliationRealtime(client, {
+      organizationId: input.tenantId,
+      resource: {
+        type: 'reconciliation_issue',
+        id: input.issueId,
+      },
+    });
   }
 
   async countByStatusSeverity(): Promise<Array<{ status: string; severity: string; n: number }>> {
@@ -363,6 +372,15 @@ export class ReconciliationIssuesRepository {
     if (!row) {
       throw new Error('ISSUE_COMMENT_NOT_INSERTED');
     }
+
+    await appendReconciliationRealtime(client, {
+      organizationId: tenantId,
+      resource: {
+        type: 'reconciliation_issue',
+        id: issueId,
+      },
+    });
+
     const author = await client.query<{ username: string }>(
       `select username from users where id = $1`,
       [authorUserId],

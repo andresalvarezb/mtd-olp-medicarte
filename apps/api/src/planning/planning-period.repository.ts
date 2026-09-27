@@ -13,6 +13,7 @@ import {
   type PlanningPeriodValidationIssue,
 } from '@authorization/domain';
 import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 type Database = ReturnType<typeof createDatabase>;
 type Transaction = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -327,4 +328,11 @@ async function insertAuditEvent(
       'SUCCESS'
     )
   `);
+  await tx.execute(
+    realtimeInvalidationSql({
+      organizationCodes: REALTIME_AUDIENCE.PROCUREMENT,
+      topics: ['AUTHORIZATIONS', 'PURCHASE_ORDERS', 'DASHBOARD'],
+      correlationId: input.actor.correlationId,
+    }),
+  );
 }

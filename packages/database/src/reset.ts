@@ -83,9 +83,11 @@ async function main(): Promise<void> {
     throw new Error('DATABASE_URL is required');
   }
   const parsed = new URL(databaseUrl);
+  const integrationPort = process.env.POSTGRES_HOST_PORT ?? '15432';
+
   if (
     parsed.hostname !== 'localhost' ||
-    parsed.port !== '15432' ||
+    parsed.port !== integrationPort ||
     parsed.pathname !== '/authorization_test_integration'
   ) {
     throw new Error('Refusing reset: only the dedicated TEST/INTEGRATION database may be reset');

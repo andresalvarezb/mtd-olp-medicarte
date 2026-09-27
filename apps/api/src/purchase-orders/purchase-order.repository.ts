@@ -13,6 +13,7 @@ import type {
   UpdatePurchaseOrderRequest,
 } from '@authorization/contracts';
 import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 import type { Scope } from '../common/request-scope';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -4117,6 +4118,13 @@ export class PurchaseOrderRepository {
   ) {
     await tx.execute(
       sql`insert into audit_events (actor_type, actor_id, organization_id, action, resource_type, resource_id, after, correlation_id, request_id, result) values ('USER', ${actor.userId}, ${actor.organizationId}, ${action}, 'purchase_order', ${resourceId}, ${after ? JSON.stringify(after) : null}::jsonb, ${actor.correlationId}, ${actor.correlationId}, 'SUCCESS')`,
+    );
+    await tx.execute(
+      realtimeInvalidationSql({
+        organizationCodes: REALTIME_AUDIENCE.PROCUREMENT,
+        topics: ['PURCHASE_ORDERS', 'AUTHORIZATIONS', 'INVENTORY', 'DASHBOARD'],
+        correlationId: actor.correlationId,
+      }),
     );
   }
 }

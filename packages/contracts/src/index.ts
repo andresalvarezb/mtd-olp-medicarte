@@ -44,6 +44,46 @@ export const correlationIdSchema = z.string().uuid();
 export const idempotencyKeySchema = z.string().min(8).max(200);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 
+export const REALTIME_TOPICS = [
+  'AUTHORIZATIONS',
+  'NOVELTIES',
+  'PURCHASE_ORDERS',
+  'INVENTORY',
+  'DASHBOARD',
+  'TARIFF_ANNEX',
+  'IMPORTS',
+  'RECONCILIATION',
+] as const;
+
+export const realtimeTopicSchema = z.enum(REALTIME_TOPICS);
+export type RealtimeTopic = z.infer<typeof realtimeTopicSchema>;
+
+export const realtimeResourceRefSchema = z.object({
+  type: z.string().min(1).max(120),
+  id: z.string().min(1).max(255),
+  version: z.number().int().positive().optional(),
+});
+export type RealtimeResourceRef = z.infer<typeof realtimeResourceRefSchema>;
+
+export const realtimeOutboxPayloadSchema = z.object({
+  topics: z.array(realtimeTopicSchema).min(1).max(20),
+  resource: realtimeResourceRefSchema.nullable().optional(),
+});
+export type RealtimeOutboxPayload = z.infer<typeof realtimeOutboxPayloadSchema>;
+
+export const realtimeInvalidationMessageSchema = realtimeOutboxPayloadSchema.extend({
+  eventId: z.string().uuid(),
+  type: z.literal('realtime.invalidate'),
+  version: z.literal(1),
+  organizationId: z.string().uuid(),
+  correlationId: correlationIdSchema,
+  occurredAt: isoDateTimeSchema,
+});
+export type RealtimeInvalidationMessage = z.infer<typeof realtimeInvalidationMessageSchema>;
+
+export const REALTIME_OUTBOX_EVENT_TYPE = 'realtime.invalidate';
+export const REALTIME_REDIS_CHANNEL = 'authorization.realtime.invalidate.v1';
+
 export const foundationEventPayloadSchema = z.object({
   eventId: z.string().uuid(),
   message: z.string().min(1).max(200),

@@ -7,6 +7,7 @@ import type { createDatabase } from '@authorization/database';
 import type { Scope } from '../common/request-scope';
 
 import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 import {
   calculateUnassignedAvailability,
@@ -2553,5 +2554,13 @@ export class InventoryAvailabilityRepository {
         'SUCCESS'
       )
     `);
+
+    await tx.execute(
+      realtimeInvalidationSql({
+        organizationCodes: REALTIME_AUDIENCE.INVENTORY,
+        topics: ['INVENTORY', 'AUTHORIZATIONS', 'DASHBOARD'],
+        correlationId: scope.correlationId,
+      }),
+    );
   }
 }

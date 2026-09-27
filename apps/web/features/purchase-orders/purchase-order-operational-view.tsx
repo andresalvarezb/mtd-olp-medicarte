@@ -24,6 +24,10 @@ import {
 } from '@/components/layout/role-context';
 
 import {
+  useRealtimeRevision,
+} from '@/components/realtime/realtime-context';
+
+import {
   acceptOperationalPurchaseOrder,
   createPurchaseOrderDirectReceipt,
   getPurchaseOrderOperationalDetail,
@@ -887,8 +891,15 @@ export function PurchaseOrderOperationalView() {
   ] =
     useState(false);
 
+  const realtimeRevision =
+    useRealtimeRevision([
+      'PURCHASE_ORDERS',
+      'INVENTORY',
+      'AUTHORIZATIONS',
+    ]);
 
-  async function load() {
+
+  async function load(preserveDraft = false) {
     if (!id) {
       return;
     }
@@ -912,9 +923,11 @@ export function PurchaseOrderOperationalView() {
        * El acumulado viene persistido desde backend en
        * line.managedQuantity.
        */
-      setOlpQuantities(
-        {},
-      );
+      if (!preserveDraft) {
+        setOlpQuantities(
+          {},
+        );
+      }
 
     } catch (cause) {
       setError(
@@ -936,6 +949,14 @@ export function PurchaseOrderOperationalView() {
       organizationId,
       id,
     ],
+  );
+
+  useEffect(
+    () => {
+      if (realtimeRevision === 0) return;
+      void load(true);
+    },
+    [realtimeRevision],
   );
 
 

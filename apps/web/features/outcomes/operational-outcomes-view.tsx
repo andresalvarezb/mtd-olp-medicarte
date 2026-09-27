@@ -38,7 +38,7 @@ const novelties: PatientOperationalNovelty[] = [
 export function OperationalOutcomesView() {
   const { organizationId, hasPermission } = useRole();
   const canManage = hasPermission('patient_operational_outcomes.manage');
-  const statuses = useApiData(() => listOperationalStatuses(organizationId), [organizationId]);
+  const statuses = useApiData(() => listOperationalStatuses(organizationId), [organizationId], ['AUTHORIZATIONS', 'NOVELTIES', 'INVENTORY', 'DASHBOARD']);
   const [selected, setSelected] = useState<string | null>(null);
   const [novelty, setNovelty] = useState<PatientOperationalNovelty>('PATIENT_NO_SHOW');
   const [observation, setObservation] = useState('');

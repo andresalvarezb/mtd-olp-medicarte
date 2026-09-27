@@ -29,6 +29,10 @@ import {
 } from '@/components/layout/role-context';
 
 import {
+  useRealtimeRevision,
+} from '@/components/realtime/realtime-context';
+
+import {
   listInventoryAvailability,
   type InventoryAvailabilityItem,
 } from '@/lib/inventory-availability-api';
@@ -167,66 +171,63 @@ export function DisponibilidadView() {
   ] =
     useState(10);
 
+  const realtimeRevision =
+    useRealtimeRevision([
+      'INVENTORY',
+      'PURCHASE_ORDERS',
+      'AUTHORIZATIONS',
+    ]);
 
-  useEffect(
-    () => {
-      if (
-        !organizationId
-      ) {
+
+  const loadAvailability =
+    async (resetPage: boolean) => {
+      if (!organizationId) {
         setItems([]);
-
         setLoading(false);
-
         return;
       }
 
-      const load =
-        async () => {
-          setLoading(true);
+      setLoading(true);
+      setError(null);
 
-          setError(null);
+      try {
+        const response =
+          await listInventoryAvailability(
+            organizationId,
+            {
+              search:
+                applied.product ||
+                undefined,
 
-          try {
-            const response =
-              await listInventoryAvailability(
-                organizationId,
-                {
-                  search:
-                    applied.product ||
-                    undefined,
+              purchaseOrder:
+                applied.purchaseOrder ||
+                undefined,
 
-                  purchaseOrder:
-                    applied.purchaseOrder ||
-                    undefined,
+              dispensingPoint:
+                applied.dispensingPoint ||
+                undefined,
 
-                  dispensingPoint:
-                    applied.dispensingPoint ||
-                    undefined,
+              limit:
+                500,
+            },
+          );
 
-                  limit:
-                    500,
-                },
-              );
+        setItems(response.items);
+        if (resetPage) setPage(1);
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : 'No fue posible consultar la disponibilidad.',
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
 
-            setItems(
-              response.items,
-            );
-
-            setPage(1);
-          } catch (
-            caught
-          ) {
-            setError(
-              caught instanceof Error
-                ? caught.message
-                : 'No fue posible consultar la disponibilidad.',
-            );
-          } finally {
-            setLoading(false);
-          }
-        };
-
-      void load();
+  useEffect(
+    () => {
+      void loadAvailability(true);
     },
     [
       organizationId,
@@ -234,6 +235,14 @@ export function DisponibilidadView() {
       applied.purchaseOrder,
       applied.dispensingPoint,
     ],
+  );
+
+  useEffect(
+    () => {
+      if (realtimeRevision === 0) return;
+      void loadAvailability(false);
+    },
+    [realtimeRevision],
   );
 
 

@@ -17,6 +17,7 @@ import {
 } from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
 import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 type Database = ReturnType<typeof createDatabase>;
 export type BulkImportTransaction = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -1344,6 +1345,13 @@ export class BulkImportRepository {
         failedRows: Number(row.failed),
         skippedRows: Number(row.skipped),
       });
+      await tx.execute(
+        realtimeInvalidationSql({
+          organizationCodes: REALTIME_AUDIENCE.AUTHORIZATION,
+          topics: ['IMPORTS', 'AUTHORIZATIONS', 'NOVELTIES', 'DASHBOARD'],
+          correlationId: actor.correlationId,
+        }),
+      );
       return job;
     });
     return toJob(result);

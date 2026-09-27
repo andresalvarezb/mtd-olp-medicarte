@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { PageHeader } from '@/components/ui/page-header';
 
@@ -11,6 +11,7 @@ import { FilterActions, FilterBar, FilterField } from '@/components/ui/filter-ba
 import { useRole } from '@/components/layout/role-context';
 
 import { useApiData } from '@/hooks/use-api-data';
+import { useRealtimeRevision } from '@/components/realtime/realtime-context';
 
 import {
   fulfillAuthorization,
@@ -502,7 +503,28 @@ export function ConsultaAutorizacionesView() {
           : {}),
       }),
     [organizationId, appliedFilters, page, pageSize],
+    ['AUTHORIZATIONS'],
   );
+
+  const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
+  const selectedAuthorizationId = selected?.id ?? null;
+
+  useEffect(() => {
+    if (!selectedAuthorizationId) return;
+    let cancelled = false;
+
+    void getAuthorizationQueryItem(organizationId, selectedAuthorizationId)
+      .then((refreshed) => {
+        if (!cancelled) setSelected(refreshed);
+      })
+      .catch(() => {
+        // La tabla ya maneja el error de reconciliación; el detalle conserva el último snapshot.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizationRealtimeRevision]);
 
   const data = query.data;
 
@@ -757,7 +779,7 @@ export function ConsultaAutorizacionesView() {
                 'patient_applications.manage',
               )}
               onImported={() => {
-                window.location.reload();
+                query.reload();
               }}
             />
           </>

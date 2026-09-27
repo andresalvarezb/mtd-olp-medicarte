@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useRouter } from 'next/navigation';
 
@@ -414,7 +414,15 @@ export function PurchaseOrdersView() {
     organizationId,
     appliedFilters,
     isOlp,
-  ]);
+  ], ['PURCHASE_ORDERS']);
+
+  const selectedOrderId = selectedOrder?.id ?? null;
+
+  useEffect(() => {
+    if (!selectedOrderId) return;
+    const refreshed = orders.data?.items.find((order) => order.id === selectedOrderId);
+    if (refreshed) setSelectedOrder(refreshed);
+  }, [orders.data, selectedOrderId]);
 
 
   const visibleOrders = (orders.data?.items ?? []).filter(

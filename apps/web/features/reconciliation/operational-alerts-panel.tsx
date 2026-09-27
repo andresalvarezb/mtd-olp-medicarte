@@ -86,6 +86,7 @@ export function OperationalAlertsPanel({
           })
         : Promise.resolve({ items: [], total: 0 }),
     [organizationId, unreadOnly, severityFilter, canRead],
+    ['RECONCILIATION'],
   );
 
   const notifications: ReconciliationNotificationResponse[] = notificationsData.data?.items ?? [];

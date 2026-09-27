@@ -11,13 +11,14 @@ import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 export function InventoryView() {
   const { organizationId } = useRole();
-  const inventory = useApiData(() => listInventory(organizationId), [organizationId]);
+  const inventory = useApiData(() => listInventory(organizationId), [organizationId], ['INVENTORY']);
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState({ commercialCode: '', lotNumber: '', status: '' });
   const movements = useApiData(
     () =>
       selected ? listInventoryMovements(organizationId, selected) : Promise.resolve({ items: [] }),
     [organizationId, selected],
+    ['INVENTORY'],
   );
   const lots = inventory.data?.items ?? [];
   return (

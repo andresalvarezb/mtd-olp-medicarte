@@ -7,7 +7,11 @@ import {
   FOUNDATION_JOB_NAME,
   FOUNDATION_JOB_OPTIONS,
   FOUNDATION_QUEUE,
+  REALTIME_OUTBOX_EVENT_TYPE,
+  REALTIME_REDIS_CHANNEL,
   foundationJobSchema,
+  realtimeInvalidationMessageSchema,
+  realtimeOutboxPayloadSchema,
   type FoundationJob,
 } from '@authorization/contracts';
 import { jobResults, outboxEvents } from '@authorization/database';
@@ -28,7 +32,9 @@ type OutboxRow = {
   version: number;
   payload: unknown;
   correlation_id: string;
+  organization_id: string | null;
   idempotency_key: string;
+  created_at: Date | string;
 };
 type DeadLetterJob = {
   sourceQueue: string;
@@ -229,7 +235,8 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     try {
       await client.query('begin');
       const result = await client.query<OutboxRow>(
-        `select id, event_type, version, payload, correlation_id, idempotency_key
+        `select id, event_type, version, payload, correlation_id, organization_id,
+                idempotency_key, created_at
          from outbox_events
          where (status = 'PENDING' or (status = 'DISPATCHED' and dispatched_at < now() - interval '30 seconds'))
            and available_at <= now()
@@ -241,6 +248,45 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       if (!event) {
         await client.query('commit');
         return false;
+      }
+
+      if (event.event_type === REALTIME_OUTBOX_EVENT_TYPE) {
+        const realtime = realtimeOutboxPayloadSchema.safeParse(event.payload);
+
+        if (!realtime.success || event.version !== 1 || !event.organization_id) {
+          await client.query(
+            `update outbox_events
+             set status = 'FAILED', attempts = attempts + 1,
+                 last_error = 'Invalid realtime invalidation event'
+             where id = $1`,
+            [event.id],
+          );
+          await client.query('commit');
+          return true;
+        }
+
+        const message = realtimeInvalidationMessageSchema.parse({
+          eventId: event.id,
+          type: REALTIME_OUTBOX_EVENT_TYPE,
+          version: 1,
+          organizationId: event.organization_id,
+          topics: realtime.data.topics,
+          resource: realtime.data.resource ?? null,
+          correlationId: event.correlation_id,
+          occurredAt: new Date(event.created_at).toISOString(),
+        });
+
+        await this.connection.publish(REALTIME_REDIS_CHANNEL, JSON.stringify(message));
+        await client.query(
+          `update outbox_events
+           set status = 'PROCESSED', attempts = attempts + 1,
+               dispatched_at = coalesce(dispatched_at, now()),
+               processed_at = now(), last_error = null
+           where id = $1`,
+          [event.id],
+        );
+        await client.query('commit');
+        return true;
       }
 
       const parsed = foundationJobSchema.safeParse({

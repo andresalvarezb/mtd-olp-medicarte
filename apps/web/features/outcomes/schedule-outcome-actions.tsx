@@ -77,6 +77,7 @@ export function ScheduleOutcomeActions({
           })
         : Promise.resolve({ items: [] as InventoryLotResponse[] }),
     [open, disposition, organizationId, schedule.commercialCode, schedule.dispensingPointId],
+    ['INVENTORY'],
   );
   const eligibleLots = (lots.data?.items ?? []).filter((lot) =>
     eligibleOutcomeLot(lot, schedule.commercialCode, schedule.dispensingPointId),
