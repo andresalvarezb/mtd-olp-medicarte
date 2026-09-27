@@ -67,6 +67,7 @@ const querySchema =
       z.enum([
         'UNASSIGNED',
         'ASSIGNED',
+        'OUT_OF_OPERATION',
         'CLOSED',
       ])
         .optional(),

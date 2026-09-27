@@ -2400,19 +2400,19 @@ export class InventoryAvailabilityRepository {
 
   private async reconcileIneligibleTx(tx: Tx, scope: Scope) {
     /*
-     * La expiracion de una autorizacion NO libera inventario
-     * automaticamente.
+     * El vencimiento tiene un flujo propio y NO se resuelve aquí.
      *
      * Regla operativa:
-     * - al vencer, la AUTO deja de estar disponible para nuevas
-     *   asignaciones;
-     * - durante los primeros 5 dias puede actualizarse su vigencia;
-     * - si permanece vencida despues de ese periodo, la liberacion
-     *   se realiza exclusivamente mediante el cargue manual de
-     *   Disponibilidad.
+     * - al vencer, la AUTO deja de participar en nuevas asignaciones;
+     * - durante los primeros 5 días conserva temporalmente cualquier
+     *   reserva no consumida;
+     * - a partir del día 6, el worker
+     *   inventory-expiration-release libera automáticamente el saldo
+     *   no consumido y lo devuelve a Disponibilidad.
      *
-     * Esta conciliacion conserva las liberaciones automaticas por
-     * otras causas de inelegibilidad.
+     * reconcileIneligibleTx() conserva exclusivamente las
+     * liberaciones por otras causas de inelegibilidad y no debe
+     * duplicar la responsabilidad del sweep de vencimientos.
      */
     const released = await tx.execute<{
       id: string;

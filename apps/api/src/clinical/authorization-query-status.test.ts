@@ -13,12 +13,18 @@ describe(
   'authorization query operational status',
   () => {
     it(
-      'una AUTO con OC pero sin allocation sigue UNASSIGNED',
+      'una AUTO elegible con OC pero sin allocation sigue UNASSIGNED',
       () => {
         expect(
           resolveAuthorizationOperationalStatus({
-            hasFulfillment: false,
-            remainingAssignedQuantity: 0,
+            hasFulfillment:
+              false,
+
+            operationalEligible:
+              true,
+
+            remainingAssignedQuantity:
+              0,
           }),
         ).toBe(
           'UNASSIGNED',
@@ -28,12 +34,18 @@ describe(
 
 
     it(
-      'una AUTO solo queda ASSIGNED cuando tiene saldo allocation',
+      'una AUTO elegible solo queda ASSIGNED con saldo allocation',
       () => {
         expect(
           resolveAuthorizationOperationalStatus({
-            hasFulfillment: false,
-            remainingAssignedQuantity: 4,
+            hasFulfillment:
+              false,
+
+            operationalEligible:
+              true,
+
+            remainingAssignedQuantity:
+              4,
           }),
         ).toBe(
           'ASSIGNED',
@@ -43,12 +55,39 @@ describe(
 
 
     it(
-      'una AUTO consumida queda CLOSED aunque ya no tenga saldo',
+      'una AUTO no elegible sin cumplimiento queda OUT_OF_OPERATION',
       () => {
         expect(
           resolveAuthorizationOperationalStatus({
-            hasFulfillment: true,
-            remainingAssignedQuantity: 0,
+            hasFulfillment:
+              false,
+
+            operationalEligible:
+              false,
+
+            remainingAssignedQuantity:
+              4,
+          }),
+        ).toBe(
+          'OUT_OF_OPERATION',
+        );
+      },
+    );
+
+
+    it(
+      'un cumplimiento real permanece CLOSED aunque la AUTO ya no sea elegible',
+      () => {
+        expect(
+          resolveAuthorizationOperationalStatus({
+            hasFulfillment:
+              true,
+
+            operationalEligible:
+              false,
+
+            remainingAssignedQuantity:
+              0,
           }),
         ).toBe(
           'CLOSED',

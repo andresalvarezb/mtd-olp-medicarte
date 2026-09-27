@@ -54,17 +54,11 @@ function authorizationLifecycleLabel(
   item: AuthorizationQueryItem,
 ): 'Habilitada' | 'Inhabilitada' | 'Pendiente' {
   /*
-   * Habilitación funcional:
+   * Habilitación funcional.
    *
-   * 1. La validación inicial es prerrequisito.
-   * 2. Una AUTO pendiente de validación no puede
-   *    considerarse habilitada todavía.
-   * 3. Si ya pasó la validación, el vencimiento
-   *    solo la inhabilita cuando NO existe OC
-   *    relacionada.
-   *
-   * La existencia histórica de una OC nunca se
-   * elimina por esta decisión.
+   * La existencia de una OC histórica nunca habilita
+   * una autorización que ya no es operacionalmente
+   * elegible.
    */
   if (
     item.initialValidationStatus ===
@@ -80,16 +74,9 @@ function authorizationLifecycleLabel(
     return 'Pendiente';
   }
 
-  const expiredWithoutPurchaseOrder =
-    item.validityStatus ===
-      'EXPIRED'
-    &&
-    item.purchaseOrders.length ===
-      0;
-
-  return expiredWithoutPurchaseOrder
-    ? 'Inhabilitada'
-    : 'Habilitada';
+  return item.operationalEligible
+    ? 'Habilitada'
+    : 'Inhabilitada';
 }
 
 
@@ -119,9 +106,27 @@ function validityLabel(
 
 
 function fulfillmentStatusLabel(
-  status:
-    AuthorizationQueryItem['fulfillmentStatus'],
+  item:
+    AuthorizationQueryItem,
 ) {
+  if (
+    item.fulfillmentStatus ===
+      'PENDING'
+    &&
+    (
+      item.initialValidationStatus ===
+        'FAILED'
+      ||
+      item.validityStatus ===
+        'EXPIRED'
+      ||
+      item.validityStatus ===
+        'INVALID_DATE'
+    )
+  ) {
+    return 'No realizada';
+  }
+
   const labels = {
     PENDING:
       'Pendiente',
@@ -136,7 +141,9 @@ function fulfillmentStatusLabel(
     string
   >;
 
-  return labels[status];
+  return labels[
+    item.fulfillmentStatus
+  ];
 }
 
 
@@ -178,6 +185,25 @@ function authorizationAuditStatus(
 }
 
 
+function authorizationAuditLabel(
+  item:
+    AuthorizationQueryItem,
+) {
+  if (
+    item.fulfillmentStatus ===
+      'PENDING'
+  ) {
+    return 'No aplica';
+  }
+
+  return auditStatusLabel(
+    authorizationAuditStatus(
+      item,
+    ),
+  );
+}
+
+
 function operationalLabel(
   status:
     AuthorizationQueryItem['operationalStatus'],
@@ -188,6 +214,9 @@ function operationalLabel(
 
     ASSIGNED:
       'Lista para entrega/aplicación',
+
+    OUT_OF_OPERATION:
+      'Fuera de operación',
 
     CLOSED:
       'Cerrada',
@@ -731,6 +760,15 @@ export function ConsultaAutorizacionesView() {
       ? selectedValidityEndDate
       : todayBogota;
 
+  const selectedActivePurchaseOrderCode =
+    selected &&
+    selected.remainingAssignedQuantity >
+      0
+      ? singlePurchaseOrderCode(
+          selected.purchaseOrder,
+        )
+      : null;
+
   const canFulfillSelected =
     Boolean(
       selected &&
@@ -740,9 +778,8 @@ export function ConsultaAutorizacionesView() {
         'ASSIGNED' &&
       selected.remainingAssignedQuantity >
         0 &&
-      singlePurchaseOrderCode(
-        selected.purchaseOrder,
-      ) !== null,
+      selectedActivePurchaseOrderCode !==
+        null,
     );
 
   return (
@@ -859,6 +896,10 @@ export function ConsultaAutorizacionesView() {
 
                 <option value="ASSIGNED">
                   Lista para entrega/aplicación
+                </option>
+
+                <option value="OUT_OF_OPERATION">
+                  Fuera de operación
                 </option>
 
                 <option value="CLOSED">
@@ -1062,10 +1103,8 @@ export function ConsultaAutorizacionesView() {
 
                     <td>
                       <strong>
-                        {auditStatusLabel(
-                          authorizationAuditStatus(
-                            item,
-                          ),
+                        {authorizationAuditLabel(
+                          item,
                         )}
                       </strong>
                     </td>
@@ -1383,7 +1422,7 @@ export function ConsultaAutorizacionesView() {
 
                 <strong>
                   {fulfillmentStatusLabel(
-                    selected.fulfillmentStatus,
+                    selected,
                   )}
                 </strong>
               </div>
@@ -1394,10 +1433,8 @@ export function ConsultaAutorizacionesView() {
                 </span>
 
                 <strong>
-                  {auditStatusLabel(
-                    authorizationAuditStatus(
-                      selected,
-                    ),
+                  {authorizationAuditLabel(
+                    selected,
                   )}
                 </strong>
               </div>
@@ -1434,7 +1471,18 @@ export function ConsultaAutorizacionesView() {
 
               <div>
                 <span>
-                  Orden de compra
+                  Orden de compra activa
+                </span>
+
+                <strong>
+                  {selectedActivePurchaseOrderCode ??
+                    'Sin OC activa'}
+                </strong>
+              </div>
+
+              <div className="authorization-detail-wide">
+                <span>
+                  Trazabilidad de OC
                 </span>
 
                 <strong>
@@ -1445,8 +1493,15 @@ export function ConsultaAutorizacionesView() {
                             order.purchaseOrderCode,
                         )
                         .join(', ')
-                    : 'Sin OC'}
+                    : 'Sin relación histórica'}
                 </strong>
+
+                {selected.purchaseOrders.length > 0 ? (
+                  <small>
+                    Relación histórica de origen. No implica
+                    una asignación vigente de inventario.
+                  </small>
+                ) : null}
               </div>
 
               <div className="authorization-detail-wide">
@@ -1777,9 +1832,24 @@ export function ConsultaAutorizacionesView() {
             ) : (
               <div className="authorization-operation-message">
                 {selected.operationalStatus ===
-                'UNASSIGNED'
-                  ? 'La autorización aún no tiene producto recibido y asignado. OLP debe gestionar la cantidad y Medicarte debe confirmar la recepción antes de entregar o aplicar.'
-                  : 'La gestión está disponible únicamente para Medicarte.'}
+                'OUT_OF_OPERATION'
+                  ? selected.validityStatus ===
+                      'EXPIRED'
+                    ? 'La autorización está vencida y se encuentra fuera de operación. No puede recibir nuevas asignaciones ni registrar entrega o aplicación. La relación con órdenes de compra anteriores se conserva únicamente como trazabilidad histórica; una vez cumplido el periodo de gracia de 5 días, cualquier saldo reservado no consumido debe quedar liberado en Disponibilidad.'
+                    : selected.initialValidationStatus ===
+                        'FAILED'
+                      ? 'La autorización no superó la validación inicial y se encuentra fuera de operación. No puede recibir asignaciones ni registrar entrega o aplicación.'
+                      : selected.validityStatus ===
+                          'INVALID_DATE'
+                        ? 'La autorización contiene fechas de vigencia inválidas y se encuentra fuera de operación hasta que la información sea corregida.'
+                        : selected.validityStatus ===
+                            'OUTSIDE_HORIZON'
+                          ? 'La autorización está fuera de la ventana operacional Hoy + 30. Se conserva para consulta y podrá entrar en operación cuando alcance la ventana permitida.'
+                          : 'La autorización todavía no ha completado las condiciones necesarias para entrar en operación.'
+                  : selected.operationalStatus ===
+                      'UNASSIGNED'
+                    ? 'La autorización está habilitada, pero todavía no cuenta con una asignación activa de inventario. Revisa la recepción y la disponibilidad del producto antes de entregar o aplicar.'
+                    : 'La gestión está disponible únicamente para Medicarte.'}
               </div>
             )}
           </aside>

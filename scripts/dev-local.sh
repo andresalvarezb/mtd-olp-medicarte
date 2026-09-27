@@ -88,6 +88,44 @@ echo "API_PID=$API_PID"
 
 echo
 echo "=========================================="
+echo "INICIANDO WORKER"
+echo "=========================================="
+
+(
+  cd "$ROOT"
+
+  export NODE_ENV=development
+
+  export DEV_DATABASE="${DEV_DATABASE:-authorization_prod_220926_migrated}"
+  export DATABASE_URL="postgresql://authorization:authorization@127.0.0.1:15432/${DEV_DATABASE}"
+  export REDIS_URL="redis://127.0.0.1:6379"
+
+  export IMPORT_MAX_FILE_BYTES=20971520
+  export IMPORT_PROCESSOR_VERSION=2
+
+  export MIPRES_BASE_URL="http://localhost:18090"
+  export MIPRES_NIT="900123456"
+  export MIPRES_INITIAL_TOKEN="initial-secret"
+  export MIPRES_MANUAL_RECHECK_DAILY_LIMIT=3
+
+  export RECONCILIATION_SCHEDULER_ENABLED=false
+
+  # El worker debe estar activo en desarrollo local para probar:
+  # - outbox / realtime;
+  # - liberación automática de reservas vencidas;
+  # - procesamiento asíncrono.
+  export SCHEDULER_ENABLED=true
+  export OUTBOX_POLL_INTERVAL_MS=1000
+
+  exec pnpm --filter @authorization/worker dev
+) &
+
+WORKER_PID=$!
+
+echo "WORKER_PID=$WORKER_PID"
+
+echo
+echo "=========================================="
 echo "INICIANDO FRONTEND"
 echo "=========================================="
 
@@ -110,9 +148,10 @@ echo "WEB_PID=$WEB_PID"
 
 cleanup() {
   echo
-  echo "Deteniendo API y WEB locales..."
+  echo "Deteniendo API, WORKER y WEB locales..."
 
   kill "$API_PID" \
+       "$WORKER_PID" \
        "$WEB_PID" \
        2>/dev/null || true
 }
@@ -124,12 +163,14 @@ echo "=========================================="
 echo "DESARROLLO ACTIVO"
 echo "=========================================="
 echo
-echo "WEB : http://localhost:3002"
-echo "API : http://localhost:3001/api/v1"
+echo "WEB    : http://localhost:3002"
+echo "API    : http://localhost:3001/api/v1"
+echo "WORKER : activo"
 echo
 echo "Cambios de código:"
-echo "  WEB -> hot reload"
-echo "  API -> hot reload"
+echo "  WEB    -> hot reload"
+echo "  API    -> hot reload"
+echo "  WORKER -> hot reload"
 echo
 echo "NO Docker build."
 echo "NO restart por cambios de código."

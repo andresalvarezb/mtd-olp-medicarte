@@ -11,6 +11,9 @@ export default defineConfig({
     include: [
       './tests/integration/' +
         'po-operational-cycle.prodshadow.test.ts',
+
+      './tests/integration/' +
+        'inventory-expiration-auto-release.prodshadow.test.ts',
     ],
 
     testTimeout: 60_000,
