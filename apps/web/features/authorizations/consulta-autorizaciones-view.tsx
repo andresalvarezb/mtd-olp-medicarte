@@ -839,7 +839,7 @@ export function ConsultaAutorizacionesView() {
                     authorizationNumber: event.target.value,
                   })
                 }
-                placeholder="Número de autorización"
+                placeholder="Número o clave de autorización"
               />
             </FilterField>
 

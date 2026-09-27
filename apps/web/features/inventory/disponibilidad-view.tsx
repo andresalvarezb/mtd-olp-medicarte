@@ -397,12 +397,12 @@ export function DisponibilidadView() {
     <>
       <PageHeader
         title="Disponibilidad"
-        description="Inventario operativo por OC, producto y punto. Disponible sin asignar corresponde a lo recibido menos lo entregado/aplicado y menos el saldo reservado en autorizaciones."
+        description="Inventario operativo por OC, producto y punto. Disponible = recibido − entregado/aplicado − asignado."
         actions={null}
       />
 
       <Card
-        className="operational-list-workspace"
+        className="operational-list-workspace inventory-availability-workspace"
       >
         <FilterBar>
           <FilterField

@@ -475,9 +475,17 @@ export class AuthorizationQueryRepository {
       filters.authorizationNumber
     ) {
       conditions.push(sql`
-        i.numero_autorizacion
-        ilike
-        ${`%${filters.authorizationNumber}%`}
+        (
+          i.numero_autorizacion
+          ilike
+          ${`%${filters.authorizationNumber}%`}
+
+          or
+
+          i.authorization_key
+          ilike
+          ${`%${filters.authorizationNumber}%`}
+        )
       `);
     }
 
