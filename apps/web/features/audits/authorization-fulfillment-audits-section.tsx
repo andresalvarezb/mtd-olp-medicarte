@@ -174,6 +174,7 @@ export function AuthorizationFulfillmentAuditsSection() {
         organizationId,
         status,
       ],
+      ['AUTHORIZATIONS', 'NOVELTIES', 'DASHBOARD'],
     );
 
   const selected =

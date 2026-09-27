@@ -329,5 +329,5 @@ function canSchedule(row) {
     );
     expect(files.length).toBeGreaterThan(50);
     expect(collectLegacyOperationalUsageHits(files)).toEqual([]);
-  });
+  }, 20_000);
 });

@@ -5,6 +5,7 @@ import {
 export type AuthorizationOperationalStatus =
   | 'UNASSIGNED'
   | 'ASSIGNED'
+  | 'OUT_OF_OPERATION'
   | 'CLOSED';
 
 export type AuthorizationValidityStatus =

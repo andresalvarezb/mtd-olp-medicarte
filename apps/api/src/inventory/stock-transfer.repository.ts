@@ -9,6 +9,7 @@ import type { Scope } from '../common/request-scope';
 import { applyTransferPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { PointAccessDeniedError } from '@authorization/domain';
 import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 type Database = ReturnType<typeof createDatabase>;
 type Tx = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -401,6 +402,13 @@ export class StockTransferRepository {
   private async audit(tx: Tx, scope: Scope, action: string, id: string, after: unknown) {
     await tx.execute(
       sql`insert into audit_events (actor_type,actor_id,organization_id,action,resource_type,resource_id,after,correlation_id,request_id,result) values ('USER',${scope.userId},${scope.organizationId},${action},'stock_transfer',${id},${after ? JSON.stringify(after) : null}::jsonb,${scope.correlationId},${scope.correlationId},'SUCCESS')`,
+    );
+    await tx.execute(
+      realtimeInvalidationSql({
+        organizationCodes: REALTIME_AUDIENCE.INVENTORY,
+        topics: ['INVENTORY', 'AUTHORIZATIONS', 'DASHBOARD'],
+        correlationId: scope.correlationId,
+      }),
     );
   }
   private async findOn(conn: Tx | Database['db'], id: string, scope: Scope) {

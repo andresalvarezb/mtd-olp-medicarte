@@ -404,6 +404,74 @@ export async function runInventoryExpirationReleaseSweep(
     }
 
 
+    /*
+     * Vigencia es derivada por fecha, por lo que necesita una invalidación
+     * diaria aunque no exista una escritura sobre authorization_items.
+     * La idempotency_key garantiza una sola por organización y fecha.
+     */
+    await client.query(
+      `
+        INSERT INTO outbox_events (
+          event_type,
+          version,
+          payload,
+          correlation_id,
+          organization_id,
+          idempotency_key
+        )
+        SELECT
+          'realtime.invalidate',
+          1,
+          jsonb_build_object(
+            'topics', jsonb_build_array('AUTHORIZATIONS', 'DASHBOARD'),
+            'resource', jsonb_build_object(
+              'type', 'authorization_validity_date',
+              'id', $1::text
+            )
+          ),
+          gen_random_uuid(),
+          o.id,
+          'realtime:validity:' || $1::text || ':' || o.id::text
+        FROM organizations o
+        WHERE o.active = true
+          AND o.code IN ('MTD', 'MEDICARTE')
+        ON CONFLICT (idempotency_key) DO NOTHING
+      `,
+      [todayBogota],
+    );
+
+    if (released.rows.length > 0) {
+      await client.query(
+        `
+          INSERT INTO outbox_events (
+            event_type,
+            version,
+            payload,
+            correlation_id,
+            organization_id,
+            idempotency_key
+          )
+          SELECT
+            'realtime.invalidate',
+            1,
+            jsonb_build_object(
+              'topics', jsonb_build_array('AUTHORIZATIONS', 'INVENTORY', 'DASHBOARD'),
+              'resource', jsonb_build_object(
+                'type', 'inventory_expiration_release',
+                'id', $1::text
+              )
+            ),
+            gen_random_uuid(),
+            o.id,
+            'realtime:' || gen_random_uuid()::text
+          FROM organizations o
+          WHERE o.active = true
+            AND o.code IN ('MTD', 'MEDICARTE')
+        `,
+        [todayBogota],
+      );
+    }
+
     await client.query(
       'COMMIT',
     );

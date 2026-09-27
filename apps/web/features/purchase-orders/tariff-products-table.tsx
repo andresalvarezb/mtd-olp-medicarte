@@ -78,6 +78,7 @@ export function TariffProductsTable() {
   const { data, loading, error } = useApiData(
     () => listTariffProducts(organizationId),
     [organizationId],
+    ['TARIFF_ANNEX'],
   );
 
   const products = useMemo(() => data?.items ?? [], [data?.items]);

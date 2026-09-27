@@ -30,9 +30,8 @@ import {
   lockActivePointGrants,
 } from '../common/point-scope.sql';
 
-import {
-  DATABASE,
-} from '../tokens';
+import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 import {
   resolveAuthorizationFulfillmentInventoryMode,
@@ -619,6 +618,17 @@ export class AuthorizationFulfillmentRepository {
             'SUCCESS'
           )
         `);
+
+
+        // REALTIME-2-W1-FULFILLMENT
+        await tx.execute(
+          realtimeInvalidationSql({
+            organizationCodes: REALTIME_AUDIENCE.INVENTORY,
+            topics: ['AUTHORIZATIONS', 'INVENTORY', 'DASHBOARD'],
+            correlationId: scope.correlationId,
+          }),
+        );
+
 
         return {
           id:

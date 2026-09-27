@@ -107,6 +107,8 @@ import { ReconciliationRepository } from './reconciliation/reconciliation.reposi
 import { ReconciliationService } from './reconciliation/reconciliation.service';
 import { DispensationImportController } from './dispensation-import/dispensation-import.controller';
 import { DispensationImportService } from './dispensation-import/dispensation-import.service';
+import { RealtimeController } from './realtime/realtime.controller';
+import { RealtimeService } from './realtime/realtime.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -187,6 +189,7 @@ ClinicalModule.register(database),
     ProductDeliveryPointController,
     AccessScopeController,
     ReconciliationController,
+    RealtimeController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -250,6 +253,7 @@ ClinicalModule.register(database),
     ReconciliationOperationsService,
     ReconciliationSchedulerWorker,
     ReconciliationMetricsProvider,
+    RealtimeService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

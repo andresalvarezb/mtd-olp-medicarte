@@ -20,6 +20,7 @@ import {
 import { SCHEDULING_EXPIRATION_COLUMN } from '../clinical/clinical-authorization.repository';
 import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 import type { PointAccessKind } from '@authorization/contracts';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -1529,6 +1530,13 @@ async function insertAuditEvent(
       'SUCCESS'
     )
   `);
+  await tx.execute(
+    realtimeInvalidationSql({
+      organizationCodes: REALTIME_AUDIENCE.AUTHORIZATION,
+      topics: ['AUTHORIZATIONS', 'NOVELTIES', 'DASHBOARD'],
+      correlationId: input.actor.correlationId,
+    }),
+  );
 }
 
 async function insertImportAuditEvent(

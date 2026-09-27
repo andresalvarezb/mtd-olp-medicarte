@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import type { RealtimeTopic } from '@authorization/contracts';
+import { useRealtimeRevision } from '@/components/realtime/realtime-context';
 
 interface Page<T> {
   items: T[];
@@ -20,14 +22,13 @@ export interface UsePaginatedListResult<T> {
 }
 
 /**
- * Paginación por cursor (keyset) sobre listas de la API. Conserva la pila de
- * cursores visitados para habilitar Anterior/Siguiente; cualquier cambio en
- * `deps` (filtros, organización) reinicia a la primera página. La API no
- * expone total de registros, por lo que la paginación es relativa.
+ * Paginación por cursor. Realtime reconcilia la página actual sin alterar
+ * cursor, filtros ni navegación del usuario.
  */
 export function usePaginatedList<T>(
   fetchPage: (cursor?: string) => Promise<Page<T>>,
   deps: unknown[],
+  realtimeTopics: readonly RealtimeTopic[] = [],
 ): UsePaginatedListResult<T> {
   const [history, setHistory] = useState<(string | undefined)[]>([undefined]);
   const [position, setPosition] = useState(0);
@@ -36,6 +37,7 @@ export function usePaginatedList<T>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  const realtimeRevision = useRealtimeRevision(realtimeTopics);
 
   const skipReset = useRef(true);
   useEffect(() => {
@@ -50,6 +52,7 @@ export function usePaginatedList<T>(
   }, [...deps]);
 
   const cursor = history[position];
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -72,6 +75,28 @@ export function usePaginatedList<T>(
       cancelled = true;
     };
   }, [cursor, nonce, ...deps]);
+
+  useEffect(() => {
+    if (realtimeRevision === 0) return;
+    let cancelled = false;
+
+    fetchPage(cursor)
+      .then((result) => {
+        if (cancelled) return;
+        setItems(result.items);
+        setNextCursor(result.nextCursor);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setError(err instanceof Error ? err.message : 'Error inesperado al reconciliar la API.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [realtimeRevision]);
 
   const reload = () => setNonce((value) => value + 1);
   const nextPage = () => {

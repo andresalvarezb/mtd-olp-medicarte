@@ -60,6 +60,7 @@ export interface AuthorizationQueryFilters {
   operationalStatus?:
     | 'UNASSIGNED'
     | 'ASSIGNED'
+    | 'OUT_OF_OPERATION'
     | 'CLOSED';
 
   coverageType?:
@@ -318,6 +319,144 @@ export class AuthorizationQueryRepository {
       ${horizonKey}
     `;
   }
+
+  /*
+   * Equivalente SQL de initialValidationStatus === PASSED.
+   *
+   * Se usa exclusivamente para que los filtros de
+   * Estado operativo coincidan con la proyección
+   * que devuelve la API.
+   */
+  private initialValidationPassed(): SQL {
+    const quantityText =
+      sql`
+        btrim(
+          coalesce(
+            i.source_data
+              ->>
+              'CANTIDAD',
+            ''
+          )
+        )
+      `;
+
+    const quantityNumeric =
+      sql`
+        case
+          when
+            ${quantityText}
+            ~
+            '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
+          then
+            (${quantityText})::numeric
+
+          else null
+        end
+      `;
+
+    const minimumQuantity =
+      sql`
+        coalesce(
+          (
+            select
+              tap_validation.minimum_quantity
+
+            from
+              tariff_annex_products
+                tap_validation
+
+            where
+              tap_validation.codigo_producto =
+                i.codigo_medicamento
+
+              and tap_validation.active =
+                true
+
+            order by
+              tap_validation.updated_at
+                desc,
+              tap_validation.id
+                desc
+
+            limit 1
+          ),
+          1
+        )
+      `;
+
+    return sql`
+      coalesce(
+        i.enablement_status,
+        ''
+      ) =
+      'ENABLED'
+
+      and
+      i.tariff_membership_status =
+      'LISTED'
+
+      and
+      ${quantityNumeric}
+        is not null
+
+      and
+      ${quantityNumeric}
+        > 0
+
+      and
+      trunc(
+        ${quantityNumeric}
+      ) =
+      ${quantityNumeric}
+
+      and
+      ${minimumQuantity}
+        > 0
+
+      and
+      ${quantityNumeric}
+        >=
+      ${minimumQuantity}
+
+      and (
+        (
+          i.coverage_type =
+            'PBS'
+
+          and
+          i.direction_status =
+            'NOT_APPLICABLE'
+        )
+
+        or
+
+        (
+          i.coverage_type =
+            'NO_PBS'
+
+          and
+          i.direction_status =
+            'CONFIRMED'
+        )
+      )
+    `;
+  }
+
+
+  private operationalEligibility(): SQL {
+    return sql`
+      (
+        ${this.initialValidationPassed()}
+      )
+
+      and
+
+      (
+        ${this.validityWindow()}
+      )
+    `;
+  }
+
 
   async list(
     filters:
@@ -601,6 +740,70 @@ export class AuthorizationQueryRepository {
         )
       `);
     }
+
+    /*
+     * OPERATIONAL ELIGIBILITY FILTER
+     *
+     * ASSIGNED y UNASSIGNED son estados de una AUTO
+     * actualmente operable.
+     *
+     * Una AUTO que no supera validación/vigencia queda
+     * OUT_OF_OPERATION mientras no exista un cumplimiento
+     * histórico que la cierre.
+     */
+    if (
+      filters.operationalStatus ===
+        'ASSIGNED'
+      ||
+      filters.operationalStatus ===
+        'UNASSIGNED'
+    ) {
+      conditions.push(
+        this.operationalEligibility(),
+      );
+    }
+
+
+    if (
+      filters.operationalStatus ===
+        'OUT_OF_OPERATION'
+    ) {
+      conditions.push(sql`
+        not exists (
+          select 1
+
+          from
+            authorization_fulfillments
+              af_filter
+
+          where
+            af_filter.authorization_item_id =
+              i.id
+        )
+
+        and
+
+        not exists (
+          select 1
+
+          from
+            patient_applications
+              pa_filter
+
+          where
+            pa_filter.authorization_item_id =
+              i.id
+
+            and pa_filter.status =
+              'CONFIRMED'
+        )
+
+        and not (
+          ${this.operationalEligibility()}
+        )
+      `);
+    }
+
 
     const where =
       sql.join(
@@ -2060,6 +2263,13 @@ export class AuthorizationQueryRepository {
         row.review_status,
       );
 
+    const operationalEligible =
+      initialValidationStatus ===
+        'PASSED'
+      &&
+      validityStatus ===
+        'IN_WINDOW';
+
     return {
       id:
         row.id,
@@ -2095,12 +2305,7 @@ export class AuthorizationQueryRepository {
 
       validityStatus,
 
-      operationalEligible:
-        initialValidationStatus ===
-          'PASSED'
-        &&
-        validityStatus ===
-          'IN_WINDOW',
+      operationalEligible,
 
       fulfillmentStatus,
 
@@ -2118,6 +2323,8 @@ export class AuthorizationQueryRepository {
             Boolean(
               row.fulfillment_id,
             ),
+
+          operationalEligible,
 
           remainingAssignedQuantity:
             Number(

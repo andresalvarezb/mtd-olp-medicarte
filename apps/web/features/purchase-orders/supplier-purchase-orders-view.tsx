@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useEffect,
   useState,
 } from 'react';
 
@@ -76,6 +77,7 @@ export function SupplierPurchaseOrdersView() {
           organizationId,
         ),
       [organizationId],
+      ['PURCHASE_ORDERS'],
     );
 
   const [
@@ -85,6 +87,14 @@ export function SupplierPurchaseOrdersView() {
     useState<
       SupplierPurchaseOrderResponse | null
     >(null);
+
+  const selectedOrderId = selected?.id ?? null;
+
+  useEffect(() => {
+    if (!selectedOrderId) return;
+    const refreshed = orders.data?.items.find((order) => order.id === selectedOrderId);
+    if (refreshed) setSelected(refreshed);
+  }, [orders.data, selectedOrderId]);
 
   const [
     quantities,

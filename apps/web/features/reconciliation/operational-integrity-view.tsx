@@ -102,7 +102,11 @@ export function OperationalIntegrityView() {
   const [commercialCode, setCommercialCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const runs = useApiData(() => listReconciliationRuns(organizationId), [organizationId]);
+  const runs = useApiData(
+    () => listReconciliationRuns(organizationId),
+    [organizationId],
+    ['RECONCILIATION'],
+  );
   const periods = useApiData(() => listPlanningPeriods(organizationId), [organizationId]);
   const points = useApiData(() => listDispensingPoints(organizationId), [organizationId]);
   const selectedRun = useApiData(
@@ -111,6 +115,7 @@ export function OperationalIntegrityView() {
         ? getReconciliationRun(organizationId, selectedId)
         : Promise.resolve(null as ReconciliationRunResponse | null),
     [organizationId, selectedId],
+    ['RECONCILIATION'],
   );
   const findings = useApiData(
     () =>
@@ -135,6 +140,7 @@ export function OperationalIntegrityView() {
       dispensingPointId,
       commercialCode,
     ],
+    ['RECONCILIATION'],
   );
   const selectedFinding =
     findings.data?.items.find((item) => item.id === selectedFindingId) ??

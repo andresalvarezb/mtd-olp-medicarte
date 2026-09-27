@@ -119,6 +119,7 @@ export function OperationalIssuesPanel({
         limit: 200,
       }),
     [organizationId, status, severity, domain],
+    ['RECONCILIATION'],
   );
   const selected = useApiData(
     () =>
@@ -126,6 +127,7 @@ export function OperationalIssuesPanel({
         ? getReconciliationIssue(organizationId, selectedId)
         : Promise.resolve(null as ReconciliationIssueResponse | null),
     [organizationId, selectedId],
+    ['RECONCILIATION'],
   );
   const occurrences = useApiData(
     () =>
@@ -133,16 +135,19 @@ export function OperationalIssuesPanel({
         ? listIssueFindings(organizationId, selectedId, { limit: 50 })
         : Promise.resolve({ items: [] }),
     [organizationId, selectedId],
+    ['RECONCILIATION'],
   );
   const events = useApiData(
     () =>
       selectedId ? listIssueEvents(organizationId, selectedId) : Promise.resolve({ items: [] }),
     [organizationId, selectedId],
+    ['RECONCILIATION'],
   );
   const comments = useApiData(
     () =>
       selectedId ? listIssueComments(organizationId, selectedId) : Promise.resolve({ items: [] }),
     [organizationId, selectedId],
+    ['RECONCILIATION'],
   );
   const assignees = useApiData(
     () => (canTriage ? listIssueAssignees(organizationId) : Promise.resolve({ items: [] })),

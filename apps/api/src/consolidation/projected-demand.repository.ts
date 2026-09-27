@@ -16,6 +16,7 @@ import type {
   ProjectedDemandSourceResponse,
 } from '@authorization/contracts';
 import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 type Database = ReturnType<typeof createDatabase>;
 type Transaction = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -761,6 +762,13 @@ export class ProjectedDemandRepository {
         'SUCCESS'
       )
     `);
+    await tx.execute(
+      realtimeInvalidationSql({
+        organizationCodes: REALTIME_AUDIENCE.PROCUREMENT,
+        topics: ['PURCHASE_ORDERS', 'DASHBOARD'],
+        correlationId: actor.correlationId,
+      }),
+    );
   }
 }
 

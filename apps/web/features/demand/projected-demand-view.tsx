@@ -32,7 +32,7 @@ function describeError(error: unknown): string {
 export function ProjectedDemandView() {
   const { organizationId, hasPermission } = useRole();
   const canConsolidate = hasPermission('projected_demand.manage');
-  const periods = useApiData(() => listPlanningPeriods(organizationId), [organizationId]);
+  const periods = useApiData(() => listPlanningPeriods(organizationId), [organizationId], ['PURCHASE_ORDERS', 'DASHBOARD']);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');
   const [selectedLine, setSelectedLine] = useState<ProjectedDemandLineResponse | null>(null);
   const [sources, setSources] = useState<
@@ -49,6 +49,7 @@ export function ProjectedDemandView() {
         ? listProjectedDemand(organizationId, { planningPeriodId: selectedPeriodId })
         : Promise.resolve({ items: [] }),
     [organizationId, selectedPeriodId],
+    ['PURCHASE_ORDERS', 'DASHBOARD'],
   );
 
   const run = (action: () => Promise<void>): void => {

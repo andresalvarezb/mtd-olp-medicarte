@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import type { createDatabase } from '@authorization/database';
 import { DATABASE } from '../tokens';
+import { appendReconciliationRealtime } from './reconciliation-realtime';
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -152,6 +153,14 @@ export class ReconciliationOperationsRepository {
             input.userId,
           ],
         );
+        await appendReconciliationRealtime(client, {
+          organizationId: input.tenantId,
+          resource: {
+            type: 'reconciliation_operation_policy',
+            id: updateResult.rows[0]!.id,
+          },
+        });
+
         await client.query('COMMIT');
         return { policy: updateResult.rows[0]!, isNew: false };
       }
@@ -180,6 +189,14 @@ export class ReconciliationOperationsRepository {
           input.userId,
         ],
       );
+      await appendReconciliationRealtime(client, {
+        organizationId: input.tenantId,
+        resource: {
+          type: 'reconciliation_operation_policy',
+          id: insertResult.rows[0]!.id,
+        },
+      });
+
       await client.query('COMMIT');
       return { policy: insertResult.rows[0]!, isNew: true };
     } catch (err) {
@@ -207,7 +224,20 @@ export class ReconciliationOperationsRepository {
         RETURNING *`,
       [tenantId, enabled, nextRunAt ? nextRunAt.toISOString() : null, userId],
     );
-    return result.rows[0] ?? null;
+
+    const policy = result.rows[0] ?? null;
+
+    if (policy) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: tenantId,
+        resource: {
+          type: 'reconciliation_operation_policy',
+          id: policy.id,
+        },
+      });
+    }
+
+    return policy;
   }
 
   async findDuePolicies(client?: PoolClient): Promise<OperationPolicyRow[]> {
@@ -278,7 +308,20 @@ export class ReconciliationOperationsRepository {
        RETURNING *`,
       [tenantId, policyId, scheduledFor.toISOString(), initialStatus, missedCount, skipReason],
     );
-    return result.rows[0] ?? null;
+
+    const execution = result.rows[0] ?? null;
+
+    if (execution) {
+      await appendReconciliationRealtime(q, {
+        organizationId: tenantId,
+        resource: {
+          type: 'reconciliation_operation_execution',
+          id: execution.id,
+        },
+      });
+    }
+
+    return execution;
   }
 
   async createManualExecution(
@@ -293,7 +336,18 @@ export class ReconciliationOperationsRepository {
        RETURNING *`,
       [tenantId, initialStatus, skipReason],
     );
-    return result.rows[0]!;
+
+    const execution = result.rows[0]!;
+
+    await appendReconciliationRealtime(this.database.pool, {
+      organizationId: tenantId,
+      resource: {
+        type: 'reconciliation_operation_execution',
+        id: execution.id,
+      },
+    });
+
+    return execution;
   }
 
   async getExecution(tenantId: string, id: string): Promise<OperationExecutionRow | null> {
@@ -375,7 +429,20 @@ export class ReconciliationOperationsRepository {
         RETURNING *`,
       [executionId, claimToken, leaseSeconds],
     );
-    return result.rows[0] ?? null;
+
+    const execution = result.rows[0] ?? null;
+
+    if (execution) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: execution.tenant_id,
+        resource: {
+          type: 'reconciliation_operation_execution',
+          id: execution.id,
+        },
+      });
+    }
+
+    return execution;
   }
 
   async startExecution(
@@ -396,7 +463,20 @@ export class ReconciliationOperationsRepository {
         RETURNING *`,
       [executionId, claimToken, claimGeneration, leaseSeconds],
     );
-    return result.rows[0] ?? null;
+
+    const execution = result.rows[0] ?? null;
+
+    if (execution) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: execution.tenant_id,
+        resource: {
+          type: 'reconciliation_operation_execution',
+          id: execution.id,
+        },
+      });
+    }
+
+    return execution;
   }
 
   async renewLease(
@@ -434,7 +514,20 @@ export class ReconciliationOperationsRepository {
         RETURNING *`,
       [executionId, claimToken, claimGeneration],
     );
-    return result.rows[0] ?? null;
+
+    const execution = result.rows[0] ?? null;
+
+    if (execution) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: execution.tenant_id,
+        resource: {
+          type: 'reconciliation_operation_execution',
+          id: execution.id,
+        },
+      });
+    }
+
+    return execution;
   }
 
   async failExecution(
@@ -457,7 +550,20 @@ export class ReconciliationOperationsRepository {
         RETURNING *`,
       [executionId, claimToken, claimGeneration, errorCode, errorMessage],
     );
-    return result.rows[0] ?? null;
+
+    const execution = result.rows[0] ?? null;
+
+    if (execution) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: execution.tenant_id,
+        resource: {
+          type: 'reconciliation_operation_execution',
+          id: execution.id,
+        },
+      });
+    }
+
+    return execution;
   }
 
   async cancelPendingExecution(
@@ -484,20 +590,53 @@ export class ReconciliationOperationsRepository {
         RETURNING id`,
       [executionId, tenantId],
     );
-    return { cancelled: updated.rows.length > 0 };
+
+    const cancelled = updated.rows.length > 0;
+
+    if (cancelled) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: tenantId,
+        resource: {
+          type: 'reconciliation_operation_execution',
+          id: executionId,
+        },
+      });
+    }
+
+    return { cancelled };
   }
 
   async cancelPendingExecutionsByPolicy(policyId: string, reason: string): Promise<number> {
-    const result = await this.database.pool.query<{ id: string }>(
+    const result = await this.database.pool.query<{
+      id: string;
+      tenant_id: string;
+    }>(
       `UPDATE reconciliation_operation_executions
           SET status = 'CANCELLED',
               skip_reason = $2,
               completed_at = now(),
               updated_at = now()
         WHERE policy_id = $1 AND status = 'PENDING'
-        RETURNING id`,
+        RETURNING id, tenant_id`,
       [policyId, reason],
     );
+
+    const tenantIds = [
+      ...new Set(
+        result.rows.map((row) => row.tenant_id),
+      ),
+    ];
+
+    for (const tenantId of tenantIds) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: tenantId,
+        resource: {
+          type: 'reconciliation_operation_policy',
+          id: policyId,
+        },
+      });
+    }
+
     return result.rows.length;
   }
 
@@ -622,7 +761,20 @@ export class ReconciliationOperationsRepository {
         JSON.stringify(data.payload),
       ],
     );
-    return result.rows[0] ?? null;
+
+    const notification = result.rows[0] ?? null;
+
+    if (notification) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: data.tenantId,
+        resource: {
+          type: 'reconciliation_notification',
+          id: notification.id,
+        },
+      });
+    }
+
+    return notification;
   }
 
   async listNotifications(
@@ -674,7 +826,20 @@ export class ReconciliationOperationsRepository {
         RETURNING *`,
       [notificationId, tenantId],
     );
-    return result.rows[0] ?? null;
+
+    const notification = result.rows[0] ?? null;
+
+    if (notification) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: tenantId,
+        resource: {
+          type: 'reconciliation_notification',
+          id: notificationId,
+        },
+      });
+    }
+
+    return notification;
   }
 
   async markAllNotificationsRead(tenantId: string): Promise<number> {
@@ -689,7 +854,24 @@ export class ReconciliationOperationsRepository {
        SELECT count(*)::text AS count FROM updated`,
       [tenantId],
     );
-    return parseInt(result.rows[0]?.count ?? '0', 10);
+
+    const count =
+      parseInt(
+        result.rows[0]?.count ?? '0',
+        10,
+      );
+
+    if (count > 0) {
+      await appendReconciliationRealtime(this.database.pool, {
+        organizationId: tenantId,
+        resource: {
+          type: 'reconciliation_notifications',
+          id: tenantId,
+        },
+      });
+    }
+
+    return count;
   }
 
   async insertAudit(input: {

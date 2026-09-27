@@ -15,6 +15,7 @@ import type { createDatabase } from '@authorization/database';
 import type { Scope } from '../common/request-scope';
 import { LegacyCompatibilityProjectionService } from '../legacy/legacy-compatibility-projection.service';
 import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 type Database = ReturnType<typeof createDatabase>;
 type Tx = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -460,5 +461,12 @@ export class PatientApplicationAuditRepository {
         'patient_application_audit', ${id}, ${JSON.stringify(after)}::jsonb,
         ${scope.correlationId}, ${scope.correlationId}, 'SUCCESS')
     `);
+    await tx.execute(
+      realtimeInvalidationSql({
+        organizationCodes: REALTIME_AUDIENCE.AUTHORIZATION,
+        topics: ['AUTHORIZATIONS', 'NOVELTIES', 'DASHBOARD'],
+        correlationId: scope.correlationId,
+      }),
+    );
   }
 }

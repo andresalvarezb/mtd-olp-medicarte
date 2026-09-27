@@ -75,15 +75,17 @@ export function OperationalIndicatorsView() {
     }),
     [planningPeriodId, dispensingPointId, commercialCode, dateFrom, dateTo],
   );
-  const periods = useApiData(() => listPlanningPeriods(organizationId), [organizationId]);
-  const points = useApiData(() => listDispensingPoints(organizationId), [organizationId]);
+  const periods = useApiData(() => listPlanningPeriods(organizationId), [organizationId], ['DASHBOARD']);
+  const points = useApiData(() => listDispensingPoints(organizationId), [organizationId], ['DASHBOARD']);
   const analytics = useApiData(
     () => getOperationalAnalytics(organizationId, query),
     [organizationId, JSON.stringify(query)],
+    ['AUTHORIZATIONS', 'NOVELTIES', 'PURCHASE_ORDERS', 'INVENTORY', 'DASHBOARD'],
   );
   const inventory = useApiData(
     () => getAnalyticsInventory(organizationId, query),
     [organizationId, JSON.stringify(query)],
+    ['INVENTORY', 'DASHBOARD'],
   );
   const drilldown = useApiData(
     () =>
@@ -91,6 +93,7 @@ export function OperationalIndicatorsView() {
         ? getAnalyticsDrilldown(organizationId, { ...query, kind: drilldownKind, limit: 100 })
         : Promise.resolve({ kind: 'projected' as const, items: [] }),
     [organizationId, JSON.stringify(query), drilldownKind],
+    ['AUTHORIZATIONS', 'PURCHASE_ORDERS', 'INVENTORY', 'DASHBOARD'],
   );
   const data = analytics.data;
   const economics = data?.economics;

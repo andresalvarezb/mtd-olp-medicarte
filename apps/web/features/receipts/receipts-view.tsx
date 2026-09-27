@@ -59,6 +59,7 @@ export function ReceiptsView() {
           organizationId,
         ),
       [organizationId],
+      ['PURCHASE_ORDERS', 'INVENTORY'],
     );
 
   const [

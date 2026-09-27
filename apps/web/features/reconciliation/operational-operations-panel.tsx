@@ -64,7 +64,11 @@ export function OperationalOperationsPanel({
   const [notifyOnRecovery, setNotifyOnRecovery] = useState<boolean>(true);
   const [notifyOnTechnicalFailure, setNotifyOnTechnicalFailure] = useState<boolean>(true);
 
-  const policyData = useApiData(() => getOperationPolicy(organizationId), [organizationId]);
+  const policyData = useApiData(
+    () => getOperationPolicy(organizationId),
+    [organizationId],
+    ['RECONCILIATION'],
+  );
 
   const executionsData = useApiData(
     () =>
@@ -74,6 +78,7 @@ export function OperationalOperationsPanel({
         limit: 100,
       }),
     [organizationId, statusFilter, triggerFilter],
+    ['RECONCILIATION'],
   );
 
   const policy: ReconciliationOperationPolicyResponse | null = policyData.data?.policy ?? null;

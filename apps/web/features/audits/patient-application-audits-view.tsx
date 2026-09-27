@@ -59,6 +59,7 @@ export function PatientApplicationAuditsView() {
         limit: 500,
       }),
     [organizationId, status],
+    ['AUTHORIZATIONS', 'NOVELTIES', 'DASHBOARD'],
   );
   const selected =
     audits.data?.items.find((item) => item.patientApplicationId === selectedApplicationId) ?? null;

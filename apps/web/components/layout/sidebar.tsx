@@ -36,6 +36,10 @@ import {
   useRole,
 } from '@/components/layout/role-context';
 
+import {
+  useRealtimeStatus,
+} from '@/components/realtime/realtime-context';
+
 interface SidebarProps {
   open: boolean;
   onClose: () => void;
@@ -93,6 +97,9 @@ export function Sidebar({
     logout,
     hasPermission,
   } = useRole();
+
+  const realtimeStatus =
+    useRealtimeStatus();
 
   const pathname =
     usePathname();
@@ -477,6 +484,17 @@ export function Sidebar({
 
             <span>
               {roleLabel}
+            </span>
+
+            <span
+              className={[
+                'sidebar-realtime-status',
+                realtimeStatus === 'connected' ? 'connected' : 'reconnecting',
+              ].join(' ')}
+            >
+              {realtimeStatus === 'connected'
+                ? '● Sincronizado'
+                : '○ Reconectando…'}
             </span>
           </div>
 

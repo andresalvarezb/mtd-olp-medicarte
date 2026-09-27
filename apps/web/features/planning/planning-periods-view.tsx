@@ -79,7 +79,7 @@ const EMPTY_FORM: FormState = {
 export function PlanningPeriodsView() {
   const { organizationId, hasPermission } = useRole();
   const canManage = hasPermission('planning_periods.manage');
-  const periods = useApiData(() => listPlanningPeriods(organizationId), [organizationId]);
+  const periods = useApiData(() => listPlanningPeriods(organizationId), [organizationId], ['PURCHASE_ORDERS', 'DASHBOARD']);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [editing, setEditing] = useState<PlanningPeriodResponse | null>(null);
   const [selected, setSelected] = useState<PlanningPeriodResponse | null>(null);

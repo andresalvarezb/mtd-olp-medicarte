@@ -2,11 +2,11 @@ import { Client } from 'pg';
 
 const databaseUrl =
   process.env.DATABASE_URL ??
-  'postgresql://authorization:authorization@localhost:15432/authorization_test_integration';
+  'postgresql://authorization:authorization@localhost:25432/authorization_test_integration';
 const parsed = new URL(databaseUrl);
 if (
   parsed.hostname !== 'localhost' ||
-  parsed.port !== '15432' ||
+  parsed.port !== '25432' ||
   !parsed.pathname.includes('authorization_test_integration')
 ) {
   throw new Error(

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Poppins } from 'next/font/google';
 import { RoleProvider } from '@/components/layout/role-context';
 import { AppShell } from '@/components/layout/app-shell';
+import { RealtimeProvider } from '@/components/realtime/realtime-context';
 import './globals.css';
 
 const poppins = Poppins({
@@ -27,7 +28,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="es" className={poppins.variable}>
       <body className={poppins.className}>
         <RoleProvider>
-          <AppShell>{children}</AppShell>
+          <RealtimeProvider>
+            <AppShell>{children}</AppShell>
+          </RealtimeProvider>
         </RoleProvider>
       </body>
     </html>

@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import type { RealtimeTopic } from '@authorization/contracts';
+import { useRealtimeRevision } from '@/components/realtime/realtime-context';
 
 interface UseApiDataResult<T> {
   data: T | null;
@@ -9,12 +11,17 @@ interface UseApiDataResult<T> {
   reload: () => void;
 }
 
-/** Obtiene datos de la API al montar y cuando cambian las dependencias. */
-export function useApiData<T>(fetcher: () => Promise<T>, deps: unknown[]): UseApiDataResult<T> {
+/** Obtiene datos de la API y reconcilia en segundo plano tras invalidaciones realtime. */
+export function useApiData<T>(
+  fetcher: () => Promise<T>,
+  deps: unknown[],
+  realtimeTopics: readonly RealtimeTopic[] = [],
+): UseApiDataResult<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [nonce, setNonce] = useState(0);
+  const realtimeRevision = useRealtimeRevision(realtimeTopics);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,7 +55,38 @@ export function useApiData<T>(fetcher: () => Promise<T>, deps: unknown[]): UseAp
     };
   }, [...deps, nonce]);
 
-  const reload = useCallback(() => setNonce((value) => value + 1), []);
+  useEffect(() => {
+    if (realtimeRevision === 0) return;
+    let cancelled = false;
 
+    fetcher()
+      .then((result) => {
+        if (cancelled) return;
+        setData(result);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (
+          err instanceof Error &&
+          'code' in err &&
+          (err as { code: string }).code === 'POINT_ACCESS_DENIED'
+        ) {
+          setData(null);
+          setError(
+            'No tienes acceso a este punto de dispensación. Actualiza para ver el alcance vigente.',
+          );
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Error inesperado al reconciliar la API.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [realtimeRevision]);
+
+  const reload = useCallback(() => setNonce((value) => value + 1), []);
   return { data, error, loading, reload };
 }

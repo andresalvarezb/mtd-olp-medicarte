@@ -31,14 +31,17 @@ export function PatientApplicationsView() {
   const applications = useApiData(
     () => listPatientApplications(organizationId, appliedFilters),
     [organizationId, appliedFilters],
+    ['AUTHORIZATIONS', 'NOVELTIES', 'INVENTORY'],
   );
   const schedules = useApiData(
     () => listEligibleApplicationSchedules(organizationId),
     [organizationId],
+    ['AUTHORIZATIONS', 'DASHBOARD'],
   );
   const inventory = useApiData(
     () => listInventory(organizationId, { usable: 'true' }),
     [organizationId],
+    ['INVENTORY'],
   );
   const [scheduleId, setScheduleId] = useState('');
   const [selected, setSelected] = useState<Record<string, number>>({});

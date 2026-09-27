@@ -6,6 +6,7 @@ import {
   parseCumProductIdentity,
 } from '@authorization/domain';
 import { DATABASE } from '../tokens';
+import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 import {
   buildTariffPreview,
   type ActiveDeliveryPointMapping,
@@ -381,6 +382,14 @@ export class TariffAnnexRepository {
           and organization_id = ${input.actor.organizationId}
           and status = 'CONFIRMING'
       `);
+
+      await tx.execute(
+        realtimeInvalidationSql({
+          organizationCodes: REALTIME_AUDIENCE.TARIFF,
+          topics: ['TARIFF_ANNEX', 'AUTHORIZATIONS', 'NOVELTIES', 'DASHBOARD'],
+          correlationId: input.actor.correlationId,
+        }),
+      );
 
       return {
         outcome: 'completed',
