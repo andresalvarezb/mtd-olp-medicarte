@@ -813,7 +813,7 @@ export class ExportablesService {
      * HOJA 1: OC_PRODUCTOS
      *
      * Unidad:
-     *   OC + producto
+     *   OC + producto + punto
      *
      * CANTIDAD_SOLICITADA:
      *   cantidad solicitada por MTD.
@@ -926,6 +926,11 @@ export class ExportablesService {
 
               pol.commercial_code,
 
+              pol.dispensing_point_id,
+
+              point.name
+                as dispensing_point_name,
+
               coalesce(
                 nullif(
                   btrim(
@@ -986,6 +991,12 @@ export class ExportablesService {
                 pol.purchase_order_id
 
             left join
+              dispensing_points point
+              on
+                point.id =
+                pol.dispensing_point_id
+
+            left join
               tariff_annex_products tap
               on
                 tap.codigo_producto =
@@ -1028,7 +1039,10 @@ export class ExportablesService {
             sum(
               medicarte_quantity
             )::int
-              as "CANTIDAD_MEDICARTE"
+              as "CANTIDAD_MEDICARTE",
+
+            dispensing_point_name
+              as "PUNTO"
 
           from
             line_base
@@ -1036,13 +1050,18 @@ export class ExportablesService {
           group by
             purchase_order_id,
             purchase_order_code,
-            commercial_code
+            commercial_code,
+            dispensing_point_id,
+            dispensing_point_name
 
           order by
             purchase_order_code
               nulls last,
 
-            commercial_code
+            commercial_code,
+
+            dispensing_point_name
+              nulls last
         `,
       );
 
@@ -1107,7 +1126,10 @@ export class ExportablesService {
               as "CANTIDAD_AUTO",
 
             source.source_quantity_snapshot
-              as "CANTIDAD_APORTADA_A_OC"
+              as "CANTIDAD_APORTADA_A_OC",
+
+            point.name
+              as "PUNTO"
 
           from
             purchase_order_authorization_sources
@@ -1125,6 +1147,12 @@ export class ExportablesService {
               po.id =
               pol.purchase_order_id
 
+          left join
+            dispensing_points point
+            on
+              point.id =
+              pol.dispensing_point_id
+
           join
             authorization_items ai
             on
@@ -1136,6 +1164,9 @@ export class ExportablesService {
               nulls last,
 
             pol.commercial_code,
+
+            point.name
+              nulls last,
 
             ai.numero_autorizacion,
 
@@ -1158,6 +1189,7 @@ export class ExportablesService {
         'CANTIDAD_SOLICITADA',
         'CANTIDAD_OLP',
         'CANTIDAD_MEDICARTE',
+        'PUNTO',
       ],
       products.rows,
     );
@@ -1173,6 +1205,7 @@ export class ExportablesService {
         'CODIGO_PRODUCTO',
         'CANTIDAD_AUTO',
         'CANTIDAD_APORTADA_A_OC',
+        'PUNTO',
       ],
       authorizations.rows,
     );
