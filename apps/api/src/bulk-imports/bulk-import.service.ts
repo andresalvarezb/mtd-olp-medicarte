@@ -546,16 +546,118 @@ function textValue(value: unknown): string | null {
   return null;
 }
 
-function dateValue(value: unknown): string | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
+function strictCalendarDate(value: string): string | null {
+  const match =
+    /^(\d{4})[-/]?(\d{2})[-/]?(\d{2})/.exec(
+      value,
+    );
+
+  if (!match) {
+    return null;
   }
-  const text = textValue(value);
-  if (!text) return null;
-  const match = /^(\d{4})[-/]?(\d{2})[-/]?(\d{2})/.exec(text);
-  return match ? `${match[1]}-${match[2]}-${match[3]}` : text;
+
+  const iso =
+    `${match[1]}-${match[2]}-${match[3]}`;
+
+  const instant =
+    new Date(
+      `${iso}T00:00:00.000Z`,
+    );
+
+  if (
+    Number.isNaN(
+      instant.getTime(),
+    ) ||
+    instant
+      .toISOString()
+      .slice(
+        0,
+        10,
+      ) !== iso
+  ) {
+    return null;
+  }
+
+  return iso;
+}
+
+export function dateValue(
+  value: unknown,
+): string | null {
+  if (
+    typeof value === 'number' &&
+    Number.isFinite(
+      value,
+    )
+  ) {
+    /*
+     * Una fecha fuente YYYYMMDD puede llegar desde Excel como
+     * número puro (ej. 20261031).
+     *
+     * Ese valor NO es un serial Excel. Interpretarlo como tal
+     * produce años extendidos del tipo +057xxx.
+     */
+    if (
+      Number.isInteger(
+        value,
+      )
+    ) {
+      const numericText =
+        String(
+          value,
+        );
+
+      if (
+        /^\d{8}$/.test(
+          numericText,
+        )
+      ) {
+        return (
+          strictCalendarDate(
+            numericText,
+          ) ??
+          numericText
+        );
+      }
+    }
+
+    /*
+     * Los seriales Excel reales continúan soportados.
+     * Ejemplo: 45658 = 2025-01-01.
+     */
+    return new Date(
+      Date.UTC(
+        1899,
+        11,
+        30,
+      ) +
+        Math.round(
+          value,
+        ) *
+          86_400_000,
+    )
+      .toISOString()
+      .slice(
+        0,
+        10,
+      );
+  }
+
+  const text =
+    textValue(
+      value,
+    );
+
+  if (!text) {
+    return null;
+  }
+
+  return (
+    strictCalendarDate(
+      text,
+    ) ??
+    text
+  );
 }
 
 function mapDomainError(error: unknown): { code: string; message: string } {
