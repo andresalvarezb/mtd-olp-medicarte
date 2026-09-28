@@ -1860,6 +1860,7 @@ export class ExportablesService {
         'PRODUCTO_MINIMO',
         'VALIDACION_INICIAL',
         'HABILITACION',
+        'MOTIVO_HABILITACION',
         'VIGENCIA',
         'TIPO_COBERTURA',
         'ESTADO_DIRECCIONAMIENTO',
@@ -2009,6 +2010,20 @@ export class ExportablesService {
                   'DISABLED'
                 ? 'Inhabilitada'
                 : 'Pendiente';
+
+
+          output[
+            'MOTIVO_HABILITACION'
+          ] =
+            canonical
+              .lifecycleReasons
+              .map(
+                (reason) =>
+                  reason.message,
+              )
+              .join(
+                ' | ',
+              );
 
 
           const validity =

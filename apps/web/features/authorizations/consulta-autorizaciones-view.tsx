@@ -78,6 +78,28 @@ function authorizationLifecycleLabel(
   ];
 }
 
+function authorizationLifecycleReasonText(
+  item:
+    AuthorizationQueryItem,
+): string {
+  if (
+    item.lifecycleReasons.length ===
+      0
+  ) {
+    return 'Sin bloqueos';
+  }
+
+  return item.lifecycleReasons
+    .map(
+      (reason) =>
+        reason.message,
+    )
+    .join(
+      ' · ',
+    );
+}
+
+
 function validityLabel(
   status:
     AuthorizationQueryItem['validityStatus'],
@@ -1408,7 +1430,7 @@ const query = useApiData(
           <div className="table-wrap">
             <table
               style={{
-                minWidth: '1245px',
+                minWidth: '1540px',
                 tableLayout: 'fixed',
               }}
             >
@@ -1418,6 +1440,7 @@ const query = useApiData(
                 <col style={{ width: '205px' }} />
                 <col style={{ width: '60px' }} />
                 <col style={{ width: '145px' }} />
+                <col style={{ width: '220px' }} />
                 <col style={{ width: '225px' }} />
                 <col style={{ width: '155px' }} />
                 <col style={{ width: '130px' }} />
@@ -1435,6 +1458,8 @@ const query = useApiData(
                   <th>Cant.</th>
 
                   <th>Vigencia</th>
+
+                  <th>Habilitación</th>
 
                   <th>Estado operativo</th>
 
@@ -1521,6 +1546,39 @@ const query = useApiData(
                                     item.validityEndDate,
                                   )}`
                                 : 'Fechas no válidas'}
+                        </span>
+                      </div>
+                    </td>
+
+                    <td
+                      style={{
+                        verticalAlign: 'middle',
+                      }}
+                    >
+                      <div
+                        className="authorization-cell-stack"
+                        style={{
+                          whiteSpace:
+                            'normal',
+
+                          lineHeight:
+                            1.25,
+                        }}
+                      >
+                        <strong>
+                          {authorizationLifecycleLabel(
+                            item,
+                          )}
+                        </strong>
+
+                        <span
+                          title={authorizationLifecycleReasonText(
+                            item,
+                          )}
+                        >
+                          {authorizationLifecycleReasonText(
+                            item,
+                          )}
                         </span>
                       </div>
                     </td>
@@ -1899,6 +1957,26 @@ const query = useApiData(
 
                 <strong>
                   {authorizationLifecycleLabel(
+                    selected,
+                  )}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Motivo de habilitación
+                </span>
+
+                <strong
+                  style={{
+                    whiteSpace:
+                      'normal',
+
+                    lineHeight:
+                      1.35,
+                  }}
+                >
+                  {authorizationLifecycleReasonText(
                     selected,
                   )}
                 </strong>

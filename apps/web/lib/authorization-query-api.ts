@@ -30,6 +30,28 @@ export type AuthorizationLifecycleStatus =
   | 'PENDING'
   | 'DISABLED';
 
+export type AuthorizationLifecycleReasonCode =
+  | 'SOURCE_STATUS_BLOCKED'
+  | 'PRODUCT_NOT_IN_TARIFF'
+  | 'INVALID_QUANTITY'
+  | 'INVALID_MINIMUM_QUANTITY'
+  | 'BELOW_MINIMUM_QUANTITY'
+  | 'INVALID_DATE'
+  | 'EXPIRED'
+  | 'TARIFF_VALIDATION_PENDING'
+  | 'DIRECTION_PENDING'
+  | 'COVERAGE_PENDING'
+  | 'OUTSIDE_HORIZON';
+
+export type AuthorizationLifecycleReason =
+  Readonly<{
+    code:
+      AuthorizationLifecycleReasonCode;
+
+    message:
+      string;
+  }>;
+
 export type AuthorizationQueryAuditStatus =
   | 'PENDING'
   | 'IN_REVIEW'
@@ -113,6 +135,9 @@ export type AuthorizationQueryItem = {
 
   lifecycleEnablement:
     AuthorizationLifecycleStatus;
+
+  lifecycleReasons:
+    AuthorizationLifecycleReason[];
 
   operationalEligible:
     boolean;

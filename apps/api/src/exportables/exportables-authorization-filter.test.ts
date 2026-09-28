@@ -77,6 +77,16 @@ describe(
               lifecycleEnablement:
                 'DISABLED',
 
+              lifecycleReasons: [
+                {
+                  code:
+                    'EXPIRED',
+
+                  message:
+                    'Fecha final de vigencia vencida',
+                },
+              ],
+
               operationalStatus:
                 'OUT_OF_OPERATION',
             }),
@@ -335,6 +345,20 @@ describe(
           'Inhabilitada',
           'Inhabilitada',
           'Inhabilitada',
+        ]);
+
+
+        expect(
+          rows.map(
+            (row) =>
+              row[
+                'MOTIVO_HABILITACION'
+              ],
+          ),
+        ).toEqual([
+          'Fecha final de vigencia vencida',
+          'Fecha final de vigencia vencida',
+          'Fecha final de vigencia vencida',
         ]);
 
 

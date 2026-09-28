@@ -36,6 +36,7 @@ import {
   resolveAuthorizationAuditStatus,
   resolveAuthorizationFulfillmentStatus,
   resolveAuthorizationInitialValidationStatus,
+  resolveAuthorizationLifecycleReasons,
   resolveAuthorizationLifecycleStatus,
   resolveAuthorizationValidityStatus,
 } from './authorization-query-state';
@@ -2664,6 +2665,32 @@ export class AuthorizationQueryRepository {
         validityStatus,
       });
 
+    const lifecycleReasons =
+      resolveAuthorizationLifecycleReasons({
+        lifecycleStatus:
+          lifecycleEnablement,
+
+        enablementStatus:
+          row.enablement_status,
+
+        tariffMembershipStatus:
+          row.tariff_membership_status,
+
+        coverageType:
+          row.coverage_type,
+
+        directionStatus:
+          row.direction_status,
+
+        quantity:
+          row.quantity,
+
+        minimumQuantity:
+          row.minimum_quantity,
+
+        validityStatus,
+      });
+
     const fulfillmentStatus =
       resolveAuthorizationFulfillmentStatus(
         row.fulfillment_type,
@@ -2725,6 +2752,8 @@ export class AuthorizationQueryRepository {
       validityStatus,
 
       lifecycleEnablement,
+
+      lifecycleReasons,
 
       operationalEligible,
 
