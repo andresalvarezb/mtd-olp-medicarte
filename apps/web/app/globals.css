@@ -7975,3 +7975,290 @@ table.operational-list-table tbody tr:hover {
 }
 
 /* END AUTHORIZATION MANUAL EDIT */
+
+
+/* AUTHORIZATION DETAIL V3 */
+
+.authorization-detail-drawer {
+  width: min(
+    980px,
+    calc(100vw - 48px)
+  );
+
+  padding:
+    24px
+    28px;
+}
+
+.authorization-drawer-tabs {
+  display: flex;
+  align-items: center;
+
+  gap: 6px;
+
+  margin:
+    -6px
+    0
+    24px;
+
+  padding: 4px;
+
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+
+  background: #f8fafc;
+}
+
+.authorization-drawer-tabs button {
+  min-height: 36px;
+
+  padding:
+    8px
+    14px;
+
+  border: 0;
+  border-radius: 8px;
+
+  background: transparent;
+  color: #667085;
+
+  font-size: 12px;
+  font-weight: 650;
+
+  cursor: pointer;
+}
+
+.authorization-drawer-tabs button.active {
+  background: #ffffff;
+  color: #172033;
+
+  box-shadow:
+    0 1px 3px
+    rgba(
+      16,
+      24,
+      40,
+      0.1
+    );
+}
+
+.authorization-drawer-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.authorization-summary-section-heading {
+  display: flex;
+  align-items: baseline;
+
+  gap: 9px;
+
+  margin:
+    22px
+    0
+    10px;
+}
+
+.authorization-summary-section-heading:first-of-type {
+  margin-top: 0;
+}
+
+.authorization-summary-section-heading strong {
+  color: #172033;
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.authorization-summary-section-heading span {
+  color: #667085;
+
+  font-size: 11px;
+}
+
+.authorization-detail-grid.authorization-summary-grid {
+  grid-template-columns:
+    repeat(
+      4,
+      minmax(0, 1fr)
+    );
+
+  gap: 10px;
+}
+
+.authorization-summary-span-2 {
+  grid-column:
+    span 2;
+}
+
+.authorization-summary-span-3 {
+  grid-column:
+    span 3;
+}
+
+.authorization-summary-message {
+  display: flex;
+  align-items: flex-start;
+
+  gap: 12px;
+
+  margin-top: 10px;
+
+  padding:
+    12px
+    14px;
+
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+
+  background: #f8fafc;
+}
+
+.authorization-summary-message strong {
+  flex: 0 0 auto;
+
+  color: #344054;
+
+  font-size: 11px;
+}
+
+.authorization-summary-message span {
+  min-width: 0;
+
+  color: #667085;
+
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.authorization-summary-message.disabled {
+  border-color: #fecdca;
+  background: #fef3f2;
+}
+
+.authorization-summary-message.pending {
+  border-color: #fedf89;
+  background: #fffaeb;
+}
+
+.authorization-summary-message.enabled {
+  border-color: #abefc6;
+  background: #ecfdf3;
+}
+
+.authorization-summary-trace {
+  margin-top: 10px;
+
+  padding:
+    11px
+    14px;
+
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+
+  background: #ffffff;
+}
+
+.authorization-summary-trace > span,
+.authorization-summary-trace > small {
+  display: block;
+
+  color: #667085;
+
+  font-size: 10px;
+}
+
+.authorization-summary-trace strong {
+  display: block;
+
+  margin:
+    4px
+    0;
+
+  color: #172033;
+
+  font-size: 12px;
+}
+
+.authorization-management-context {
+  margin-bottom: 18px;
+}
+
+
+@media (max-width: 1100px) {
+  .authorization-detail-drawer {
+    width: min(
+      900px,
+      calc(100vw - 24px)
+    );
+  }
+
+  .authorization-detail-grid.authorization-summary-grid {
+    grid-template-columns:
+      repeat(
+        2,
+        minmax(0, 1fr)
+      );
+  }
+
+  .authorization-summary-span-3 {
+    grid-column:
+      span 2;
+  }
+}
+
+
+@media (max-width: 640px) {
+  .authorization-detail-drawer {
+    width: 100%;
+    max-width: none;
+
+    padding: 20px;
+  }
+
+  .authorization-drawer-tabs {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .authorization-drawer-tabs button {
+    width: 100%;
+  }
+
+  .authorization-detail-grid.authorization-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .authorization-summary-span-2,
+  .authorization-summary-span-3 {
+    grid-column: auto;
+  }
+
+  .authorization-summary-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+
+    gap: 3px;
+  }
+
+  .authorization-summary-message {
+    flex-direction: column;
+
+    gap: 5px;
+  }
+}
+
+
+.authorization-summary-operation-message {
+  margin-top: 18px;
+
+  padding:
+    14px
+    16px;
+
+  border-color: #dbe3f0;
+
+  background: #f8fafc;
+}
+
+/* END AUTHORIZATION DETAIL V3 */

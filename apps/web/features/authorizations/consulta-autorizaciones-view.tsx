@@ -1761,7 +1761,7 @@ const query = useApiData(
           }}
         >
           <aside
-            className="operation-drawer"
+            className="operation-drawer authorization-detail-drawer"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="operation-drawer-header">
@@ -1790,7 +1790,7 @@ const query = useApiData(
               </div>
 
               <div className="authorization-drawer-actions">
-                {canManualEdit ? (
+                {canManualEdit && !managingAuthorization ? (
                   editingAuthorization ? (
                     <>
                       <button
@@ -1843,330 +1843,537 @@ const query = useApiData(
             </div>
 
 
-            <div className="operation-section-title">
-              Paciente
+            <div
+              className="authorization-drawer-tabs"
+              role="tablist"
+              aria-label="Vista de autorización"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={
+                  !managingAuthorization
+                }
+                className={
+                  !managingAuthorization
+                    ? 'active'
+                    : ''
+                }
+                onClick={() => {
+                  setManagingAuthorization(
+                    false,
+                  );
+
+                  setFulfillmentDate(
+                    '',
+                  );
+
+                  setFulfillmentError(
+                    null,
+                  );
+                }}
+              >
+                Resumen
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={
+                  managingAuthorization
+                }
+                className={
+                  managingAuthorization
+                    ? 'active'
+                    : ''
+                }
+                disabled={
+                  editingAuthorization
+                }
+                title={
+                  editingAuthorization
+                    ? 'Guarda o cancela la edición antes de cambiar de vista.'
+                    : undefined
+                }
+                onClick={() => {
+                  if (
+                    editingAuthorization
+                  ) {
+                    return;
+                  }
+
+                  setManagingAuthorization(
+                    true,
+                  );
+
+                  setFulfillmentType(
+                    'APPLICATION',
+                  );
+
+                  setFulfillmentDate(
+                    '',
+                  );
+
+                  setFulfillmentError(
+                    null,
+                  );
+                }}
+              >
+                Gestionar entrega / aplicación
+              </button>
             </div>
 
-            <div className="authorization-detail-patient">
-              <strong>
-                {selected.patientName ??
-                  'Sin nombre registrado'}
-              </strong>
 
-              <span>
-                {selected.patientDocument ??
-                  'Sin documento'}
-              </span>
-            </div>
-
-
-            <div className="operation-section-title">
-              Medicamento
-            </div>
-
-            <div className="authorization-detail-grid authorization-product-grid">
-              <div>
-                <span>
-                  Código
-                </span>
-
-                {editingAuthorization ? (
-                  <input
-                    className="control authorization-manual-edit-control"
-                    value={authorizationEdit.commercialCode}
-                    onChange={(event) => {
-                      setAuthorizationEdit({
-                        ...authorizationEdit,
-
-                        commercialCode:
-                          event.target.value,
-                      });
-                    }}
-                    aria-label="Código de producto"
-                  />
-                ) : (
+            {!managingAuthorization ? (
+              <>
+                <div className="authorization-summary-section-heading">
                   <strong>
-                    {selected.commercialCode}
+                    Paciente
                   </strong>
-                )}
-              </div>
 
-              <div>
-                <span>
-                  Producto
-                </span>
+                  <span>
+                    ¿A quién corresponde esta autorización?
+                  </span>
+                </div>
 
-                <strong>
-                  {selected.productDescription ??
-                    'Sin nombre'}
-                </strong>
-              </div>
-            </div>
+                <div className="authorization-detail-grid authorization-summary-grid">
+                  <div className="authorization-summary-span-3">
+                    <span>
+                      Paciente
+                    </span>
+
+                    <strong>
+                      {selected.patientName ??
+                        'Sin nombre registrado'}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Documento
+                    </span>
+
+                    <strong>
+                      {selected.patientDocument ??
+                        'Sin documento'}
+                    </strong>
+                  </div>
+                </div>
 
 
-            <div className="operation-section-title">
-              Autorización
-            </div>
-
-            <div className="authorization-detail-grid">
-              <div>
-                <span>
-                  Cantidad autorizada
-                </span>
-
-                {editingAuthorization ? (
-                  <input
-                    className="control authorization-manual-edit-control"
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={authorizationEdit.quantity}
-                    onChange={(event) => {
-                      setAuthorizationEdit({
-                        ...authorizationEdit,
-
-                        quantity:
-                          event.target.value,
-                      });
-                    }}
-                    aria-label="Cantidad autorizada"
-                  />
-                ) : (
+                <div className="authorization-summary-section-heading">
                   <strong>
-                    {selected.quantity ??
-                      '—'}
+                    Medicamento
                   </strong>
-                )}
-              </div>
 
-              <div>
-                <span>
-                  Habilitación
-                </span>
+                  <span>
+                    ¿Qué producto y cantidad fueron autorizados?
+                  </span>
+                </div>
 
-                <strong>
-                  {authorizationLifecycleLabel(
-                    selected,
-                  )}
-                </strong>
-              </div>
+                <div className="authorization-detail-grid authorization-summary-grid">
+                  <div>
+                    <span>
+                      Código
+                    </span>
 
-              <div>
-                <span>
-                  Motivo de habilitación
-                </span>
+                    {editingAuthorization ? (
+                      <input
+                        className="control authorization-manual-edit-control"
+                        value={authorizationEdit.commercialCode}
+                        onChange={(event) => {
+                          setAuthorizationEdit({
+                            ...authorizationEdit,
 
-                <strong
-                  style={{
-                    whiteSpace:
-                      'normal',
-
-                    lineHeight:
-                      1.35,
-                  }}
-                >
-                  {authorizationLifecycleReasonText(
-                    selected,
-                  )}
-                </strong>
-              </div>
-
-              <div>
-                <span>
-                  Validación inicial
-                </span>
-
-                <strong>
-                  {initialValidationLabel(
-                    selected.initialValidationStatus,
-                  )}
-                </strong>
-              </div>
-
-              <div>
-                <span>
-                  Inicio
-                </span>
-
-                <strong>
-                  {authorizationDateLabel(
-                    selected.assignmentDate,
-                  )}
-                </strong>
-              </div>
-
-              <div>
-                <span>
-                  Vencimiento
-                </span>
-
-                {editingAuthorization ? (
-                  <input
-                    className="control authorization-manual-edit-control"
-                    type="date"
-                    value={authorizationEdit.validityEndDate}
-                    onChange={(event) => {
-                      setAuthorizationEdit({
-                        ...authorizationEdit,
-
-                        validityEndDate:
-                          event.target.value,
-                      });
-                    }}
-                    aria-label="Fecha final de vigencia"
-                  />
-                ) : (
-                  <strong>
-                    {authorizationDateLabel(
-                      selected.validityEndDate,
+                            commercialCode:
+                              event.target.value,
+                          });
+                        }}
+                        aria-label="Código de producto"
+                      />
+                    ) : (
+                      <strong>
+                        {selected.commercialCode}
+                      </strong>
                     )}
+                  </div>
+
+                  <div className="authorization-summary-span-2">
+                    <span>
+                      Producto
+                    </span>
+
+                    <strong>
+                      {selected.productDescription ??
+                        'Sin nombre'}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Cantidad autorizada
+                    </span>
+
+                    {editingAuthorization ? (
+                      <input
+                        className="control authorization-manual-edit-control"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={authorizationEdit.quantity}
+                        onChange={(event) => {
+                          setAuthorizationEdit({
+                            ...authorizationEdit,
+
+                            quantity:
+                              event.target.value,
+                          });
+                        }}
+                        aria-label="Cantidad autorizada"
+                      />
+                    ) : (
+                      <strong>
+                        {selected.quantity ??
+                          '—'}
+                      </strong>
+                    )}
+                  </div>
+                </div>
+
+
+                <div className="authorization-summary-section-heading">
+                  <strong>
+                    Habilitación
                   </strong>
-                )}
-              </div>
 
-              <div>
-                <span>
-                  Cuota moderadora
-                </span>
+                  <span>
+                    ¿Puede operar actualmente?
+                  </span>
+                </div>
 
-                <strong>
-                  {moderatorFeeLabel(
-                    selected.moderatorFeeValue,
-                  )}
-                </strong>
-              </div>
+                <div className="authorization-detail-grid authorization-summary-grid">
+                  <div>
+                    <span>
+                      Habilitación
+                    </span>
 
-              <div>
-                <span>
-                  Vigencia
-                </span>
+                    <strong>
+                      {authorizationLifecycleLabel(
+                        selected,
+                      )}
+                    </strong>
+                  </div>
 
-                <strong>
-                  {validityLabel(
-                    selected.validityStatus,
-                  )}
-                </strong>
-              </div>
+                  <div>
+                    <span>
+                      Validación inicial
+                    </span>
 
-              <div>
-                <span>
-                  Entrega / aplicación
-                </span>
+                    <strong>
+                      {initialValidationLabel(
+                        selected.initialValidationStatus,
+                      )}
+                    </strong>
+                  </div>
 
-                <strong>
-                  {fulfillmentStatusLabel(
-                    selected,
-                  )}
-                </strong>
-              </div>
+                  <div>
+                    <span>
+                      Inicio
+                    </span>
 
-              <div>
-                <span>
-                  Auditoría
-                </span>
+                    <strong>
+                      {authorizationDateLabel(
+                        selected.assignmentDate,
+                      )}
+                    </strong>
+                  </div>
 
-                <strong>
-                  {authorizationAuditLabel(
-                    selected,
-                  )}
-                </strong>
-              </div>
-            </div>
+                  <div>
+                    <span>
+                      Vencimiento
+                    </span>
 
-            {authorizationEditError ? (
-              <div className="authorization-manual-edit-error">
-                {authorizationEditError}
-              </div>
-            ) : null}
+                    {editingAuthorization ? (
+                      <input
+                        className="control authorization-manual-edit-control"
+                        type="date"
+                        value={authorizationEdit.validityEndDate}
+                        onChange={(event) => {
+                          setAuthorizationEdit({
+                            ...authorizationEdit,
+
+                            validityEndDate:
+                              event.target.value,
+                          });
+                        }}
+                        aria-label="Fecha final de vigencia"
+                      />
+                    ) : (
+                      <strong>
+                        {authorizationDateLabel(
+                          selected.validityEndDate,
+                        )}
+                      </strong>
+                    )}
+                  </div>
+                </div>
+
+                <div
+                  className={`authorization-summary-message ${selected.lifecycleEnablement.toLowerCase()}`}
+                >
+                  <strong>
+                    {
+                      selected.lifecycleEnablement ===
+                        'ENABLED'
+                        ? 'Sin bloqueos'
+                        : selected.lifecycleEnablement ===
+                            'DISABLED'
+                          ? 'Motivo de inhabilitación'
+                          : 'Condición pendiente'
+                    }
+                  </strong>
+
+                  <span>
+                    {authorizationLifecycleReasonText(
+                      selected,
+                    )}
+                  </span>
+                </div>
 
 
-            {!selected.operationalEligible ? (
-              <div className="authorization-operation-message">
-                Esta autorización se conserva visible para consulta,
-                pero no está habilitada para operaciones. Para entregar,
-                aplicar o participar en gestión de compra debe haber superado
-                la validación inicial y estar dentro de la ventana operacional
-                Hoy + 30.
-              </div>
-            ) : null}
+                {authorizationEditError ? (
+                  <div className="authorization-manual-edit-error">
+                    {authorizationEditError}
+                  </div>
+                ) : null}
 
 
-            <div className="operation-section-title">
-              Asignación e inventario
-            </div>
+                <div className="authorization-summary-section-heading">
+                  <strong>
+                    Disponibilidad
+                  </strong>
 
-            <div className="authorization-detail-grid">
-              <div>
-                <span>
-                  Cantidad asignada
-                </span>
+                  <span>
+                    ¿Qué existe actualmente para atenderla?
+                  </span>
+                </div>
 
-                <strong>
-                  {selected.allocatedQuantity} de{' '}
-                  {selected.quantity ??
-                    '—'}
-                </strong>
-              </div>
+                <div className="authorization-detail-grid authorization-summary-grid">
+                  <div>
+                    <span>
+                      Cantidad asignada
+                    </span>
 
-              <div>
-                <span>
-                  Orden de compra activa
-                </span>
+                    <strong>
+                      {selected.allocatedQuantity}
+                    </strong>
+                  </div>
 
-                <strong>
-                  {selectedActivePurchaseOrderCode ??
-                    'Sin OC activa'}
-                </strong>
-              </div>
+                  <div>
+                    <span>
+                      Saldo asignado disponible
+                    </span>
 
-              <div className="authorization-detail-wide">
-                <span>
-                  Trazabilidad de OC
-                </span>
+                    <strong>
+                      {selected.remainingAssignedQuantity}
+                    </strong>
+                  </div>
 
-                <strong>
-                  {selected.purchaseOrders.length > 0
-                    ? selected.purchaseOrders
+                  <div>
+                    <span>
+                      OC activa
+                    </span>
+
+                    <strong>
+                      {selectedActivePurchaseOrderCode ??
+                        'Sin OC activa'}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Punto
+                    </span>
+
+                    <strong>
+                      {selected.dispensingPointCode ??
+                        'Sin punto'}
+                    </strong>
+
+                    {selected.dispensingPointName ? (
+                      <small>
+                        {selected.dispensingPointName}
+                      </small>
+                    ) : null}
+                  </div>
+                </div>
+
+                {selected.purchaseOrders.length > 0 ? (
+                  <div className="authorization-summary-trace">
+                    <span>
+                      Trazabilidad de OC
+                    </span>
+
+                    <strong>
+                      {selected.purchaseOrders
                         .map(
                           (order) =>
                             order.purchaseOrderCode,
                         )
-                        .join(', ')
-                    : 'Sin relación histórica'}
-                </strong>
+                        .join(', ')}
+                    </strong>
 
-                {selected.purchaseOrders.length > 0 ? (
-                  <small>
-                    Relación histórica de origen. No implica
-                    una asignación vigente de inventario.
-                  </small>
+                    <small>
+                      Relación histórica; no implica una asignación vigente.
+                    </small>
+                  </div>
                 ) : null}
-              </div>
 
-              <div className="authorization-detail-wide">
-                <span>
-                  Punto
-                </span>
 
-                <strong>
-                  {selected.dispensingPointCode ??
-                    'Sin punto'}
-                </strong>
+                <div className="authorization-summary-section-heading">
+                  <strong>
+                    Seguimiento
+                  </strong>
 
-                {selected.dispensingPointName ? (
-                  <small>
-                    {
-                      selected.dispensingPointName
-                    }
-                  </small>
+                  <span>
+                    Información complementaria del ciclo de la autorización.
+                  </span>
+                </div>
+
+                <div className="authorization-detail-grid authorization-summary-grid">
+                  <div>
+                    <span>
+                      Cuota moderadora
+                    </span>
+
+                    <strong>
+                      {moderatorFeeLabel(
+                        selected.moderatorFeeValue,
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Vigencia
+                    </span>
+
+                    <strong>
+                      {validityLabel(
+                        selected.validityStatus,
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Entrega / aplicación
+                    </span>
+
+                    <strong>
+                      {fulfillmentStatusLabel(
+                        selected,
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Auditoría
+                    </span>
+
+                    <strong>
+                      {authorizationAuditLabel(
+                        selected,
+                      )}
+                    </strong>
+                  </div>
+                </div>
+
+
+                {!selected.operationalEligible ? (
+                  <div className="authorization-operation-message authorization-summary-operation-message">
+                    Esta autorización se conserva visible para consulta,
+                    pero actualmente no está habilitada para operaciones.
+                    Revisa el motivo de habilitación antes de continuar.
+                  </div>
                 ) : null}
-              </div>
-            </div>
+              </>
+            ) : (
+              <>
+                <div className="authorization-summary-section-heading">
+                  <strong>
+                    Contexto de la operación
+                  </strong>
+
+                  <span>
+                    Verifica paciente, producto y disponibilidad antes de registrar el cumplimiento.
+                  </span>
+                </div>
+
+                <div className="authorization-detail-grid authorization-summary-grid authorization-management-context">
+                  <div>
+                    <span>
+                      Paciente
+                    </span>
+
+                    <strong>
+                      {selected.patientName ??
+                        'Sin nombre registrado'}
+                    </strong>
+
+                    <small>
+                      {selected.patientDocument ??
+                        'Sin documento'}
+                    </small>
+                  </div>
+
+                  <div>
+                    <span>
+                      Producto
+                    </span>
+
+                    <strong>
+                      {selected.productDescription ??
+                        selected.commercialCode}
+                    </strong>
+
+                    <small>
+                      COD: {selected.commercialCode}
+                    </small>
+                  </div>
+
+                  <div>
+                    <span>
+                      Disponible
+                    </span>
+
+                    <strong>
+                      {selected.remainingAssignedQuantity}
+                    </strong>
+
+                    <small>
+                      Punto: {selected.dispensingPointCode ?? 'Sin punto'}
+                    </small>
+                  </div>
+
+                  <div>
+                    <span>
+                      Cuota moderadora
+                    </span>
+
+                    <strong>
+                      {moderatorFeeLabel(
+                        selected.moderatorFeeValue,
+                      )}
+                    </strong>
+                  </div>
+                </div>
 
 
-            <div className="operation-section-title">
-              Operación Medicarte
-            </div>
+                <div className="operation-section-title">
+                  Gestionar entrega / aplicación
+                </div>
 
             {selected.operationalStatus ===
             'CLOSED' ? (
@@ -2384,29 +2591,6 @@ const query = useApiData(
                       />
                     </label>
 
-                    <div className="authorization-management-summary">
-                      <div>
-                        <span>
-                          Cantidad
-                        </span>
-
-                        <strong>
-                          {selected.remainingAssignedQuantity}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span>
-                          Punto
-                        </span>
-
-                        <strong>
-                          {selected.dispensingPointCode ??
-                            'Sin punto'}
-                        </strong>
-                      </div>
-                    </div>
-
                     <p className="authorization-fulfillment-help">
                       La fecha efectiva no puede superar la fecha de vencimiento de la autorización.
                     </p>
@@ -2490,6 +2674,8 @@ const query = useApiData(
                     ? 'La autorización está habilitada, pero todavía no cuenta con una asignación activa de inventario. Revisa la recepción y la disponibilidad del producto antes de entregar o aplicar.'
                     : 'La gestión está disponible únicamente para Medicarte.'}
               </div>
+            )}
+              </>
             )}
           </aside>
         </div>
