@@ -13,85 +13,76 @@ describe(
   'authorization query operational status',
   () => {
     it(
-      'una AUTO elegible con OC pero sin allocation sigue UNASSIGNED',
+      'una AUTO elegible sin allocation queda UNASSIGNED',
       () => {
         expect(
           resolveAuthorizationOperationalStatus({
-            hasFulfillment:
-              false,
-
-            operationalEligible:
-              true,
-
-            remainingAssignedQuantity:
-              0,
+            hasFulfillment: false,
+            operationalEligible: true,
+            remainingAssignedQuantity: 0,
+            authorizedQuantity: 30,
           }),
-        ).toBe(
-          'UNASSIGNED',
-        );
+        ).toBe('UNASSIGNED');
       },
     );
 
 
     it(
-      'una AUTO elegible solo queda ASSIGNED con saldo allocation',
+      'una AUTO elegible con cobertura parcial queda PARTIALLY_ASSIGNED',
       () => {
         expect(
           resolveAuthorizationOperationalStatus({
-            hasFulfillment:
-              false,
-
-            operationalEligible:
-              true,
-
-            remainingAssignedQuantity:
-              4,
+            hasFulfillment: false,
+            operationalEligible: true,
+            remainingAssignedQuantity: 30,
+            authorizedQuantity: 60,
           }),
-        ).toBe(
-          'ASSIGNED',
-        );
+        ).toBe('PARTIALLY_ASSIGNED');
       },
     );
 
 
     it(
-      'una AUTO no elegible sin cumplimiento queda OUT_OF_OPERATION',
+      'una AUTO elegible completamente cubierta queda ASSIGNED',
       () => {
         expect(
           resolveAuthorizationOperationalStatus({
-            hasFulfillment:
-              false,
-
-            operationalEligible:
-              false,
-
-            remainingAssignedQuantity:
-              4,
+            hasFulfillment: false,
+            operationalEligible: true,
+            remainingAssignedQuantity: 30,
+            authorizedQuantity: 30,
           }),
-        ).toBe(
-          'OUT_OF_OPERATION',
-        );
+        ).toBe('ASSIGNED');
       },
     );
 
 
     it(
-      'un cumplimiento real permanece CLOSED aunque la AUTO ya no sea elegible',
+      'una AUTO no elegible queda OUT_OF_OPERATION',
       () => {
         expect(
           resolveAuthorizationOperationalStatus({
-            hasFulfillment:
-              true,
-
-            operationalEligible:
-              false,
-
-            remainingAssignedQuantity:
-              0,
+            hasFulfillment: false,
+            operationalEligible: false,
+            remainingAssignedQuantity: 30,
+            authorizedQuantity: 30,
           }),
-        ).toBe(
-          'CLOSED',
-        );
+        ).toBe('OUT_OF_OPERATION');
+      },
+    );
+
+
+    it(
+      'un cumplimiento real conserva precedencia CLOSED',
+      () => {
+        expect(
+          resolveAuthorizationOperationalStatus({
+            hasFulfillment: true,
+            operationalEligible: false,
+            remainingAssignedQuantity: 0,
+            authorizedQuantity: 30,
+          }),
+        ).toBe('CLOSED');
       },
     );
   },

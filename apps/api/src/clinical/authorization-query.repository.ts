@@ -59,6 +59,7 @@ export interface AuthorizationQueryFilters {
 
   operationalStatus?:
     | 'UNASSIGNED'
+    | 'PARTIALLY_ASSIGNED'
     | 'ASSIGNED'
     | 'OUT_OF_OPERATION'
     | 'CLOSED';
@@ -100,6 +101,12 @@ interface AuthorizationQueryRow
   validity_end_date:
     string | null;
 
+  moderator_fee_value:
+    string | null;
+
+  version:
+    number;
+
   enablement_status:
     string;
 
@@ -117,6 +124,7 @@ interface AuthorizationQueryRow
 
   operational_status:
     'UNASSIGNED'
+    | 'PARTIALLY_ASSIGNED'
     | 'ASSIGNED'
     | 'CLOSED';
 
@@ -638,57 +646,170 @@ export class AuthorizationQueryRepository {
       conditions.push(sql`
         not exists (
           select 1
-
-          from
-            authorization_fulfillments
-              af_filter
-
-          where
-            af_filter.authorization_item_id =
-              i.id
+          from authorization_fulfillments af_filter
+          where af_filter.authorization_item_id = i.id
         )
 
         and not exists (
           select 1
-
-          from
-            patient_applications
-              pa_filter
-
-          where
-            pa_filter.authorization_item_id =
-              i.id
-
-            and pa_filter.status =
-              'CONFIRMED'
+          from patient_applications pa_filter
+          where pa_filter.authorization_item_id = i.id
+            and pa_filter.status = 'CONFIRMED'
         )
 
-        and exists (
-          select 1
+        and coalesce(
+          (
+            select
+              sum(
+                greatest(
+                  iaa_filter.allocated_quantity
+                  -
+                  iaa_filter.consumed_quantity
+                  -
+                  iaa_filter.released_quantity,
+                  0
+                )
+              )
 
-          from
-            inventory_authorization_allocations
-              iaa_filter
+            from
+              inventory_authorization_allocations
+                iaa_filter
 
-          where
-            iaa_filter.authorization_item_id =
-              i.id
+            where
+              iaa_filter.authorization_item_id =
+                i.id
 
-            and iaa_filter.status in (
-              'ALLOCATED',
-              'PARTIALLY_CONSUMED'
-            )
-
-            and (
-              iaa_filter.allocated_quantity
-              -
-              iaa_filter.consumed_quantity
-              -
-              iaa_filter.released_quantity
-            ) > 0
+              and iaa_filter.status in (
+                'ALLOCATED',
+                'PARTIALLY_CONSUMED'
+              )
+          ),
+          0
         )
+        >=
+        case
+          when
+            btrim(
+              coalesce(
+                i.source_data
+                  ->>
+                  'CANTIDAD',
+                ''
+              )
+            ) ~ '^[0-9]+$'
+          then
+            (
+              i.source_data
+                ->>
+                'CANTIDAD'
+            )::int
+          else
+            2147483647
+        end
       `);
     }
+
+
+    if (
+      filters.operationalStatus ===
+      'PARTIALLY_ASSIGNED'
+    ) {
+      conditions.push(sql`
+        not exists (
+          select 1
+          from authorization_fulfillments af_filter
+          where af_filter.authorization_item_id = i.id
+        )
+
+        and not exists (
+          select 1
+          from patient_applications pa_filter
+          where pa_filter.authorization_item_id = i.id
+            and pa_filter.status = 'CONFIRMED'
+        )
+
+        and coalesce(
+          (
+            select
+              sum(
+                greatest(
+                  iaa_filter.allocated_quantity
+                  -
+                  iaa_filter.consumed_quantity
+                  -
+                  iaa_filter.released_quantity,
+                  0
+                )
+              )
+
+            from
+              inventory_authorization_allocations
+                iaa_filter
+
+            where
+              iaa_filter.authorization_item_id =
+                i.id
+
+              and iaa_filter.status in (
+                'ALLOCATED',
+                'PARTIALLY_CONSUMED'
+              )
+          ),
+          0
+        ) > 0
+
+        and coalesce(
+          (
+            select
+              sum(
+                greatest(
+                  iaa_filter.allocated_quantity
+                  -
+                  iaa_filter.consumed_quantity
+                  -
+                  iaa_filter.released_quantity,
+                  0
+                )
+              )
+
+            from
+              inventory_authorization_allocations
+                iaa_filter
+
+            where
+              iaa_filter.authorization_item_id =
+                i.id
+
+              and iaa_filter.status in (
+                'ALLOCATED',
+                'PARTIALLY_CONSUMED'
+              )
+          ),
+          0
+        )
+        <
+        case
+          when
+            btrim(
+              coalesce(
+                i.source_data
+                  ->>
+                  'CANTIDAD',
+                ''
+              )
+            ) ~ '^[0-9]+$'
+          then
+            (
+              i.source_data
+                ->>
+                'CANTIDAD'
+            )::int
+          else
+            0
+        end
+      `);
+    }
+
 
     if (
       filters.operationalStatus ===
@@ -762,6 +883,9 @@ export class AuthorizationQueryRepository {
     if (
       filters.operationalStatus ===
         'ASSIGNED'
+      ||
+      filters.operationalStatus ===
+        'PARTIALLY_ASSIGNED'
       ||
       filters.operationalStatus ===
         'UNASSIGNED'
@@ -909,7 +1033,6 @@ export class AuthorizationQueryRepository {
     const purchaseOrders =
       await this.linkedPurchaseOrders(
         row.id,
-        row.commercial_code,
         scope,
       );
 
@@ -1009,7 +1132,6 @@ export class AuthorizationQueryRepository {
 
   private async linkedPurchaseOrders(
     authorizationItemId: string,
-    commercialCode: string,
     scope: Scope,
   ) {
     /*
@@ -1204,9 +1326,6 @@ export class AuthorizationQueryRepository {
         where
           poas_link.authorization_item_id =
             ${authorizationItemId}
-
-          and pol_link.commercial_code =
-            ${commercialCode}
 
           /*
            * Canceladas/rechazadas conservan su
@@ -1580,6 +1699,13 @@ export class AuthorizationQueryRepository {
           ->>
           'FECHA_FINAL_VIGENCIA'
           as validity_end_date,
+
+        i.source_data
+          ->>
+          'VALOR_CUOTA_MODERADORA'
+          as moderator_fee_value,
+
+        i.version,
 
         i.enablement_status,
 
@@ -2306,6 +2432,14 @@ export class AuthorizationQueryRepository {
       validityEndDate:
         row.validity_end_date,
 
+      moderatorFeeValue:
+        row.moderator_fee_value,
+
+      version:
+        Number(
+          row.version,
+        ),
+
       enablementStatus:
         row.enablement_status,
 
@@ -2337,6 +2471,13 @@ export class AuthorizationQueryRepository {
           remainingAssignedQuantity:
             Number(
               row.remaining_assigned_quantity
+              ??
+              0,
+            ),
+
+          authorizedQuantity:
+            Number(
+              row.quantity
               ??
               0,
             ),

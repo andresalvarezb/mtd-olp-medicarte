@@ -7921,3 +7921,57 @@ table.operational-list-table tbody tr:hover {
 .sidebar-account-copy .sidebar-realtime-status.reconnecting {
   color: #fcd34d;
 }
+
+
+/* AUTHORIZATION MANUAL EDIT */
+
+.authorization-drawer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.authorization-drawer-action {
+  min-height: 38px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.authorization-manual-edit-control {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 2px;
+}
+
+.authorization-manual-edit-error {
+  margin-top: 12px;
+  padding: 12px 14px;
+
+  border: 1px solid #fecdca;
+  border-radius: 10px;
+
+  background: #fef3f2;
+  color: #b42318;
+
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.authorization-operational-status.partially_assigned {
+  background: #fffaeb;
+  color: #b54708;
+}
+
+@media (max-width: 640px) {
+  .authorization-drawer-actions {
+    gap: 6px;
+  }
+
+  .authorization-drawer-action {
+    padding: 0 10px;
+  }
+}
+
+/* END AUTHORIZATION MANUAL EDIT */

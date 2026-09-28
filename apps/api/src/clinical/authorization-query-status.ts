@@ -1,5 +1,6 @@
 export type AuthorizationOperationalStatus =
   | 'UNASSIGNED'
+  | 'PARTIALLY_ASSIGNED'
   | 'ASSIGNED'
   | 'OUT_OF_OPERATION'
   | 'CLOSED';
@@ -10,19 +11,18 @@ export function resolveAuthorizationOperationalStatus(
     hasFulfillment: boolean;
     operationalEligible: boolean;
     remainingAssignedQuantity: number;
+    authorizedQuantity: number;
   }>,
 ): AuthorizationOperationalStatus {
   /*
    * Precedencia:
    *
-   * 1. Un cumplimiento real nunca se pierde por
-   *    vencimiento posterior.
-   *
-   * 2. Sin cumplimiento, una AUTO no elegible no
-   *    puede presentarse como pendiente de inventario.
-   *
-   * 3. Solo las AUTO elegibles se clasifican según
-   *    tengan o no saldo asignado.
+   * 1. Cumplimiento real => CLOSED.
+   * 2. No elegible => OUT_OF_OPERATION.
+   * 3. Sin saldo => UNASSIGNED.
+   * 4. Saldo menor a la cantidad autorizada =>
+   *    PARTIALLY_ASSIGNED.
+   * 5. Cobertura completa => ASSIGNED.
    */
   if (
     input.hasFulfillment
@@ -37,11 +37,21 @@ export function resolveAuthorizationOperationalStatus(
   }
 
   if (
-    input.remainingAssignedQuantity >
-      0
+    input.remainingAssignedQuantity <=
+    0
   ) {
-    return 'ASSIGNED';
+    return 'UNASSIGNED';
   }
 
-  return 'UNASSIGNED';
+  if (
+    input.authorizedQuantity >
+      0
+    &&
+    input.remainingAssignedQuantity <
+      input.authorizedQuantity
+  ) {
+    return 'PARTIALLY_ASSIGNED';
+  }
+
+  return 'ASSIGNED';
 }

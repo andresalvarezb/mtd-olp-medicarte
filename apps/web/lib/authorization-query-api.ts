@@ -4,6 +4,7 @@ import {
 
 export type AuthorizationOperationalStatus =
   | 'UNASSIGNED'
+  | 'PARTIALLY_ASSIGNED'
   | 'ASSIGNED'
   | 'OUT_OF_OPERATION'
   | 'CLOSED';
@@ -89,6 +90,12 @@ export type AuthorizationQueryItem = {
 
   validityEndDate:
     string | null;
+
+  moderatorFeeValue:
+    string | null;
+
+  version:
+    number;
 
   enablementStatus:
     string;
@@ -307,6 +314,66 @@ export function getAuthorizationQueryItem(
     },
   );
 }
+
+export type ManualEditAuthorizationInput = {
+  commercialCode:
+    string;
+
+  quantity:
+    number;
+
+  validityEndDate:
+    string;
+
+  expectedVersion:
+    number;
+};
+
+
+export function editAuthorizationManually(
+  organizationId:
+    string,
+
+  authorizationItemId:
+    string,
+
+  input:
+    ManualEditAuthorizationInput,
+) {
+  return apiRequest<{
+    id:
+      string;
+
+    authorizationKey:
+      string;
+
+    commercialCode:
+      string;
+
+    quantity:
+      number;
+
+    validityEndDate:
+      string;
+
+    version:
+      number;
+  }>(
+    `/authorizations/${authorizationItemId}/manual-edit`,
+    {
+      method:
+        'PATCH',
+
+      organizationId,
+
+      body:
+        JSON.stringify(
+          input,
+        ),
+    },
+  );
+}
+
 
 export function fulfillAuthorization(
   organizationId:

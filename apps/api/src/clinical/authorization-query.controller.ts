@@ -66,6 +66,7 @@ const querySchema =
     operationalStatus:
       z.enum([
         'UNASSIGNED',
+        'PARTIALLY_ASSIGNED',
         'ASSIGNED',
         'OUT_OF_OPERATION',
         'CLOSED',

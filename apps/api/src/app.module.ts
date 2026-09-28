@@ -84,6 +84,8 @@ import { BulkImportRepository } from './bulk-imports/bulk-import.repository';
 import { BulkImportService } from './bulk-imports/bulk-import.service';
 import { AuthorizationQueryController } from './clinical/authorization-query.controller';
 import { AuthorizationQueryRepository } from './clinical/authorization-query.repository';
+import { AuthorizationManualEditController } from './clinical/authorization-manual-edit.controller';
+import { AuthorizationManualEditService } from './clinical/authorization-manual-edit.service';
 import { ExportablesController } from './exportables/exportables.controller';
 import { ExportablesService } from './exportables/exportables.service';
 import { TariffAnnexRepository } from './tariff-annex/tariff-annex.repository';
@@ -184,6 +186,7 @@ ClinicalModule.register(database),
     AnalyticsController,
     BulkImportController,
     AuthorizationQueryController,
+    AuthorizationManualEditController,
     ExportablesController,
     TariffAnnexController,
     ProductDeliveryPointController,
@@ -239,6 +242,7 @@ ClinicalModule.register(database),
     BulkImportRepository,
     BulkImportService,
     AuthorizationQueryRepository,
+    AuthorizationManualEditService,
     ExportablesService,
     TariffAnnexRepository,
     TariffAnnexService,

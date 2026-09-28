@@ -14,6 +14,11 @@ import { useApiData } from '@/hooks/use-api-data';
 import { useRealtimeRevision } from '@/components/realtime/realtime-context';
 
 import {
+  ApiError,
+} from '@/lib/api-client';
+
+import {
+  editAuthorizationManually,
   fulfillAuthorization,
   getAuthorizationQueryItem,
   listAuthorizationQuery,
@@ -212,6 +217,9 @@ function operationalLabel(
     UNASSIGNED:
       'Pendiente de recepción/asignación',
 
+    PARTIALLY_ASSIGNED:
+      'Asignación parcial',
+
     ASSIGNED:
       'Lista para entrega/aplicación',
 
@@ -359,6 +367,140 @@ function authorizationDateInputValue(
 }
 
 
+function moderatorFeeLabel(
+  value:
+    string | null,
+) {
+  if (
+    !value
+    ||
+    !value.trim()
+  ) {
+    return 'Sin valor registrado';
+  }
+
+  const raw =
+    value.trim();
+
+  let numeric:
+    number;
+
+  if (
+    /^-?\d+(\.\d+)?$/
+      .test(raw)
+  ) {
+    numeric =
+      Number(raw);
+  } else if (
+    /^\d{1,3}(\.\d{3})+(,\d+)?$/
+      .test(raw)
+  ) {
+    numeric =
+      Number(
+        raw
+          .replace(
+            /\./g,
+            '',
+          )
+          .replace(
+            ',',
+            '.',
+          ),
+      );
+  } else {
+    numeric =
+      Number(
+        raw.replace(
+          ',',
+          '.',
+        ),
+      );
+  }
+
+  if (
+    !Number.isFinite(
+      numeric,
+    )
+  ) {
+    return raw;
+  }
+
+  return new Intl.NumberFormat(
+    'es-CO',
+    {
+      style:
+        'currency',
+
+      currency:
+        'COP',
+
+      maximumFractionDigits:
+        0,
+    },
+  ).format(
+    numeric,
+  );
+}
+
+
+function manualEditErrorMessage(
+  cause:
+    unknown,
+) {
+  if (
+    cause instanceof
+      ApiError
+  ) {
+    const messages:
+      Record<
+        string,
+        string
+      > =
+      {
+        AUTHORIZATION_IDENTITY_CONFLICT:
+          'Ya existe esta autorización con el código de producto indicado.',
+
+        AUTHORIZATION_PRODUCT_NOT_ACTIVE:
+          'El código no existe o no está activo en el Anexo Tarifario.',
+
+        AUTHORIZATION_BELOW_MINIMUM_QUANTITY:
+          'La cantidad es inferior a la cantidad mínima configurada para el producto.',
+
+        AUTHORIZATION_PRODUCT_ALREADY_FULFILLED:
+          'El producto no puede cambiarse porque ya existe una entrega/aplicación.',
+
+        AUTHORIZATION_DRAFT_APPLICATION_EXISTS:
+          'Existe una aplicación en borrador de Medicarte. Debe resolverse antes de modificar producto o cantidad.',
+
+        AUTHORIZATION_SCHEDULE_RECONCILIATION_COMPLEX:
+          'La autorización tiene varias programaciones activas y la cantidad no puede redistribuirse automáticamente.',
+
+        AUTHORIZATION_QUANTITY_BELOW_FULFILLED:
+          'La cantidad no puede ser menor que la cantidad ya entregada/aplicada.',
+
+        AUTHORIZATION_VALIDITY_BEFORE_FULFILLMENT:
+          'La vigencia no puede terminar antes de la entrega/aplicación registrada.',
+
+        AUTHORIZATION_PO_RECONCILIATION_COMPLEX:
+          'La autorización está distribuida en varias líneas de OC y requiere revisión antes de modificarla.',
+
+        AUTHORIZATION_PO_RECONCILIATION_CONFLICT:
+          'No fue posible reconciliar la OC de MTD de forma segura.',
+      };
+
+    return (
+      messages[cause.code]
+      ??
+      cause.message
+    );
+  }
+
+  return cause instanceof Error
+    ? cause.message
+    : 'No fue posible guardar los cambios.';
+}
+
+
 function dateTimeLabel(
   value:
     string | null,
@@ -405,6 +547,41 @@ export function ConsultaAutorizacionesView() {
   const [pageSize, setPageSize] = useState(10);
 
   const [selected, setSelected] = useState<AuthorizationQueryItem | null>(null);
+
+  const [
+    editingAuthorization,
+    setEditingAuthorization,
+  ] =
+    useState(false);
+
+  const [
+    savingAuthorizationEdit,
+    setSavingAuthorizationEdit,
+  ] =
+    useState(false);
+
+  const [
+    authorizationEditError,
+    setAuthorizationEditError,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
+  const [
+    authorizationEdit,
+    setAuthorizationEdit,
+  ] =
+    useState({
+      commercialCode:
+        '',
+
+      quantity:
+        '',
+
+      validityEndDate:
+        '',
+    });
 
   const [
     fulfillmentType,
@@ -491,7 +668,13 @@ export function ConsultaAutorizacionesView() {
     );
 
 
-  const query = useApiData(
+
+
+  const canManualEdit =
+    hasPermission(
+      'authorizations.manual_edit',
+    );
+const query = useApiData(
     () =>
       listAuthorizationQuery(organizationId, {
         page,
@@ -539,7 +722,13 @@ export function ConsultaAutorizacionesView() {
   const selectedAuthorizationId = selected?.id ?? null;
 
   useEffect(() => {
-    if (!selectedAuthorizationId) return;
+    if (
+      !selectedAuthorizationId
+      ||
+      editingAuthorization
+    ) {
+      return;
+    }
     let cancelled = false;
 
     void getAuthorizationQueryItem(organizationId, selectedAuthorizationId)
@@ -553,7 +742,12 @@ export function ConsultaAutorizacionesView() {
     return () => {
       cancelled = true;
     };
-  }, [authorizationRealtimeRevision]);
+  }, [
+    authorizationRealtimeRevision,
+    editingAuthorization,
+    organizationId,
+    selectedAuthorizationId,
+  ]);
 
   const data = query.data;
 
@@ -623,6 +817,14 @@ export function ConsultaAutorizacionesView() {
       false,
     );
 
+    setEditingAuthorization(
+      false,
+    );
+
+    setAuthorizationEditError(
+      null,
+    );
+
     if (!organizationId) {
       return;
     }
@@ -649,6 +851,192 @@ export function ConsultaAutorizacionesView() {
         cause instanceof Error
           ? cause.message
           : 'No fue posible cargar el detalle completo de la autorización.',
+      );
+    }
+  }
+
+
+  function beginManualEdit() {
+    if (
+      !selected
+      ||
+      !canManualEdit
+    ) {
+      return;
+    }
+
+    setManagingAuthorization(
+      false,
+    );
+
+    setAuthorizationEditError(
+      null,
+    );
+
+    setAuthorizationEdit({
+      commercialCode:
+        selected.commercialCode,
+
+      quantity:
+        selected.quantity
+        ??
+        '',
+
+      validityEndDate:
+        authorizationDateInputValue(
+          selected.validityEndDate,
+        )
+        ??
+        '',
+    });
+
+    setEditingAuthorization(
+      true,
+    );
+  }
+
+
+  function cancelManualEdit() {
+    setEditingAuthorization(
+      false,
+    );
+
+    setAuthorizationEditError(
+      null,
+    );
+  }
+
+
+  async function saveManualEdit() {
+    if (
+      !selected
+      ||
+      !organizationId
+      ||
+      savingAuthorizationEdit
+    ) {
+      return;
+    }
+
+    const quantity =
+      Number(
+        authorizationEdit.quantity,
+      );
+
+    if (
+      !authorizationEdit.commercialCode.trim()
+      ||
+      !Number.isInteger(quantity)
+      ||
+      quantity <= 0
+      ||
+      !authorizationEdit.validityEndDate
+    ) {
+      setAuthorizationEditError(
+        'Completa código de producto, cantidad y fecha final de vigencia con valores válidos.',
+      );
+
+      return;
+    }
+
+    setSavingAuthorizationEdit(
+      true,
+    );
+
+    setAuthorizationEditError(
+      null,
+    );
+
+    try {
+      await editAuthorizationManually(
+        organizationId,
+        selected.id,
+        {
+          commercialCode:
+            authorizationEdit.commercialCode.trim(),
+
+          quantity,
+
+          validityEndDate:
+            authorizationEdit.validityEndDate,
+
+          expectedVersion:
+            selected.version,
+        },
+      );
+
+      const refreshed =
+        await getAuthorizationQueryItem(
+          organizationId,
+          selected.id,
+        );
+
+      setSelected(
+        refreshed,
+      );
+
+      setEditingAuthorization(
+        false,
+      );
+
+      setAuthorizationEditError(
+        null,
+      );
+
+      query.reload();
+    } catch (cause) {
+      if (
+        cause instanceof ApiError
+        &&
+        cause.code ===
+          'AUTHORIZATION_VERSION_CONFLICT'
+      ) {
+        try {
+          const refreshed =
+            await getAuthorizationQueryItem(
+              organizationId,
+              selected.id,
+            );
+
+          setSelected(
+            refreshed,
+          );
+
+          setAuthorizationEdit({
+            commercialCode:
+              refreshed.commercialCode,
+
+            quantity:
+              refreshed.quantity
+              ??
+              '',
+
+            validityEndDate:
+              authorizationDateInputValue(
+                refreshed.validityEndDate,
+              )
+              ??
+              '',
+          });
+        } catch {
+          // Se conserva el conflicto original.
+        }
+
+        setAuthorizationEditError(
+          'Esta autorización cambió desde que fue abierta. Se cargó la versión más reciente.',
+        );
+
+        return;
+      }
+
+      setAuthorizationEditError(
+        manualEditErrorMessage(
+          cause,
+        ),
+      );
+    } finally {
+      setSavingAuthorizationEdit(
+        false,
       );
     }
   }
@@ -896,6 +1284,10 @@ export function ConsultaAutorizacionesView() {
 
                 <option value="ASSIGNED">
                   Lista para entrega/aplicación
+                </option>
+
+                <option value="PARTIALLY_ASSIGNED">
+                  Asignación parcial
                 </option>
 
                 <option value="OUT_OF_OPERATION">
@@ -1249,7 +1641,11 @@ export function ConsultaAutorizacionesView() {
       {selected ? (
         <div
           className="operation-drawer-backdrop"
-          onMouseDown={() => setSelected(null)}
+          onMouseDown={() => {
+            setSelected(null);
+            setEditingAuthorization(false);
+            setAuthorizationEditError(null);
+          }}
         >
           <aside
             className="operation-drawer"
@@ -1280,17 +1676,57 @@ export function ConsultaAutorizacionesView() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                className="operation-close"
-                aria-label="Cerrar detalle"
-                onClick={() => {
-                  setSelected(null);
-                  setManagingAuthorization(false);
-                }}
-              >
-                ×
-              </button>
+              <div className="authorization-drawer-actions">
+                {canManualEdit ? (
+                  editingAuthorization ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn authorization-drawer-action"
+                        disabled={savingAuthorizationEdit}
+                        onClick={cancelManualEdit}
+                      >
+                        Cancelar
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn primary authorization-drawer-action"
+                        disabled={savingAuthorizationEdit}
+                        onClick={() => {
+                          void saveManualEdit();
+                        }}
+                      >
+                        {savingAuthorizationEdit
+                          ? 'Guardando…'
+                          : 'Guardar'}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn authorization-drawer-action"
+                      onClick={beginManualEdit}
+                    >
+                      Editar
+                    </button>
+                  )
+                ) : null}
+
+                <button
+                  type="button"
+                  className="operation-close"
+                  aria-label="Cerrar detalle"
+                  onClick={() => {
+                    setSelected(null);
+                    setManagingAuthorization(false);
+                    setEditingAuthorization(false);
+                    setAuthorizationEditError(null);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
 
@@ -1321,9 +1757,25 @@ export function ConsultaAutorizacionesView() {
                   Código
                 </span>
 
-                <strong>
-                  {selected.commercialCode}
-                </strong>
+                {editingAuthorization ? (
+                  <input
+                    className="control authorization-manual-edit-control"
+                    value={authorizationEdit.commercialCode}
+                    onChange={(event) => {
+                      setAuthorizationEdit({
+                        ...authorizationEdit,
+
+                        commercialCode:
+                          event.target.value,
+                      });
+                    }}
+                    aria-label="Código de producto"
+                  />
+                ) : (
+                  <strong>
+                    {selected.commercialCode}
+                  </strong>
+                )}
               </div>
 
               <div>
@@ -1349,10 +1801,29 @@ export function ConsultaAutorizacionesView() {
                   Cantidad autorizada
                 </span>
 
-                <strong>
-                  {selected.quantity ??
-                    '—'}
-                </strong>
+                {editingAuthorization ? (
+                  <input
+                    className="control authorization-manual-edit-control"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={authorizationEdit.quantity}
+                    onChange={(event) => {
+                      setAuthorizationEdit({
+                        ...authorizationEdit,
+
+                        quantity:
+                          event.target.value,
+                      });
+                    }}
+                    aria-label="Cantidad autorizada"
+                  />
+                ) : (
+                  <strong>
+                    {selected.quantity ??
+                      '—'}
+                  </strong>
+                )}
               </div>
 
               <div>
@@ -1396,9 +1867,38 @@ export function ConsultaAutorizacionesView() {
                   Vencimiento
                 </span>
 
+                {editingAuthorization ? (
+                  <input
+                    className="control authorization-manual-edit-control"
+                    type="date"
+                    value={authorizationEdit.validityEndDate}
+                    onChange={(event) => {
+                      setAuthorizationEdit({
+                        ...authorizationEdit,
+
+                        validityEndDate:
+                          event.target.value,
+                      });
+                    }}
+                    aria-label="Fecha final de vigencia"
+                  />
+                ) : (
+                  <strong>
+                    {authorizationDateLabel(
+                      selected.validityEndDate,
+                    )}
+                  </strong>
+                )}
+              </div>
+
+              <div>
+                <span>
+                  Cuota moderadora
+                </span>
+
                 <strong>
-                  {authorizationDateLabel(
-                    selected.validityEndDate,
+                  {moderatorFeeLabel(
+                    selected.moderatorFeeValue,
                   )}
                 </strong>
               </div>
@@ -1439,6 +1939,12 @@ export function ConsultaAutorizacionesView() {
                 </strong>
               </div>
             </div>
+
+            {authorizationEditError ? (
+              <div className="authorization-manual-edit-error">
+                {authorizationEditError}
+              </div>
+            ) : null}
 
 
             {!selected.operationalEligible ? (
