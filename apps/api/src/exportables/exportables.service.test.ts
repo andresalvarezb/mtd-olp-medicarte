@@ -256,6 +256,30 @@ describe(
           'dispensing_point_id,',
         );
 
+        expect(
+          productsSql,
+        ).toContain(
+          'product_delivery_point_mappings mapped',
+        );
+
+        expect(
+          productsSql,
+        ).toContain(
+          'mapped.dispensing_point_id',
+        );
+
+        expect(
+          productsSql,
+        ).toContain(
+          'historical_point.name',
+        );
+
+        expect(
+          productsSql,
+        ).toContain(
+          'mapped_point.name',
+        );
+
 
         const authorizationsSql =
           String(
@@ -277,6 +301,24 @@ describe(
           authorizationsSql,
         ).toContain(
           'pol.dispensing_point_id',
+        );
+
+        expect(
+          authorizationsSql,
+        ).toContain(
+          'product_delivery_point_mappings mapped',
+        );
+
+        expect(
+          authorizationsSql,
+        ).toContain(
+          'historical_point.name',
+        );
+
+        expect(
+          authorizationsSql,
+        ).toContain(
+          'mapped_point.name',
         );
       },
     );

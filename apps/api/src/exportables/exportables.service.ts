@@ -926,9 +926,16 @@ export class ExportablesService {
 
               pol.commercial_code,
 
-              pol.dispensing_point_id,
+              coalesce(
+                pol.dispensing_point_id,
+                mapped.dispensing_point_id
+              )
+                as dispensing_point_id,
 
-              point.name
+              coalesce(
+                historical_point.name,
+                mapped_point.name
+              )
                 as dispensing_point_name,
 
               coalesce(
@@ -991,12 +998,6 @@ export class ExportablesService {
                 pol.purchase_order_id
 
             left join
-              dispensing_points point
-              on
-                point.id =
-                pol.dispensing_point_id
-
-            left join
               tariff_annex_products tap
               on
                 tap.codigo_producto =
@@ -1005,6 +1006,76 @@ export class ExportablesService {
                and
                 tap.active =
                 true
+
+            left join
+              dispensing_points historical_point
+              on
+                historical_point.id =
+                pol.dispensing_point_id
+
+            left join
+              product_delivery_point_mappings mapped
+              on
+                pol.dispensing_point_id
+                  is null
+
+               and
+                btrim(
+                  coalesce(
+                    tap.numero_expediente_invima,
+                    ''
+                  )
+                )
+                  ~ '^[0-9]+$'
+
+               and
+                btrim(
+                  coalesce(
+                    tap.consecutivo_invima_presentacion,
+                    ''
+                  )
+                )
+                  ~ '^[0-9]+$'
+
+               and
+                mapped.invima_record_normalized =
+                  coalesce(
+                    nullif(
+                      ltrim(
+                        btrim(
+                          tap.numero_expediente_invima
+                        ),
+                        '0'
+                      ),
+                      ''
+                    ),
+                    '0'
+                  )
+
+               and
+                mapped.invima_presentation_normalized =
+                  coalesce(
+                    nullif(
+                      ltrim(
+                        btrim(
+                          tap.consecutivo_invima_presentacion
+                        ),
+                        '0'
+                      ),
+                      ''
+                    ),
+                    '0'
+                  )
+
+            left join
+              dispensing_points mapped_point
+              on
+                mapped_point.id =
+                  mapped.dispensing_point_id
+
+               and
+                mapped_point.active =
+                  true
 
             left join
               received
@@ -1128,7 +1199,10 @@ export class ExportablesService {
             source.source_quantity_snapshot
               as "CANTIDAD_APORTADA_A_OC",
 
-            point.name
+            coalesce(
+              historical_point.name,
+              mapped_point.name
+            )
               as "PUNTO"
 
           from
@@ -1148,10 +1222,84 @@ export class ExportablesService {
               pol.purchase_order_id
 
           left join
-            dispensing_points point
+            tariff_annex_products tap
             on
-              point.id =
+              tap.codigo_producto =
+                pol.commercial_code
+
+             and
+              tap.active =
+                true
+
+          left join
+            dispensing_points historical_point
+            on
+              historical_point.id =
+                pol.dispensing_point_id
+
+          left join
+            product_delivery_point_mappings mapped
+            on
               pol.dispensing_point_id
+                is null
+
+             and
+              btrim(
+                coalesce(
+                  tap.numero_expediente_invima,
+                  ''
+                )
+              )
+                ~ '^[0-9]+$'
+
+             and
+              btrim(
+                coalesce(
+                  tap.consecutivo_invima_presentacion,
+                  ''
+                )
+              )
+                ~ '^[0-9]+$'
+
+             and
+              mapped.invima_record_normalized =
+                coalesce(
+                  nullif(
+                    ltrim(
+                      btrim(
+                        tap.numero_expediente_invima
+                      ),
+                      '0'
+                    ),
+                    ''
+                  ),
+                  '0'
+                )
+
+             and
+              mapped.invima_presentation_normalized =
+                coalesce(
+                  nullif(
+                    ltrim(
+                      btrim(
+                        tap.consecutivo_invima_presentacion
+                      ),
+                      '0'
+                    ),
+                    ''
+                  ),
+                  '0'
+                )
+
+          left join
+            dispensing_points mapped_point
+            on
+              mapped_point.id =
+                mapped.dispensing_point_id
+
+             and
+              mapped_point.active =
+                true
 
           join
             authorization_items ai
@@ -1165,7 +1313,10 @@ export class ExportablesService {
 
             pol.commercial_code,
 
-            point.name
+            coalesce(
+              historical_point.name,
+              mapped_point.name
+            )
               nulls last,
 
             ai.numero_autorizacion,
