@@ -542,8 +542,6 @@ function dateTimeLabel(
   );
 }
 
-import { FulfillmentBulkActions } from './fulfillment-bulk-actions';
-
 export function ConsultaAutorizacionesView() {
   const { organizationId, hasPermission } = useRole();
 
@@ -1255,15 +1253,6 @@ const query = useApiData(
               </button>
             ) : null}
 
-            <FulfillmentBulkActions
-              organizationId={organizationId}
-              canManage={hasPermission(
-                'patient_applications.manage',
-              )}
-              onImported={() => {
-                query.reload();
-              }}
-            />
           </>
         }
       />
@@ -1430,21 +1419,21 @@ const query = useApiData(
           <div className="table-wrap">
             <table
               style={{
-                minWidth: '1540px',
+                minWidth: '1380px',
                 tableLayout: 'fixed',
               }}
             >
               <colgroup>
-                <col style={{ width: '145px' }} />
-                <col style={{ width: '170px' }} />
+                <col style={{ width: '140px' }} />
+                <col style={{ width: '165px' }} />
                 <col style={{ width: '205px' }} />
-                <col style={{ width: '60px' }} />
-                <col style={{ width: '145px' }} />
-                <col style={{ width: '220px' }} />
-                <col style={{ width: '225px' }} />
-                <col style={{ width: '155px' }} />
+                <col style={{ width: '55px' }} />
                 <col style={{ width: '130px' }} />
-                <col style={{ width: '85px' }} />
+                <col style={{ width: '200px' }} />
+                <col style={{ width: '165px' }} />
+                <col style={{ width: '115px' }} />
+                <col style={{ width: '105px' }} />
+                <col style={{ width: '80px' }} />
               </colgroup>
 
               <thead>
