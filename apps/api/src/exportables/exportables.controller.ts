@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Headers,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -40,6 +41,60 @@ import {
 const uuid =
   z.string()
     .uuid();
+
+
+const authorizationExportQuerySchema =
+  z.object({
+    authorizationNumber:
+      z.string()
+        .trim()
+        .max(250)
+        .optional(),
+
+    commercialCode:
+      z.string()
+        .trim()
+        .max(250)
+        .optional(),
+
+    patient:
+      z.string()
+        .trim()
+        .max(250)
+        .optional(),
+
+    enablementStatus:
+      z.enum([
+        'ENABLED',
+        'BLOCKED_SOURCE_STATUS',
+      ])
+        .optional(),
+
+    lifecycleEnablement:
+      z.enum([
+        'ENABLED',
+        'PENDING',
+        'DISABLED',
+      ])
+        .optional(),
+
+    operationalStatus:
+      z.enum([
+        'UNASSIGNED',
+        'PARTIALLY_ASSIGNED',
+        'ASSIGNED',
+        'OUT_OF_OPERATION',
+        'CLOSED',
+      ])
+        .optional(),
+
+    coverageType:
+      z.enum([
+        'PBS',
+        'NO_PBS',
+      ])
+        .optional(),
+  });
 
 
 @Controller(
@@ -192,6 +247,10 @@ export class ExportablesController {
     'authorizations.xlsx',
   )
   async authorizations(
+    @Query()
+    raw:
+      unknown,
+
     @Headers(
       'x-organization-id',
     )
@@ -206,6 +265,62 @@ export class ExportablesController {
     response:
       Response,
   ) {
+    const parsed =
+      authorizationExportQuerySchema.parse(
+        raw ?? {},
+      );
+
+    const filters = {
+      ...(parsed.authorizationNumber
+        ? {
+            authorizationNumber:
+              parsed.authorizationNumber,
+          }
+        : {}),
+
+      ...(parsed.commercialCode
+        ? {
+            commercialCode:
+              parsed.commercialCode,
+          }
+        : {}),
+
+      ...(parsed.patient
+        ? {
+            patient:
+              parsed.patient,
+          }
+        : {}),
+
+      ...(parsed.enablementStatus
+        ? {
+            enablementStatus:
+              parsed.enablementStatus,
+          }
+        : {}),
+
+      ...(parsed.lifecycleEnablement
+        ? {
+            lifecycleEnablement:
+              parsed.lifecycleEnablement,
+          }
+        : {}),
+
+      ...(parsed.operationalStatus
+        ? {
+            operationalStatus:
+              parsed.operationalStatus,
+          }
+        : {}),
+
+      ...(parsed.coverageType
+        ? {
+            coverageType:
+              parsed.coverageType,
+          }
+        : {}),
+    };
+
     const result =
       await this.exports
         .authorizations(
@@ -213,6 +328,7 @@ export class ExportablesController {
             request,
             organizationId,
           ),
+          filters,
         );
 
     this.send(

@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Optional,
 } from '@nestjs/common';
 
 import type {
@@ -18,10 +19,22 @@ import type {
   Scope,
 } from '../common/request-scope';
 
+import {
+  AuthorizationQueryRepository,
+  type AuthorizationQueryFilters,
+} from '../clinical/authorization-query.repository';
+
 
 type Database =
   ReturnType<
     typeof createDatabase
+  >;
+
+
+export type AuthorizationExportFilters =
+  Omit<
+    AuthorizationQueryFilters,
+    'page' | 'limit'
   >;
 
 
@@ -272,6 +285,10 @@ export class ExportablesService {
     )
     private readonly database:
       Database,
+
+    @Optional()
+    private readonly authorizationQuery?:
+      AuthorizationQueryRepository,
   ) {}
 
 
@@ -1401,10 +1418,75 @@ export class ExportablesService {
   async authorizations(
     scope:
       Scope,
+
+    filters:
+      AuthorizationExportFilters = {},
   ): Promise<ExportedWorkbook> {
     this.assertMtd(
       scope,
     );
+
+    if (
+      !this.authorizationQuery
+    ) {
+      throw new Error(
+        'AUTHORIZATION_QUERY_REPOSITORY_UNAVAILABLE',
+      );
+    }
+
+    /*
+     * La Consulta de Autorizaciones es la autoridad
+     * para resolver filtros y estados derivados.
+     *
+     * Primero obtenemos el total real sin asumir
+     * ningún límite arbitrario de exportación.
+     */
+    const firstPage =
+      await this.authorizationQuery.list(
+        {
+          ...filters,
+
+          page:
+            1,
+
+          limit:
+            1,
+        },
+        scope,
+      );
+
+    const matching =
+      firstPage.total <=
+        1
+        ? firstPage
+        : await this.authorizationQuery.list(
+            {
+              ...filters,
+
+              page:
+                1,
+
+              limit:
+                firstPage.total,
+            },
+            scope,
+          );
+
+    const matchingAuthorizationIds =
+      matching.items.map(
+        (item) =>
+          item.id,
+      );
+
+    const canonicalById =
+      new Map(
+        matching.items.map(
+          (item) => [
+            item.id,
+            item,
+          ],
+        ),
+      );
 
     const result =
       await this.database.pool.query<
@@ -1433,162 +1515,6 @@ export class ExportablesService {
                 1
               )
                 as minimum_quantity,
-
-
-              case
-                when
-                  btrim(
-                    coalesce(
-                      ai.source_data
-                        ->> 'CANTIDAD',
-                      ''
-                    )
-                  )
-                  ~ '^[0-9]+$'
-
-                then
-                  (
-                    ai.source_data
-                      ->> 'CANTIDAD'
-                  )::int
-
-                else null
-              end
-                as authorization_quantity,
-
-
-              case
-                when
-                  btrim(
-                    coalesce(
-                      ai.source_data
-                        ->> 'FECHA_ASIGNACION',
-                      ''
-                    )
-                  )
-                  ~ '^[0-9]{8}$'
-
-                  and
-                  to_char(
-                    to_date(
-                      ai.source_data
-                        ->> 'FECHA_ASIGNACION',
-                      'YYYYMMDD'
-                    ),
-                    'YYYYMMDD'
-                  )
-                  =
-                  ai.source_data
-                    ->> 'FECHA_ASIGNACION'
-
-                then
-                  to_date(
-                    ai.source_data
-                      ->> 'FECHA_ASIGNACION',
-                    'YYYYMMDD'
-                  )
-
-
-                when
-                  btrim(
-                    coalesce(
-                      ai.source_data
-                        ->> 'FECHA_ASIGNACION',
-                      ''
-                    )
-                  )
-                  ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-
-                  and
-                  to_char(
-                    to_date(
-                      ai.source_data
-                        ->> 'FECHA_ASIGNACION',
-                      'YYYY-MM-DD'
-                    ),
-                    'YYYY-MM-DD'
-                  )
-                  =
-                  ai.source_data
-                    ->> 'FECHA_ASIGNACION'
-
-                then
-                  to_date(
-                    ai.source_data
-                      ->> 'FECHA_ASIGNACION',
-                    'YYYY-MM-DD'
-                  )
-
-                else null
-              end
-                as assignment_date,
-
-
-              case
-                when
-                  btrim(
-                    coalesce(
-                      ai.source_data
-                        ->> 'FECHA_FINAL_VIGENCIA',
-                      ''
-                    )
-                  )
-                  ~ '^[0-9]{8}$'
-
-                  and
-                  to_char(
-                    to_date(
-                      ai.source_data
-                        ->> 'FECHA_FINAL_VIGENCIA',
-                      'YYYYMMDD'
-                    ),
-                    'YYYYMMDD'
-                  )
-                  =
-                  ai.source_data
-                    ->> 'FECHA_FINAL_VIGENCIA'
-
-                then
-                  to_date(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA',
-                    'YYYYMMDD'
-                  )
-
-
-                when
-                  btrim(
-                    coalesce(
-                      ai.source_data
-                        ->> 'FECHA_FINAL_VIGENCIA',
-                      ''
-                    )
-                  )
-                  ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-
-                  and
-                  to_char(
-                    to_date(
-                      ai.source_data
-                        ->> 'FECHA_FINAL_VIGENCIA',
-                      'YYYY-MM-DD'
-                    ),
-                    'YYYY-MM-DD'
-                  )
-                  =
-                  ai.source_data
-                    ->> 'FECHA_FINAL_VIGENCIA'
-
-                then
-                  to_date(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA',
-                    'YYYY-MM-DD'
-                  )
-
-                else null
-              end
-                as expiration_date,
 
 
               coalesce(
@@ -1833,171 +1759,28 @@ export class ExportablesService {
               limit 1
             ) audit_review
               on true
-          ),
 
-
-          evaluated as (
-            select
-              base.*,
-
-
-              case
-                when
-                  enablement_status
-                    <>
-                  'ENABLED'
-                then
-                  'FAILED'
-
-                when
-                  tariff_membership_status
-                    <>
-                  'LISTED'
-                then
-                  'FAILED'
-
-                when
-                  authorization_quantity is null
-                  or
-                  authorization_quantity <= 0
-                then
-                  'FAILED'
-
-                when
-                  authorization_quantity <
-                  minimum_quantity
-                then
-                  'FAILED'
-
-                when
-                  coverage_type =
-                    'PBS'
-                  and
-                  direction_status =
-                    'NOT_APPLICABLE'
-                then
-                  'PASSED'
-
-                when
-                  coverage_type =
-                    'NO_PBS'
-                  and
-                  direction_status =
-                    'CONFIRMED'
-                then
-                  'PASSED'
-
-                else
-                  'PENDING'
-              end
-                as initial_validation_status,
-
-
-              case
-                when
-                  assignment_date is null
-                  or
-                  expiration_date is null
-                then
-                  'INVALID_DATE'
-
-                when
-                  expiration_date <
-                  (
-                    now()
-                    at time zone
-                      'America/Bogota'
-                  )::date
-                then
-                  'EXPIRED'
-
-                when
-                  assignment_date >
-                  (
-                    (
-                      now()
-                      at time zone
-                        'America/Bogota'
-                    )::date
-                    +
-                    30
-                  )
-                then
-                  'OUTSIDE_HORIZON'
-
-                else
-                  'IN_WINDOW'
-              end
-                as validity_status
-
-            from base
+            where
+              ai.id =
+              any(
+                $1::uuid[]
+              )
           )
 
 
           select
-            evaluated.*,
+            base.*
 
-
-            case
-              when
-                initial_validation_status =
-                  'FAILED'
-              then
-                'INHABILITADA'
-
-              when
-                initial_validation_status =
-                  'PENDING'
-              then
-                'PENDIENTE'
-
-              when
-                validity_status =
-                  'EXPIRED'
-                and
-                not has_any_po
-              then
-                'INHABILITADA'
-
-              else
-                'HABILITADA'
-            end
-              as lifecycle_enablement_status,
-
-
-            /*
-             * Estado operativo derivado únicamente
-             * de hechos modernos:
-             *
-             * fulfillment -> CLOSED
-             * reserva activa -> ASSIGNED
-             * resto -> UNASSIGNED
-             */
-            case
-              when
-                fulfillment_type
-                  is not null
-              then
-                'CLOSED'
-
-              when
-                remaining_quantity
-                  > 0
-              then
-                'ASSIGNED'
-
-              else
-                'UNASSIGNED'
-            end
-              as operational_state
-
-          from evaluated
+          from base
 
           order by
             numero_autorizacion,
             codigo_medicamento,
             id
         `,
+        [
+          matchingAuthorizationIds,
+        ],
       );
 
 
@@ -2102,6 +1885,23 @@ export class ExportablesService {
     const rows =
       result.rows.map(
         (row) => {
+          const canonical =
+            canonicalById.get(
+              String(
+                row[
+                  'id'
+                ],
+              ),
+            );
+
+          if (
+            !canonical
+          ) {
+            throw new Error(
+              'AUTHORIZATION_EXPORT_CANONICAL_STATE_MISSING',
+            );
+          }
+
           const source =
             objectValue(
               row[
@@ -2180,9 +1980,8 @@ export class ExportablesService {
 
 
           const initial =
-            row[
-              'initial_validation_status'
-            ];
+            canonical
+              .initialValidationStatus;
 
           output[
             'VALIDACION_INICIAL'
@@ -2197,26 +1996,24 @@ export class ExportablesService {
 
 
           const lifecycle =
-            row[
-              'lifecycle_enablement_status'
-            ];
+            canonical
+              .lifecycleEnablement;
 
           output[
             'HABILITACION'
           ] =
             lifecycle ===
-              'HABILITADA'
+              'ENABLED'
               ? 'Habilitada'
               : lifecycle ===
-                  'INHABILITADA'
+                  'DISABLED'
                 ? 'Inhabilitada'
                 : 'Pendiente';
 
 
           const validity =
-            row[
-              'validity_status'
-            ];
+            canonical
+              .validityStatus;
 
           output[
             'VIGENCIA'
@@ -2250,9 +2047,8 @@ export class ExportablesService {
           output[
             'ESTADO_OPERACION'
           ] =
-            row[
-              'operational_state'
-            ];
+            canonical
+              .operationalStatus;
 
           output[
             'TIENE_OC'
@@ -2442,10 +2238,18 @@ export class ExportablesService {
 
         {
           CAMPO:
-            'REGLA_INHABILITACION_VENCIDA',
+            'REGLA_HABILITACION',
 
           VALOR:
-            'VENCIDA SIN OC RELACIONADA',
+            'INHABILITADA > PENDIENTE > HABILITADA',
+        },
+
+        {
+          CAMPO:
+            'REGLA_VIGENCIA',
+
+          VALOR:
+            'VENCIDA/FECHA INVALIDA = INHABILITADA; FUERA +30 = PENDIENTE',
         },
       ];
 

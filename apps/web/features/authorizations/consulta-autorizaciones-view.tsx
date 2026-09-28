@@ -56,34 +56,27 @@ function initialValidationLabel(
 
 
 function authorizationLifecycleLabel(
-  item: AuthorizationQueryItem,
+  item:
+    AuthorizationQueryItem,
 ): 'Habilitada' | 'Inhabilitada' | 'Pendiente' {
-  /*
-   * Habilitación funcional.
-   *
-   * La existencia de una OC histórica nunca habilita
-   * una autorización que ya no es operacionalmente
-   * elegible.
-   */
-  if (
-    item.initialValidationStatus ===
-      'FAILED'
-  ) {
-    return 'Inhabilitada';
-  }
+  const labels = {
+    ENABLED:
+      'Habilitada',
 
-  if (
-    item.initialValidationStatus ===
-      'PENDING'
-  ) {
-    return 'Pendiente';
-  }
+    PENDING:
+      'Pendiente',
 
-  return item.operationalEligible
-    ? 'Habilitada'
-    : 'Inhabilitada';
+    DISABLED:
+      'Inhabilitada',
+  } satisfies Record<
+    AuthorizationQueryItem['lifecycleEnablement'],
+    'Habilitada' | 'Inhabilitada' | 'Pendiente'
+  >;
+
+  return labels[
+    item.lifecycleEnablement
+  ];
 }
-
 
 function validityLabel(
   status:
@@ -536,6 +529,7 @@ export function ConsultaAutorizacionesView() {
     authorizationNumber: '',
     commercialCode: '',
     patient: '',
+    lifecycleEnablement: '',
     operationalStatus: '',
     coverageType: '',
   });
@@ -640,6 +634,37 @@ export function ConsultaAutorizacionesView() {
         await downloadExportable(
           organizationId,
           'authorizations',
+          {
+            authorizationNumber:
+              appliedFilters.authorizationNumber
+              ||
+              undefined,
+
+            commercialCode:
+              appliedFilters.commercialCode
+              ||
+              undefined,
+
+            patient:
+              appliedFilters.patient
+              ||
+              undefined,
+
+            lifecycleEnablement:
+              appliedFilters.lifecycleEnablement
+              ||
+              undefined,
+
+            operationalStatus:
+              appliedFilters.operationalStatus
+              ||
+              undefined,
+
+            coverageType:
+              appliedFilters.coverageType
+              ||
+              undefined,
+          },
         );
 
       saveExportable(
@@ -695,6 +720,15 @@ const query = useApiData(
         ...(appliedFilters.patient
           ? {
               patient: appliedFilters.patient,
+            }
+          : {}),
+
+        ...(appliedFilters.lifecycleEnablement
+          ? {
+              lifecycleEnablement:
+                appliedFilters.lifecycleEnablement as NonNullable<
+                  AuthorizationQueryFilters['lifecycleEnablement']
+                >,
             }
           : {}),
 
@@ -776,6 +810,7 @@ const query = useApiData(
       authorizationNumber: '',
       commercialCode: '',
       patient: '',
+      lifecycleEnablement: '',
       operationalStatus: '',
       coverageType: '',
     };
@@ -1259,6 +1294,37 @@ const query = useApiData(
                 }
                 placeholder="Nombre o documento"
               />
+            </FilterField>
+
+            <FilterField label="Habilitación">
+              <select
+                className="control"
+                value={filters.lifecycleEnablement}
+                onChange={(event) =>
+                  setFilters({
+                    ...filters,
+
+                    lifecycleEnablement:
+                      event.target.value,
+                  })
+                }
+              >
+                <option value="">
+                  Todas
+                </option>
+
+                <option value="ENABLED">
+                  Habilitada
+                </option>
+
+                <option value="PENDING">
+                  Pendiente
+                </option>
+
+                <option value="DISABLED">
+                  Inhabilitada
+                </option>
+              </select>
             </FilterField>
 
             <FilterField label="Estado">

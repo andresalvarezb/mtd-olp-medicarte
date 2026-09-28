@@ -25,6 +25,11 @@ export type AuthorizationInitialValidationStatus =
   | 'PENDING'
   | 'FAILED';
 
+export type AuthorizationLifecycleStatus =
+  | 'ENABLED'
+  | 'PENDING'
+  | 'DISABLED';
+
 export type AuthorizationQueryAuditStatus =
   | 'PENDING'
   | 'IN_REVIEW'
@@ -106,6 +111,9 @@ export type AuthorizationQueryItem = {
   validityStatus:
     AuthorizationValidityStatus;
 
+  lifecycleEnablement:
+    AuthorizationLifecycleStatus;
+
   operationalEligible:
     boolean;
 
@@ -168,6 +176,9 @@ export type AuthorizationQueryFilters = {
   enablementStatus?:
     | 'ENABLED'
     | 'BLOCKED_SOURCE_STATUS';
+
+  lifecycleEnablement?:
+    AuthorizationLifecycleStatus;
 
   operationalStatus?:
     AuthorizationOperationalStatus;
@@ -249,6 +260,15 @@ export function listAuthorizationQuery(
     params.set(
       'enablementStatus',
       filters.enablementStatus,
+    );
+  }
+
+  if (
+    filters.lifecycleEnablement
+  ) {
+    params.set(
+      'lifecycleEnablement',
+      filters.lifecycleEnablement,
     );
   }
 

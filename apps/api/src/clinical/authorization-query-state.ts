@@ -18,6 +18,51 @@ export type AuthorizationQueryAuditStatus =
   | 'APPROVED'
   | 'REJECTED';
 
+export type AuthorizationQueryLifecycleStatus =
+  | 'ENABLED'
+  | 'PENDING'
+  | 'DISABLED';
+
+export function resolveAuthorizationLifecycleStatus(
+  input: Readonly<{
+    initialValidationStatus:
+      AuthorizationQueryInitialValidationStatus;
+
+    validityStatus:
+      AuthorizationQueryValidityStatus;
+  }>,
+): AuthorizationQueryLifecycleStatus {
+  /*
+   * Precedencia funcional:
+   *
+   * 1. Bloqueo definitivo.
+   * 2. Pendiente resoluble / fuera de horizonte.
+   * 3. Habilitada.
+   *
+   * Una relación histórica con OC no participa
+   * de esta decisión.
+   */
+  if (
+    input.initialValidationStatus === 'FAILED'
+    ||
+    input.validityStatus === 'INVALID_DATE'
+    ||
+    input.validityStatus === 'EXPIRED'
+  ) {
+    return 'DISABLED';
+  }
+
+  if (
+    input.initialValidationStatus === 'PENDING'
+    ||
+    input.validityStatus === 'OUTSIDE_HORIZON'
+  ) {
+    return 'PENDING';
+  }
+
+  return 'ENABLED';
+}
+
 export function resolveAuthorizationValidityStatus(
   input: Readonly<{
     assignmentDate: string | null | undefined;

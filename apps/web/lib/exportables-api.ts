@@ -25,17 +25,55 @@ const ROUTES:
   };
 
 
+export type ExportableFilters =
+  Readonly<
+    Record<
+      string,
+      string | undefined
+    >
+  >;
+
+
 export async function downloadExportable(
   organizationId:
     string,
 
   kind:
     ExportableKind,
+
+  filters?:
+    ExportableFilters,
 ): Promise<Blob> {
+  const params =
+    new URLSearchParams();
+
+  for (
+    const [
+      key,
+      value,
+    ]
+    of Object.entries(
+      filters ?? {},
+    )
+  ) {
+    if (value) {
+      params.set(
+        key,
+        value,
+      );
+    }
+  }
+
+  const query =
+    params.toString();
+
+  const route =
+    query
+      ? `${ROUTES[kind]}?${query}`
+      : ROUTES[kind];
+
   return apiRequest<Blob>(
-    ROUTES[
-      kind
-    ],
+    route,
     {
       organizationId,
     },
