@@ -141,7 +141,13 @@ describe('ESP-014 authorization workbook parser', () => {
         Autorizaciones: [
           [...AUTHORIZATION_IMPORT_COLUMNS],
           AUTHORIZATION_IMPORT_COLUMNS.map((column) =>
-            column === 'FECHA_ASIGNACION' ? 45658 : column === 'CANTIDAD' ? 2 : `${column}-1`,
+            column === 'FECHA_ASIGNACION'
+                ? 45658
+                : column === 'FECHA_FINAL_VIGENCIA'
+                  ? 20261031
+                  : column === 'CANTIDAD'
+                    ? 2
+                    : `${column}-1`,
           ),
         ],
         METADATA: META,
@@ -150,6 +156,12 @@ describe('ESP-014 authorization workbook parser', () => {
     expect(parsed.templateVersion).toBe(ESP014_AUTHORIZATIONS_TEMPLATE_VERSION);
     expect(parsed.rows[0]?.values.NUMERO_AUTORIZACION).toBe('NUMERO_AUTORIZACION-1');
     expect(parsed.rows[0]?.values.CANTIDAD).toBe(2);
+      expect(
+        parsed.rows[0]?.values.FECHA_ASIGNACION,
+      ).toBe(45658);
+      expect(
+        parsed.rows[0]?.values.FECHA_FINAL_VIGENCIA,
+      ).toBe(20261031);
   });
 
   it('emits the official authorization template', () => {
