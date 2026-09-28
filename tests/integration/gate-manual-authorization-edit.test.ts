@@ -939,7 +939,506 @@ beforeAll(
 
 afterAll(
   async () => {
-    await database.end();
+    await database.query(
+      'begin',
+    );
+
+    try {
+      const authorizations =
+        await database.query<{
+          id:
+            string;
+        }>(
+          `
+            select id
+            from authorization_items
+            where numero_autorizacion like $1
+          `,
+          [
+            `ME-AUTH-${suffix}-%`,
+          ],
+        );
+
+      const authorizationIds =
+        authorizations.rows.map(
+          (row) =>
+            row.id,
+        );
+
+
+      const purchaseOrders =
+        await database.query<{
+          id:
+            string;
+        }>(
+          `
+            select id
+            from purchase_orders
+            where purchase_order_code like $1
+          `,
+          [
+            `ME-OC-${suffix}-%`,
+          ],
+        );
+
+      const purchaseOrderIds =
+        purchaseOrders.rows.map(
+          (row) =>
+            row.id,
+        );
+
+
+      let scheduleIds:
+        string[] =
+        [];
+
+      let allocationBatchIds:
+        string[] =
+        [];
+
+
+      if (
+        authorizationIds.length >
+        0
+      ) {
+        const schedules =
+          await database.query<{
+            id:
+              string;
+          }>(
+            `
+              select id
+              from patient_schedules
+              where authorization_item_id =
+                any($1::uuid[])
+            `,
+            [
+              authorizationIds,
+            ],
+          );
+
+        scheduleIds =
+          schedules.rows.map(
+            (row) =>
+              row.id,
+          );
+
+
+        const allocationBatches =
+          await database.query<{
+            id:
+              string;
+          }>(
+            `
+              select distinct
+                batch_id as id
+
+              from
+                inventory_authorization_allocations
+
+              where
+                authorization_item_id =
+                  any($1::uuid[])
+            `,
+            [
+              authorizationIds,
+            ],
+          );
+
+        allocationBatchIds =
+          allocationBatches.rows.map(
+            (row) =>
+              row.id,
+          );
+
+
+        await database.query(
+          `
+            delete from
+              authorization_fulfillment_lines
+
+            where
+              fulfillment_id in (
+                select id
+                from authorization_fulfillments
+                where authorization_item_id =
+                  any($1::uuid[])
+              )
+          `,
+          [
+            authorizationIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              authorization_fulfillments
+
+            where
+              authorization_item_id =
+                any($1::uuid[])
+          `,
+          [
+            authorizationIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              inventory_authorization_allocations
+
+            where
+              authorization_item_id =
+                any($1::uuid[])
+          `,
+          [
+            authorizationIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              purchase_order_authorization_sources
+
+            where
+              authorization_item_id =
+                any($1::uuid[])
+          `,
+          [
+            authorizationIds,
+          ],
+        );
+      }
+
+
+      if (
+        scheduleIds.length >
+        0
+      ) {
+        await database.query(
+          `
+            alter table
+              patient_schedule_history
+
+            disable trigger
+              patient_schedule_history_no_delete
+          `,
+        );
+
+
+        await database.query(
+          `
+            delete from
+              patient_schedule_history
+
+            where
+              patient_schedule_id =
+                any($1::uuid[])
+          `,
+          [
+            scheduleIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              patient_schedules
+
+            where
+              id =
+                any($1::uuid[])
+          `,
+          [
+            scheduleIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            alter table
+              patient_schedule_history
+
+            enable trigger
+              patient_schedule_history_no_delete
+          `,
+        );
+      }
+
+
+      if (
+        purchaseOrderIds.length >
+        0
+      ) {
+        await database.query(
+          `
+            delete from
+              purchase_order_receipt_lines
+
+            where
+              receipt_id in (
+                select id
+                from purchase_order_receipts
+                where purchase_order_id =
+                  any($1::uuid[])
+              )
+          `,
+          [
+            purchaseOrderIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              purchase_order_receipts
+
+            where
+              purchase_order_id =
+                any($1::uuid[])
+          `,
+          [
+            purchaseOrderIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              purchase_order_demand_allocations
+
+            where
+              purchase_order_line_id in (
+                select id
+                from purchase_order_lines
+                where purchase_order_id =
+                  any($1::uuid[])
+              )
+          `,
+          [
+            purchaseOrderIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              purchase_order_authorization_sources
+
+            where
+              purchase_order_line_id in (
+                select id
+                from purchase_order_lines
+                where purchase_order_id =
+                  any($1::uuid[])
+              )
+          `,
+          [
+            purchaseOrderIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              purchase_order_lines
+
+            where
+              purchase_order_id =
+                any($1::uuid[])
+          `,
+          [
+            purchaseOrderIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              purchase_orders
+
+            where
+              id =
+                any($1::uuid[])
+          `,
+          [
+            purchaseOrderIds,
+          ],
+        );
+      }
+
+
+      if (
+        allocationBatchIds.length >
+        0
+      ) {
+        await database.query(
+          `
+            delete from
+              inventory_allocation_batches
+
+            where
+              id =
+                any($1::uuid[])
+          `,
+          [
+            allocationBatchIds,
+          ],
+        );
+      }
+
+
+      if (
+        authorizationIds.length >
+        0
+      ) {
+        /*
+         * audit_events es append-only por diseño.
+         *
+         * Los eventos generados por este gate se conservan incluso
+         * en la base efímera de integración. No tienen FK hacia
+         * authorization_items porque resource_id es una referencia
+         * de auditoría histórica.
+         *
+         * Sí retiramos invalidaciones realtime de prueba para no
+         * contaminar otros gates del mismo proceso.
+         */
+        await database.query(
+          `
+            delete from
+              outbox_events
+
+            where
+              payload -> 'resource' ->> 'id' =
+                any($1::text[])
+          `,
+          [
+            authorizationIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              authorization_item_organizations
+
+            where
+              authorization_item_id =
+                any($1::uuid[])
+          `,
+          [
+            authorizationIds,
+          ],
+        );
+
+
+        await database.query(
+          `
+            delete from
+              authorization_items
+
+            where
+              id =
+                any($1::uuid[])
+          `,
+          [
+            authorizationIds,
+          ],
+        );
+      }
+
+
+      await database.query(
+        `
+          delete from
+            tariff_annex_products
+
+          where
+            codigo_producto =
+              any($1::text[])
+        `,
+        [
+          [
+            CODE_A,
+            CODE_B,
+          ],
+        ],
+      );
+
+
+      if (
+        planningPeriodId
+      ) {
+        await database.query(
+          `
+            delete from planning_periods
+            where id = $1
+          `,
+          [
+            planningPeriodId,
+          ],
+        );
+      }
+
+
+      if (
+        dispensingPointId
+      ) {
+        await database.query(
+          `
+            delete from dispensing_points
+            where id = $1
+          `,
+          [
+            dispensingPointId,
+          ],
+        );
+      }
+
+
+      if (
+        provenanceBatchId
+      ) {
+        await database.query(
+          `
+            delete from import_batches
+            where id = $1
+          `,
+          [
+            provenanceBatchId,
+          ],
+        );
+      }
+
+
+      await database.query(
+        'commit',
+      );
+    } catch (
+      error
+    ) {
+      await database.query(
+        'rollback',
+      );
+
+      throw error;
+    } finally {
+      await database.end();
+    }
   },
 );
 
