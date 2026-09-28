@@ -25,6 +25,7 @@ type Schedule = {
   revision: number;
   authorization_item_id: string;
   commercial_code: string;
+  authorization_commercial_code: string;
   dispensing_point_id: string;
   scheduled_date: string;
   quantity: number;
@@ -323,7 +324,7 @@ export class PatientApplicationRepository {
 
   async eligibleSchedules(scope: Scope) {
     const rows = await this.database.db
-      .execute<Schedule>(sql`select ps.id,ps.revision,ps.authorization_item_id,ps.commercial_code,ps.dispensing_point_id,ps.scheduled_date::text,ps.quantity,ps.status,
+      .execute<Schedule>(sql`select ps.id,ps.revision,ps.authorization_item_id,ps.commercial_code,ai.codigo_medicamento authorization_commercial_code,ps.dispensing_point_id,ps.scheduled_date::text,ps.quantity,ps.status,
       ai.numero_autorizacion authorization_number,coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE',ai.source_data->>'NUM_DOCUMENTO') patient_document,ai.source_data->>'NOMBRE_PACIENTE' patient_name,
       ai.source_data->>'FECHA_ASIGNACION' authorization_assignment_on,ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,ai.enablement_status,ai.coverage_type,ai.direction_status
       from patient_schedules ps join authorization_items ai on ai.id=ps.authorization_item_id join dispensing_points dp on dp.id=ps.dispensing_point_id
@@ -380,7 +381,7 @@ export class PatientApplicationRepository {
 
   private async lockSchedule(tx: Tx, id: string): Promise<Schedule> {
     const row = (
-      await tx.execute<Schedule>(sql`select ps.id,ps.revision,ps.authorization_item_id,ps.commercial_code,ps.dispensing_point_id,ps.scheduled_date::text,ps.quantity,ps.status,
+      await tx.execute<Schedule>(sql`select ps.id,ps.revision,ps.authorization_item_id,ps.commercial_code,ai.codigo_medicamento authorization_commercial_code,ps.dispensing_point_id,ps.scheduled_date::text,ps.quantity,ps.status,
       ai.numero_autorizacion authorization_number,coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE',ai.source_data->>'NUM_DOCUMENTO') patient_document,ai.source_data->>'NOMBRE_PACIENTE' patient_name,ai.source_data->>'FECHA_ASIGNACION' authorization_assignment_on,ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,ai.enablement_status,ai.coverage_type,ai.direction_status
       from patient_schedules ps join authorization_items ai on ai.id=ps.authorization_item_id where ps.id=${id} for update`)
     ).rows[0];
@@ -401,6 +402,15 @@ export class PatientApplicationRepository {
   }
 
   private assertAuthorization(schedule: Schedule, applicationDate?: string) {
+    if (
+      schedule.commercial_code !==
+      schedule.authorization_commercial_code
+    ) {
+      throw new Error(
+        'PATIENT_APPLICATION_PRODUCT_MISMATCH',
+      );
+    }
+
     const eligibility = evaluatePatientApplicationAuthorization({
       enablementStatus: schedule.enablement_status,
       coverageType: schedule.coverage_type,

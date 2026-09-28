@@ -179,22 +179,46 @@ describe('ESP-001 — separación del dominio clínico y logístico', () => {
     });
   });
 
-  it('requires the schedule commercial code to match the authorization item', async () => {
+  it('allows the schedule commercial code to remain a snapshot while preserving authorization identity', async () => {
     const user = await database.query<{ id: string }>(
       `select id from users where username = 'foundation-admin'`,
     );
-    // Con fecha distinta a la programación activa del fixture, la única
-    // violación posible es el FK del código (la migración 0034 impone la
-    // identidad canónica de programación por separado).
+
+    /*
+     * 0089:
+     * commercial_code dejó de ser parte de la FK porque es snapshot
+     * operacional/histórico. La identidad referencial sigue siendo
+     * authorization_item_id.
+     */
+    const snapshot = await database.query<{ id: string }>(
+      `insert into patient_schedules
+        (authorization_item_id, planning_period_id, dispensing_point_id, commercial_code,
+         scheduled_date, quantity, created_by, updated_by)
+       values ($1, $2, $3, 'WRONG-CODE', '2026-09-17', 1, $4, $4)
+       returning id`,
+      [authorizationItemId, periodId, pointId, user.rows[0]!.id],
+    );
+
+    expect(snapshot.rows).toHaveLength(1);
+
+    await database.query(
+      `delete from patient_schedules where id = $1`,
+      [snapshot.rows[0]!.id],
+    );
+
+    /*
+     * Aunque el código sea snapshot, un authorization_item inexistente
+     * continúa siendo inválido por FK.
+     */
     await expect(
       database.query(
         `insert into patient_schedules
           (authorization_item_id, planning_period_id, dispensing_point_id, commercial_code,
            scheduled_date, quantity, created_by, updated_by)
-         values ($1, $2, $3, 'WRONG-CODE', '2026-09-17', 1, $4, $4)`,
-        [authorizationItemId, periodId, pointId, user.rows[0]!.id],
+         values ($1, $2, $3, 'WRONG-CODE', '2026-09-18', 1, $4, $4)`,
+        [randomUUID(), periodId, pointId, user.rows[0]!.id],
       ),
-    ).rejects.toThrow(/patient_schedules_authorization_code_fk/);
+    ).rejects.toThrow(/patient_schedules_authorization_item_fk/);
   });
 
   it('keeps schedule history append-only', async () => {

@@ -450,7 +450,9 @@ export const patientSchedules = pgTable(
   'patient_schedules',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    authorizationItemId: uuid('authorization_item_id').notNull(),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
     planningPeriodId: uuid('planning_period_id')
       .notNull()
       .references(() => planningPeriods.id, { onDelete: 'restrict' }),
@@ -545,7 +547,9 @@ export const patientScheduleHistory = pgTable(
       .notNull()
       .references(() => patientSchedules.id, { onDelete: 'restrict' }),
     revision: integer('revision').notNull(),
-    authorizationItemId: uuid('authorization_item_id').notNull(),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
     planningPeriodId: uuid('planning_period_id')
       .notNull()
       .references(() => planningPeriods.id, { onDelete: 'restrict' }),
@@ -1399,7 +1403,9 @@ export const patientApplications = pgTable(
       .notNull()
       .references(() => patientSchedules.id, { onDelete: 'restrict' }),
     scheduleRevision: integer('schedule_revision').notNull(),
-    authorizationItemId: uuid('authorization_item_id').notNull(),
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
     commercialCode: varchar('commercial_code', { length: 255 }).notNull(),
     dispensingPointId: uuid('dispensing_point_id')
       .notNull()

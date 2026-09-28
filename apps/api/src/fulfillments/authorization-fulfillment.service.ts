@@ -115,6 +115,7 @@ export class AuthorizationFulfillmentService {
           'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY',
           'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_OC_POOL',
           'AUTHORIZATION_FULFILLMENT_OC_NOT_ELIGIBLE',
+          'AUTHORIZATION_FULFILLMENT_PARTIAL_ASSIGNMENT',
         ].includes(code)
       ) {
         throw new ConflictException({
@@ -122,8 +123,11 @@ export class AuthorizationFulfillmentService {
 
           message:
             code ===
-            'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_OC_POOL'
-              ? 'La OC no tiene cantidad recibida suficiente para atender completamente esta autorización.'
+            'AUTHORIZATION_FULFILLMENT_PARTIAL_ASSIGNMENT'
+              ? 'La autorización todavía tiene una asignación parcial y no puede cerrarse.'
+              : code ===
+                  'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_OC_POOL'
+                ? 'La OC no tiene cantidad recibida suficiente para atender completamente esta autorización.'
               : code ===
                   'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY'
                 ? 'No existe inventario físico suficiente para completar la operación.'

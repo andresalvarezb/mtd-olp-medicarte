@@ -54,6 +54,7 @@ type Tx =
 type AuthorizationRow = {
   id: string;
   commercial_code: string;
+  authorized_quantity: number;
   expiration_raw: string | null;
   assignment_raw: string | null;
   enablement_status: string;
@@ -171,6 +172,15 @@ export class AuthorizationFulfillmentRepository {
               ),
             0,
           );
+
+        if (
+          assignedQuantity <
+          authorization.authorized_quantity
+        ) {
+          throw new Error(
+            'AUTHORIZATION_FULFILLMENT_PARTIAL_ASSIGNMENT',
+          );
+        }
 
         const todayBogota =
           currentBogotaDate();
@@ -738,6 +748,27 @@ export class AuthorizationFulfillmentRepository {
 
             i.codigo_medicamento
               as commercial_code,
+
+            case
+              when
+                btrim(
+                  coalesce(
+                    i.source_data
+                      ->>
+                      'CANTIDAD',
+                    ''
+                  )
+                ) ~ '^[0-9]+$'
+              then
+                (
+                  i.source_data
+                    ->>
+                    'CANTIDAD'
+                )::int
+              else
+                0
+            end
+              as authorized_quantity,
 
             i.source_data
               ->>
