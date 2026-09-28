@@ -56,32 +56,47 @@ function initialValidationLabel(
 
 
 function authorizationLifecycleLabel(
-  item: AuthorizationQueryItem,
+  item:
+    AuthorizationQueryItem,
 ): 'Habilitada' | 'Inhabilitada' | 'Pendiente' {
-  /*
-   * Habilitación funcional.
-   *
-   * La existencia de una OC histórica nunca habilita
-   * una autorización que ya no es operacionalmente
-   * elegible.
-   */
+  const labels = {
+    ENABLED:
+      'Habilitada',
+
+    PENDING:
+      'Pendiente',
+
+    DISABLED:
+      'Inhabilitada',
+  } satisfies Record<
+    AuthorizationQueryItem['lifecycleEnablement'],
+    'Habilitada' | 'Inhabilitada' | 'Pendiente'
+  >;
+
+  return labels[
+    item.lifecycleEnablement
+  ];
+}
+
+function authorizationLifecycleReasonText(
+  item:
+    AuthorizationQueryItem,
+): string {
   if (
-    item.initialValidationStatus ===
-      'FAILED'
+    item.lifecycleReasons.length ===
+      0
   ) {
-    return 'Inhabilitada';
+    return 'Sin bloqueos';
   }
 
-  if (
-    item.initialValidationStatus ===
-      'PENDING'
-  ) {
-    return 'Pendiente';
-  }
-
-  return item.operationalEligible
-    ? 'Habilitada'
-    : 'Inhabilitada';
+  return item.lifecycleReasons
+    .map(
+      (reason) =>
+        reason.message,
+    )
+    .join(
+      ' · ',
+    );
 }
 
 
@@ -536,6 +551,7 @@ export function ConsultaAutorizacionesView() {
     authorizationNumber: '',
     commercialCode: '',
     patient: '',
+    lifecycleEnablement: '',
     operationalStatus: '',
     coverageType: '',
   });
@@ -640,6 +656,37 @@ export function ConsultaAutorizacionesView() {
         await downloadExportable(
           organizationId,
           'authorizations',
+          {
+            authorizationNumber:
+              appliedFilters.authorizationNumber
+              ||
+              undefined,
+
+            commercialCode:
+              appliedFilters.commercialCode
+              ||
+              undefined,
+
+            patient:
+              appliedFilters.patient
+              ||
+              undefined,
+
+            lifecycleEnablement:
+              appliedFilters.lifecycleEnablement
+              ||
+              undefined,
+
+            operationalStatus:
+              appliedFilters.operationalStatus
+              ||
+              undefined,
+
+            coverageType:
+              appliedFilters.coverageType
+              ||
+              undefined,
+          },
         );
 
       saveExportable(
@@ -695,6 +742,15 @@ const query = useApiData(
         ...(appliedFilters.patient
           ? {
               patient: appliedFilters.patient,
+            }
+          : {}),
+
+        ...(appliedFilters.lifecycleEnablement
+          ? {
+              lifecycleEnablement:
+                appliedFilters.lifecycleEnablement as NonNullable<
+                  AuthorizationQueryFilters['lifecycleEnablement']
+                >,
             }
           : {}),
 
@@ -776,6 +832,7 @@ const query = useApiData(
       authorizationNumber: '',
       commercialCode: '',
       patient: '',
+      lifecycleEnablement: '',
       operationalStatus: '',
       coverageType: '',
     };
@@ -1261,6 +1318,37 @@ const query = useApiData(
               />
             </FilterField>
 
+            <FilterField label="Habilitación">
+              <select
+                className="control"
+                value={filters.lifecycleEnablement}
+                onChange={(event) =>
+                  setFilters({
+                    ...filters,
+
+                    lifecycleEnablement:
+                      event.target.value,
+                  })
+                }
+              >
+                <option value="">
+                  Todas
+                </option>
+
+                <option value="ENABLED">
+                  Habilitada
+                </option>
+
+                <option value="PENDING">
+                  Pendiente
+                </option>
+
+                <option value="DISABLED">
+                  Inhabilitada
+                </option>
+              </select>
+            </FilterField>
+
             <FilterField label="Estado">
               <select
                 className="control"
@@ -1342,7 +1430,7 @@ const query = useApiData(
           <div className="table-wrap">
             <table
               style={{
-                minWidth: '1245px',
+                minWidth: '1540px',
                 tableLayout: 'fixed',
               }}
             >
@@ -1352,6 +1440,7 @@ const query = useApiData(
                 <col style={{ width: '205px' }} />
                 <col style={{ width: '60px' }} />
                 <col style={{ width: '145px' }} />
+                <col style={{ width: '220px' }} />
                 <col style={{ width: '225px' }} />
                 <col style={{ width: '155px' }} />
                 <col style={{ width: '130px' }} />
@@ -1369,6 +1458,8 @@ const query = useApiData(
                   <th>Cant.</th>
 
                   <th>Vigencia</th>
+
+                  <th>Habilitación</th>
 
                   <th>Estado operativo</th>
 
@@ -1455,6 +1546,39 @@ const query = useApiData(
                                     item.validityEndDate,
                                   )}`
                                 : 'Fechas no válidas'}
+                        </span>
+                      </div>
+                    </td>
+
+                    <td
+                      style={{
+                        verticalAlign: 'middle',
+                      }}
+                    >
+                      <div
+                        className="authorization-cell-stack"
+                        style={{
+                          whiteSpace:
+                            'normal',
+
+                          lineHeight:
+                            1.25,
+                        }}
+                      >
+                        <strong>
+                          {authorizationLifecycleLabel(
+                            item,
+                          )}
+                        </strong>
+
+                        <span
+                          title={authorizationLifecycleReasonText(
+                            item,
+                          )}
+                        >
+                          {authorizationLifecycleReasonText(
+                            item,
+                          )}
                         </span>
                       </div>
                     </td>
@@ -1833,6 +1957,26 @@ const query = useApiData(
 
                 <strong>
                   {authorizationLifecycleLabel(
+                    selected,
+                  )}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Motivo de habilitación
+                </span>
+
+                <strong
+                  style={{
+                    whiteSpace:
+                      'normal',
+
+                    lineHeight:
+                      1.35,
+                  }}
+                >
+                  {authorizationLifecycleReasonText(
                     selected,
                   )}
                 </strong>

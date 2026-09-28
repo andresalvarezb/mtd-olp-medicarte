@@ -36,6 +36,8 @@ import {
   resolveAuthorizationAuditStatus,
   resolveAuthorizationFulfillmentStatus,
   resolveAuthorizationInitialValidationStatus,
+  resolveAuthorizationLifecycleReasons,
+  resolveAuthorizationLifecycleStatus,
   resolveAuthorizationValidityStatus,
 } from './authorization-query-state';
 
@@ -56,6 +58,11 @@ export interface AuthorizationQueryFilters {
   enablementStatus?:
     | 'ENABLED'
     | 'BLOCKED_SOURCE_STATUS';
+
+  lifecycleEnablement?:
+    | 'ENABLED'
+    | 'PENDING'
+    | 'DISABLED';
 
   operationalStatus?:
     | 'UNASSIGNED'
@@ -214,53 +221,180 @@ export class AuthorizationQueryRepository {
       | 'FECHA_ASIGNACION'
       | 'FECHA_FINAL_VIGENCIA',
   ): SQL {
+    const value =
+      sql`
+        btrim(
+          coalesce(
+            i.source_data
+              ->>
+              ${field},
+            ''
+          )
+        )
+      `;
+
+    const compact =
+      sql`
+        case
+          when
+            ${value}
+            ~
+            '^[0-9]{8}$'
+          then
+            ${value}
+
+          when
+            ${value}
+            ~
+            '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+          then
+            replace(
+              substring(
+                ${value}
+                from 1 for 10
+              ),
+              '-',
+              ''
+            )
+
+          else
+            null
+        end
+      `;
+
+    const year =
+      sql`
+        substring(
+          ${compact}
+          from 1 for 4
+        )::int
+      `;
+
+    const month =
+      sql`
+        substring(
+          ${compact}
+          from 5 for 2
+        )::int
+      `;
+
+    const day =
+      sql`
+        substring(
+          ${compact}
+          from 7 for 2
+        )::int
+      `;
+
+    const maximumDay =
+      sql`
+        case
+          when
+            ${month}
+            in (
+              1,
+              3,
+              5,
+              7,
+              8,
+              10,
+              12
+            )
+          then
+            31
+
+          when
+            ${month}
+            in (
+              4,
+              6,
+              9,
+              11
+            )
+          then
+            30
+
+          when
+            ${month}
+            =
+            2
+          then
+            case
+              when
+                (
+                  ${year}
+                  %
+                  400
+                )
+                =
+                0
+
+                or
+
+                (
+                  (
+                    ${year}
+                    %
+                    4
+                  )
+                  =
+                  0
+
+                  and
+
+                  (
+                    ${year}
+                    %
+                    100
+                  )
+                  <>
+                  0
+                )
+              then
+                29
+
+              else
+                28
+            end
+
+          else
+            0
+        end
+      `;
+
     return sql`
       case
         when
-          btrim(
-            coalesce(
-              i.source_data
-                ->>
-                ${field},
-              ''
-            )
-          )
-          ~
-          '^[0-9]{8}$'
+          ${compact}
+            is null
         then
-          btrim(
-            i.source_data
-              ->>
-              ${field}
-          )
+          null
 
         when
-          btrim(
-            coalesce(
-              i.source_data
-                ->>
-                ${field},
-              ''
-            )
-          )
-          ~
-          '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+          ${month}
+            < 1
+
+          or
+
+          ${month}
+            > 12
         then
-          replace(
-            substring(
-              btrim(
-                i.source_data
-                  ->>
-                  ${field}
-              )
-              from 1 for 10
-            ),
-            '-',
-            ''
-          )
+          null
+
+        when
+          ${day}
+            < 1
+
+          or
+
+          ${day}
+            >
+          ${maximumDay}
+        then
+          null
 
         else
-          null
+          ${compact}
       end
     `;
   }
@@ -286,7 +420,7 @@ export class AuthorizationQueryRepository {
    * La liberacion posterior a la gracia es automatica.
    * El XLS solo asigna saldo disponible.
    */
-  private validityWindow(): SQL {
+  private validityStatusSql(): SQL {
     const {
       today,
       horizon,
@@ -316,26 +450,51 @@ export class AuthorizationQueryRepository {
       );
 
     return sql`
-      ${validityEndDate}
-      >=
-      ${todayKey}
+      case
+        when
+          ${assignmentDate}
+            is null
 
-      and
+          or
 
-      ${assignmentDate}
-      <=
-      ${horizonKey}
+          ${validityEndDate}
+            is null
+        then
+          'INVALID_DATE'
+
+        when
+          ${validityEndDate}
+            <
+          ${todayKey}
+        then
+          'EXPIRED'
+
+        when
+          ${assignmentDate}
+            >
+          ${horizonKey}
+        then
+          'OUTSIDE_HORIZON'
+
+        else
+          'IN_WINDOW'
+      end
     `;
   }
 
-  /*
-   * Equivalente SQL de initialValidationStatus === PASSED.
-   *
-   * Se usa exclusivamente para que los filtros de
-   * Estado operativo coincidan con la proyección
-   * que devuelve la API.
-   */
-  private initialValidationPassed(): SQL {
+
+  private validityWindow(): SQL {
+    return sql`
+      (
+        ${this.validityStatusSql()}
+      )
+      =
+      'IN_WINDOW'
+    `;
+  }
+
+
+  private initialValidationStatusSql(): SQL {
     const quantityText =
       sql`
         btrim(
@@ -393,60 +552,160 @@ export class AuthorizationQueryRepository {
       `;
 
     return sql`
-      coalesce(
-        i.enablement_status,
-        ''
-      ) =
-      'ENABLED'
+      case
+        when
+          coalesce(
+            i.enablement_status,
+            ''
+          )
+          <>
+          'ENABLED'
+        then
+          'FAILED'
 
-      and
-      i.tariff_membership_status =
-      'LISTED'
+        when
+          i.tariff_membership_status =
+          'NOT_LISTED'
+        then
+          'FAILED'
 
-      and
-      ${quantityNumeric}
-        is not null
+        when
+          coalesce(
+            i.tariff_membership_status,
+            ''
+          )
+          <>
+          'LISTED'
+        then
+          'PENDING'
 
-      and
-      ${quantityNumeric}
-        > 0
+        when
+          ${quantityNumeric}
+            is null
 
-      and
-      trunc(
-        ${quantityNumeric}
-      ) =
-      ${quantityNumeric}
+          or
 
-      and
-      ${minimumQuantity}
-        > 0
+          ${quantityNumeric}
+            <= 0
 
-      and
-      ${quantityNumeric}
-        >=
-      ${minimumQuantity}
+          or
 
-      and (
-        (
+          trunc(
+            ${quantityNumeric}
+          )
+          <>
+          ${quantityNumeric}
+
+          or
+
+          ${minimumQuantity}
+            <= 0
+
+          or
+
+          ${quantityNumeric}
+            <
+          ${minimumQuantity}
+        then
+          'FAILED'
+
+        when
           i.coverage_type =
-            'PBS'
+          'PBS'
+        then
+          case
+            when
+              i.direction_status =
+              'NOT_APPLICABLE'
+            then
+              'PASSED'
 
-          and
-          i.direction_status =
-            'NOT_APPLICABLE'
-        )
+            else
+              'PENDING'
+          end
 
-        or
-
-        (
+        when
           i.coverage_type =
-            'NO_PBS'
+          'NO_PBS'
+        then
+          case
+            when
+              i.direction_status =
+              'CONFIRMED'
+            then
+              'PASSED'
 
-          and
-          i.direction_status =
-            'CONFIRMED'
-        )
+            else
+              'PENDING'
+          end
+
+        else
+          'PENDING'
+      end
+    `;
+  }
+
+
+  private initialValidationPassed(): SQL {
+    return sql`
+      (
+        ${this.initialValidationStatusSql()}
       )
+      =
+      'PASSED'
+    `;
+  }
+
+
+  private lifecycleEnablementSql(): SQL {
+    const initialValidationStatus =
+      this.initialValidationStatusSql();
+
+    const validityStatus =
+      this.validityStatusSql();
+
+    return sql`
+      case
+        /*
+         * Bloqueos definitivos tienen precedencia
+         * absoluta sobre cualquier condición pendiente.
+         */
+        when
+          ${initialValidationStatus}
+          =
+          'FAILED'
+
+          or
+
+          ${validityStatus}
+          in (
+            'INVALID_DATE',
+            'EXPIRED'
+          )
+        then
+          'DISABLED'
+
+        /*
+         * Solo si no existe bloqueo definitivo,
+         * las condiciones resolubles/temporales
+         * producen PENDING.
+         */
+        when
+          ${initialValidationStatus}
+          =
+          'PENDING'
+
+          or
+
+          ${validityStatus}
+          =
+          'OUTSIDE_HORIZON'
+        then
+          'PENDING'
+
+        else
+          'ENABLED'
+      end
     `;
   }
 
@@ -581,6 +840,18 @@ export class AuthorizationQueryRepository {
       conditions.push(sql`
         i.enablement_status =
         ${filters.enablementStatus}
+      `);
+    }
+
+    if (
+      filters.lifecycleEnablement
+    ) {
+      conditions.push(sql`
+        (
+          ${this.lifecycleEnablementSql()}
+        )
+        =
+        ${filters.lifecycleEnablement}
       `);
     }
 
@@ -2387,6 +2658,39 @@ export class AuthorizationQueryRepository {
           row.minimum_quantity,
       });
 
+    const lifecycleEnablement =
+      resolveAuthorizationLifecycleStatus({
+        initialValidationStatus,
+
+        validityStatus,
+      });
+
+    const lifecycleReasons =
+      resolveAuthorizationLifecycleReasons({
+        lifecycleStatus:
+          lifecycleEnablement,
+
+        enablementStatus:
+          row.enablement_status,
+
+        tariffMembershipStatus:
+          row.tariff_membership_status,
+
+        coverageType:
+          row.coverage_type,
+
+        directionStatus:
+          row.direction_status,
+
+        quantity:
+          row.quantity,
+
+        minimumQuantity:
+          row.minimum_quantity,
+
+        validityStatus,
+      });
+
     const fulfillmentStatus =
       resolveAuthorizationFulfillmentStatus(
         row.fulfillment_type,
@@ -2446,6 +2750,10 @@ export class AuthorizationQueryRepository {
       initialValidationStatus,
 
       validityStatus,
+
+      lifecycleEnablement,
+
+      lifecycleReasons,
 
       operationalEligible,
 

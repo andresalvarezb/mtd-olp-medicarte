@@ -63,6 +63,14 @@ const querySchema =
       ])
         .optional(),
 
+    lifecycleEnablement:
+      z.enum([
+        'ENABLED',
+        'PENDING',
+        'DISABLED',
+      ])
+        .optional(),
+
     operationalStatus:
       z.enum([
         'UNASSIGNED',
@@ -186,6 +194,13 @@ export class AuthorizationQueryController {
         ? {
             enablementStatus:
               parsed.enablementStatus,
+          }
+        : {}),
+
+      ...(parsed.lifecycleEnablement
+        ? {
+            lifecycleEnablement:
+              parsed.lifecycleEnablement,
           }
         : {}),
 
