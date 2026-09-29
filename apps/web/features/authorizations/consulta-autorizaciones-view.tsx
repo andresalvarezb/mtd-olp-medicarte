@@ -2443,27 +2443,30 @@ const query = useApiData(
                   </div>
                 </div>
 
-                <div
-                  className={`authorization-summary-message ${selected.lifecycleEnablement.toLowerCase()}`}
-                >
-                  <strong>
-                    {
-                      selected.lifecycleEnablement ===
-                        'ENABLED'
-                        ? 'Sin bloqueos'
-                        : selected.lifecycleEnablement ===
-                            'DISABLED'
-                          ? 'Motivo de inhabilitación'
-                          : 'Condición pendiente'
-                    }
-                  </strong>
+                {selected.operationalStatus !==
+                'CLOSED' ? (
+                  <div
+                    className={`authorization-summary-message ${selected.lifecycleEnablement.toLowerCase()}`}
+                  >
+                    <strong>
+                      {
+                        selected.lifecycleEnablement ===
+                          'ENABLED'
+                          ? 'Sin bloqueos'
+                          : selected.lifecycleEnablement ===
+                              'DISABLED'
+                            ? 'Motivo de inhabilitación'
+                            : 'Condición pendiente'
+                      }
+                    </strong>
 
-                  <span>
-                    {authorizationLifecycleReasonText(
-                      selected,
-                    )}
-                  </span>
-                </div>
+                    <span>
+                      {authorizationLifecycleReasonText(
+                        selected,
+                      )}
+                    </span>
+                  </div>
+                ) : null}
 
 
                 {authorizationEditError ? (
@@ -2540,7 +2543,9 @@ const query = useApiData(
                   </div>
                 </div>
 
-                {selectedPurchaseOrderContext ? (
+                {selected.operationalStatus !==
+                  'CLOSED' &&
+                selectedPurchaseOrderContext ? (
                   <div
                     className={`authorization-summary-oc-message ${selectedPurchaseOrderContext.kind}`}
                   >
@@ -2622,7 +2627,9 @@ const query = useApiData(
                 </div>
 
 
-                {!selected.operationalEligible ? (
+                {!selected.operationalEligible &&
+                selected.operationalStatus !==
+                  'CLOSED' ? (
                   <div className="authorization-operation-message authorization-summary-operation-message">
                     Esta autorización se conserva visible para consulta,
                     pero actualmente no está habilitada para operaciones.
