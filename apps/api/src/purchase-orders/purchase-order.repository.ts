@@ -987,14 +987,64 @@ export class PurchaseOrderRepository {
       );
     } else if (
       !supplier &&
+      actor.organizationCode ===
+        'COMPENSAR'
+    ) {
+      /*
+       * La OC pertenece operacionalmente a MTD.
+       *
+       * COMPENSAR obtiene visibilidad por la relación:
+       *
+       * OC
+       * -> línea OC
+       * -> purchase_order_authorization_sources
+       * -> authorization_item_organizations
+       * -> COMPENSAR.
+       */
+      filters.push(
+        sql`
+          exists (
+            select
+              1
+
+            from
+              purchase_order_lines
+                scoped_pol
+
+            join
+              purchase_order_authorization_sources
+                scoped_poas
+                on scoped_poas.purchase_order_line_id =
+                   scoped_pol.id
+
+            join
+              authorization_item_organizations
+                scoped_aio
+                on scoped_aio.authorization_item_id =
+                   scoped_poas.authorization_item_id
+
+            where
+              scoped_pol.purchase_order_id =
+                po.id
+
+              and scoped_aio.organization_id =
+                ${actor.organizationId}::uuid
+          )
+        `,
+      );
+    } else if (
+      !supplier &&
       actor.organizationCode !==
         'MTD'
     ) {
+      /*
+       * No existe ownership genérico de purchase_orders
+       * por organización.
+       *
+       * Otros actores deben tener una frontera explícita.
+       */
       filters.push(
-        sql`
-          po.organization_id =
-            ${actor.organizationId}
-        `,
+        sql`false`,
       );
     }
     /*
@@ -1284,6 +1334,69 @@ export class PurchaseOrderRepository {
         supplier,
       );
     }
+
+    if (
+      actor.organizationCode ===
+      'COMPENSAR'
+    ) {
+      const visible =
+        await this.database.db.execute<{
+          id:
+            string;
+        }>(sql`
+          select
+            po.id
+
+          from
+            purchase_orders po
+
+          where
+            po.id =
+              ${id}
+
+            and exists (
+              select
+                1
+
+              from
+                purchase_order_lines
+                  scoped_pol
+
+              join
+                purchase_order_authorization_sources
+                  scoped_poas
+                  on scoped_poas.purchase_order_line_id =
+                     scoped_pol.id
+
+              join
+                authorization_item_organizations
+                  scoped_aio
+                  on scoped_aio.authorization_item_id =
+                     scoped_poas.authorization_item_id
+
+              where
+                scoped_pol.purchase_order_id =
+                  po.id
+
+                and scoped_aio.organization_id =
+                  ${actor.organizationId}::uuid
+            )
+
+          limit 1
+        `);
+
+      if (
+        !visible.rows[0]
+      ) {
+        return null;
+      }
+
+      return this.findById(
+        id,
+        false,
+      );
+    }
+
 
     if (
       actor.organizationCode !==

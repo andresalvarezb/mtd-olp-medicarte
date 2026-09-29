@@ -631,6 +631,13 @@
       "when": 1790546877663,
       "tag": "0090_purchase_order_direct_authorization_import",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1790546878663,
+      "tag": "0091_compensar_observer",
+      "breakpoints": true
     }
   ]
 }
