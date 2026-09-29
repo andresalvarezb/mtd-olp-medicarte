@@ -1494,9 +1494,12 @@ describe('Macro 2 / 2C + 2D — smart reload + purchase order lineage', () => {
       );
 
 
-      const uploaded:
-        Job =
+      const uploadedPayload:
+        unknown =
         await uploadResponse.json();
+
+      const uploaded =
+        uploadedPayload as Job;
 
 
       expect(
@@ -1519,9 +1522,12 @@ describe('Macro 2 / 2C + 2D — smart reload + purchase order lineage', () => {
       );
 
 
-      const confirmed:
-        Job =
+      const confirmedPayload:
+        unknown =
         await confirmResponse.json();
+
+      const confirmed =
+        confirmedPayload as Job;
 
 
       expect(
