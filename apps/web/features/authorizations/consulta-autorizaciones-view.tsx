@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { PageHeader } from '@/components/ui/page-header';
 
@@ -32,6 +32,10 @@ import {
   downloadExportable,
   saveExportable,
 } from '@/lib/exportables-api';
+
+const AUTHORIZATION_DRAWER_EXIT_MS =
+  340;
+
 
 function initialValidationLabel(
   status:
@@ -273,6 +277,155 @@ function singlePurchaseOrderCode(
   }
 
   return codes[0]!;
+}
+
+
+type AuthorizationPurchaseOrderContext =
+  Readonly<{
+    kind:
+      | 'active'
+      | 'trace';
+
+    message:
+      string;
+  }>;
+
+
+function purchaseOrderCodes(
+  value:
+    string | null,
+): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map(
+          (code) =>
+            code.trim(),
+        )
+        .filter(
+          Boolean,
+        ),
+    ),
+  ];
+}
+
+
+function purchaseOrderReference(
+  codes:
+    string[],
+): string {
+  if (
+    codes.length === 1
+  ) {
+    const code =
+      codes[0];
+
+    return code
+      ? `la OC ${code}`
+      : 'la OC relacionada';
+  }
+
+  return `las OC ${codes.join(
+    ', ',
+  )}`;
+}
+
+
+function authorizationPurchaseOrderContext(
+  item:
+    AuthorizationQueryItem,
+): AuthorizationPurchaseOrderContext | null {
+  const activeCodes =
+    item.remainingAssignedQuantity >
+      0
+      ? purchaseOrderCodes(
+          item.purchaseOrder,
+        )
+      : [];
+
+
+  const traceCodes =
+    [
+      ...new Set(
+        item.purchaseOrders
+          .map(
+            (order) =>
+              order.purchaseOrderCode
+                .trim(),
+          )
+          .filter(
+            Boolean,
+          ),
+      ),
+    ];
+
+
+  const otherTraceCodes =
+    traceCodes.filter(
+      (code) =>
+        !activeCodes.includes(
+          code,
+        ),
+    );
+
+
+  const point =
+    item.dispensingPointCode
+    ??
+    item.dispensingPointName;
+
+
+  if (
+    activeCodes.length >
+    0
+  ) {
+    const pointText =
+      point
+        ? ` en ${point}`
+        : '';
+
+    const traceText =
+      otherTraceCodes.length >
+      0
+        ? ` Además, registra trazabilidad con ${purchaseOrderReference(
+            otherTraceCodes,
+          )}.`
+        : '';
+
+    return {
+      kind:
+        'active',
+
+      message:
+        `Esta autorización está actualmente relacionada con ${purchaseOrderReference(
+          activeCodes,
+        )}. Tiene ${item.allocatedQuantity} unidades asignadas y ${item.remainingAssignedQuantity} continúan disponibles para entrega/aplicación${pointText}.${traceText}`,
+    };
+  }
+
+
+  if (
+    traceCodes.length >
+    0
+  ) {
+    return {
+      kind:
+        'trace',
+
+      message:
+        `Esta autorización registra trazabilidad con ${purchaseOrderReference(
+          traceCodes,
+        )}, pero actualmente no tiene producto asignado disponible para entrega/aplicación.`,
+    };
+  }
+
+
+  return null;
 }
 
 
@@ -563,6 +716,30 @@ export function ConsultaAutorizacionesView() {
   const [selected, setSelected] = useState<AuthorizationQueryItem | null>(null);
 
   const [
+    authorizationDrawerVisible,
+    setAuthorizationDrawerVisible,
+  ] =
+    useState(
+      false,
+    );
+
+  const authorizationDrawerCloseTimer =
+    useRef<
+      number |
+      null
+    >(
+      null,
+    );
+
+  const authorizationDrawerOpenFrame =
+    useRef<
+      number |
+      null
+    >(
+      null,
+    );
+
+  const [
     editingAuthorization,
     setEditingAuthorization,
   ] =
@@ -638,6 +815,32 @@ export function ConsultaAutorizacionesView() {
     useState(
       false,
     );
+
+
+  useEffect(
+    () => {
+      return () => {
+        if (
+          authorizationDrawerCloseTimer.current !==
+          null
+        ) {
+          window.clearTimeout(
+            authorizationDrawerCloseTimer.current,
+          );
+        }
+
+        if (
+          authorizationDrawerOpenFrame.current !==
+          null
+        ) {
+          window.cancelAnimationFrame(
+            authorizationDrawerOpenFrame.current,
+          );
+        }
+      };
+    },
+    [],
+  );
 
 
   async function exportAuthorizations() {
@@ -840,6 +1043,62 @@ const query = useApiData(
     setPage(1);
   }
 
+  function closeAuthorizationDetail() {
+    if (
+      authorizationDrawerOpenFrame.current !==
+      null
+    ) {
+      window.cancelAnimationFrame(
+        authorizationDrawerOpenFrame.current,
+      );
+
+      authorizationDrawerOpenFrame.current =
+        null;
+    }
+
+
+    setAuthorizationDrawerVisible(
+      false,
+    );
+
+
+    if (
+      authorizationDrawerCloseTimer.current !==
+      null
+    ) {
+      window.clearTimeout(
+        authorizationDrawerCloseTimer.current,
+      );
+    }
+
+
+    authorizationDrawerCloseTimer.current =
+      window.setTimeout(
+        () => {
+          setSelected(
+            null,
+          );
+
+          setManagingAuthorization(
+            false,
+          );
+
+          setEditingAuthorization(
+            false,
+          );
+
+          setAuthorizationEditError(
+            null,
+          );
+
+          authorizationDrawerCloseTimer.current =
+            null;
+        },
+        AUTHORIZATION_DRAWER_EXIT_MS,
+      );
+  }
+
+
   async function openDetail(
     item:
       AuthorizationQueryItem,
@@ -852,9 +1111,50 @@ const query = useApiData(
      * que contiene la relación durable
      * AUTO -> purchase_order_authorization_sources -> OC.
      */
+    if (
+      authorizationDrawerCloseTimer.current !==
+      null
+    ) {
+      window.clearTimeout(
+        authorizationDrawerCloseTimer.current,
+      );
+
+      authorizationDrawerCloseTimer.current =
+        null;
+    }
+
+
+    if (
+      authorizationDrawerOpenFrame.current !==
+      null
+    ) {
+      window.cancelAnimationFrame(
+        authorizationDrawerOpenFrame.current,
+      );
+    }
+
+
+    setAuthorizationDrawerVisible(
+      false,
+    );
+
     setSelected(
       item,
     );
+
+
+    authorizationDrawerOpenFrame.current =
+      window.requestAnimationFrame(
+        () => {
+          setAuthorizationDrawerVisible(
+            true,
+          );
+
+          authorizationDrawerOpenFrame.current =
+            null;
+        },
+      );
+
 
     setFulfillmentType(
       'APPLICATION',
@@ -1224,6 +1524,15 @@ const query = useApiData(
       selectedActivePurchaseOrderCode !==
         null,
     );
+
+
+  const selectedPurchaseOrderContext =
+    selected
+      ? authorizationPurchaseOrderContext(
+          selected,
+        )
+      : null;
+
 
   return (
     <>
@@ -1753,15 +2062,21 @@ const query = useApiData(
 
       {selected ? (
         <div
-          className="operation-drawer-backdrop"
-          onMouseDown={() => {
-            setSelected(null);
-            setEditingAuthorization(false);
-            setAuthorizationEditError(null);
-          }}
+          className={`operation-drawer-backdrop authorization-detail-backdrop ${
+            authorizationDrawerVisible
+              ? 'is-visible'
+              : ''
+          }`}
+          onMouseDown={
+            closeAuthorizationDetail
+          }
         >
           <aside
-            className="operation-drawer authorization-detail-drawer"
+            className={`operation-drawer authorization-detail-drawer ${
+              authorizationDrawerVisible
+                ? 'is-visible'
+                : ''
+            }`}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="operation-drawer-header">
@@ -1830,12 +2145,9 @@ const query = useApiData(
                   type="button"
                   className="operation-close"
                   aria-label="Cerrar detalle"
-                  onClick={() => {
-                    setSelected(null);
-                    setManagingAuthorization(false);
-                    setEditingAuthorization(false);
-                    setAuthorizationEditError(null);
-                  }}
+                  onClick={
+                    closeAuthorizationDetail
+                  }
                 >
                   ×
                 </button>
@@ -2208,24 +2520,23 @@ const query = useApiData(
                   </div>
                 </div>
 
-                {selected.purchaseOrders.length > 0 ? (
-                  <div className="authorization-summary-trace">
+                {selectedPurchaseOrderContext ? (
+                  <div
+                    className={`authorization-summary-oc-message ${selectedPurchaseOrderContext.kind}`}
+                  >
+                    {selectedPurchaseOrderContext.kind ===
+                    'active' ? (
+                      <strong
+                        className="authorization-summary-oc-message-icon"
+                        aria-hidden="true"
+                      >
+                        ✓
+                      </strong>
+                    ) : null}
+
                     <span>
-                      Trazabilidad de OC
+                      {selectedPurchaseOrderContext.message}
                     </span>
-
-                    <strong>
-                      {selected.purchaseOrders
-                        .map(
-                          (order) =>
-                            order.purchaseOrderCode,
-                        )
-                        .join(', ')}
-                    </strong>
-
-                    <small>
-                      Relación histórica; no implica una asignación vigente.
-                    </small>
                   </div>
                 ) : null}
 

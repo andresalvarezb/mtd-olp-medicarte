@@ -8146,38 +8146,66 @@ table.operational-list-table tbody tr:hover {
   background: #ecfdf3;
 }
 
-.authorization-summary-trace {
+.authorization-summary-oc-message {
+  display: flex;
+  align-items: flex-start;
+
+  gap: 10px;
+
   margin-top: 10px;
 
   padding:
-    11px
+    12px
     14px;
 
   border: 1px solid #e4e7ec;
   border-radius: 10px;
 
-  background: #ffffff;
-}
-
-.authorization-summary-trace > span,
-.authorization-summary-trace > small {
-  display: block;
-
+  background: #f8fafc;
   color: #667085;
 
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-.authorization-summary-trace strong {
-  display: block;
+.authorization-summary-oc-message.active {
+  border-color: #abefc6;
 
-  margin:
-    4px
-    0;
+  background: #ecfdf3;
+  color: #34725a;
+}
 
-  color: #172033;
+.authorization-summary-oc-message.trace {
+  border-color: #e4e7ec;
 
-  font-size: 12px;
+  background: #f8fafc;
+  color: #667085;
+}
+
+.authorization-summary-oc-message-icon {
+  flex: 0 0 auto;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 20px;
+  height: 20px;
+
+  margin-top: 1px;
+
+  border-radius: 50%;
+
+  background: #dff5ea;
+  color: #16835d;
+
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.authorization-summary-oc-message span {
+  min-width: 0;
 }
 
 .authorization-management-context {
@@ -8262,3 +8290,82 @@ table.operational-list-table tbody tr:hover {
 }
 
 /* END AUTHORIZATION DETAIL V3 */
+
+/* AUTHORIZATION DETAIL MOTION V1 */
+
+/*
+ * El drawer permanece montado durante la salida.
+ * Solo estas clases afectan al detalle de Autorizaciones:
+ * no modifican los otros operation-drawer del sistema.
+ */
+
+.authorization-detail-backdrop {
+  opacity: 0;
+
+  transition:
+    opacity 280ms ease;
+
+  pointer-events: none;
+}
+
+.authorization-detail-backdrop.is-visible {
+  opacity: 1;
+
+  pointer-events: auto;
+}
+
+
+.authorization-detail-drawer {
+  transform:
+    translateX(24px);
+
+  transition:
+    transform 360ms
+      cubic-bezier(
+        0.22,
+        1,
+        0.36,
+        1
+      );
+}
+
+.authorization-detail-drawer.is-visible {
+  transform:
+    translateX(0);
+}
+
+
+/*
+ * En móvil el drawer funciona visualmente como bottom sheet.
+ * Por eso la transición ocurre verticalmente.
+ */
+@media (max-width: 640px) {
+  .authorization-detail-drawer {
+    transform:
+      translateY(18px);
+  }
+
+  .authorization-detail-drawer.is-visible {
+    transform:
+      translateY(0);
+  }
+}
+
+
+/*
+ * Respeta la preferencia de accesibilidad del sistema.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .authorization-detail-backdrop,
+  .authorization-detail-drawer {
+    transition:
+      none !important;
+  }
+
+  .authorization-detail-drawer {
+    transform:
+      none !important;
+  }
+}
+
+/* END AUTHORIZATION DETAIL MOTION V1 */
