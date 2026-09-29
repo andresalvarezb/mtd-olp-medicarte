@@ -135,7 +135,7 @@ describe(
   'PurchaseOrderImportService XLSX',
   () => {
     it(
-      'genera exactamente las cinco columnas canónicas V2',
+      'genera exactamente las cinco columnas canónicas V3',
       () => {
         const {
           instance,
@@ -179,8 +179,8 @@ describe(
             0
           ],
         ).toEqual([
-          'AUTO_ORIGEN',
-          'AUTO_DESTINO',
+          'CLAVE_AUTORIZACION_ORIGEN',
+          'CLAVE_AUTORIZACION_DESTINO',
           'OC',
           'CODIGO_PRODUCTO',
           'CANTIDAD',
@@ -204,7 +204,7 @@ describe(
           metadata,
         ).toContainEqual([
           'templateVersion',
-          'PURCHASE_ORDERS_V2',
+          'PURCHASE_ORDERS_V3',
         ]);
 
         expect(
