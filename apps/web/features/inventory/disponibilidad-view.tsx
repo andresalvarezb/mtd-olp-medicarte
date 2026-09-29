@@ -37,6 +37,10 @@ import {
   type InventoryAvailabilityItem,
 } from '@/lib/inventory-availability-api';
 
+import {
+  FulfillmentBulkActions,
+} from '../authorizations/fulfillment-bulk-actions';
+
 
 const COLUMNS = [
   {
@@ -104,6 +108,7 @@ function quantity(
 export function DisponibilidadView() {
   const {
     organizationId,
+    hasPermission,
   } =
     useRole();
 
@@ -398,7 +403,23 @@ export function DisponibilidadView() {
       <PageHeader
         title="Disponibilidad"
         description="Inventario operativo por OC, producto y punto. Disponible = recibido − entregado/aplicado − asignado."
-        actions={null}
+        actions={
+          <FulfillmentBulkActions
+            organizationId={
+              organizationId
+            }
+            canManage={
+              hasPermission(
+                'patient_applications.manage',
+              )
+            }
+            onImported={() => {
+              void loadAvailability(
+                false,
+              );
+            }}
+          />
+        }
       />
 
       <Card
