@@ -164,18 +164,35 @@ export type PurchaseOrderImportResult =
 
 
 const TEMPLATE_VERSION =
+  'PURCHASE_ORDERS_V3';
+
+const LEGACY_TEMPLATE_VERSION =
   'PURCHASE_ORDERS_V2';
 
 const IMPORT_TYPE =
   'PURCHASE_ORDERS';
 
 const TEMPLATE_HEADERS = [
+  'CLAVE_AUTORIZACION_ORIGEN',
+  'CLAVE_AUTORIZACION_DESTINO',
+  'OC',
+  'CODIGO_PRODUCTO',
+  'CANTIDAD',
+] as const;
+
+const LEGACY_TEMPLATE_HEADERS = [
   'AUTO_ORIGEN',
   'AUTO_DESTINO',
   'OC',
   'CODIGO_PRODUCTO',
   'CANTIDAD',
 ] as const;
+
+const SUPPORTED_TEMPLATE_VERSIONS =
+  new Set<string>([
+    TEMPLATE_VERSION,
+    LEGACY_TEMPLATE_VERSION,
+  ]);
 
 
 
@@ -586,7 +603,7 @@ export class PurchaseOrderImportService {
         reject(
           row,
           'PURCHASE_ORDER_DESTINATION_AUTHORIZATION_REQUIRED',
-          'AUTO_DESTINO es obligatoria.',
+          'CLAVE_AUTORIZACION_DESTINO es obligatoria.',
         );
 
         continue;
@@ -671,7 +688,7 @@ export class PurchaseOrderImportService {
         reject(
           row,
           'PURCHASE_ORDER_DUPLICATE_AUTHORIZATION_KEY',
-          'AUTO_DESTINO está repetida dentro del archivo.',
+          'CLAVE_AUTORIZACION_DESTINO está repetida dentro del archivo.',
         );
       }
     }
@@ -1983,10 +2000,16 @@ export class PurchaseOrderImportService {
       }
     }
 
-    if (
+    const templateVersion =
       metadata.get(
         'templateVersion',
-      ) !== TEMPLATE_VERSION ||
+      );
+
+    if (
+      !templateVersion ||
+      !SUPPORTED_TEMPLATE_VERSIONS.has(
+        templateVersion,
+      ) ||
       metadata.get(
         'importType',
       ) !== IMPORT_TYPE
@@ -2074,24 +2097,44 @@ export class PurchaseOrderImportService {
         normalizeHeader,
       );
 
-    if (
-      headers.length !==
-        TEMPLATE_HEADERS.length ||
-      TEMPLATE_HEADERS.some(
+    const currentHeaders =
+      headers.length ===
+        TEMPLATE_HEADERS.length
+      &&
+      TEMPLATE_HEADERS.every(
         (
           expected,
           index,
         ) =>
-          headers[index] !==
+          headers[index] ===
           expected,
-      )
+      );
+
+
+    const legacyHeaders =
+      headers.length ===
+        LEGACY_TEMPLATE_HEADERS.length
+      &&
+      LEGACY_TEMPLATE_HEADERS.every(
+        (
+          expected,
+          index,
+        ) =>
+          headers[index] ===
+          expected,
+      );
+
+
+    if (
+      !currentHeaders &&
+      !legacyHeaders
     ) {
       throw new BadRequestException({
         code:
           'PURCHASE_ORDER_IMPORT_HEADERS_INVALID',
 
         message:
-          `Los encabezados deben ser exactamente: ${TEMPLATE_HEADERS.join(
+          `Los encabezados actuales deben ser exactamente: ${TEMPLATE_HEADERS.join(
             ', ',
           )}.`,
       });
@@ -2131,6 +2174,12 @@ export class PurchaseOrderImportService {
           unknown
         > = {};
 
+      /*
+       * Tanto V2 como V3 se normalizan internamente
+       * al contrato V3.
+       *
+       * La posición semántica de las columnas no cambia.
+       */
       for (
         let column = 0;
         column <
@@ -2155,21 +2204,21 @@ export class PurchaseOrderImportService {
         originAuthorizationKey:
           normalizeText(
             raw[
-              'AUTO_ORIGEN'
+              'CLAVE_AUTORIZACION_ORIGEN'
             ],
           ),
 
         destinationAuthorizationKey:
           normalizeText(
             raw[
-              'AUTO_DESTINO'
+              'CLAVE_AUTORIZACION_DESTINO'
             ],
           ),
 
         authorizationKey:
           normalizeText(
             raw[
-              'AUTO_DESTINO'
+              'CLAVE_AUTORIZACION_DESTINO'
             ],
           ),
 
@@ -4352,10 +4401,10 @@ export class PurchaseOrderImportService {
             }
 
             return {
-              AUTO_ORIGEN:
+              CLAVE_AUTORIZACION_ORIGEN:
                 row.originAuthorizationKey,
 
-              AUTO_DESTINO:
+              CLAVE_AUTORIZACION_DESTINO:
                 row.destinationAuthorizationKey,
 
               OC:
