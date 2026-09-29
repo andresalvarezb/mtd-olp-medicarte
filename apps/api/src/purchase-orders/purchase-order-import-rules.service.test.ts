@@ -242,6 +242,9 @@ type ExistingOptions =
 
     productPointExists?:
       boolean;
+
+    allowDirectAssignment?:
+      boolean;
   }>;
 
 
@@ -465,6 +468,44 @@ async function runExisting(
 
 
         /*
+         * Snapshot comercial autoritativo del AT.
+         */
+        if (
+          normalized.includes(
+            'select tap.tarifa_unidad',
+          ) &&
+          normalized.includes(
+            'as unit_rate',
+          )
+        ) {
+          return queryResult([
+            {
+              unit_rate:
+                '1000',
+
+              product_description:
+                'Producto 1',
+
+              presentation:
+                '1',
+            },
+          ]);
+        }
+
+
+        /*
+         * Línea directa OC + producto + punto.
+         */
+        if (
+          normalized.includes(
+            "pol.provenance = 'direct_authorization'",
+          )
+        ) {
+          return queryResult([]);
+        }
+
+
+        /*
          * Verificación OC + producto + punto.
          */
         if (
@@ -565,6 +606,43 @@ async function runExisting(
                 0,
             },
           ]);
+        }
+
+
+        /*
+         * Único caso positivo:
+         * OC existente + ORIGEN vacío = agregar AUTO.
+         */
+        if (
+          options.allowDirectAssignment &&
+          normalized.includes(
+            'insert into purchase_order_lines',
+          )
+        ) {
+          return queryResult([
+            {
+              id:
+                '70000000-0000-4000-8000-000000000002',
+            },
+          ]);
+        }
+
+
+        if (
+          options.allowDirectAssignment &&
+          (
+            normalized.includes(
+              'insert into purchase_order_authorization_sources',
+            ) ||
+            normalized.includes(
+              'update purchase_order_lines',
+            ) ||
+            normalized.includes(
+              'insert into audit_events',
+            )
+          )
+        ) {
+          return queryResult([]);
         }
 
 
@@ -699,8 +777,7 @@ async function runCreateGuard(
 
 
         /*
-         * OC no existe:
-         * debe entrar al flujo CREAR_OC.
+         * La OC todavía no existe.
          */
         if (
           normalized.includes(
@@ -711,37 +788,73 @@ async function runCreateGuard(
         }
 
 
+        throw new Error(
+          `UNEXPECTED_POOL_QUERY: ${normalized}`,
+        );
+      },
+    );
+
+
+  const clientQuery =
+    vi.fn(
+      (
+        sql:
+          string,
+      ) => {
+        const normalized =
+          String(
+            sql,
+          )
+            .replace(
+              /\s+/g,
+              ' ',
+            )
+            .trim()
+            .toLowerCase();
+
+
         if (
-          normalized.includes(
-            'as closed',
-          ) &&
-          normalized.includes(
-            'as assigned',
+          [
+            'begin',
+            'commit',
+            'rollback',
+          ].includes(
+            normalized,
           )
         ) {
-          return queryResult([
-            {
-              authorization_key:
-                'AUTO-DEST',
-
-              closed:
-                guard.closed,
-
-              assigned:
-                guard.assigned,
-            },
-          ]);
+          return queryResult([]);
         }
 
 
         if (
           normalized.includes(
-            'with ranked as',
+            'pg_advisory_xact_lock',
+          )
+        ) {
+          return queryResult([]);
+        }
+
+
+        if (
+          normalized.includes(
+            'from purchase_orders',
+          ) &&
+          normalized.includes(
+            'purchase_order_code =',
+          )
+        ) {
+          return queryResult([]);
+        }
+
+
+        if (
+          normalized.includes(
+            'from authorization_items ai',
           )
         ) {
           return queryResult([
             {
-              authorization_item_id:
+              id:
                 DEST_ID,
 
               authorization_key:
@@ -750,33 +863,55 @@ async function runCreateGuard(
               commercial_code:
                 'PROD-1',
 
-              projected_demand_line_id:
-                '80000000-0000-4000-8000-000000000001',
+              authorization_version:
+                1,
 
-              planning_period_id:
-                '60000000-0000-4000-8000-000000000001',
-
-              demand_bucket:
-                'REGULAR',
-
-              source_quantity:
+              authorized_quantity:
                 2,
 
-              already_committed:
-                0,
+              enablement_status:
+                'ENABLED',
 
-              revision:
-                1,
+              source_status_normalized:
+                '5',
+
+              closed:
+                guard.closed,
             },
           ]);
         }
 
 
+        if (
+          normalized.includes(
+            'as source_busy',
+          )
+        ) {
+          return queryResult([
+            {
+              source_busy:
+                guard.assigned,
+
+              allocation_busy:
+                false,
+            },
+          ]);
+        }
+
+
+        /*
+         * Ambos casos de este helper deben fallar
+         * ANTES de tocar AT o persistencia.
+         */
         throw new Error(
-          `UNEXPECTED_POOL_QUERY: ${normalized}`,
+          `CREATE_GUARD_UNEXPECTED_QUERY: ${normalized}`,
         );
       },
     );
+
+
+  const release =
+    vi.fn();
 
 
   const instance =
@@ -788,11 +923,12 @@ async function runCreateGuard(
 
           connect:
             vi.fn(
-              () => {
-                throw new Error(
-                  'CREATE_GUARD_MUST_NOT_CONNECT',
-                );
-              },
+              () => ({
+                query:
+                  clientQuery,
+
+                release,
+              }),
             ),
         },
       } as never,
@@ -819,6 +955,8 @@ async function runCreateGuard(
   return {
     result,
     orders,
+    clientQuery,
+    release,
   };
 }
 
@@ -1025,10 +1163,11 @@ describe(
 
 
     it(
-      'ASIGNAR_DISPONIBLE rechaza cuando Medicarte no tiene cantidad recibida libre suficiente',
+      'AGREGAR_AUTO no exige recepción previa ni disponibilidad física',
       async () => {
         const {
           result,
+          clientQuery,
         } =
           await runExisting(
             [
@@ -1040,14 +1179,52 @@ describe(
             ],
             {
               availableQuantity:
-                1,
+                0,
+
+              allowDirectAssignment:
+                true,
             },
           );
 
 
-        expectRejected(
-          result,
-          'PURCHASE_ORDER_AVAILABLE_QUANTITY_INSUFFICIENT',
+        expect(
+          result.acceptedRows,
+        ).toBe(
+          1,
+        );
+
+        expect(
+          result.rejectedRows,
+        ).toBe(
+          0,
+        );
+
+
+        expect(
+          clientQuery.mock.calls.some(
+            ([sql]) =>
+              String(
+                sql,
+              ).includes(
+                'as available_quantity',
+              ),
+          ),
+        ).toBe(
+          false,
+        );
+
+
+        expect(
+          clientQuery.mock.calls.some(
+            ([sql]) =>
+              String(
+                sql,
+              ).includes(
+                'insert into\n          purchase_order_authorization_sources',
+              ),
+          ),
+        ).toBe(
+          true,
         );
       },
     );

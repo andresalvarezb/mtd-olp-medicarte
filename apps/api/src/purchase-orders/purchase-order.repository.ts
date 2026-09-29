@@ -32,7 +32,7 @@ type Outcome<T> =
 type PurchaseOrderJoinedRow = {
   id: string;
   purchase_order_code: string | null;
-  planning_period_id: string;
+  planning_period_id: string | null;
   order_type: 'STANDARD' | 'COMPLEMENTARY';
   status: string;
   version: number;

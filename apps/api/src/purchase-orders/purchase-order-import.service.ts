@@ -959,6 +959,174 @@ export class PurchaseOrderImportService {
     }
 
 
+    /*
+     * ==================================================
+     * DIRECT_AUTHORIZATION_IMPORT_WAVE
+     *
+     * Una OC nueva cargada por XLSX nace directamente
+     * de las autorizaciones incluidas en la plantilla.
+     *
+     * NO requiere:
+     * - demand_sources
+     * - projected_demand_lines
+     * - planning_periods
+     * - agenda del paciente
+     *
+     * La AUTO determina producto/cantidad.
+     * El AT determina el punto MEDICARTE.
+     * ==================================================
+     */
+    let directCreatedOrders =
+      0;
+
+
+    const newOrderGroups =
+      new Map<
+        string,
+        ImportRow[]
+      >();
+
+
+    for (
+      const row of rows
+    ) {
+      if (
+        !row.purchaseOrderCode ||
+        existingOrderCodes.has(
+          row.purchaseOrderCode,
+        )
+      ) {
+        continue;
+      }
+
+      const collection =
+        newOrderGroups.get(
+          row.purchaseOrderCode,
+        ) ?? [];
+
+      collection.push(
+        row,
+      );
+
+      newOrderGroups.set(
+        row.purchaseOrderCode,
+        collection,
+      );
+    }
+
+
+    for (
+      const [
+        purchaseOrderCode,
+        groupRows,
+      ] of newOrderGroups
+    ) {
+      if (
+        groupRows.some(
+          (row) =>
+            results.has(
+              row.rowNumber,
+            ),
+        )
+      ) {
+        for (
+          const row of groupRows
+        ) {
+          if (
+            !results.has(
+              row.rowNumber,
+            )
+          ) {
+            reject(
+              row,
+              'PURCHASE_ORDER_GROUP_REJECTED',
+              'La OC contiene otra fila inválida; no se creó parcialmente.',
+            );
+          }
+        }
+
+        continue;
+      }
+
+
+      try {
+        const created =
+          await this.createDirectAuthorizationPurchaseOrderGroup(
+            purchaseOrderCode,
+            groupRows,
+            actor,
+          );
+
+
+        directCreatedOrders +=
+          1;
+
+
+        for (
+          const row of groupRows
+        ) {
+          results.set(
+            row.rowNumber,
+            {
+              rowNumber:
+                row.rowNumber,
+
+              status:
+                'ACCEPTED',
+
+              authorizationKey:
+                row.destinationAuthorizationKey,
+
+              purchaseOrderCode,
+
+              planningPeriodId:
+                null,
+
+              orderType:
+                'STANDARD',
+
+              commercialCode:
+                row.commercialCode,
+
+              quantity:
+                row.quantity,
+
+              requestedDeliveryDate:
+                null,
+
+              purchaseOrderId:
+                created.purchaseOrderId,
+
+              errorCode:
+                null,
+
+              errorMessage:
+                null,
+            },
+          );
+        }
+      } catch (
+        error
+      ) {
+        const failure =
+          errorInformation(
+            error,
+          );
+
+
+        for (
+          const row of groupRows
+        ) {
+          reject(
+            row,
+            failure.code,
+            failure.message,
+          );
+        }
+      }
+    }
+
+
     const lookupKeys =
       [
         ...new Set(
@@ -1921,7 +2089,9 @@ export class PurchaseOrderImportService {
 
       rejectedRows,
 
-      createdOrders,
+      createdOrders:
+        createdOrders +
+        directCreatedOrders,
 
       rejectedWorkbookBase64:
         rejectedRows > 0
@@ -2730,313 +2900,642 @@ export class PurchaseOrderImportService {
   }
 
 
-  private async existingOrderAvailableQuantity(
+  private async activeTariffSnapshot(
     client: PoolClient,
-    purchaseOrderId: string,
     commercialCode: string,
-    dispensingPointId: string,
-  ): Promise<number> {
-    /*
-     * Serializa operaciones sobre:
-     *
-     * OC + producto + punto.
-     *
-     * Evita que dos archivos consuman simultáneamente
-     * la misma disponibilidad.
-     */
-    await client.query(
-      `
-        select
-          pg_advisory_xact_lock(
-            hashtextextended(
-              $1,
-              0::bigint
-            )
-          )
-      `,
-      [
-        [
-          purchaseOrderId,
-          commercialCode,
-          dispensingPointId,
-        ].join(':'),
-      ],
-    );
-
-
+  ): Promise<{
+    unitRate: string;
+    productDescription: string | null;
+    presentation: string | null;
+  }> {
     const result =
       await client.query<{
-        available_quantity:
-          number;
+        unit_rate:
+          string | null;
+
+        product_description:
+          string | null;
+
+        presentation:
+          string | null;
       }>(
         `
-          with receipt_events as (
-            /*
-             * Recepción moderna directa:
-             * producto efectivamente recibido
-             * por MEDICARTE.
-             */
-            select
-              sum(
-                porl.received_quantity
-              )::int
-                as quantity
-
-            from
-              purchase_order_receipt_lines porl
-
-            join
-              purchase_order_receipts por
-                on por.id =
-                   porl.receipt_id
-
-            join
-              purchase_order_lines pol
-                on pol.id =
-                   porl.purchase_order_line_id
-
-            left join
-              tariff_annex_products tap
-                on tap.codigo_producto =
-                   pol.commercial_code
-
-               and tap.active =
-                   true
-
-            left join
-              product_delivery_point_mappings mapping
-                on pol.dispensing_point_id
-                   is null
-
-               and btrim(
-                     coalesce(
-                       tap.numero_expediente_invima,
-                       ''
-                     )
-                   ) ~ '^[0-9]+$'
-
-               and btrim(
-                     coalesce(
-                       tap.consecutivo_invima_presentacion,
-                       ''
-                     )
-                   ) ~ '^[0-9]+$'
-
-               and mapping.invima_record_normalized =
-                   coalesce(
-                     nullif(
-                       ltrim(
-                         btrim(
-                           tap.numero_expediente_invima
-                         ),
-                         '0'
-                       ),
-                       ''
-                     ),
-                     '0'
-                   )
-
-               and mapping.invima_presentation_normalized =
-                   coalesce(
-                     nullif(
-                       ltrim(
-                         btrim(
-                           tap.consecutivo_invima_presentacion
-                         ),
-                         '0'
-                       ),
-                       ''
-                     ),
-                     '0'
-                   )
-
-            where
-              por.purchase_order_id =
-                $1
-
-              and pol.commercial_code =
-                $2
-
-              and coalesce(
-                    pol.dispensing_point_id,
-                    mapping.dispensing_point_id
-                  ) =
-                  $3
-
-              and porl.received_quantity >
-                0
-
-
-            union all
-
-
-            /*
-             * Compatibilidad con recepción histórica
-             * delivery -> receipt -> inventory movement.
-             */
-            select
-              sum(
-                im.quantity_delta
-              )::int
-                as quantity
-
-            from
-              inventory_movements im
-
-            join
-              inventory_lots il
-                on il.id =
-                   im.inventory_lot_id
-
-            join
-              receipt_lines rl
-                on rl.id =
-                   im.source_id
-
-            join
-              delivery_lines dl
-                on dl.id =
-                   rl.delivery_line_id
-
-            join
-              deliveries d
-                on d.id =
-                   dl.delivery_id
-
-            where
-              d.purchase_order_id =
-                $1
-
-              and dl.commercial_code =
-                $2
-
-              and il.dispensing_point_id =
-                $3
-
-              and im.movement_type =
-                'RECEIPT'
-
-              and im.source_type =
-                'RECEIPT_LINE'
-
-              and im.quantity_delta >
-                0
-
-              and il.expiration_date >=
-                (
-                  now()
-                  at time zone
-                    'America/Bogota'
-                )::date
-          ),
-
-
-          received as (
-            select
-              coalesce(
-                sum(
-                  quantity
-                ),
-                0
-              )::int
-                as quantity
-
-            from
-              receipt_events
-          ),
-
-
-          fulfilled as (
-            select
-              coalesce(
-                sum(
-                  afl.quantity
-                ),
-                0
-              )::int
-                as quantity
-
-            from
-              authorization_fulfillment_lines afl
-
-            where
-              afl.purchase_order_id =
-                $1
-
-              and afl.commercial_code =
-                $2
-
-              and afl.dispensing_point_id =
-                $3
-          ),
-
-
-          assigned as (
-            select
-              coalesce(
-                sum(
-                  greatest(
-                    iaa.allocated_quantity
-                    -
-                    iaa.consumed_quantity
-                    -
-                    iaa.released_quantity,
-                    0
-                  )
-                ),
-                0
-              )::int
-                as quantity
-
-            from
-              inventory_authorization_allocations iaa
-
-            where
-              iaa.purchase_order_id =
-                $1
-
-              and iaa.commercial_code =
-                $2
-
-              and iaa.dispensing_point_id =
-                $3
-
-              and iaa.status in (
-                'ALLOCATED',
-                'PARTIALLY_CONSUMED'
-              )
-          )
-
-
           select
-            greatest(
-              received.quantity
-              -
-              fulfilled.quantity
-              -
-              assigned.quantity,
-              0
-            )::int
-              as available_quantity
+            tap.tarifa_unidad
+              as unit_rate,
+
+            coalesce(
+              nullif(
+                btrim(
+                  tap.descripcion_generica
+                ),
+                ''
+              ),
+
+              nullif(
+                btrim(
+                  tap.descripcion_comercial
+                ),
+                ''
+              )
+            )
+              as product_description,
+
+            nullif(
+              btrim(
+                tap.consecutivo_invima_presentacion
+              ),
+              ''
+            )
+              as presentation
 
           from
-            received,
-            fulfilled,
-            assigned
+            tariff_annex_products tap
+
+          where
+            tap.codigo_producto =
+              $1
+
+            and tap.active =
+              true
+
+          limit 2
+        `,
+        [
+          commercialCode,
+        ],
+      );
+
+
+    if (
+      result.rows.length ===
+      0
+    ) {
+      this.existingOrderError(
+        'PURCHASE_ORDER_AT_PRODUCT_REQUIRED',
+        `El producto ${commercialCode} no existe activo en el Anexo Tarifario.`,
+      );
+    }
+
+
+    if (
+      result.rows.length >
+      1
+    ) {
+      this.existingOrderError(
+        'PURCHASE_ORDER_AT_PRODUCT_AMBIGUOUS',
+        `El producto ${commercialCode} no es unívoco en el Anexo Tarifario.`,
+      );
+    }
+
+
+    const row =
+      result.rows[0]!;
+
+    const unitRate =
+      row.unit_rate
+        ?.trim();
+
+
+    if (
+      !unitRate
+    ) {
+      this.existingOrderError(
+        'TARIFF_RATE_NOT_FOUND',
+        `El producto ${commercialCode} no tiene tarifa activa en el Anexo Tarifario.`,
+      );
+    }
+
+
+    return {
+      unitRate,
+
+      productDescription:
+        row.product_description,
+
+      presentation:
+        row.presentation,
+    };
+  }
+
+
+  private async attachDirectAuthorizationToOrder(
+    client: PoolClient,
+    purchaseOrderId: string,
+    destination:
+      ExistingAuthorizationRow,
+    dispensingPointId: string,
+    quantity: number,
+  ): Promise<void> {
+    /*
+     * Una línea DIRECT_AUTHORIZATION agrupa únicamente
+     * autorizaciones incorporadas directamente desde
+     * la plantilla universal.
+     *
+     * Nunca fabrica projected demand.
+     */
+    const tariff =
+      await this.activeTariffSnapshot(
+        client,
+        destination.commercial_code,
+      );
+
+
+    const current =
+      await client.query<{
+        id:
+          string;
+      }>(
+        `
+          select
+            pol.id
+
+          from
+            purchase_order_lines pol
+
+          where
+            pol.purchase_order_id =
+              $1
+
+            and pol.commercial_code =
+              $2
+
+            and pol.dispensing_point_id =
+              $3
+
+            and pol.provenance =
+              'DIRECT_AUTHORIZATION'
+
+          order by
+            pol.created_at,
+            pol.id
+
+          limit 1
+
+          for update
         `,
         [
           purchaseOrderId,
-          commercialCode,
+          destination.commercial_code,
           dispensingPointId,
         ],
       );
 
 
-    return Number(
-      result.rows[0]
-        ?.available_quantity ??
-      0,
+    let lineId:
+      string;
+
+
+    if (
+      current.rows[0]
+    ) {
+      lineId =
+        current.rows[0].id;
+
+
+      await client.query(
+        `
+          update
+            purchase_order_lines
+
+          set
+            requested_quantity =
+              requested_quantity +
+              $1,
+
+            updated_at =
+              now()
+
+          where
+            id =
+              $2
+        `,
+        [
+          quantity,
+          lineId,
+        ],
+      );
+    } else {
+      const inserted =
+        await client.query<{
+          id:
+            string;
+        }>(
+          `
+            insert into
+              purchase_order_lines (
+                purchase_order_id,
+                commercial_code,
+                provenance,
+                product_description,
+                presentation,
+                dispensing_point_id,
+                requested_quantity,
+                requested_delivery_date,
+                compensar_unit_rate_snapshot,
+                tariff_snapshot_provenance,
+                legacy_tariff_revision_id,
+                projected_demand_line_id,
+                projected_demand_revision,
+                demand_bucket
+              )
+
+            values (
+              $1,
+              $2,
+              'DIRECT_AUTHORIZATION',
+              $3,
+              $4,
+              $5,
+              $6,
+              null,
+              $7,
+              'LIVE_SNAPSHOT',
+              null,
+              null,
+              null,
+              null
+            )
+
+            returning
+              id
+          `,
+          [
+            purchaseOrderId,
+            destination.commercial_code,
+            tariff.productDescription,
+            tariff.presentation,
+            dispensingPointId,
+            quantity,
+            tariff.unitRate,
+          ],
+        );
+
+
+      lineId =
+        inserted.rows[0]!.id;
+    }
+
+
+    await client.query(
+      `
+        insert into
+          purchase_order_authorization_sources (
+            purchase_order_line_id,
+            authorization_item_id,
+            projected_demand_line_id,
+            projected_demand_revision,
+            source_quantity_snapshot,
+            provenance,
+            evidence_at
+          )
+
+        values (
+          $1,
+          $2,
+          null,
+          null,
+          $3,
+          'DIRECT_AUTHORIZATION',
+          now()
+        )
+      `,
+      [
+        lineId,
+        destination.id,
+        quantity,
+      ],
     );
+  }
+
+
+  private async createDirectAuthorizationPurchaseOrderGroup(
+    purchaseOrderCode: string,
+    rows: ImportRow[],
+    actor: Scope,
+  ): Promise<{
+    purchaseOrderId:
+      string;
+  }> {
+    const client =
+      await this.database.pool.connect();
+
+
+    try {
+      await client.query(
+        'begin',
+      );
+
+
+      /*
+       * Serializa creación por código OC.
+       */
+      await client.query(
+        `
+          select
+            pg_advisory_xact_lock(
+              hashtextextended(
+                $1,
+                0::bigint
+              )
+            )
+        `,
+        [
+          `purchase-order:${purchaseOrderCode}`,
+        ],
+      );
+
+
+      const existing =
+        await client.query<{
+          id:
+            string;
+        }>(
+          `
+            select
+              id
+
+            from
+              purchase_orders
+
+            where
+              purchase_order_code =
+                $1
+
+            limit 1
+
+            for update
+          `,
+          [
+            purchaseOrderCode,
+          ],
+        );
+
+
+      if (
+        existing.rows.length
+      ) {
+        this.existingOrderError(
+          'PURCHASE_ORDER_CODE_ALREADY_EXISTS',
+          `La OC ${purchaseOrderCode} ya existe en el sistema.`,
+        );
+      }
+
+
+      const plans:
+        Array<{
+          row:
+            ImportRow;
+
+          destination:
+            ExistingAuthorizationRow;
+
+          dispensingPointId:
+            string;
+        }> =
+        [];
+
+
+      for (
+        const row of rows
+      ) {
+        const destination =
+          await this.loadExistingAuthorization(
+            client,
+            row.destinationAuthorizationKey!,
+            actor,
+          );
+
+
+        if (
+          destination.closed
+        ) {
+          this.existingOrderError(
+            'PURCHASE_ORDER_DESTINATION_CLOSED',
+            `AUTO_DESTINO ${destination.authorization_key} ya está cerrada por entrega o aplicación.`,
+          );
+        }
+
+
+        if (
+          destination.enablement_status !==
+            'ENABLED' ||
+          destination.source_status_normalized !==
+            '5'
+        ) {
+          this.existingOrderError(
+            'PURCHASE_ORDER_DESTINATION_NOT_ENABLED',
+            `AUTO_DESTINO ${destination.authorization_key} no está habilitada para operación.`,
+          );
+        }
+
+
+        if (
+          destination.commercial_code
+            .trim()
+            .toUpperCase() !==
+          row.commercialCode!
+            .trim()
+            .toUpperCase()
+        ) {
+          this.existingOrderError(
+            'PURCHASE_ORDER_PRODUCT_MISMATCH',
+            'CODIGO_PRODUCTO no corresponde a AUTO_DESTINO.',
+          );
+        }
+
+
+        if (
+          destination.authorized_quantity !==
+            row.quantity
+        ) {
+          this.existingOrderError(
+            'PURCHASE_ORDER_DESTINATION_QUANTITY_MISMATCH',
+            `AUTO_DESTINO requiere exactamente ${destination.authorized_quantity} unidad(es); la fila contiene ${row.quantity}.`,
+          );
+        }
+
+
+        if (
+          await this.destinationIsBusy(
+            client,
+            destination.id,
+          )
+        ) {
+          this.existingOrderError(
+            'PURCHASE_ORDER_DESTINATION_ALREADY_ASSIGNED',
+            `AUTO_DESTINO ${destination.authorization_key} ya tiene una OC o asignación activa.`,
+          );
+        }
+
+
+        const dispensingPointId =
+          await this.destinationPoint(
+            client,
+            destination.commercial_code,
+          );
+
+
+        /*
+         * Validar que además exista la información
+         * comercial vigente del AT antes de crear la OC.
+         */
+        await this.activeTariffSnapshot(
+          client,
+          destination.commercial_code,
+        );
+
+
+        plans.push({
+          row,
+          destination,
+          dispensingPointId,
+        });
+      }
+
+
+      const inserted =
+        await client.query<{
+          id:
+            string;
+        }>(
+          `
+            insert into
+              purchase_orders (
+                purchase_order_code,
+                planning_period_id,
+                order_type,
+                status,
+                version,
+                issued_at,
+                issued_by,
+                created_by,
+                updated_by,
+                origin
+              )
+
+            values (
+              $1,
+              null,
+              'STANDARD',
+              'ISSUED',
+              1,
+              now(),
+              $2,
+              $2,
+              $2,
+              'DIRECT_AUTHORIZATION'
+            )
+
+            returning
+              id
+          `,
+          [
+            purchaseOrderCode,
+            actor.userId,
+          ],
+        );
+
+
+      const purchaseOrderId =
+        inserted.rows[0]!.id;
+
+
+      for (
+        const plan of plans
+      ) {
+        await this.attachDirectAuthorizationToOrder(
+          client,
+          purchaseOrderId,
+          plan.destination,
+          plan.dispensingPointId,
+          plan.row.quantity!,
+        );
+      }
+
+
+      await client.query(
+        `
+          insert into
+            audit_events (
+              actor_type,
+              actor_id,
+              organization_id,
+              action,
+              resource_type,
+              resource_id,
+              after,
+              correlation_id,
+              request_id,
+              result
+            )
+
+          values (
+            'USER',
+            $1,
+            $2,
+            'PURCHASE_ORDER_DIRECT_AUTHORIZATION_IMPORTED',
+            'purchase_order',
+            $3,
+            $4::jsonb,
+            $5,
+            $5,
+            'SUCCESS'
+          )
+        `,
+        [
+          actor.userId,
+          actor.organizationId,
+          purchaseOrderId,
+
+          JSON.stringify({
+            purchaseOrderCode,
+
+            authorizationCount:
+              plans.length,
+
+            requestedQuantity:
+              plans.reduce(
+                (
+                  total,
+                  plan,
+                ) =>
+                  total +
+                  plan.row.quantity!,
+                0,
+              ),
+
+            origin:
+              'DIRECT_AUTHORIZATION',
+
+            demandRequired:
+              false,
+          }),
+
+          actor.correlationId,
+        ],
+      );
+
+
+      await client.query(
+        'commit',
+      );
+
+
+      return {
+        purchaseOrderId,
+      };
+    } catch (
+      error
+    ) {
+      await client.query(
+        'rollback',
+      );
+
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
 
@@ -3049,7 +3548,7 @@ export class PurchaseOrderImportService {
       string;
 
     planningPeriodId:
-      string;
+      string | null;
 
     orderType:
       PurchaseOrderType;
@@ -3070,7 +3569,7 @@ export class PurchaseOrderImportService {
             string;
 
           planning_period_id:
-            string;
+            string | null;
 
           order_type:
             PurchaseOrderType;
@@ -3185,13 +3684,6 @@ export class PurchaseOrderImportService {
         [];
 
 
-      const reservedFromAvailability =
-        new Map<
-          string,
-          number
-        >();
-
-
       const seenOrigins =
         new Set<
           string
@@ -3278,74 +3770,22 @@ export class PurchaseOrderImportService {
           );
 
 
-        await this.assertOrderProductPoint(
-          client,
-          order.id,
-          destination.commercial_code,
-          dispensingPointId,
-        );
-
-
         /*
          * ==================================================
          * OC EXISTENTE + ORIGEN VACÍO
          *
-         * ASIGNAR PRODUCTO DISPONIBLE.
+         * AGREGAR AUTO A LA OC.
          *
-         * Solo puede utilizar producto realmente recibido
-         * por MEDICARTE y todavía no entregado/aplicado
-         * ni reservado.
+         * Esto NO consume stock y NO exige recepción
+         * previa. La relación de compra nace aquí.
+         *
+         * El consumo físico ocurre después:
+         * OLP -> recepción MEDICARTE -> fulfillment.
          * ==================================================
          */
         if (
           !row.originAuthorizationKey
         ) {
-          const poolKey =
-            [
-              order.id,
-              destination.commercial_code,
-              dispensingPointId,
-            ].join(':');
-
-
-          const available =
-            await this.existingOrderAvailableQuantity(
-              client,
-              order.id,
-              destination.commercial_code,
-              dispensingPointId,
-            );
-
-
-          const alreadyPlanned =
-            reservedFromAvailability.get(
-              poolKey,
-            ) ?? 0;
-
-
-          if (
-            row.quantity >
-            available -
-              alreadyPlanned
-          ) {
-            this.existingOrderError(
-              'PURCHASE_ORDER_AVAILABLE_QUANTITY_INSUFFICIENT',
-              `La OC ${purchaseOrderCode} tiene ${Math.max(
-                available -
-                  alreadyPlanned,
-                0,
-              )} unidad(es) disponibles sin asignar del producto ${destination.commercial_code}; se solicitaron ${row.quantity}.`,
-            );
-          }
-
-
-          reservedFromAvailability.set(
-            poolKey,
-            alreadyPlanned +
-              row.quantity,
-          );
-
-
           plans.push({
             kind:
               'ASSIGN_AVAILABLE',
@@ -3360,6 +3800,18 @@ export class PurchaseOrderImportService {
 
           continue;
         }
+
+
+        /*
+         * REASIGNAR sí requiere que el producto de la
+         * OC/origen corresponda al mismo punto vigente.
+         */
+        await this.assertOrderProductPoint(
+          client,
+          order.id,
+          destination.commercial_code,
+          dispensingPointId,
+        );
 
 
         /*
@@ -3790,104 +4242,11 @@ export class PurchaseOrderImportService {
 
 
       /*
-       * Crear un único batch para las asignaciones
-       * que toman producto disponible.
+       * ORIGEN vacío ya no significa consumir
+       * disponibilidad recibida.
        *
-       * Las reasignaciones conservan la reserva
-       * física existente y solo sustituyen la AUTO.
+       * Significa incorporar AUTO_DESTINO a la OC.
        */
-      const availablePlans =
-        plans.filter(
-          (
-            plan,
-          ): plan is Extract<
-            typeof plan,
-            {
-              kind:
-                'ASSIGN_AVAILABLE';
-            }
-          > =>
-            plan.kind ===
-            'ASSIGN_AVAILABLE',
-        );
-
-
-      let assignmentBatchId:
-        string |
-        null =
-        null;
-
-
-      if (
-        availablePlans.length
-      ) {
-        const totalQuantity =
-          availablePlans.reduce(
-            (
-              total,
-              plan,
-            ) =>
-              total +
-              plan.row.quantity!,
-            0,
-          );
-
-
-        const batch =
-          await client.query<{
-            id:
-              string;
-          }>(
-            `
-              insert into
-                inventory_allocation_batches (
-                  organization_id,
-                  source,
-                  import_batch_id,
-                  status,
-                  total_rows,
-                  valid_rows,
-                  invalid_rows,
-                  allocated_quantity,
-                  correlation_id,
-                  created_by,
-                  confirmed_by,
-                  confirmed_at
-                )
-
-              values (
-                $1,
-                'XLSX',
-                null,
-                'CONFIRMED',
-                $2,
-                $2,
-                0,
-                $3,
-                $4,
-                $5,
-                $5,
-                now()
-              )
-
-              returning
-                id
-            `,
-            [
-              actor.organizationId,
-              availablePlans.length,
-              totalQuantity,
-              actor.correlationId,
-              actor.userId,
-            ],
-          );
-
-
-        assignmentBatchId =
-          batch.rows[0]!.id;
-      }
-
-
       for (
         const plan of plans
       ) {
@@ -3895,56 +4254,12 @@ export class PurchaseOrderImportService {
           plan.kind ===
           'ASSIGN_AVAILABLE'
         ) {
-          await client.query(
-            `
-              insert into
-                inventory_authorization_allocations (
-                  batch_id,
-                  source_import_row_id,
-                  organization_id,
-                  authorization_item_id,
-                  purchase_order_id,
-                  commercial_code,
-                  dispensing_point_id,
-                  allocated_quantity,
-                  consumed_quantity,
-                  released_quantity,
-                  status,
-                  authorization_version,
-                  created_by,
-                  updated_by
-                )
-
-              values (
-                $1,
-                null,
-                $2,
-                $3,
-                $4,
-                $5,
-                $6,
-                $7,
-                0,
-                0,
-                'ALLOCATED',
-                $8,
-                $9,
-                $9
-              )
-            `,
-            [
-              assignmentBatchId,
-              actor.organizationId,
-              plan.destination.id,
-              order.id,
-              plan.destination
-                .commercial_code,
-              plan.dispensingPointId,
-              plan.row.quantity,
-              plan.destination
-                .authorization_version,
-              actor.userId,
-            ],
+          await this.attachDirectAuthorizationToOrder(
+            client,
+            order.id,
+            plan.destination,
+            plan.dispensingPointId,
+            plan.row.quantity!,
           );
         } else {
           /*
@@ -4106,7 +4421,7 @@ export class PurchaseOrderImportService {
 
             plan.kind ===
               'ASSIGN_AVAILABLE'
-              ? 'PURCHASE_ORDER_AVAILABLE_ASSIGNED'
+              ? 'PURCHASE_ORDER_AUTHORIZATION_ADDED'
               : 'PURCHASE_ORDER_AUTHORIZATION_REASSIGNED',
 
             order.id,

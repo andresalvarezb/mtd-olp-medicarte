@@ -797,7 +797,7 @@ export const purchaseOrders = pgTable(
     uniqueIndex('purchase_orders_code_idx').on(table.purchaseOrderCode),
     check(
       'purchase_orders_origin_check',
-      sql`${table.origin} IN ('OPERATIONAL', 'LEGACY_BACKFILL')`,
+      sql`${table.origin} IN ('OPERATIONAL', 'LEGACY_BACKFILL', 'DIRECT_AUTHORIZATION')`,
     ),
     check(
       'purchase_orders_type_check',
@@ -824,6 +824,13 @@ export const purchaseOrders = pgTable(
           AND ${table.status} = 'HISTORICAL_ONLY'
           AND ${table.legacyAssignedAt} IS NOT NULL
           AND ${table.legacyAssignedBy} IS NOT NULL)
+        OR
+        (${table.origin} = 'DIRECT_AUTHORIZATION'
+          AND ${table.planningPeriodId} IS NULL
+          AND ${table.orderType} = 'STANDARD'
+          AND ${table.status} <> 'HISTORICAL_ONLY'
+          AND ${table.legacyAssignedAt} IS NULL
+          AND ${table.legacyAssignedBy} IS NULL)
       )`,
     ),
   ],
@@ -889,7 +896,7 @@ export const purchaseOrderLines = pgTable(
     ),
     check(
       'purchase_order_lines_provenance_check',
-      sql`${table.provenance} IN ('LIVE_DEMAND', 'LEGACY_AUTHORIZATION')`,
+      sql`${table.provenance} IN ('LIVE_DEMAND', 'LEGACY_AUTHORIZATION', 'DIRECT_AUTHORIZATION')`,
     ),
     check(
       'purchase_order_lines_tariff_provenance_check',
@@ -911,6 +918,14 @@ export const purchaseOrderLines = pgTable(
           AND ${table.projectedDemandLineId} IS NULL
           AND ${table.projectedDemandRevision} IS NULL
           AND ${table.demandBucket} IS NULL)
+        OR
+        (${table.provenance} = 'DIRECT_AUTHORIZATION'
+          AND ${table.projectedDemandLineId} IS NULL
+          AND ${table.projectedDemandRevision} IS NULL
+          AND ${table.demandBucket} IS NULL
+          AND ${table.compensarUnitRateSnapshot} IS NOT NULL
+          AND ${table.tariffSnapshotProvenance} = 'LIVE_SNAPSHOT'
+          AND ${table.legacyTariffRevisionId} IS NULL)
       )`,
     ),
     check(
@@ -980,7 +995,7 @@ export const purchaseOrderAuthorizationSources = pgTable(
     ),
     check(
       'purchase_order_authorization_sources_provenance_check',
-      sql`${table.provenance} IN ('LIVE_DEMAND', 'LEGACY_DIRECT_ASSIGNMENT', 'LEGACY_CURRENT_STATE')`,
+      sql`${table.provenance} IN ('LIVE_DEMAND', 'LEGACY_DIRECT_ASSIGNMENT', 'LEGACY_CURRENT_STATE', 'DIRECT_AUTHORIZATION')`,
     ),
     check(
       'purchase_order_authorization_sources_origin_shape_check',
@@ -1000,6 +1015,11 @@ export const purchaseOrderAuthorizationSources = pgTable(
           AND ${table.projectedDemandLineId} IS NULL
           AND ${table.projectedDemandRevision} IS NULL
           AND ${table.evidenceAt} IS NULL)
+        OR
+        (${table.provenance} = 'DIRECT_AUTHORIZATION'
+          AND ${table.projectedDemandLineId} IS NULL
+          AND ${table.projectedDemandRevision} IS NULL
+          AND ${table.evidenceAt} IS NOT NULL)
       )`,
     ),
     check(
