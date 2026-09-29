@@ -418,9 +418,9 @@ function authorizationPurchaseOrderContext(
         'trace',
 
       message:
-        `Esta autorización registra trazabilidad con ${purchaseOrderReference(
+        `Esta autorización está relacionada con ${purchaseOrderReference(
           traceCodes,
-        )}, pero actualmente no tiene producto asignado disponible para entrega/aplicación.`,
+        )}, pero todavía no tiene producto recibido/asignado disponible para entrega/aplicación.`,
     };
   }
 
@@ -1472,6 +1472,46 @@ const query = useApiData(
       ? selectedValidityEndDate
       : todayBogota;
 
+  /*
+   * OC durablemente relacionada con la autorización.
+   *
+   * Fuente:
+   * purchase_order_authorization_sources
+   *
+   * Esto es distinto de la disponibilidad física.
+   * Una AUTO puede tener OC relacionada aunque todavía
+   * no exista inventory_authorization_allocation.
+   */
+  const selectedLinkedPurchaseOrderCodes =
+    selected
+      ? [
+          ...new Set(
+            selected.purchaseOrders
+              .map(
+                (order) =>
+                  order.purchaseOrderCode
+                    .trim(),
+              )
+              .filter(
+                Boolean,
+              ),
+          ),
+        ]
+      : [];
+
+  const selectedLinkedPurchaseOrderCode =
+    selectedLinkedPurchaseOrderCodes.length ===
+      1
+      ? selectedLinkedPurchaseOrderCodes[0]!
+      : null;
+
+
+  /*
+   * La OC operativamente utilizable para fulfillment
+   * sí requiere saldo físico asignado.
+   *
+   * No cambiar esta regla.
+   */
   const selectedActivePurchaseOrderCode =
     selected &&
     selected.remainingAssignedQuantity >
@@ -2464,12 +2504,19 @@ const query = useApiData(
 
                   <div>
                     <span>
-                      OC activa
+                      OC relacionada
                     </span>
 
                     <strong>
-                      {selectedActivePurchaseOrderCode ??
-                        'Sin OC activa'}
+                      {selectedLinkedPurchaseOrderCode ??
+                        (
+                          selectedLinkedPurchaseOrderCodes.length >
+                            1
+                            ? selectedLinkedPurchaseOrderCodes.join(
+                                ', ',
+                              )
+                            : 'Sin OC relacionada'
+                        )}
                     </strong>
                   </div>
 
