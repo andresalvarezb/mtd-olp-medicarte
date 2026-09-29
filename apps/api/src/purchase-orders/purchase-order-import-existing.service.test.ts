@@ -141,7 +141,7 @@ describe(
   'PurchaseOrderImportService OC existente',
   () => {
     it(
-      'asigna disponibilidad recibida por Medicarte sin crear ni modificar la OC',
+      'asigna disponibilidad recibida por Medicarte aunque AUTO_DESTINO no tenga agenda',
       async () => {
         const poolQuery =
           vi.fn(
@@ -285,6 +285,31 @@ describe(
                   'from patient_schedules ps',
                 )
               ) {
+                /*
+                 * Caso crítico:
+                 * AUTO sin agenda vigente.
+                 */
+                return queryResult([]);
+              }
+
+              if (
+                normalized.includes(
+                  'from purchase_order_lines pol',
+                ) &&
+                normalized.includes(
+                  'select distinct',
+                ) &&
+                normalized.includes(
+                  'as dispensing_point_id',
+                ) &&
+                normalized.includes(
+                  'limit 2',
+                )
+              ) {
+                /*
+                 * El punto se resuelve desde
+                 * OC + producto.
+                 */
                 return queryResult([
                   {
                     dispensing_point_id:
@@ -415,6 +440,37 @@ describe(
           result.rejectedRows,
         ).toBe(
           0,
+        );
+
+        expect(
+          clientQuery.mock.calls.some(
+            ([sql]) => {
+              const normalized =
+                String(
+                  sql,
+                )
+                  .replace(
+                    /\s+/g,
+                    ' ',
+                  );
+
+              return (
+                normalized.includes(
+                  'select distinct',
+                )
+                &&
+                normalized.includes(
+                  'as dispensing_point_id',
+                )
+                &&
+                normalized.includes(
+                  'from purchase_order_lines pol',
+                )
+              );
+            },
+          ),
+        ).toBe(
+          true,
         );
 
         expect(
