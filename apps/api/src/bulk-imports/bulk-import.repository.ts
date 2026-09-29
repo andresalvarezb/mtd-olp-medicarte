@@ -771,9 +771,79 @@ export class BulkImportRepository {
 
     const authorizationNumber = text('NUMERO_AUTORIZACION');
     const commercialCode = text('CODIGO_COMERCIAL');
-    const sourceStatus = text('ESTADO_AUTORIZACION');
-    const prescriptionNumber = text('NUMERO_PRESCRIPCION');
-    const serializedPayload = JSON.stringify(p);
+
+    /*
+     * RECARGA PARCIAL
+     * ================
+     *
+     * La plantilla sigue siendo exactamente la misma.
+     *
+     * Para una AUTO ya existente:
+     *
+     * - NUMERO_AUTORIZACION + CODIGO_COMERCIAL identifican la fila;
+     * - una celda informada reemplaza el valor existente;
+     * - una celda vacía NO elimina información: conserva el valor actual.
+     *
+     * Para una AUTO nueva se mantiene el comportamiento histórico:
+     * source_data refleja la fila recibida.
+     */
+    const patchPayload =
+      Object.fromEntries(
+        Object.entries(
+          p,
+        ).filter(
+          (
+            [key, value],
+          ) => {
+            if (
+              key ===
+                'NUMERO_AUTORIZACION'
+              ||
+              key ===
+                'CODIGO_COMERCIAL'
+            ) {
+              return true;
+            }
+
+            if (
+              value ===
+                null
+              ||
+              value ===
+                undefined
+            ) {
+              return false;
+            }
+
+            if (
+              typeof value ===
+                'string'
+              &&
+              value.trim() ===
+                ''
+            ) {
+              return false;
+            }
+
+            return true;
+          },
+        ),
+      );
+
+    const sourceStatus =
+      text(
+        'ESTADO_AUTORIZACION',
+      );
+
+    const prescriptionNumber =
+      text(
+        'NUMERO_PRESCRIPCION',
+      );
+
+    const serializedPayload =
+      JSON.stringify(
+        p,
+      );
 
     /*
      * INGESTA COMPLETA
@@ -991,94 +1061,30 @@ export class BulkImportRepository {
           'CONFIRMED' |
           'QUERY_ERROR';
 
-        semantic_same:
-          boolean;
+        source_data:
+          Record<
+            string,
+            unknown
+          >;
+
+        source_status_normalized:
+          string | null;
+
+        source_prescripcion_normalized:
+          string | null;
+
+        no_prescripcion:
+          string | null;
       }>(sql`
         select
           id,
           version,
           coverage_type,
           direction_status,
-
-          (
-            source_data =
-              ${serializedPayload}::jsonb
-
-            and
-            source_status_normalized =
-              ${sourceStatus}
-
-            and
-            coalesce(
-              source_prescripcion_normalized,
-              ''
-            ) =
-              ${prescriptionNumber}
-
-            and
-            coalesce(
-              no_prescripcion,
-              ''
-            ) =
-              ${prescriptionNumber}
-
-            and
-            enablement_status =
-              ${enablementStatus}
-
-            and
-            coverage_type =
-              ${coverageType}
-
-            and (
-              (
-                ${coverageType} =
-                  'PBS'
-
-                and
-                direction_status =
-                  'NOT_APPLICABLE'
-              )
-
-              or
-
-              (
-                ${coverageType} =
-                  'NO_PBS'
-
-                and
-                direction_status in (
-                  'PENDING',
-                  'CONFIRMED',
-                  'QUERY_ERROR'
-                )
-              )
-
-              or
-
-              (
-                ${coverageType} =
-                  'UNCLASSIFIED'
-
-                and
-                direction_status =
-                  'PENDING'
-              )
-            )
-
-            and
-            coverage_rule_version =
-              'AUTHORIZATIONS_V1'
-
-            and
-            tariff_membership_status =
-              ${tariffMembershipStatus}
-
-            and
-            tariff_rule_version =
-              ${tariffRuleVersion}
-          )
-            as semantic_same
+          source_data,
+          source_status_normalized,
+          source_prescripcion_normalized,
+          no_prescripcion
 
         from
           authorization_items
@@ -1099,6 +1105,76 @@ export class BulkImportRepository {
     if (!existingRow) {
       throw new Error('AUTHORIZATION_CONCURRENT_UPSERT_NOT_FOUND');
     }
+
+
+    const mergedPayload:
+      Record<
+        string,
+        unknown
+      > =
+      {
+        ...existingRow
+          .source_data,
+
+        ...patchPayload,
+
+        NUMERO_AUTORIZACION:
+          authorizationNumber,
+
+        CODIGO_COMERCIAL:
+          commercialCode,
+      };
+
+
+    const mergedText =
+      (
+        key:
+          string,
+      ): string => {
+        const value =
+          mergedPayload[
+            key
+          ];
+
+        return (
+          typeof value ===
+            'string'
+          ||
+          typeof value ===
+            'number'
+          ||
+          typeof value ===
+            'boolean'
+        )
+          ? String(
+              value,
+            ).trim()
+          : '';
+      };
+
+
+    const effectiveSourceStatus =
+      mergedText(
+        'ESTADO_AUTORIZACION',
+      );
+
+    const effectivePrescriptionNumber =
+      mergedText(
+        'NUMERO_PRESCRIPCION',
+      );
+
+    const effectiveEnablementStatus =
+      isAuthorizationSourceEnabled(
+        effectiveSourceStatus,
+      )
+        ? 'ENABLED'
+        : 'BLOCKED_SOURCE_STATUS';
+
+    const mergedSerializedPayload =
+      JSON.stringify(
+        mergedPayload,
+      );
+
 
     /*
      * Un direccionamiento NO PBS ya confirmado es evidencia downstream
@@ -1132,6 +1208,93 @@ export class BulkImportRepository {
               .direction_status
           : 'PENDING';
 
+    const semanticSame =
+      JSON.stringify(
+        existingRow
+          .source_data,
+      ) ===
+        mergedSerializedPayload
+      &&
+      (
+        existingRow
+          .source_status_normalized
+        ??
+        ''
+      ) ===
+        effectiveSourceStatus
+      &&
+      (
+        existingRow
+          .source_prescripcion_normalized
+        ??
+        ''
+      ) ===
+        effectivePrescriptionNumber
+      &&
+      (
+        existingRow
+          .no_prescripcion
+        ??
+        ''
+      ) ===
+        effectivePrescriptionNumber
+      &&
+      effectiveEnablementStatus ===
+        (
+          isAuthorizationSourceEnabled(
+            existingRow
+              .source_status_normalized
+              ??
+              '',
+          )
+            ? 'ENABLED'
+            : 'BLOCKED_SOURCE_STATUS'
+        )
+      &&
+      existingRow
+        .coverage_type ===
+        coverageType
+      &&
+      (
+        (
+          coverageType ===
+            'PBS'
+          &&
+          existingRow
+            .direction_status ===
+            'NOT_APPLICABLE'
+        )
+        ||
+        (
+          coverageType ===
+            'NO_PBS'
+          &&
+          (
+            existingRow
+              .direction_status ===
+              'PENDING'
+            ||
+            existingRow
+              .direction_status ===
+              'CONFIRMED'
+            ||
+            existingRow
+              .direction_status ===
+              'QUERY_ERROR'
+          )
+        )
+        ||
+        (
+          coverageType ===
+            'UNCLASSIFIED'
+          &&
+          existingRow
+            .direction_status ===
+            'PENDING'
+        )
+      );
+
+
     /*
      * Macro 2 / 2C - NO_OP real.
      *
@@ -1139,7 +1302,7 @@ export class BulkImportRepository {
      * Solo se asegura el vínculo organizacional, que puede faltar en datos
      * históricos compartidos.
      */
-    if (existingRow.semantic_same) {
+    if (semanticSame) {
       await linkOrganization(existingRow.id);
 
       await this.audit(tx, input.actor, 'AUTHORIZATION_SMART_RELOAD_NO_OP', input.jobId, {
@@ -1163,11 +1326,20 @@ export class BulkImportRepository {
     const updated = await tx.execute<{ id: string; version: number }>(sql`
       update authorization_items
       set
-        source_data = ${serializedPayload}::jsonb,
-        source_status_normalized = ${sourceStatus},
-        source_prescripcion_normalized = ${prescriptionNumber},
-        no_prescripcion = ${prescriptionNumber},
-        enablement_status = ${enablementStatus},
+        source_data =
+          ${mergedSerializedPayload}::jsonb,
+
+        source_status_normalized =
+          ${effectiveSourceStatus},
+
+        source_prescripcion_normalized =
+          ${effectivePrescriptionNumber},
+
+        no_prescripcion =
+          ${effectivePrescriptionNumber},
+
+        enablement_status =
+          ${effectiveEnablementStatus},
         coverage_type = ${coverageType},
         direction_status = ${nextDirectionStatus},
         coverage_rule_version = 'AUTHORIZATIONS_V1',
