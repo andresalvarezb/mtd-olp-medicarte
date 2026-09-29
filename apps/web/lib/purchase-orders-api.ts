@@ -293,6 +293,7 @@ export type PurchaseOrderImportResult = {
     status:
       | 'ACCEPTED'
       | 'REJECTED';
+    authorizationKey?: string | null;
     purchaseOrderCode: string;
     planningPeriodId: string;
     orderType: string;

@@ -33,13 +33,10 @@ import {
 } from '@/components/realtime/realtime-context';
 
 import {
+  downloadInventoryAvailability,
   listInventoryAvailability,
   type InventoryAvailabilityItem,
 } from '@/lib/inventory-availability-api';
-
-import {
-  FulfillmentBulkActions,
-} from '../authorizations/fulfillment-bulk-actions';
 
 
 const COLUMNS = [
@@ -108,7 +105,6 @@ function quantity(
 export function DisponibilidadView() {
   const {
     organizationId,
-    hasPermission,
   } =
     useRole();
 
@@ -163,6 +159,12 @@ export function DisponibilidadView() {
     useState<
       string | null
     >(null);
+
+  const [
+    exporting,
+    setExporting,
+  ] =
+    useState(false);
 
   const [
     page,
@@ -344,6 +346,83 @@ export function DisponibilidadView() {
   }
 
 
+  async function exportAvailability() {
+    if (
+      !organizationId ||
+      exporting
+    ) {
+      return;
+    }
+
+    setExporting(
+      true,
+    );
+
+    setError(
+      null,
+    );
+
+    try {
+      const blob =
+        await downloadInventoryAvailability(
+          organizationId,
+          {
+            search:
+              applied.product ||
+              undefined,
+
+            purchaseOrder:
+              applied.purchaseOrder ||
+              undefined,
+
+            dispensingPoint:
+              applied.dispensingPoint ||
+              undefined,
+          },
+        );
+
+      const url =
+        URL.createObjectURL(
+          blob,
+        );
+
+      const anchor =
+        document.createElement(
+          'a',
+        );
+
+      anchor.href =
+        url;
+
+      anchor.download =
+        'disponibilidad.xlsx';
+
+      document.body.appendChild(
+        anchor,
+      );
+
+      anchor.click();
+      anchor.remove();
+
+      URL.revokeObjectURL(
+        url,
+      );
+    } catch (
+      caught
+    ) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'No fue posible exportar la disponibilidad.',
+      );
+    } finally {
+      setExporting(
+        false,
+      );
+    }
+  }
+
+
   const rows =
     visibleItems.map(
       (item) => [
@@ -402,23 +481,24 @@ export function DisponibilidadView() {
     <>
       <PageHeader
         title="Disponibilidad"
-        description="Inventario operativo por OC, producto y punto. Disponible = recibido − entregado/aplicado − asignado."
+        description="Consulta de inventario operativo por OC, producto y punto. Disponible = recibido − entregado/aplicado − asignado. Las asignaciones se gestionan desde Órdenes de compra."
         actions={
-          <FulfillmentBulkActions
-            organizationId={
-              organizationId
+          <button
+            type="button"
+            className="btn"
+            disabled={
+              exporting
             }
-            canManage={
-              hasPermission(
-                'patient_applications.manage',
-              )
-            }
-            onImported={() => {
-              void loadAvailability(
-                false,
-              );
+            onClick={() => {
+              void exportAvailability();
             }}
-          />
+          >
+            {
+              exporting
+                ? 'Exportando…'
+                : 'Exportar XLSX'
+            }
+          </button>
         }
       />
 

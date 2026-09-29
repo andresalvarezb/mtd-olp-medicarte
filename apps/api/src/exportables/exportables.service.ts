@@ -706,7 +706,8 @@ export class ExportablesService {
       XLSX.utils.aoa_to_sheet(
         [
           [
-            'CLAVE_AUTORIZACION',
+            'AUTO_ORIGEN',
+            'AUTO_DESTINO',
             'OC',
             'CODIGO_PRODUCTO',
             'CANTIDAD',
@@ -714,6 +715,8 @@ export class ExportablesService {
 
           ...result.rows.map(
             (row) => [
+              '',
+
               row.authorization_key,
 
               '',
@@ -730,6 +733,10 @@ export class ExportablesService {
 
     data['!cols'] =
       [
+        {
+          wch:
+            38,
+        },
         {
           wch:
             38,
@@ -760,7 +767,7 @@ export class ExportablesService {
         [
           [
             'templateVersion',
-            'PURCHASE_ORDERS_V1',
+            'PURCHASE_ORDERS_V2',
           ],
 
           [
@@ -776,7 +783,7 @@ export class ExportablesService {
 
           [
             'eligibility',
-            'INITIAL_VALIDATION_PASSED + IN_WINDOW + WITHOUT_ACTIVE_PURCHASE_ORDER',
+            'AUTO_DESTINO elegible para nueva OC; AUTO_ORIGEN se usa únicamente al reasignar una OC existente',
           ],
         ],
       );

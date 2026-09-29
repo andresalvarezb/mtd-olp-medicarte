@@ -24,6 +24,12 @@ export type AvailabilityFilters = Readonly<{
   purchaseOrder?: string;
   dispensingPoint?: string;
   limit?: number;
+
+  /*
+   * Uso interno exclusivo de exportación.
+   * Nunca proviene directamente del query HTTP.
+   */
+  exportAll?: boolean;
 }>;
 
 export type AllocationRequest = Readonly<{
@@ -91,6 +97,14 @@ export class InventoryAvailabilityRepository {
         ),
         500,
       );
+
+    const limitSql =
+      filters.exportAll
+        ? sql``
+        : sql`
+            LIMIT
+              ${limit}
+          `;
 
     const conditions = [
       sql`
@@ -907,8 +921,7 @@ export class InventoryAvailabilityRepository {
             NULLS LAST,
           ppp.purchase_order_id
 
-        LIMIT
-          ${limit}
+        ${limitSql}
       `);
 
 
