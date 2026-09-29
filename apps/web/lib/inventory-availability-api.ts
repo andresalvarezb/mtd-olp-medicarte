@@ -1,168 +1,153 @@
-import { apiRequest } from './api-client';
+import {
+  apiRequest,
+} from './api-client';
 
-export type InventoryAvailabilityItem = Readonly<{
-  purchaseOrderId: string;
 
-  purchaseOrderCode: string;
+export type InventoryAvailabilityItem =
+  Readonly<{
+    purchaseOrderId: string;
 
-  commercialCode: string;
+    purchaseOrderCode: string;
 
-  productDescription: string | null;
+    commercialCode: string;
 
-  dispensingPointId: string | null;
+    productDescription:
+      string |
+      null;
 
-  dispensingPointCode: string | null;
+    dispensingPointId:
+      string |
+      null;
 
-  requestedQuantity: number;
+    dispensingPointCode:
+      string |
+      null;
 
-  receivedQuantity: number;
+    requestedQuantity: number;
 
-  fulfilledQuantity: number;
+    receivedQuantity: number;
 
-  assignedQuantity: number;
+    fulfilledQuantity: number;
 
-  availableQuantity: number;
+    assignedQuantity: number;
 
-  pendingReceiptQuantity: number;
-}>;
+    availableQuantity: number;
 
-export type AvailabilityImportRow = Readonly<{
-  rowNumber: number;
+    pendingReceiptQuantity: number;
+  }>;
 
-  authorizationKey: string;
 
-  purchaseOrderCode: string;
+export type InventoryAvailabilityQuery =
+  Readonly<{
+    search?:
+      string |
+      undefined;
 
-  requestedQuantity: number;
+    purchaseOrder?:
+      string |
+      undefined;
 
-  commercialCode: string | null;
+    dispensingPoint?:
+      string |
+      undefined;
+  }>;
 
-  validationStatus: string;
 
-  executionStatus?: string;
+function buildParams(
+  query:
+    InventoryAvailabilityQuery,
 
-  errorCode: string | null;
-
-  errorMessage: string | null;
-}>;
-
-export type AvailabilityImportBatch = Readonly<{
-  id: string;
-
-  status: string;
-
-  totalRows: number;
-
-  validRows: number;
-
-  invalidRows: number;
-
-  allocatedQuantity?: number;
-
-  rows: AvailabilityImportRow[];
-}>;
-
-export type AvailabilityImportHistoryItem = Readonly<{
-  id: string;
-
-  status: string;
-
-  totalRows: number;
-
-  validRows: number;
-
-  invalidRows: number;
-
-  allocatedQuantity: number;
-
-  originalFilename: string;
-
-  createdAt: string;
-
-  confirmedAt: string | null;
-}>;
-
-export function listInventoryAvailability(
-  organizationId: string,
-  query: {
-    search?: string | undefined;
-
-    purchaseOrder?: string | undefined;
-
-    dispensingPoint?: string | undefined;
-
-    limit?: number | undefined;
-  } = {},
+  limit?:
+    number,
 ) {
-  const params = new URLSearchParams();
+  const params =
+    new URLSearchParams();
+
 
   if (query.search) {
-    params.set('search', query.search);
+    params.set(
+      'search',
+      query.search,
+    );
   }
+
 
   if (query.purchaseOrder) {
-    params.set('purchaseOrder', query.purchaseOrder);
+    params.set(
+      'purchaseOrder',
+      query.purchaseOrder,
+    );
   }
+
 
   if (query.dispensingPoint) {
-    params.set('dispensingPoint', query.dispensingPoint);
+    params.set(
+      'dispensingPoint',
+      query.dispensingPoint,
+    );
   }
 
-  params.set('limit', String(query.limit ?? 500));
+
+  if (limit !== undefined) {
+    params.set(
+      'limit',
+      String(limit),
+    );
+  }
+
+
+  return params;
+}
+
+
+export function listInventoryAvailability(
+  organizationId:
+    string,
+
+  query:
+    InventoryAvailabilityQuery &
+    Readonly<{
+      limit?:
+        number |
+        undefined;
+    }> = {},
+) {
+  const params =
+    buildParams(
+      query,
+      query.limit ?? 500,
+    );
+
 
   return apiRequest<{
-    items: InventoryAvailabilityItem[];
-  }>(`/inventory/availability?${params.toString()}`, {
-    organizationId,
-  });
+    items:
+      InventoryAvailabilityItem[];
+  }>(
+    `/inventory/availability?${params.toString()}`,
+    {
+      organizationId,
+    },
+  );
 }
 
-export function listAvailabilityImports(organizationId: string, limit = 50) {
-  return apiRequest<{
-    items: AvailabilityImportHistoryItem[];
-  }>(`/inventory/availability/imports?limit=${limit}`, {
-    organizationId,
-  });
-}
 
-export function getAvailabilityImport(organizationId: string, id: string) {
-  return apiRequest<AvailabilityImportBatch>(`/inventory/availability/imports/${id}`, {
-    organizationId,
-  });
-}
+export function downloadInventoryAvailability(
+  organizationId:
+    string,
 
-export function downloadAvailabilityTemplate(organizationId: string) {
-  return apiRequest<Blob>('/inventory/availability/template.xlsx', {
-    organizationId,
-  });
-}
+  query:
+    InventoryAvailabilityQuery = {},
+) {
+  const params =
+    buildParams(
+      query,
+    );
 
-export function prepareAvailabilityImport(organizationId: string, file: File) {
-  const form = new FormData();
 
-  form.append('file', file);
-
-  return apiRequest<AvailabilityImportBatch>('/inventory/availability/imports/prepare', {
-    method: 'POST',
-
-    organizationId,
-
-    body: form,
-  });
-}
-
-export function confirmAvailabilityImport(organizationId: string, id: string) {
-  return apiRequest<{
-    id: string;
-
-    status: string;
-
-    rows: number;
-
-    allocatedQuantity: number;
-  }>(`/inventory/availability/imports/${id}/confirm`, {
-    method: 'POST',
-
-    organizationId,
-  });
+  return apiRequest<Blob>(
+    `/inventory/availability/export.xlsx?${params.toString()}`,
+    {
+      organizationId,
+    },
+  );
 }

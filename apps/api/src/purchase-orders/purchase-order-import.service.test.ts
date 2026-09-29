@@ -62,7 +62,7 @@ function workbook(
       XLSX.utils.aoa_to_sheet([
         [
           'templateVersion',
-          'PURCHASE_ORDERS_V1',
+          'PURCHASE_ORDERS_V2',
         ],
         [
           'importType',
@@ -135,7 +135,7 @@ describe(
   'PurchaseOrderImportService XLSX',
   () => {
     it(
-      'genera exactamente las cuatro columnas canónicas',
+      'genera exactamente las cinco columnas canónicas V2',
       () => {
         const {
           instance,
@@ -179,7 +179,8 @@ describe(
             0
           ],
         ).toEqual([
-          'CLAVE_AUTORIZACION',
+          'AUTO_ORIGEN',
+          'AUTO_DESTINO',
           'OC',
           'CODIGO_PRODUCTO',
           'CANTIDAD',
@@ -203,7 +204,7 @@ describe(
           metadata,
         ).toContainEqual([
           'templateVersion',
-          'PURCHASE_ORDERS_V1',
+          'PURCHASE_ORDERS_V2',
         ]);
 
         expect(
@@ -293,12 +294,14 @@ describe(
         const buffer =
           workbook([
             [
-              'CLAVE_AUTORIZACION',
+              'AUTO_ORIGEN',
+              'AUTO_DESTINO',
               'OC',
               'CODIGO_PRODUCTO',
               'CANTIDAD',
             ],
             [
+              '',
               'AUTH-1|ABC',
               'OC-TEST-1',
               'ABC',
@@ -350,7 +353,7 @@ describe(
 
 
     it(
-      'rechaza todas las filas cuando CLAVE_AUTORIZACION está duplicada',
+      'rechaza todas las filas cuando AUTO_DESTINO está duplicada',
       async () => {
         const {
           instance,
@@ -361,18 +364,21 @@ describe(
         const buffer =
           workbook([
             [
-              'CLAVE_AUTORIZACION',
+              'AUTO_ORIGEN',
+              'AUTO_DESTINO',
               'OC',
               'CODIGO_PRODUCTO',
               'CANTIDAD',
             ],
             [
+              '',
               'AUTH-DUP|ABC',
               'OC-A',
               'ABC',
               1,
             ],
             [
+              '',
               'AUTH-DUP|ABC',
               'OC-B',
               'ABC',

@@ -1,3 +1,5 @@
+import * as XLSX from 'xlsx';
+
 import {
   BadRequestException,
   ConflictException,
@@ -45,6 +47,142 @@ export class InventoryAvailabilityService {
       filters,
     );
   }
+
+  async exportWorkbook(
+    scope: Scope,
+    filters: Omit<
+      AvailabilityFilters,
+      'limit' | 'exportAll'
+    >,
+  ): Promise<Buffer> {
+    if (
+      !['MTD', 'MEDICARTE'].includes(
+        scope.organizationCode,
+      )
+    ) {
+      throw new ForbiddenException({
+        code:
+          'INVENTORY_AVAILABILITY_READ_NOT_ALLOWED',
+      });
+    }
+
+    const result =
+      await this.repository.list(
+        scope,
+        {
+          ...filters,
+          exportAll:
+            true,
+        },
+      );
+
+    const workbook =
+      XLSX.utils.book_new();
+
+    const sheet =
+      XLSX.utils.json_to_sheet(
+        result.items.map(
+          (item) => ({
+            CODIGO_PRODUCTO:
+              item.commercialCode,
+
+            PRODUCTO:
+              item.productDescription,
+
+            OC:
+              item.purchaseOrderCode,
+
+            PUNTO:
+              item.dispensingPointCode,
+
+            SOLICITADO:
+              item.requestedQuantity,
+
+            RECIBIDO:
+              item.receivedQuantity,
+
+            ENTREGADO_APLICADO:
+              item.fulfilledQuantity,
+
+            ASIGNADO:
+              item.assignedQuantity,
+
+            DISPONIBLE_SIN_ASIGNAR:
+              item.availableQuantity,
+
+            PENDIENTE_RECEPCION:
+              item.pendingReceiptQuantity,
+          }),
+        ),
+        {
+          header: [
+            'CODIGO_PRODUCTO',
+            'PRODUCTO',
+            'OC',
+            'PUNTO',
+            'SOLICITADO',
+            'RECIBIDO',
+            'ENTREGADO_APLICADO',
+            'ASIGNADO',
+            'DISPONIBLE_SIN_ASIGNAR',
+            'PENDIENTE_RECEPCION',
+          ],
+        },
+      );
+
+    sheet['!cols'] = [
+      { wch: 22 },
+      { wch: 42 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 22 },
+      { wch: 14 },
+      { wch: 24 },
+      { wch: 22 },
+    ];
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      sheet,
+      'DISPONIBILIDAD',
+    );
+
+    const output: unknown =
+      XLSX.write(
+        workbook,
+        {
+          type:
+            'buffer',
+
+          bookType:
+            'xlsx',
+        },
+      );
+
+    if (
+      Buffer.isBuffer(
+        output,
+      )
+    ) {
+      return output;
+    }
+
+    if (
+      output instanceof
+      Uint8Array
+    ) {
+      return Buffer.from(
+        output,
+      );
+    }
+
+    throw new Error(
+      'INVENTORY_AVAILABILITY_XLSX_WRITE_INVALID_OUTPUT',
+    );
+  }
+
 
   assign(scope: Scope, assignments: readonly AllocationRequest[]) {
     this.requireMtd(scope);

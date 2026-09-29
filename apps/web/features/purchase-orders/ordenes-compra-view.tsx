@@ -564,7 +564,7 @@ export function PurchaseOrdersView() {
     <>
       <PageHeader
         title="Órdenes de compra"
-        description="Carga y consulta las órdenes de compra que serán revisadas por OLP y recibidas por Medicarte."
+        description="Gestiona con una sola plantilla la creación de OC, la asignación de producto recibido disponible y la reasignación entre autorizaciones."
         actions={
           <>
             {canExport ? (
@@ -633,7 +633,7 @@ export function PurchaseOrdersView() {
                   disabled={busy}
                   onClick={() => fileInput.current?.click()}
                 >
-                  Cargar OC
+                  Cargar plantilla OC
                 </button>
 
                 <input

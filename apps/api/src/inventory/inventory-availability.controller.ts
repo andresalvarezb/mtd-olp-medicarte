@@ -1,38 +1,41 @@
 import {
-  BadRequestException,
-  Body,
   Controller,
   Get,
   Headers,
-  Param,
-  Post,
   Query,
   Req,
   Res,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
 
-import { FileInterceptor } from '@nestjs/platform-express';
+import type {
+  Response,
+} from 'express';
 
-import type { Response } from 'express';
+import {
+  z,
+} from 'zod';
 
-import { createHash } from 'node:crypto';
+import {
+  AuthGuard,
+} from '../common/auth.guard';
 
-import { z } from 'zod';
+import {
+  scopeFromProfile,
+} from '../common/request-scope';
 
-import { AuthGuard } from '../common/auth.guard';
+import {
+  AccessService,
+} from '../identity/access.service';
 
-import { scopeFromProfile } from '../common/request-scope';
+import type {
+  AuthenticatedRequest,
+} from '../types';
 
-import { AccessService } from '../identity/access.service';
+import {
+  InventoryAvailabilityService,
+} from './inventory-availability.service';
 
-import type { AuthenticatedRequest } from '../types';
-
-import { InventoryAvailabilityService } from './inventory-availability.service';
-
-import { buildInventoryAvailabilityTemplate } from './inventory-availability-xlsx';
 
 const uuid = z.string().uuid();
 
@@ -44,14 +47,6 @@ const listSchema = z.object({
   dispensingPoint: z.string().trim().min(1).max(255).optional(),
 
   limit: z.coerce.number().int().min(1).max(500).default(100),
-});
-
-const assignmentSchema = z.object({
-  authorizationKey: z.string().trim().min(1).max(511),
-
-  purchaseOrderCode: z.string().trim().min(1).max(255),
-
-  quantity: z.number().int().positive(),
 });
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -115,31 +110,11 @@ export class InventoryAvailabilityController {
     });
   }
 
-  @Post('assign')
-  async assign(
-    @Body()
-    raw: unknown,
+  @Get('export.xlsx')
+  async exportWorkbook(
+    @Query()
+    raw: Record<string, unknown>,
 
-    @Headers('x-organization-id')
-    organizationId: string | undefined,
-
-    @Req()
-    req: AuthenticatedRequest,
-  ) {
-    const body = z
-      .object({
-        assignments: z.array(assignmentSchema).min(1).max(500),
-      })
-      .parse(raw);
-
-    return this.availability.assign(
-      await this.scope(req, organizationId, 'inventory.allocate'),
-      body.assignments,
-    );
-  }
-
-  @Get('template.xlsx')
-  async template(
     @Headers('x-organization-id')
     organizationId: string | undefined,
 
@@ -149,100 +124,56 @@ export class InventoryAvailabilityController {
     @Res()
     response: Response,
   ) {
-    await this.scope(req, organizationId, 'inventory.read');
+    const parsed =
+      listSchema
+        .omit({
+          limit: true,
+        })
+        .parse(raw);
 
-    const content = buildInventoryAvailabilityTemplate();
+    const content =
+      await this.availability.exportWorkbook(
+        await this.scope(
+          req,
+          organizationId,
+          'inventory.read',
+        ),
+        {
+          ...(parsed.search !== undefined
+            ? {
+                search:
+                  parsed.search,
+              }
+            : {}),
 
-    response.setHeader('Content-Type', XLSX_MIME);
+          ...(parsed.purchaseOrder !== undefined
+            ? {
+                purchaseOrder:
+                  parsed.purchaseOrder,
+              }
+            : {}),
+
+          ...(parsed.dispensingPoint !== undefined
+            ? {
+                dispensingPoint:
+                  parsed.dispensingPoint,
+              }
+            : {}),
+        },
+      );
+
+    response.setHeader(
+      'Content-Type',
+      XLSX_MIME,
+    );
 
     response.setHeader(
       'Content-Disposition',
-      'attachment; filename="plantilla-disponibilidad.xlsx"',
+      'attachment; filename="disponibilidad.xlsx"',
     );
 
-    response.send(content);
-  }
-
-  @Post('imports/prepare')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        fileSize: 20 * 1024 * 1024,
-      },
-    }),
-  )
-  async prepare(
-    @UploadedFile()
-    file:
-      | {
-          originalname: string;
-
-          mimetype: string;
-
-          size: number;
-
-          buffer: Buffer;
-        }
-      | undefined,
-
-    @Headers('x-organization-id')
-    organizationId: string | undefined,
-
-    @Req()
-    req: AuthenticatedRequest,
-  ) {
-    if (!file) {
-      throw new BadRequestException({
-        code: 'INVENTORY_AVAILABILITY_FILE_REQUIRED',
-      });
-    }
-
-    if (!file.originalname.toLowerCase().endsWith('.xlsx')) {
-      throw new BadRequestException({
-        code: 'INVENTORY_AVAILABILITY_INVALID_XLSX',
-      });
-    }
-
-    const sha256 = createHash('sha256').update(file.buffer).digest('hex');
-
-    return this.availability.prepareImport(
-      await this.scope(req, organizationId, 'inventory.allocate'),
-      file,
-      sha256,
-    );
-  }
-
-  @Get('imports/:id')
-  async importDetail(
-    @Param('id')
-    id: string,
-
-    @Headers('x-organization-id')
-    organizationId: string | undefined,
-
-    @Req()
-    req: AuthenticatedRequest,
-  ) {
-    return this.availability.importDetail(
-      await this.scope(req, organizationId, 'inventory.read'),
-      uuid.parse(id),
-    );
-  }
-
-  @Post('imports/:id/confirm')
-  async confirmImport(
-    @Param('id')
-    id: string,
-
-    @Headers('x-organization-id')
-    organizationId: string | undefined,
-
-    @Req()
-    req: AuthenticatedRequest,
-  ) {
-    return this.availability.confirmImport(
-      await this.scope(req, organizationId, 'inventory.allocate'),
-      uuid.parse(id),
+    response.send(
+      content,
     );
   }
 }
