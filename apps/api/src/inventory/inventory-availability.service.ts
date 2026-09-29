@@ -149,7 +149,7 @@ export class InventoryAvailabilityService {
       'DISPONIBILIDAD',
     );
 
-    const output =
+    const output: unknown =
       XLSX.write(
         workbook,
         {
@@ -161,9 +161,26 @@ export class InventoryAvailabilityService {
         },
       );
 
-    return Buffer.isBuffer(output)
-      ? output
-      : Buffer.from(output);
+    if (
+      Buffer.isBuffer(
+        output,
+      )
+    ) {
+      return output;
+    }
+
+    if (
+      output instanceof
+      Uint8Array
+    ) {
+      return Buffer.from(
+        output,
+      );
+    }
+
+    throw new Error(
+      'INVENTORY_AVAILABILITY_XLSX_WRITE_INVALID_OUTPUT',
+    );
   }
 
 

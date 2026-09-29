@@ -49,14 +49,6 @@ const listSchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 
-const assignmentSchema = z.object({
-  authorizationKey: z.string().trim().min(1).max(511),
-
-  purchaseOrderCode: z.string().trim().min(1).max(255),
-
-  quantity: z.number().int().positive(),
-});
-
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 @Controller('inventory/availability')

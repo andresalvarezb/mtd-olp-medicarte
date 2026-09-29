@@ -297,7 +297,7 @@ async function runExisting(
 
   const poolQuery =
     vi.fn(
-      async (
+      (
         sql:
           string,
       ) => {
@@ -333,7 +333,7 @@ async function runExisting(
 
   const clientQuery =
     vi.fn(
-      async (
+      (
         sql:
           string,
 
@@ -392,11 +392,14 @@ async function runExisting(
             'from authorization_items ai',
           )
         ) {
+          const keyValue =
+            params?.[0];
+
           const key =
-            String(
-              params?.[0] ??
-              '',
-            );
+            typeof keyValue ===
+              'string'
+              ? keyValue
+              : '';
 
           return queryResult([
             authorizationRow(
@@ -594,7 +597,7 @@ async function runExisting(
 
           connect:
             vi.fn(
-              async () => ({
+              () => ({
                 query:
                   clientQuery,
 
@@ -660,7 +663,7 @@ async function runCreateGuard(
 
   const poolQuery =
     vi.fn(
-      async (
+      (
         sql:
           string,
       ) => {
@@ -765,7 +768,7 @@ async function runCreateGuard(
 
           connect:
             vi.fn(
-              async () => {
+              () => {
                 throw new Error(
                   'CREATE_GUARD_MUST_NOT_CONNECT',
                 );

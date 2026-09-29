@@ -1412,7 +1412,7 @@ export class PurchaseOrderImportService {
         );
 
       if (
-        row.quantity! >
+        row.quantity >
         sourceAvailable
       ) {
         reject(
@@ -2506,7 +2506,7 @@ export class PurchaseOrderImportService {
     }
 
 
-    return point!;
+    return point;
   }
 
 
@@ -3212,7 +3212,7 @@ export class PurchaseOrderImportService {
 
 
           if (
-            row.quantity! >
+            row.quantity >
             available -
               alreadyPlanned
           ) {
@@ -3230,7 +3230,7 @@ export class PurchaseOrderImportService {
           reservedFromAvailability.set(
             poolKey,
             alreadyPlanned +
-              row.quantity!,
+              row.quantity,
           );
 
 

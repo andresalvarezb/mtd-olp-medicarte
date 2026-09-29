@@ -145,7 +145,7 @@ describe(
       async () => {
         const poolQuery =
           vi.fn(
-            async (
+            (
               sql:
                 string,
             ) => {
@@ -180,7 +180,7 @@ describe(
 
         const clientQuery =
           vi.fn(
-            async (
+            (
               sql:
                 string,
               params?:
@@ -376,7 +376,7 @@ describe(
 
                 connect:
                   vi.fn(
-                    async () => ({
+                    () => ({
                       query:
                         clientQuery,
 
@@ -450,7 +450,7 @@ describe(
       async () => {
         const poolQuery =
           vi.fn(
-            async (
+            (
               sql:
                 string,
             ) => {
@@ -485,7 +485,7 @@ describe(
 
         const clientQuery =
           vi.fn(
-            async (
+            (
               sql:
                 string,
               params?:
@@ -540,11 +540,14 @@ describe(
                   'from authorization_items ai',
                 )
               ) {
+                const keyValue =
+                  params?.[0];
+
                 const key =
-                  String(
-                    params?.[0] ??
-                    '',
-                  );
+                  typeof keyValue ===
+                    'string'
+                    ? keyValue
+                    : '';
 
                 return queryResult([
                   {
@@ -690,7 +693,7 @@ describe(
 
                 connect:
                   vi.fn(
-                    async () => ({
+                    () => ({
                       query:
                         clientQuery,
 
