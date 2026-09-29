@@ -2504,7 +2504,22 @@ export class PurchaseOrderImportService {
   private async destinationPoint(
     client: PoolClient,
     authorizationItemId: string,
+    purchaseOrderId: string,
+    commercialCode: string,
   ): Promise<string> {
+    /*
+     * El agendamiento de MEDICARTE NO es requisito
+     * para asignar una AUTO a una OC existente.
+     *
+     * Precedencia:
+     *
+     * 1. Si existe agenda vigente, conservar su punto.
+     * 2. Si todavía no existe agenda, resolver el punto
+     *    directamente desde la OC + producto.
+     *
+     * De esta forma una AUTO puede quedar vinculada
+     * a producto/inventario antes de ser agendada.
+     */
     const schedule =
       await client.query<{
         dispensing_point_id:
@@ -2540,22 +2555,168 @@ export class PurchaseOrderImportService {
       );
 
 
-    const point =
+    const scheduledPoint =
       schedule.rows[0]
         ?.dispensing_point_id;
 
 
     if (
-      !point
+      scheduledPoint
+    ) {
+      return scheduledPoint;
+    }
+
+
+    /*
+     * FALLBACK OPERACIONAL
+     * ====================
+     *
+     * La OC ya define dónde existe/estará el producto.
+     * Si la AUTO aún no tiene agenda, usar el punto
+     * determinado por la línea de OC.
+     *
+     * Se conserva compatibilidad con líneas históricas
+     * cuyo dispensing_point_id es NULL y dependen del
+     * mapping producto -> punto.
+     */
+    const orderPoints =
+      await client.query<{
+        dispensing_point_id:
+          string | null;
+      }>(
+        `
+          select distinct
+            coalesce(
+              pol.dispensing_point_id,
+              mapping.dispensing_point_id
+            )
+              as dispensing_point_id
+
+          from
+            purchase_order_lines pol
+
+          left join
+            tariff_annex_products tap
+              on tap.codigo_producto =
+                 pol.commercial_code
+
+             and tap.active =
+                 true
+
+          left join
+            product_delivery_point_mappings mapping
+              on pol.dispensing_point_id
+                 is null
+
+             and btrim(
+                   coalesce(
+                     tap.numero_expediente_invima,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             and btrim(
+                   coalesce(
+                     tap.consecutivo_invima_presentacion,
+                     ''
+                   )
+                 ) ~ '^[0-9]+$'
+
+             and mapping.invima_record_normalized =
+                 coalesce(
+                   nullif(
+                     ltrim(
+                       btrim(
+                         tap.numero_expediente_invima
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+             and mapping.invima_presentation_normalized =
+                 coalesce(
+                   nullif(
+                     ltrim(
+                       btrim(
+                         tap.consecutivo_invima_presentacion
+                       ),
+                       '0'
+                     ),
+                     ''
+                   ),
+                   '0'
+                 )
+
+          where
+            pol.purchase_order_id =
+              $1
+
+            and pol.commercial_code =
+              $2
+
+            and coalesce(
+                  pol.dispensing_point_id,
+                  mapping.dispensing_point_id
+                )
+                is not null
+
+          order by
+            coalesce(
+              pol.dispensing_point_id,
+              mapping.dispensing_point_id
+            )
+
+          limit 2
+        `,
+        [
+          purchaseOrderId,
+          commercialCode,
+        ],
+      );
+
+
+    const points =
+      orderPoints.rows
+        .map(
+          (row) =>
+            row.dispensing_point_id,
+        )
+        .filter(
+          (
+            value,
+          ): value is string =>
+            Boolean(
+              value,
+            ),
+        );
+
+
+    if (
+      points.length ===
+      1
+    ) {
+      return points[0]!;
+    }
+
+
+    if (
+      points.length ===
+      0
     ) {
       this.existingOrderError(
-        'PURCHASE_ORDER_DESTINATION_SCHEDULE_REQUIRED',
-        'AUTO_DESTINO debe tener punto de dispensación vigente antes de asignar producto.',
+        'PURCHASE_ORDER_DESTINATION_POINT_REQUIRED',
+        'No fue posible resolver el punto desde la agenda ni desde la OC y el producto.',
       );
     }
 
 
-    return point;
+    this.existingOrderError(
+      'PURCHASE_ORDER_DESTINATION_POINT_AMBIGUOUS',
+      'La OC contiene el mismo producto en más de un punto; no es posible determinar automáticamente dónde reservarlo.',
+    );
   }
 
 
@@ -3212,6 +3373,8 @@ export class PurchaseOrderImportService {
           await this.destinationPoint(
             client,
             destination.id,
+            order.id,
+            destination.commercial_code,
           );
 
 
