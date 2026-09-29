@@ -141,7 +141,7 @@ describe(
   'PurchaseOrderImportService OC existente',
   () => {
     it(
-      'resuelve el punto exclusivamente desde AT y asigna la disponibilidad recibida',
+      'agrega AUTO a OC existente desde AT sin exigir recepción previa',
       async () => {
         const poolQuery =
           vi.fn(
@@ -305,6 +305,40 @@ describe(
 
               if (
                 normalized.includes(
+                  'select tap.tarifa_unidad',
+                ) &&
+                normalized.includes(
+                  'as unit_rate',
+                )
+              ) {
+                return queryResult([
+                  {
+                    unit_rate:
+                      '1000',
+
+                    product_description:
+                      'Producto 1',
+
+                    presentation:
+                      '1',
+                  },
+                ]);
+              }
+
+              if (
+                normalized.includes(
+                  "pol.provenance = 'DIRECT_AUTHORIZATION'",
+                )
+              ) {
+                /*
+                 * No existe todavía línea directa:
+                 * debe crearla.
+                 */
+                return queryResult([]);
+              }
+
+              if (
+                normalized.includes(
                   'from purchase_order_lines pol',
                 ) &&
                 normalized.includes(
@@ -338,6 +372,35 @@ describe(
                       2,
                   },
                 ]);
+              }
+
+              if (
+                normalized.includes(
+                  'insert into purchase_order_lines',
+                )
+              ) {
+                return queryResult([
+                  {
+                    id:
+                      '70000000-0000-4000-8000-000000000002',
+                  },
+                ]);
+              }
+
+              if (
+                normalized.includes(
+                  'insert into purchase_order_authorization_sources',
+                )
+              ) {
+                return queryResult([]);
+              }
+
+              if (
+                normalized.includes(
+                  'update purchase_order_lines',
+                )
+              ) {
+                return queryResult([]);
               }
 
               if (
@@ -525,6 +588,10 @@ describe(
           0,
         );
 
+        /*
+         * Incorporar una AUTO a una OC NO crea una
+         * reserva física anticipada.
+         */
         expect(
           clientQuery.mock.calls.some(
             ([sql]) =>
@@ -535,7 +602,39 @@ describe(
               ),
           ),
         ).toBe(
+          false,
+        );
+
+        /*
+         * Sí debe dejar trazabilidad OC -> AUTO.
+         */
+        expect(
+          clientQuery.mock.calls.some(
+            ([sql]) =>
+              String(
+                sql,
+              ).includes(
+                'insert into\n          purchase_order_authorization_sources',
+              ),
+          ),
+        ).toBe(
           true,
+        );
+
+        /*
+         * Tampoco debe consultar disponibilidad recibida.
+         */
+        expect(
+          clientQuery.mock.calls.some(
+            ([sql]) =>
+              String(
+                sql,
+              ).includes(
+                'as available_quantity',
+              ),
+          ),
+        ).toBe(
+          false,
         );
 
         expect(

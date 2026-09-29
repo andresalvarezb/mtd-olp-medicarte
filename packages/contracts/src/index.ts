@@ -1367,17 +1367,17 @@ export const purchaseOrderLineResponseSchema = z.object({
   requestedDeliveryDate: z.string().date().nullable(),
   compensarUnitRateSnapshot: z.string(),
   supplierUnitCost: z.string().nullable(),
-  projectedDemandLineId: z.string().uuid(),
-  projectedDemandRevision: z.number().int().positive(),
-  demandBucket: purchaseOrderDemandBucketSchema,
-  allocatedQuantity: z.number().int().positive(),
+  projectedDemandLineId: z.string().uuid().nullable(),
+  projectedDemandRevision: z.number().int().positive().nullable(),
+  demandBucket: purchaseOrderDemandBucketSchema.nullable(),
+  allocatedQuantity: z.number().int().positive().nullable(),
   sourceDemandChanged: z.boolean(),
 });
 export type PurchaseOrderLineResponse = z.infer<typeof purchaseOrderLineResponseSchema>;
 export const purchaseOrderResponseSchema = z.object({
   id: z.string().uuid(),
   purchaseOrderCode: z.string().nullable(),
-  planningPeriodId: z.string().uuid(),
+  planningPeriodId: z.string().uuid().nullable(),
   orderType: purchaseOrderTypeSchema,
   status: purchaseOrderStatusSchema,
   version: z.number().int().positive(),
