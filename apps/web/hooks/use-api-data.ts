@@ -1,6 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { RealtimeTopic } from '@authorization/contracts';
 import { useRealtimeRevision } from '@/components/realtime/realtime-context';
 
@@ -23,69 +28,96 @@ export function useApiData<T>(
   const [nonce, setNonce] = useState(0);
   const realtimeRevision = useRealtimeRevision(realtimeTopics);
 
+  /*
+   * Toda consulta recibe una generación monotónica.
+   *
+   * Si cambian filtros, página o se dispara realtime,
+   * cualquier respuesta anterior queda automáticamente
+   * obsoleta y no puede sobrescribir la consulta nueva.
+   */
+  const requestGeneration =
+    useRef(
+      0,
+    );
+
   useEffect(() => {
-    let cancelled = false;
+    const generation =
+      ++requestGeneration.current;
+
+    let cancelled =
+      false;
+
     setLoading(true);
     setError(null);
+
     fetcher()
       .then((result) => {
-        if (!cancelled) setData(result);
+        if (
+          cancelled ||
+          generation !==
+            requestGeneration.current
+        ) {
+          return;
+        }
+
+        setData(result);
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
-        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (
+          cancelled ||
+          generation !==
+            requestGeneration.current
+        ) {
+          return;
+        }
+
+        if (
+          err instanceof DOMException &&
+          err.name === 'AbortError'
+        ) {
+          return;
+        }
+
         if (
           err instanceof Error &&
           'code' in err &&
-          (err as { code: string }).code === 'POINT_ACCESS_DENIED'
+          (err as { code: string }).code ===
+            'POINT_ACCESS_DENIED'
         ) {
           setData(null);
+
           setError(
             'No tienes acceso a este punto de dispensación. Actualiza para ver el alcance vigente.',
           );
+
           return;
         }
-        setError(err instanceof Error ? err.message : 'Error inesperado al consultar la API.');
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Error inesperado al consultar la API.',
+        );
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [...deps, nonce]);
-
-  useEffect(() => {
-    if (realtimeRevision === 0) return;
-    let cancelled = false;
-
-    fetcher()
-      .then((result) => {
-        if (cancelled) return;
-        setData(result);
-        setError(null);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        if (err instanceof DOMException && err.name === 'AbortError') return;
         if (
-          err instanceof Error &&
-          'code' in err &&
-          (err as { code: string }).code === 'POINT_ACCESS_DENIED'
+          !cancelled &&
+          generation ===
+            requestGeneration.current
         ) {
-          setData(null);
-          setError(
-            'No tienes acceso a este punto de dispensación. Actualiza para ver el alcance vigente.',
-          );
-          return;
+          setLoading(false);
         }
-        setError(err instanceof Error ? err.message : 'Error inesperado al reconciliar la API.');
       });
 
     return () => {
-      cancelled = true;
+      cancelled =
+        true;
     };
-  }, [realtimeRevision]);
+  }, [
+    ...deps,
+    nonce,
+    realtimeRevision,
+  ]);
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
   return { data, error, loading, reload };

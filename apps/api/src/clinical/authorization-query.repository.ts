@@ -187,30 +187,44 @@ export class AuthorizationQueryRepository {
   ) {}
 
   private visibility(
-    _scope: Scope,
+    scope: Scope,
   ): SQL {
-    void _scope;
+    /*
+     * COMPENSAR OBSERVER
+     * ==================
+     *
+     * Compensar consulta exclusivamente las
+     * autorizaciones relacionadas con su organización.
+     *
+     * No se usa estado operacional como frontera:
+     * puede observar el ciclo completo.
+     */
+    if (
+      scope.organizationCode ===
+      'COMPENSAR'
+    ) {
+      return sql`
+        exists (
+          select
+            1
+
+          from
+            authorization_item_organizations
+              aio_scope
+
+          where
+            aio_scope.authorization_item_id =
+              i.id
+
+            and aio_scope.organization_id =
+              ${scope.organizationId}::uuid
+        )
+      `;
+    }
 
     /*
-     * CONSULTA DE AUTORIZACIONES
-     * ==========================
-     *
-     * Toda AUTO es consultable.
-     *
-     * La visibilidad NO depende de:
-     * - enablement_status;
-     * - ventana HOY + 30;
-     * - existencia de OC;
-     * - aceptación OLP;
-     * - punto de dispensación;
-     * - allocation de inventario;
-     * - estado de cumplimiento.
-     *
-     * El acceso al módulo continúa protegido por
-     * autenticación/permisos del endpoint.
-     *
-     * Las reglas operacionales se aplican después,
-     * de forma independiente.
+     * Comportamiento operacional existente para
+     * los demás actores.
      */
     return sql`true`;
   }

@@ -2199,51 +2199,53 @@ const query = useApiData(
                 Resumen
               </button>
 
-              <button
-                type="button"
-                role="tab"
-                aria-selected={
-                  managingAuthorization
-                }
-                className={
-                  managingAuthorization
-                    ? 'active'
-                    : ''
-                }
-                disabled={
-                  editingAuthorization
-                }
-                title={
-                  editingAuthorization
-                    ? 'Guarda o cancela la edición antes de cambiar de vista.'
-                    : undefined
-                }
-                onClick={() => {
-                  if (
-                    editingAuthorization
-                  ) {
-                    return;
+              {canFulfill ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={
+                    managingAuthorization
                   }
+                  className={
+                    managingAuthorization
+                      ? 'active'
+                      : ''
+                  }
+                  disabled={
+                    editingAuthorization
+                  }
+                  title={
+                    editingAuthorization
+                      ? 'Guarda o cancela la edición antes de cambiar de vista.'
+                      : undefined
+                  }
+                  onClick={() => {
+                    if (
+                      editingAuthorization
+                    ) {
+                      return;
+                    }
 
-                  setManagingAuthorization(
-                    true,
-                  );
+                    setManagingAuthorization(
+                      true,
+                    );
 
-                  setFulfillmentType(
-                    'APPLICATION',
-                  );
+                    setFulfillmentType(
+                      'APPLICATION',
+                    );
 
-                  setFulfillmentDate(
-                    '',
-                  );
+                    setFulfillmentDate(
+                      '',
+                    );
 
-                  setFulfillmentError(
-                    null,
-                  );
-                }}
-              >
-                Gestionar entrega / aplicación
-              </button>
+                    setFulfillmentError(
+                      null,
+                    );
+                  }}
+                >
+                  Gestionar entrega / aplicación
+                </button>
+              ) : null}
             </div>
 
 

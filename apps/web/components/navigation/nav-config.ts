@@ -152,7 +152,10 @@ export const NAV_SECTIONS: NavSection[] = [
 
         permission: 'analytics.read',
 
-        roles: MTD_ROLES,
+        roles: [
+          ...MTD_ROLES,
+          'COMPENSAR',
+        ],
       },
 
       {
@@ -188,7 +191,11 @@ export const NAV_SECTIONS: NavSection[] = [
 
             permission: 'authorizations.read',
 
-            roles: [...MTD_ROLES, 'MEDICARTE'],
+            roles: [
+              ...MTD_ROLES,
+              'MEDICARTE',
+              'COMPENSAR',
+            ],
           },
         ],
       },
@@ -212,7 +219,11 @@ export const NAV_SECTIONS: NavSection[] = [
 
             permission: 'inventory.read',
 
-            roles: [...MTD_ROLES, 'MEDICARTE'],
+            roles: [
+              ...MTD_ROLES,
+              'MEDICARTE',
+              'COMPENSAR',
+            ],
           },
 
           {
@@ -226,7 +237,12 @@ export const NAV_SECTIONS: NavSection[] = [
 
             permission: 'purchase_orders.read',
 
-            roles: [...MTD_ROLES, 'OLP', 'MEDICARTE'],
+            roles: [
+              ...MTD_ROLES,
+              'OLP',
+              'MEDICARTE',
+              'COMPENSAR',
+            ],
           },
 
           {

@@ -151,6 +151,53 @@ export class InventoryAvailabilityRepository {
       );
     }
 
+    /*
+     * COMPENSAR OBSERVER
+     * ==================
+     *
+     * La disponibilidad visible debe provenir de OC
+     * relacionadas con autorizaciones de COMPENSAR.
+     *
+     * No concede ninguna capacidad de asignación.
+     */
+    if (
+      scope.organizationCode ===
+      'COMPENSAR'
+    ) {
+      conditions.push(
+        sql`
+          exists (
+            select
+              1
+
+            from
+              purchase_order_lines
+                scoped_pol
+
+            join
+              purchase_order_authorization_sources
+                scoped_poas
+                on scoped_poas.purchase_order_line_id =
+                   scoped_pol.id
+
+            join
+              authorization_item_organizations
+                scoped_aio
+                on scoped_aio.authorization_item_id =
+                   scoped_poas.authorization_item_id
+
+            where
+              scoped_pol.purchase_order_id =
+                po.id
+
+              and scoped_aio.organization_id =
+                ${scope.organizationId}::uuid
+          )
+        `,
+      );
+    }
+
+
     if (filters.search) {
       const search =
         `%${filters.search.trim()}%`;
