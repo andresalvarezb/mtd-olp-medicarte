@@ -2740,20 +2740,6 @@ export class PurchaseOrderImportService {
             and tap.active =
               true
 
-            and btrim(
-                  coalesce(
-                    tap.numero_expediente_invima,
-                    ''
-                  )
-                ) ~ '^[0-9]+$'
-
-            and btrim(
-                  coalesce(
-                    tap.consecutivo_invima_presentacion,
-                    ''
-                  )
-                ) ~ '^[0-9]+$'
-
           order by
             mapping.dispensing_point_id
 
