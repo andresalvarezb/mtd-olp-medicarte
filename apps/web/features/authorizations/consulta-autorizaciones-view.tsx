@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { PageHeader } from '@/components/ui/page-header';
 
@@ -32,6 +32,10 @@ import {
   downloadExportable,
   saveExportable,
 } from '@/lib/exportables-api';
+
+const AUTHORIZATION_DRAWER_EXIT_MS =
+  340;
+
 
 function initialValidationLabel(
   status:
@@ -563,6 +567,30 @@ export function ConsultaAutorizacionesView() {
   const [selected, setSelected] = useState<AuthorizationQueryItem | null>(null);
 
   const [
+    authorizationDrawerVisible,
+    setAuthorizationDrawerVisible,
+  ] =
+    useState(
+      false,
+    );
+
+  const authorizationDrawerCloseTimer =
+    useRef<
+      number |
+      null
+    >(
+      null,
+    );
+
+  const authorizationDrawerOpenFrame =
+    useRef<
+      number |
+      null
+    >(
+      null,
+    );
+
+  const [
     editingAuthorization,
     setEditingAuthorization,
   ] =
@@ -638,6 +666,32 @@ export function ConsultaAutorizacionesView() {
     useState(
       false,
     );
+
+
+  useEffect(
+    () => {
+      return () => {
+        if (
+          authorizationDrawerCloseTimer.current !==
+          null
+        ) {
+          window.clearTimeout(
+            authorizationDrawerCloseTimer.current,
+          );
+        }
+
+        if (
+          authorizationDrawerOpenFrame.current !==
+          null
+        ) {
+          window.cancelAnimationFrame(
+            authorizationDrawerOpenFrame.current,
+          );
+        }
+      };
+    },
+    [],
+  );
 
 
   async function exportAuthorizations() {
@@ -840,6 +894,62 @@ const query = useApiData(
     setPage(1);
   }
 
+  function closeAuthorizationDetail() {
+    if (
+      authorizationDrawerOpenFrame.current !==
+      null
+    ) {
+      window.cancelAnimationFrame(
+        authorizationDrawerOpenFrame.current,
+      );
+
+      authorizationDrawerOpenFrame.current =
+        null;
+    }
+
+
+    setAuthorizationDrawerVisible(
+      false,
+    );
+
+
+    if (
+      authorizationDrawerCloseTimer.current !==
+      null
+    ) {
+      window.clearTimeout(
+        authorizationDrawerCloseTimer.current,
+      );
+    }
+
+
+    authorizationDrawerCloseTimer.current =
+      window.setTimeout(
+        () => {
+          setSelected(
+            null,
+          );
+
+          setManagingAuthorization(
+            false,
+          );
+
+          setEditingAuthorization(
+            false,
+          );
+
+          setAuthorizationEditError(
+            null,
+          );
+
+          authorizationDrawerCloseTimer.current =
+            null;
+        },
+        AUTHORIZATION_DRAWER_EXIT_MS,
+      );
+  }
+
+
   async function openDetail(
     item:
       AuthorizationQueryItem,
@@ -852,9 +962,50 @@ const query = useApiData(
      * que contiene la relación durable
      * AUTO -> purchase_order_authorization_sources -> OC.
      */
+    if (
+      authorizationDrawerCloseTimer.current !==
+      null
+    ) {
+      window.clearTimeout(
+        authorizationDrawerCloseTimer.current,
+      );
+
+      authorizationDrawerCloseTimer.current =
+        null;
+    }
+
+
+    if (
+      authorizationDrawerOpenFrame.current !==
+      null
+    ) {
+      window.cancelAnimationFrame(
+        authorizationDrawerOpenFrame.current,
+      );
+    }
+
+
+    setAuthorizationDrawerVisible(
+      false,
+    );
+
     setSelected(
       item,
     );
+
+
+    authorizationDrawerOpenFrame.current =
+      window.requestAnimationFrame(
+        () => {
+          setAuthorizationDrawerVisible(
+            true,
+          );
+
+          authorizationDrawerOpenFrame.current =
+            null;
+        },
+      );
+
 
     setFulfillmentType(
       'APPLICATION',
@@ -1753,15 +1904,21 @@ const query = useApiData(
 
       {selected ? (
         <div
-          className="operation-drawer-backdrop"
-          onMouseDown={() => {
-            setSelected(null);
-            setEditingAuthorization(false);
-            setAuthorizationEditError(null);
-          }}
+          className={`operation-drawer-backdrop authorization-detail-backdrop ${
+            authorizationDrawerVisible
+              ? 'is-visible'
+              : ''
+          }`}
+          onMouseDown={
+            closeAuthorizationDetail
+          }
         >
           <aside
-            className="operation-drawer authorization-detail-drawer"
+            className={`operation-drawer authorization-detail-drawer ${
+              authorizationDrawerVisible
+                ? 'is-visible'
+                : ''
+            }`}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="operation-drawer-header">
@@ -1830,12 +1987,9 @@ const query = useApiData(
                   type="button"
                   className="operation-close"
                   aria-label="Cerrar detalle"
-                  onClick={() => {
-                    setSelected(null);
-                    setManagingAuthorization(false);
-                    setEditingAuthorization(false);
-                    setAuthorizationEditError(null);
-                  }}
+                  onClick={
+                    closeAuthorizationDetail
+                  }
                 >
                   ×
                 </button>
