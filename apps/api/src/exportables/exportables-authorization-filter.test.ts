@@ -392,3 +392,234 @@ describe(
     );
   },
 );
+
+
+describe(
+  'ExportablesService authorizations export-all fast path',
+  () => {
+    it(
+      'exporta todo sin ejecutar AuthorizationQueryRepository.list',
+      async () => {
+        const list =
+          vi.fn();
+
+
+        const query =
+          vi.fn()
+            .mockResolvedValue({
+              rows: [
+                {
+                  id:
+                    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+
+                  authorization_key:
+                    'AUTO-ALL-1|10156',
+
+                  numero_autorizacion:
+                    'AUTO-ALL-1',
+
+                  codigo_medicamento:
+                    '10156',
+
+                  source_data: {
+                    NUMERO_AUTORIZACION:
+                      'AUTO-ALL-1',
+
+                    CODIGO_COMERCIAL:
+                      '10156',
+
+                    CANTIDAD:
+                      '30',
+
+                    FECHA_ASIGNACION:
+                      '20260901',
+
+                    FECHA_FINAL_VIGENCIA:
+                      '20991231',
+                  },
+
+                  enablement_status:
+                    'ENABLED',
+
+                  tariff_membership_status:
+                    'LISTED',
+
+                  coverage_type:
+                    'PBS',
+
+                  direction_status:
+                    'NOT_APPLICABLE',
+
+                  minimum_quantity:
+                    1,
+
+                  has_any_po:
+                    false,
+
+                  has_active_po:
+                    false,
+
+                  purchase_order_codes:
+                    null,
+
+                  dispensing_points:
+                    null,
+
+                  allocated_quantity:
+                    0,
+
+                  consumed_quantity:
+                    0,
+
+                  released_quantity:
+                    0,
+
+                  remaining_quantity:
+                    0,
+
+                  fulfillment_type:
+                    null,
+
+                  effective_date:
+                    null,
+
+                  fulfillment_quantity:
+                    null,
+
+                  has_legacy_fulfillment:
+                    false,
+
+                  resolved_review_status:
+                    null,
+
+                  audit_observations:
+                    null,
+
+                  created_at:
+                    new Date(
+                      '2026-09-29T12:00:00.000Z',
+                    ),
+
+                  updated_at:
+                    new Date(
+                      '2026-09-29T12:00:00.000Z',
+                    ),
+                },
+              ],
+            });
+
+
+        const service =
+          new ExportablesService(
+            {
+              pool: {
+                query,
+              },
+            } as never,
+
+            {
+              list,
+            } as never,
+          );
+
+
+        const result =
+          await service.authorizations(
+            scope,
+          );
+
+
+        expect(
+          list,
+        ).not.toHaveBeenCalled();
+
+
+        expect(
+          query,
+        ).toHaveBeenCalledTimes(
+          1,
+        );
+
+
+        const sql:
+          unknown =
+          query.mock.calls[0]?.[0] as unknown;
+
+        const parameters:
+          unknown =
+          query.mock.calls[0]?.[1] as unknown;
+
+
+        expect(
+          String(
+            sql,
+          ),
+        ).toContain(
+          'where\n              true',
+        );
+
+
+        expect(
+          parameters,
+        ).toEqual(
+          [],
+        );
+
+
+        expect(
+          result.rowCount,
+        ).toBe(
+          1,
+        );
+
+
+        const workbook =
+          XLSX.read(
+            result.content,
+            {
+              type:
+                'buffer',
+            },
+          );
+
+
+        const sheet =
+          workbook.Sheets[
+            'AUTORIZACIONES'
+          ];
+
+
+        expect(
+          sheet,
+        ).toBeDefined();
+
+
+        const rows =
+          XLSX.utils.sheet_to_json<
+            Record<
+              string,
+              unknown
+            >
+          >(
+            sheet!,
+          );
+
+
+        expect(
+          rows,
+        ).toHaveLength(
+          1,
+        );
+
+
+        expect(
+          rows[0]?.[
+            'NUMERO_AUTORIZACION'
+          ],
+        ).toBe(
+          'AUTO-ALL-1',
+        );
+      },
+    );
+  },
+);
