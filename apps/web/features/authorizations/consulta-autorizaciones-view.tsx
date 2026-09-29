@@ -280,6 +280,155 @@ function singlePurchaseOrderCode(
 }
 
 
+type AuthorizationPurchaseOrderContext =
+  Readonly<{
+    kind:
+      | 'active'
+      | 'trace';
+
+    message:
+      string;
+  }>;
+
+
+function purchaseOrderCodes(
+  value:
+    string | null,
+): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map(
+          (code) =>
+            code.trim(),
+        )
+        .filter(
+          Boolean,
+        ),
+    ),
+  ];
+}
+
+
+function purchaseOrderReference(
+  codes:
+    string[],
+): string {
+  if (
+    codes.length === 1
+  ) {
+    const code =
+      codes[0];
+
+    return code
+      ? `la OC ${code}`
+      : 'la OC relacionada';
+  }
+
+  return `las OC ${codes.join(
+    ', ',
+  )}`;
+}
+
+
+function authorizationPurchaseOrderContext(
+  item:
+    AuthorizationQueryItem,
+): AuthorizationPurchaseOrderContext | null {
+  const activeCodes =
+    item.remainingAssignedQuantity >
+      0
+      ? purchaseOrderCodes(
+          item.purchaseOrder,
+        )
+      : [];
+
+
+  const traceCodes =
+    [
+      ...new Set(
+        item.purchaseOrders
+          .map(
+            (order) =>
+              order.purchaseOrderCode
+                .trim(),
+          )
+          .filter(
+            Boolean,
+          ),
+      ),
+    ];
+
+
+  const otherTraceCodes =
+    traceCodes.filter(
+      (code) =>
+        !activeCodes.includes(
+          code,
+        ),
+    );
+
+
+  const point =
+    item.dispensingPointCode
+    ??
+    item.dispensingPointName;
+
+
+  if (
+    activeCodes.length >
+    0
+  ) {
+    const pointText =
+      point
+        ? ` en ${point}`
+        : '';
+
+    const traceText =
+      otherTraceCodes.length >
+      0
+        ? ` Además, registra trazabilidad con ${purchaseOrderReference(
+            otherTraceCodes,
+          )}.`
+        : '';
+
+    return {
+      kind:
+        'active',
+
+      message:
+        `Esta autorización está actualmente relacionada con ${purchaseOrderReference(
+          activeCodes,
+        )}. Tiene ${item.allocatedQuantity} unidades asignadas y ${item.remainingAssignedQuantity} continúan disponibles para entrega/aplicación${pointText}.${traceText}`,
+    };
+  }
+
+
+  if (
+    traceCodes.length >
+    0
+  ) {
+    return {
+      kind:
+        'trace',
+
+      message:
+        `Esta autorización registra trazabilidad con ${purchaseOrderReference(
+          traceCodes,
+        )}, pero actualmente no tiene producto asignado disponible para entrega/aplicación.`,
+    };
+  }
+
+
+  return null;
+}
+
+
 function fulfillmentTypeLabel(
   type:
     string | null,
@@ -1376,6 +1525,15 @@ const query = useApiData(
         null,
     );
 
+
+  const selectedPurchaseOrderContext =
+    selected
+      ? authorizationPurchaseOrderContext(
+          selected,
+        )
+      : null;
+
+
   return (
     <>
       <PageHeader
@@ -2362,24 +2520,23 @@ const query = useApiData(
                   </div>
                 </div>
 
-                {selected.purchaseOrders.length > 0 ? (
-                  <div className="authorization-summary-trace">
+                {selectedPurchaseOrderContext ? (
+                  <div
+                    className={`authorization-summary-oc-message ${selectedPurchaseOrderContext.kind}`}
+                  >
+                    {selectedPurchaseOrderContext.kind ===
+                    'active' ? (
+                      <strong
+                        className="authorization-summary-oc-message-icon"
+                        aria-hidden="true"
+                      >
+                        ✓
+                      </strong>
+                    ) : null}
+
                     <span>
-                      Trazabilidad de OC
+                      {selectedPurchaseOrderContext.message}
                     </span>
-
-                    <strong>
-                      {selected.purchaseOrders
-                        .map(
-                          (order) =>
-                            order.purchaseOrderCode,
-                        )
-                        .join(', ')}
-                    </strong>
-
-                    <small>
-                      Relación histórica; no implica una asignación vigente.
-                    </small>
                   </div>
                 ) : null}
 
