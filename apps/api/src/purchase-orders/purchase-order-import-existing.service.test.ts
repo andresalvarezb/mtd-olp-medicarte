@@ -141,7 +141,7 @@ describe(
   'PurchaseOrderImportService OC existente',
   () => {
     it(
-      'asigna disponibilidad recibida por Medicarte aunque AUTO_DESTINO no tenga agenda',
+      'resuelve el punto exclusivamente desde AT y asigna la disponibilidad recibida',
       async () => {
         const poolQuery =
           vi.fn(
@@ -282,33 +282,18 @@ describe(
 
               if (
                 normalized.includes(
-                  'from patient_schedules ps',
-                )
-              ) {
-                /*
-                 * Caso crítico:
-                 * AUTO sin agenda vigente.
-                 */
-                return queryResult([]);
-              }
-
-              if (
-                normalized.includes(
-                  'from purchase_order_lines pol',
+                  'from tariff_annex_products tap',
                 ) &&
                 normalized.includes(
-                  'select distinct',
-                ) &&
-                normalized.includes(
-                  'as dispensing_point_id',
+                  'join product_delivery_point_mappings mapping',
                 ) &&
                 normalized.includes(
                   'limit 2',
                 )
               ) {
                 /*
-                 * El punto se resuelve desde
-                 * OC + producto.
+                 * Fuente autoritativa:
+                 * AT -> producto/presentación -> punto.
                  */
                 return queryResult([
                   {
@@ -442,6 +427,67 @@ describe(
           0,
         );
 
+        /*
+         * El punto NO puede venir de agenda.
+         */
+        expect(
+          clientQuery.mock.calls.some(
+            ([sql]) =>
+              String(
+                sql,
+              ).includes(
+                'from patient_schedules ps',
+              ),
+          ),
+        ).toBe(
+          false,
+        );
+
+        /*
+         * El punto debe resolverse desde:
+         *
+         * AT -> expediente/presentación
+         *    -> product_delivery_point_mappings
+         */
+        expect(
+          clientQuery.mock.calls.some(
+            ([sql]) => {
+              const normalized =
+                String(
+                  sql,
+                )
+                  .replace(
+                    /\s+/g,
+                    ' ',
+                  );
+
+              return (
+                normalized.includes(
+                  'from tariff_annex_products tap',
+                )
+                &&
+                normalized.includes(
+                  'join product_delivery_point_mappings mapping',
+                )
+                &&
+                normalized.includes(
+                  'limit 2',
+                )
+              );
+            },
+          ),
+        ).toBe(
+          true,
+        );
+
+        /*
+         * No debe existir el fallback anterior:
+         * OC + producto -> punto.
+         *
+         * purchase_order_lines puede seguir consultándose
+         * después para validar compatibilidad, pero no
+         * mediante el SELECT DISTINCT de resolución.
+         */
         expect(
           clientQuery.mock.calls.some(
             ([sql]) => {
@@ -460,17 +506,17 @@ describe(
                 )
                 &&
                 normalized.includes(
-                  'as dispensing_point_id',
+                  'from purchase_order_lines pol',
                 )
                 &&
                 normalized.includes(
-                  'from purchase_order_lines pol',
+                  'as dispensing_point_id',
                 )
               );
             },
           ),
         ).toBe(
-          true,
+          false,
         );
 
         expect(
@@ -655,7 +701,13 @@ describe(
 
               if (
                 normalized.includes(
-                  'from patient_schedules ps',
+                  'from tariff_annex_products tap',
+                ) &&
+                normalized.includes(
+                  'join product_delivery_point_mappings mapping',
+                ) &&
+                normalized.includes(
+                  'limit 2',
                 )
               ) {
                 return queryResult([
