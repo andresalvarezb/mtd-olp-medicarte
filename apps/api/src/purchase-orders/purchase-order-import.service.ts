@@ -3478,8 +3478,8 @@ export class PurchaseOrderImportService {
             'purchase_order',
             $3,
             $4::jsonb,
-            $5,
-            $5,
+            $5::uuid,
+            $5::text,
             'SUCCESS'
           )
         `,
@@ -4410,8 +4410,8 @@ export class PurchaseOrderImportService {
               'purchase_order',
               $4,
               $5::jsonb,
-              $6,
-              $6,
+              $6::uuid,
+              $6::text,
               'SUCCESS'
             )
           `,
@@ -4695,8 +4695,8 @@ export class PurchaseOrderImportService {
             'purchase_order',
             $3,
             $4::jsonb,
-            $5,
-            $5,
+            $5::uuid,
+            $5::text,
             'SUCCESS'
           )
         `,
