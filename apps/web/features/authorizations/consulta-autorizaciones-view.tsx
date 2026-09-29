@@ -857,37 +857,6 @@ export function ConsultaAutorizacionesView() {
         await downloadExportable(
           organizationId,
           'authorizations',
-          {
-            authorizationNumber:
-              appliedFilters.authorizationNumber
-              ||
-              undefined,
-
-            commercialCode:
-              appliedFilters.commercialCode
-              ||
-              undefined,
-
-            patient:
-              appliedFilters.patient
-              ||
-              undefined,
-
-            lifecycleEnablement:
-              appliedFilters.lifecycleEnablement
-              ||
-              undefined,
-
-            operationalStatus:
-              appliedFilters.operationalStatus
-              ||
-              undefined,
-
-            coverageType:
-              appliedFilters.coverageType
-              ||
-              undefined,
-          },
         );
 
       saveExportable(
