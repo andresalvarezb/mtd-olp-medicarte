@@ -1537,7 +1537,7 @@ const query = useApiData(
 
 
 
-      <Card className="operational-list-workspace">
+      <Card className="operational-list-workspace authorization-query-workspace">
 <CardBody>
           <FilterBar>
             <FilterField label="Autorización">
@@ -1696,22 +1696,24 @@ const query = useApiData(
 
           <div className="table-wrap">
             <table
+              className="authorization-query-table"
               style={{
-                minWidth: '1380px',
+                width: '100%',
+                minWidth: 0,
                 tableLayout: 'fixed',
               }}
             >
               <colgroup>
-                <col style={{ width: '140px' }} />
-                <col style={{ width: '165px' }} />
-                <col style={{ width: '205px' }} />
-                <col style={{ width: '55px' }} />
-                <col style={{ width: '130px' }} />
-                <col style={{ width: '200px' }} />
-                <col style={{ width: '165px' }} />
-                <col style={{ width: '115px' }} />
-                <col style={{ width: '105px' }} />
-                <col style={{ width: '80px' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '4%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '6%' }} />
               </colgroup>
 
               <thead>

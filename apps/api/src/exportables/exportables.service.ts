@@ -24,6 +24,21 @@ import {
   type AuthorizationQueryFilters,
 } from '../clinical/authorization-query.repository';
 
+import {
+  resolveAuthorizationInitialValidationStatus,
+  resolveAuthorizationLifecycleReasons,
+  resolveAuthorizationLifecycleStatus,
+  resolveAuthorizationValidityStatus,
+} from '../clinical/authorization-query-state';
+
+import {
+  resolveAuthorizationOperationalStatus,
+} from '../clinical/authorization-query-status';
+
+import {
+  authorizationQueryValidityWindow,
+} from '../clinical/authorization-query-validity';
+
 
 type Database =
   ReturnType<
@@ -36,6 +51,14 @@ export type AuthorizationExportFilters =
     AuthorizationQueryFilters,
     'page' | 'limit'
   >;
+
+
+type AuthorizationQueryListItem =
+  Awaited<
+    ReturnType<
+      AuthorizationQueryRepository['list']
+    >
+  >['items'][number];
 
 
 export type ExportedWorkbook =
@@ -254,6 +277,58 @@ function objectValue(
   }
 
   return {};
+}
+
+
+function nullableText(
+  value:
+    unknown,
+): string | null {
+  if (
+    value ===
+      null
+    ||
+    value ===
+      undefined
+  ) {
+    return null;
+  }
+
+  if (
+    typeof value ===
+      'string'
+  ) {
+    return value;
+  }
+
+  if (
+    typeof value ===
+      'number'
+    ||
+    typeof value ===
+      'boolean'
+    ||
+    typeof value ===
+      'bigint'
+  ) {
+    return `${value}`;
+  }
+
+  if (
+    value instanceof Date
+  ) {
+    return value.toISOString();
+  }
+
+  const serialized =
+    JSON.stringify(
+      value,
+    );
+
+  return typeof serialized ===
+    'string'
+    ? serialized
+    : null;
 }
 
 
@@ -1433,67 +1508,106 @@ export class ExportablesService {
       scope,
     );
 
-    if (
-      !this.authorizationQuery
-    ) {
-      throw new Error(
-        'AUTHORIZATION_QUERY_REPOSITORY_UNAVAILABLE',
-      );
-    }
-
     /*
-     * La Consulta de Autorizaciones es la autoridad
-     * para resolver filtros y estados derivados.
+     * EXPORT ALL
+     * ==========
      *
-     * Primero obtenemos el total real sin asumir
-     * ningún límite arbitrario de exportación.
+     * El botón de Consulta exporta el universo completo
+     * y no envía filtros.
+     *
+     * En ese caso NO ejecutamos primero:
+     *   list(limit=1)
+     *   +
+     *   list(limit=TOTAL)
+     *
+     * porque esa segunda consulta canónica completa es
+     * costosa y después el exportador vuelve a consultar
+     * los mismos registros para construir el XLSX.
+     *
+     * Cuando existen filtros conservamos exactamente
+     * la resolución canónica anterior.
      */
-    const firstPage =
-      await this.authorizationQuery.list(
-        {
-          ...filters,
+    const exportAll =
+      Object.keys(
+        filters,
+      ).length ===
+      0;
 
-          page:
-            1,
-
-          limit:
-            1,
-        },
-        scope,
-      );
-
-    const matching =
-      firstPage.total <=
-        1
-        ? firstPage
-        : await this.authorizationQuery.list(
-            {
-              ...filters,
-
-              page:
-                1,
-
-              limit:
-                firstPage.total,
-            },
-            scope,
-          );
-
-    const matchingAuthorizationIds =
-      matching.items.map(
-        (item) =>
-          item.id,
-      );
 
     const canonicalById =
-      new Map(
+      new Map<
+        string,
+        AuthorizationQueryListItem
+      >();
+
+
+    let matchingAuthorizationIds:
+      string[] =
+        [];
+
+
+    if (
+      !exportAll
+    ) {
+      if (
+        !this.authorizationQuery
+      ) {
+        throw new Error(
+          'AUTHORIZATION_QUERY_REPOSITORY_UNAVAILABLE',
+        );
+      }
+
+
+      const firstPage =
+        await this.authorizationQuery.list(
+          {
+            ...filters,
+
+            page:
+              1,
+
+            limit:
+              1,
+          },
+          scope,
+        );
+
+
+      const matching =
+        firstPage.total <=
+          1
+          ? firstPage
+          : await this.authorizationQuery.list(
+              {
+                ...filters,
+
+                page:
+                  1,
+
+                limit:
+                  firstPage.total,
+              },
+              scope,
+            );
+
+
+      matchingAuthorizationIds =
         matching.items.map(
-          (item) => [
+          (item) =>
             item.id,
-            item,
-          ],
-        ),
-      );
+        );
+
+
+      for (
+        const item
+        of matching.items
+      ) {
+        canonicalById.set(
+          item.id,
+          item,
+        );
+      }
+    }
 
     const result =
       await this.database.pool.query<
@@ -1569,6 +1683,24 @@ export class ExportablesService {
               fulfillment.effective_date,
 
               fulfillment.fulfillment_quantity,
+
+              exists (
+                select
+                  1
+
+                from
+                  patient_applications
+                    legacy_application
+
+                where
+                  legacy_application.authorization_item_id =
+                    ai.id
+
+                  and
+                  legacy_application.status =
+                    'CONFIRMED'
+              )
+                as has_legacy_fulfillment,
 
               audit_review.status
                 as resolved_review_status,
@@ -1768,10 +1900,11 @@ export class ExportablesService {
               on true
 
             where
-              ai.id =
-              any(
-                $1::uuid[]
-              )
+              ${
+                exportAll
+                  ? 'true'
+                  : 'ai.id = any($1::uuid[])'
+              }
           )
 
 
@@ -1785,9 +1918,11 @@ export class ExportablesService {
             codigo_medicamento,
             id
         `,
-        [
-          matchingAuthorizationIds,
-        ],
+        exportAll
+          ? []
+          : [
+              matchingAuthorizationIds,
+            ],
       );
 
 
@@ -1890,25 +2025,23 @@ export class ExportablesService {
       ] as const;
 
 
+    const {
+      today:
+        exportToday,
+    } =
+      authorizationQueryValidityWindow();
+
+
     const rows =
       result.rows.map(
         (row) => {
-          const canonical =
-            canonicalById.get(
-              String(
-                row[
-                  'id'
-                ],
-              ),
+          const rowId =
+            String(
+              row[
+                'id'
+              ],
             );
 
-          if (
-            !canonical
-          ) {
-            throw new Error(
-              'AUTHORIZATION_EXPORT_CANONICAL_STATE_MISSING',
-            );
-          }
 
           const source =
             objectValue(
@@ -1916,6 +2049,196 @@ export class ExportablesService {
                 'source_data'
               ],
             );
+
+
+          const canonical =
+            canonicalById.get(
+              rowId,
+            )
+            ??
+            (() => {
+              const quantity =
+                nullableText(
+                  source[
+                    'CANTIDAD'
+                  ],
+                );
+
+
+              const minimumQuantity =
+                Number(
+                  row[
+                    'minimum_quantity'
+                  ]
+                  ??
+                  1,
+                );
+
+
+              const validityStatus =
+                resolveAuthorizationValidityStatus({
+                  assignmentDate:
+                    nullableText(
+                      source[
+                        'FECHA_ASIGNACION'
+                      ],
+                    ),
+
+                  validityEndDate:
+                    nullableText(
+                      source[
+                        'FECHA_FINAL_VIGENCIA'
+                      ],
+                    ),
+
+                  today:
+                    exportToday,
+                });
+
+
+              const initialValidationStatus =
+                resolveAuthorizationInitialValidationStatus({
+                  enablementStatus:
+                    nullableText(
+                      row[
+                        'enablement_status'
+                      ],
+                    ),
+
+                  tariffMembershipStatus:
+                    nullableText(
+                      row[
+                        'tariff_membership_status'
+                      ],
+                    ),
+
+                  coverageType:
+                    nullableText(
+                      row[
+                        'coverage_type'
+                      ],
+                    ),
+
+                  directionStatus:
+                    nullableText(
+                      row[
+                        'direction_status'
+                      ],
+                    ),
+
+                  quantity,
+
+                  minimumQuantity,
+                });
+
+
+              const lifecycleEnablement =
+                resolveAuthorizationLifecycleStatus({
+                  initialValidationStatus,
+
+                  validityStatus,
+                });
+
+
+              const lifecycleReasons =
+                resolveAuthorizationLifecycleReasons({
+                  lifecycleStatus:
+                    lifecycleEnablement,
+
+                  enablementStatus:
+                    nullableText(
+                      row[
+                        'enablement_status'
+                      ],
+                    ),
+
+                  tariffMembershipStatus:
+                    nullableText(
+                      row[
+                        'tariff_membership_status'
+                      ],
+                    ),
+
+                  coverageType:
+                    nullableText(
+                      row[
+                        'coverage_type'
+                      ],
+                    ),
+
+                  directionStatus:
+                    nullableText(
+                      row[
+                        'direction_status'
+                      ],
+                    ),
+
+                  quantity,
+
+                  minimumQuantity,
+
+                  validityStatus,
+                });
+
+
+              const operationalEligible =
+                initialValidationStatus ===
+                  'PASSED'
+                &&
+                validityStatus ===
+                  'IN_WINDOW';
+
+
+              const operationalStatus =
+                resolveAuthorizationOperationalStatus({
+                  hasFulfillment:
+                    row[
+                      'fulfillment_type'
+                    ] !==
+                      null
+                    &&
+                    row[
+                      'fulfillment_type'
+                    ] !==
+                      undefined
+                    ||
+                    row[
+                      'has_legacy_fulfillment'
+                    ] ===
+                      true,
+
+                  operationalEligible,
+
+                  remainingAssignedQuantity:
+                    Number(
+                      row[
+                        'remaining_quantity'
+                      ]
+                      ??
+                      0,
+                    ),
+
+                  authorizedQuantity:
+                    Number(
+                      quantity
+                      ??
+                      0,
+                    ),
+                });
+
+
+              return {
+                initialValidationStatus,
+
+                validityStatus,
+
+                lifecycleEnablement,
+
+                lifecycleReasons,
+
+                operationalStatus,
+              };
+            })();
 
           const output:
             Record<
