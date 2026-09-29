@@ -172,6 +172,189 @@ function buildAuthorizationWorkbook(input: {
   }) as Buffer;
 }
 
+function buildSparseAuthorizationWorkbook(
+  input: {
+    authorizationNumber:
+      string;
+
+    commercialCode:
+      string;
+
+    quantity?:
+      number;
+
+    validityEndDate?:
+      string;
+
+    workbookNonce:
+      string;
+  },
+): Buffer {
+  const workbook =
+    XLSX.utils.book_new();
+
+  workbook.Props = {
+    Title:
+      'Sparse authorization reload gate',
+
+    Comments:
+      input.workbookNonce,
+  };
+
+  const values:
+    Record<
+      string,
+      unknown
+    > = {
+      NUMERO_AUTORIZACION:
+        input.authorizationNumber,
+
+      CODIGO_COMERCIAL:
+        input.commercialCode,
+  };
+
+  if (
+    input.quantity !==
+      undefined
+  ) {
+    values.CANTIDAD =
+      input.quantity;
+  }
+
+  if (
+    input.validityEndDate !==
+      undefined
+  ) {
+    values.FECHA_FINAL_VIGENCIA =
+      input.validityEndDate;
+  }
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+
+    XLSX.utils.aoa_to_sheet([
+      [
+        ...AUTHORIZATION_IMPORT_COLUMNS,
+      ],
+
+      AUTHORIZATION_IMPORT_COLUMNS.map(
+        (
+          column,
+        ) =>
+          values[
+            column
+          ] ??
+          '',
+      ),
+    ]),
+
+    'Autorizaciones',
+  );
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+
+    XLSX.utils.aoa_to_sheet([
+      [
+        'KEY',
+        'VALUE',
+      ],
+
+      [
+        'templateVersion',
+        ESP014_AUTHORIZATIONS_TEMPLATE_VERSION,
+      ],
+
+      [
+        'importType',
+        'AUTHORIZATIONS',
+      ],
+    ]),
+
+    'METADATA',
+  );
+
+  return XLSX.write(
+    workbook,
+    {
+      type:
+        'buffer',
+
+      bookType:
+        'xlsx',
+    },
+  ) as Buffer;
+}
+
+
+async function uploadSparseAuthorization(
+  input: {
+    authorizationNumber:
+      string;
+
+    commercialCode:
+      string;
+
+    filename:
+      string;
+
+    quantity?:
+      number;
+
+    validityEndDate?:
+      string;
+
+    workbookNonce:
+      string;
+  },
+): Promise<Response> {
+  const buffer =
+    buildSparseAuthorizationWorkbook(
+      input,
+    );
+
+  const form =
+    new FormData();
+
+  form.append(
+    'file',
+
+    new Blob(
+      [
+        new Uint8Array(
+          buffer,
+        ),
+      ],
+      {
+        type:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      },
+    ),
+
+    input.filename,
+  );
+
+  return fetch(
+    `${apiUrl}/api/v1/bulk-imports/authorizations/upload`,
+    {
+      method:
+        'POST',
+
+      headers: {
+        authorization:
+          `Bearer ${adminToken}`,
+
+        'x-organization-id':
+          ORGANIZATION_IDS.MTD,
+      },
+
+      body:
+        form,
+    },
+  );
+}
+
+
 async function uploadAuthorization(input: {
   authorizationNumber: string;
   commercialCode: string;
@@ -1216,5 +1399,229 @@ describe('Macro 2 / 2C + 2D — smart reload + purchase order lineage', () => {
         'LISTED',
     });
   });
+
+
+  it(
+    '9. recarga parcial conserva columnas vacías y actualiza solo campos informados',
+    async () => {
+      const code =
+        `M2CD-SPARSE-${suffix}`;
+
+      const authorization =
+        `M2CD-AUTH-SPARSE-${suffix}`;
+
+      await seedTariffProduct(
+        code,
+      );
+
+
+      const initial =
+        await uploadAndConfirm({
+          authorizationNumber:
+            authorization,
+
+          commercialCode:
+            code,
+
+          filename:
+            `m2cd-sparse-initial-${suffix}.xlsx`,
+
+          quantity:
+            30,
+
+          workbookNonce:
+            randomUUID(),
+        });
+
+      expect(
+        initial.confirmed
+          .succeededRows,
+      ).toBe(
+        1,
+      );
+
+
+      const before =
+        await snapshot(
+          authorization,
+          code,
+        );
+
+
+      expect(
+        before
+          .source_data
+          .NOMBRE_PACIENTE,
+      ).toBe(
+        'Paciente Macro 2C 2D',
+      );
+
+      expect(
+        before
+          .source_data
+          .FECHA_ASIGNACION,
+      ).toBe(
+        '2026-09-18',
+      );
+
+
+      const uploadResponse =
+        await uploadSparseAuthorization({
+          authorizationNumber:
+            authorization,
+
+          commercialCode:
+            code,
+
+          filename:
+            `m2cd-sparse-update-${suffix}.xlsx`,
+
+          quantity:
+            45,
+
+          validityEndDate:
+            '2099-11-30',
+
+          workbookNonce:
+            randomUUID(),
+        });
+
+
+      expect(
+        uploadResponse.status,
+      ).toBe(
+        202,
+      );
+
+
+      const uploaded:
+        Job =
+        await uploadResponse.json();
+
+
+      expect(
+        uploaded.status,
+      ).toBe(
+        'READY',
+      );
+
+
+      const confirmResponse =
+        await confirm(
+          uploaded.id,
+        );
+
+
+      expect(
+        confirmResponse.status,
+      ).toBe(
+        200,
+      );
+
+
+      const confirmed:
+        Job =
+        await confirmResponse.json();
+
+
+      expect(
+        confirmed.succeededRows,
+      ).toBe(
+        1,
+      );
+
+      expect(
+        confirmed.failedRows,
+      ).toBe(
+        0,
+      );
+
+
+      const after =
+        await snapshot(
+          authorization,
+          code,
+        );
+
+
+      expect(
+        after.id,
+      ).toBe(
+        before.id,
+      );
+
+      expect(
+        after.version,
+      ).toBe(
+        before.version + 1,
+      );
+
+
+      expect(
+        Number(
+          after
+            .source_data
+            .CANTIDAD,
+        ),
+      ).toBe(
+        45,
+      );
+
+
+      expect(
+        after
+          .source_data
+          .FECHA_FINAL_VIGENCIA,
+      ).toBe(
+        '2099-11-30',
+      );
+
+
+      /*
+       * Celdas vacías en el segundo XLSX
+       * NO pueden borrar los valores existentes.
+       */
+      expect(
+        after
+          .source_data
+          .NOMBRE_PACIENTE,
+      ).toBe(
+        before
+          .source_data
+          .NOMBRE_PACIENTE,
+      );
+
+      expect(
+        after
+          .source_data
+          .IDENTIFICACION_PACIENTE,
+      ).toBe(
+        before
+          .source_data
+          .IDENTIFICACION_PACIENTE,
+      );
+
+      expect(
+        after
+          .source_data
+          .FECHA_ASIGNACION,
+      ).toBe(
+        before
+          .source_data
+          .FECHA_ASIGNACION,
+      );
+
+      expect(
+        after
+          .source_data
+          .ESTADO_AUTORIZACION,
+      ).toBe(
+        before
+          .source_data
+          .ESTADO_AUTORIZACION,
+      );
+    },
+    60_000,
+  );
 
 });
