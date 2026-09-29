@@ -2503,126 +2503,39 @@ export class PurchaseOrderImportService {
 
   private async destinationPoint(
     client: PoolClient,
-    authorizationItemId: string,
-    purchaseOrderId: string,
     commercialCode: string,
   ): Promise<string> {
     /*
-     * El agendamiento de MEDICARTE NO es requisito
-     * para asignar una AUTO a una OC existente.
+     * FUENTE AUTORITATIVA DEL PUNTO
+     * =============================
      *
-     * Precedencia:
+     * La plantilla de OC NO recibe punto.
+     * La agenda del paciente NO determina el punto.
+     * La OC NO determina el punto.
      *
-     * 1. Si existe agenda vigente, conservar su punto.
-     * 2. Si todavía no existe agenda, resolver el punto
-     *    directamente desde la OC + producto.
+     * La relación logística autoritativa es:
      *
-     * De esta forma una AUTO puede quedar vinculada
-     * a producto/inventario antes de ser agendada.
+     * CODIGO_PRODUCTO
+     *   -> Anexo Tarifario
+     *   -> expediente INVIMA + presentación
+     *   -> product_delivery_point_mappings
+     *   -> punto MEDICARTE
      */
-    const schedule =
+    const result =
       await client.query<{
         dispensing_point_id:
           string;
       }>(
         `
-          select
-            ps.dispensing_point_id
-
-          from
-            patient_schedules ps
-
-          where
-            ps.authorization_item_id =
-              $1
-
-            and ps.status in (
-              'SCHEDULED',
-              'RESCHEDULED'
-            )
-
-          order by
-            ps.scheduled_date desc,
-            ps.revision desc,
-            ps.created_at desc,
-            ps.id desc
-
-          limit 1
-        `,
-        [
-          authorizationItemId,
-        ],
-      );
-
-
-    const scheduledPoint =
-      schedule.rows[0]
-        ?.dispensing_point_id;
-
-
-    if (
-      scheduledPoint
-    ) {
-      return scheduledPoint;
-    }
-
-
-    /*
-     * FALLBACK OPERACIONAL
-     * ====================
-     *
-     * La OC ya define dónde existe/estará el producto.
-     * Si la AUTO aún no tiene agenda, usar el punto
-     * determinado por la línea de OC.
-     *
-     * Se conserva compatibilidad con líneas históricas
-     * cuyo dispensing_point_id es NULL y dependen del
-     * mapping producto -> punto.
-     */
-    const orderPoints =
-      await client.query<{
-        dispensing_point_id:
-          string | null;
-      }>(
-        `
           select distinct
-            coalesce(
-              pol.dispensing_point_id,
-              mapping.dispensing_point_id
-            )
-              as dispensing_point_id
+            mapping.dispensing_point_id
 
           from
-            purchase_order_lines pol
-
-          left join
             tariff_annex_products tap
-              on tap.codigo_producto =
-                 pol.commercial_code
 
-             and tap.active =
-                 true
-
-          left join
+          join
             product_delivery_point_mappings mapping
-              on pol.dispensing_point_id
-                 is null
-
-             and btrim(
-                   coalesce(
-                     tap.numero_expediente_invima,
-                     ''
-                   )
-                 ) ~ '^[0-9]+$'
-
-             and btrim(
-                   coalesce(
-                     tap.consecutivo_invima_presentacion,
-                     ''
-                   )
-                 ) ~ '^[0-9]+$'
-
-             and mapping.invima_record_normalized =
+              on mapping.invima_record_normalized =
                  coalesce(
                    nullif(
                      ltrim(
@@ -2651,71 +2564,60 @@ export class PurchaseOrderImportService {
                  )
 
           where
-            pol.purchase_order_id =
+            tap.codigo_producto =
               $1
 
-            and pol.commercial_code =
-              $2
+            and tap.active =
+              true
 
-            and coalesce(
-                  pol.dispensing_point_id,
-                  mapping.dispensing_point_id
-                )
-                is not null
+            and btrim(
+                  coalesce(
+                    tap.numero_expediente_invima,
+                    ''
+                  )
+                ) ~ '^[0-9]+$'
+
+            and btrim(
+                  coalesce(
+                    tap.consecutivo_invima_presentacion,
+                    ''
+                  )
+                ) ~ '^[0-9]+$'
 
           order by
-            coalesce(
-              pol.dispensing_point_id,
-              mapping.dispensing_point_id
-            )
+            mapping.dispensing_point_id
 
           limit 2
         `,
         [
-          purchaseOrderId,
           commercialCode,
         ],
       );
 
 
-    const points =
-      orderPoints.rows
-        .map(
-          (row) =>
-            row.dispensing_point_id,
-        )
-        .filter(
-          (
-            value,
-          ): value is string =>
-            Boolean(
-              value,
-            ),
-        );
-
-
     if (
-      points.length ===
+      result.rows.length ===
       1
     ) {
-      return points[0]!;
+      return result.rows[0]!
+        .dispensing_point_id;
     }
 
 
     if (
-      points.length ===
+      result.rows.length ===
       0
     ) {
       this.existingOrderError(
-        'PURCHASE_ORDER_DESTINATION_POINT_REQUIRED',
-        'No fue posible resolver el punto desde la agenda ni desde la OC y el producto.',
+        'PURCHASE_ORDER_AT_POINT_REQUIRED',
+        `El producto ${commercialCode} no tiene punto de dispensación parametrizado en el Anexo Tarifario.`,
       );
     }
 
 
     this.existingOrderError(
-      'PURCHASE_ORDER_DESTINATION_POINT_AMBIGUOUS',
-      'La OC contiene el mismo producto en más de un punto; no es posible determinar automáticamente dónde reservarlo.',
+      'PURCHASE_ORDER_AT_POINT_AMBIGUOUS',
+      `El producto ${commercialCode} resuelve más de un punto de dispensación desde el Anexo Tarifario.`,
     );
   }
 
@@ -3372,8 +3274,6 @@ export class PurchaseOrderImportService {
         const dispensingPointId =
           await this.destinationPoint(
             client,
-            destination.id,
-            order.id,
             destination.commercial_code,
           );
 

@@ -432,6 +432,26 @@ async function runExisting(
 
         if (
           normalized.includes(
+            'from tariff_annex_products tap',
+          ) &&
+          normalized.includes(
+            'join product_delivery_point_mappings mapping',
+          ) &&
+          normalized.includes(
+            'limit 2',
+          )
+        ) {
+          return queryResult([
+            {
+              dispensing_point_id:
+                POINT_ID,
+            },
+          ]);
+        }
+
+
+        if (
+          normalized.includes(
             'from patient_schedules ps',
           )
         ) {
