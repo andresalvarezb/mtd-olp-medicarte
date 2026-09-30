@@ -1013,7 +1013,7 @@ describe('Gate ESP-004 — demanda de compra basada en autorizaciones', () => {
       }>;
     };
 
-    expect(defaultItems.items).toHaveLength(2);
+    expect(defaultItems.items).toHaveLength(3);
 
     expect(defaultItems.items.every((item) => item.dispensingPointId === null)).toBe(true);
 
