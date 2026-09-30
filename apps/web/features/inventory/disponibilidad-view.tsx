@@ -1,5 +1,7 @@
 'use client';
 
+import { useLoadingFeedback } from '@/hooks/use-loading-feedback';
+
 import {
   useEffect,
   useMemo,
@@ -186,6 +188,12 @@ export function DisponibilidadView() {
     ]);
 
 
+  const availabilityLoading =
+    useLoadingFeedback(
+      loading,
+    );
+
+
   const loadAvailability =
     async (resetPage: boolean) => {
       if (!organizationId) {
@@ -316,6 +324,8 @@ export function DisponibilidadView() {
 
 
   function applyFilters() {
+    availabilityLoading.trigger();
+
     setApplied({
       product:
         product.trim(),
@@ -330,6 +340,8 @@ export function DisponibilidadView() {
 
 
   function clearFilters() {
+    availabilityLoading.trigger();
+
     setProduct('');
 
     setPurchaseOrder('');
@@ -647,10 +659,12 @@ export function DisponibilidadView() {
               COLUMNS
             }
             rows={
-              loading
-                ? undefined
-                : rows
+              rows
             }
+            loading={
+              availabilityLoading.visible
+            }
+            loadingLabel="Cargando disponibilidad"
             aria-label="Disponibilidad operacional por producto, orden de compra y punto"
             emptyIcon="INV"
             emptyTitle={
@@ -676,7 +690,9 @@ export function DisponibilidadView() {
           >
             <span>
               {
-                `Mostrando ${firstVisible}–${lastVisible} de ${items.length}`
+                availabilityLoading.visible
+                  ? 'Mostrando —'
+                  : `Mostrando ${firstVisible}–${lastVisible} de ${items.length}`
               }
             </span>
 
@@ -740,7 +756,7 @@ export function DisponibilidadView() {
               disabled={
                 safePage <=
                   1 ||
-                loading
+                availabilityLoading.visible
               }
               onClick={() =>
                 setPage(
@@ -772,7 +788,7 @@ export function DisponibilidadView() {
               disabled={
                 safePage >=
                   totalPages ||
-                loading
+                availabilityLoading.visible
               }
               onClick={() =>
                 setPage(

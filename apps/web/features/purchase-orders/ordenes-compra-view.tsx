@@ -11,6 +11,7 @@ import type {
 } from '@authorization/contracts';
 
 import { PageHeader } from '@/components/ui/page-header';
+import { TableLoadingRow } from '@/components/ui/loading-state';
 import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { FilterActions, FilterBar, FilterField } from '@/components/ui/filter-bar';
 import { useApiData } from '@/hooks/use-api-data';
@@ -864,7 +865,12 @@ export function PurchaseOrdersView() {
                 </thead>
 
                 <tbody>
-                  {visibleOrders.length === 0 ? (
+                  {orders.loading ? (
+                    <TableLoadingRow
+                      colSpan={7}
+                      label="Cargando órdenes de compra"
+                    />
+                  ) : visibleOrders.length === 0 ? (
                     <tr>
                       <td colSpan={7}>
                         <div className="table-empty-state">

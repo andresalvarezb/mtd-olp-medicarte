@@ -1,0 +1,237 @@
+.row {
+  background:
+    #ffffff;
+}
+
+
+.row:hover {
+  background:
+    #ffffff;
+}
+
+
+.cell {
+  /*
+   * El inner container controla realmente la geometría.
+   * Así los estilos globales de td no destruyen el loader.
+   */
+  vertical-align:
+    middle;
+}
+
+
+.tableBody {
+  display:
+    flex;
+
+  align-items:
+    center;
+
+  justify-content:
+    center;
+
+  width:
+    100%;
+
+  /*
+   * Recuperamos el espacio visual aprobado.
+   *
+   * Se adapta a la pantalla pero mantiene la paginación
+   * visible debajo.
+   */
+  min-height:
+    clamp(
+      165px,
+      23dvh,
+      205px
+    );
+
+  padding:
+    28px
+    20px;
+
+  box-sizing:
+    border-box;
+
+  background:
+    #ffffff;
+}
+
+
+.content {
+  display:
+    inline-flex;
+
+  align-items:
+    center;
+
+  justify-content:
+    center;
+
+  gap:
+    8px;
+
+  color:
+    #162a4d;
+}
+
+
+.content strong {
+  color:
+    #162a4d;
+
+  font-size:
+    13px;
+
+  line-height:
+    1.35;
+
+  font-weight:
+    650;
+
+  white-space:
+    nowrap;
+}
+
+
+.dots {
+  display:
+    inline-flex;
+
+  align-items:
+    center;
+
+  gap:
+    4px;
+
+  min-width:
+    25px;
+
+  height:
+    14px;
+}
+
+
+.dots i {
+  display:
+    block;
+
+  width:
+    5px;
+
+  height:
+    5px;
+
+  border-radius:
+    999px;
+
+  background:
+    var(--primary);
+
+  opacity:
+    0.25;
+
+  animation:
+    loadingDot
+    900ms
+    ease-in-out
+    infinite;
+}
+
+
+.dots i:nth-child(2) {
+  animation-delay:
+    150ms;
+}
+
+
+.dots i:nth-child(3) {
+  animation-delay:
+    300ms;
+}
+
+
+@keyframes loadingDot {
+  0%,
+  60%,
+  100% {
+    opacity:
+      0.25;
+
+    transform:
+      translateY(0);
+  }
+
+  30% {
+    opacity:
+      1;
+
+    transform:
+      translateY(-4px);
+  }
+}
+
+
+/*
+ * Para Dashboard y otros bloques que no son tabla.
+ */
+.panel {
+  display:
+    flex;
+
+  align-items:
+    center;
+
+  justify-content:
+    center;
+
+  width:
+    100%;
+
+  min-height:
+    clamp(
+      190px,
+      30dvh,
+      300px
+    );
+
+  margin-top:
+    16px;
+
+  box-sizing:
+    border-box;
+
+  border:
+    1px solid
+    var(--border);
+
+  border-radius:
+    10px;
+
+  background:
+    #ffffff;
+}
+
+
+@media (max-width: 720px) {
+  .tableBody {
+    min-height:
+      150px;
+
+    padding:
+      22px
+      14px;
+  }
+
+
+  .panel {
+    min-height:
+      180px;
+  }
+
+
+  .content strong {
+    font-size:
+      12px;
+  }
+}
