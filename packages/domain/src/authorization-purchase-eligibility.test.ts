@@ -123,7 +123,7 @@ describe('authorization purchase eligibility', () => {
     },
   );
 
-  it('blocks expired authorization', () => {
+  it('keeps an expired authorization eligible when remaining rules pass', () => {
     expect(
       evaluateAuthorizationPurchaseEligibility({
         sourceStatus: '5',
@@ -132,8 +132,8 @@ describe('authorization purchase eligibility', () => {
         todayBogota: today,
       }),
     ).toMatchObject({
-      eligible: false,
-      reason: 'EXPIRED',
+      eligible: true,
+      reason: 'ELIGIBLE',
     });
   });
 

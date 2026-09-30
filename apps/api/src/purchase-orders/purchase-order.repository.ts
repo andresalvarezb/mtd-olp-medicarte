@@ -3772,8 +3772,7 @@ export class PurchaseOrderRepository {
         sourceQuantity === source.quantity &&
         isStrictIsoDate(assignmentDate) &&
         assignmentDate <= operationalHorizonEnd &&
-        isStrictIsoDate(expirationDate) &&
-        expirationDate >= todayBogota;
+        isStrictIsoDate(expirationDate);
 
       if (!eligible) {
         throw new Error('PURCHASE_ORDER_DEMAND_STALE');

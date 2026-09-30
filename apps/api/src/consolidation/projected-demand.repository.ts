@@ -230,8 +230,6 @@ export class ProjectedDemandRepository {
                   <= ${operationalHorizonEnd}
             and (ai.source_data->>'FECHA_FINAL_VIGENCIA')
                   ~ '^\\d{4}-\\d{2}-\\d{2}$'
-            and (ai.source_data->>'FECHA_FINAL_VIGENCIA')
-                  >= ${todayBogota}
         `);
 
       const desiredByLine = new Map<string, DesiredLine>();

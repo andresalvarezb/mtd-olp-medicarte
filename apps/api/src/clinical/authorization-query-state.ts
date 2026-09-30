@@ -46,8 +46,6 @@ export function resolveAuthorizationLifecycleStatus(
     input.initialValidationStatus === 'FAILED'
     ||
     input.validityStatus === 'INVALID_DATE'
-    ||
-    input.validityStatus === 'EXPIRED'
   ) {
     return 'DISABLED';
   }
@@ -254,18 +252,11 @@ export function resolveAuthorizationLifecycleReasons(
   }
 
 
-  if (
-    input.validityStatus ===
-      'EXPIRED'
-  ) {
-    definitive.push({
-      code:
-        'EXPIRED',
-
-      message:
-        'Fecha final de vigencia vencida',
-    });
-  }
+  /*
+   * EXPIRED pertenece exclusivamente a la dimensión
+   * de vigencia y no constituye por sí mismo una
+   * causa de inhabilitación.
+   */
 
 
   /*

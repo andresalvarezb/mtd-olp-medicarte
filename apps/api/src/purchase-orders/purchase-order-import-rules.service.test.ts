@@ -1261,7 +1261,7 @@ describe(
 
 
     it(
-      'REASIGNAR rechaza AUTO_DESTINO vencida',
+      'REASIGNAR no rechaza AUTO_DESTINO solo por estar vencida',
       async () => {
         const {
           result,
@@ -1283,9 +1283,11 @@ describe(
           );
 
 
-        expectRejected(
-          result,
-          'PURCHASE_ORDER_DESTINATION_OUT_OF_OPERATION',
+        expect(
+          result.results[0]
+            ?.errorCode,
+        ).toBe(
+          'NEGATIVE_RULE_MUST_NOT_WRITE',
         );
       },
     );

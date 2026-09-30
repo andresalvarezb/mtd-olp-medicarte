@@ -106,13 +106,10 @@ export function evaluateAuthorizationPurchaseEligibility(
     };
   }
 
-  if (input.expirationDate < input.todayBogota) {
-    return {
-      eligible: false,
-      reason: 'EXPIRED',
-      currentMonthEnd,
-    };
-  }
+  /*
+   * FECHA_FINAL_VIGENCIA debe ser válida, pero
+   * EXPIRED no retira la AUTO de operación ni compra.
+   */
 
   if (input.assignmentDate > operationalHorizonEnd) {
     return {
