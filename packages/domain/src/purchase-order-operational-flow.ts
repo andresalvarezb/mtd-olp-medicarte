@@ -23,6 +23,18 @@ export type PurchaseOrderQuantityLine = Readonly<{
   lineId: string;
   commercialCode: string;
   requestedQuantity: number;
+
+  /*
+   * Cantidad efectivamente gestionada por OLP.
+   *
+   * Es la cantidad contra la cual MEDICARTE debe completar
+   * la recepción.
+   *
+   * undefined conserva compatibilidad con órdenes históricas
+   * que todavía usan requestedQuantity como referencia.
+   */
+  managedQuantity?: number;
+
   receivedQuantity: number;
 }>;
 
@@ -43,6 +55,7 @@ export type PurchaseOrderLineBalance = Readonly<{
   lineId: string;
   commercialCode: string;
   requestedQuantity: number;
+  managedQuantity: number;
   receivedQuantity: number;
   pendingQuantity: number;
   complete: boolean;
@@ -73,26 +86,61 @@ export function purchaseOrderLineBalance(
 ): PurchaseOrderLineBalance {
   assertPositiveRequestedQuantity(line.requestedQuantity);
 
-  assertNonNegativeInteger(line.receivedQuantity, 'PURCHASE_ORDER_RECEIVED_QUANTITY_INVALID');
+  assertNonNegativeInteger(
+    line.receivedQuantity,
+    'PURCHASE_ORDER_RECEIVED_QUANTITY_INVALID',
+  );
 
-  if (line.receivedQuantity > line.requestedQuantity) {
-    throw new PurchaseOrderOperationalFlowError('PURCHASE_ORDER_OVER_RECEIPT');
+  const managedQuantity =
+    line.managedQuantity ??
+    line.requestedQuantity;
+
+  assertNonNegativeInteger(
+    managedQuantity,
+    'PURCHASE_ORDER_MANAGED_QUANTITY_INVALID',
+  );
+
+  if (
+    managedQuantity >
+    line.requestedQuantity
+  ) {
+    throw new PurchaseOrderOperationalFlowError(
+      'PURCHASE_ORDER_MANAGED_QUANTITY_INVALID',
+    );
   }
 
-  const pendingQuantity = line.requestedQuantity - line.receivedQuantity;
+  if (
+    line.receivedQuantity >
+    managedQuantity
+  ) {
+    throw new PurchaseOrderOperationalFlowError(
+      'PURCHASE_ORDER_OVER_RECEIPT',
+    );
+  }
+
+  const pendingQuantity =
+    managedQuantity -
+    line.receivedQuantity;
 
   return {
-    lineId: line.lineId,
+    lineId:
+      line.lineId,
 
-    commercialCode: line.commercialCode,
+    commercialCode:
+      line.commercialCode,
 
-    requestedQuantity: line.requestedQuantity,
+    requestedQuantity:
+      line.requestedQuantity,
 
-    receivedQuantity: line.receivedQuantity,
+    managedQuantity,
+
+    receivedQuantity:
+      line.receivedQuantity,
 
     pendingQuantity,
 
-    complete: pendingQuantity === 0,
+    complete:
+      pendingQuantity === 0,
   };
 }
 
@@ -222,12 +270,25 @@ export function applyPurchaseOrderReceipt(
   }
 
   return currentBalances.map((line) => ({
-    lineId: line.lineId,
+    lineId:
+      line.lineId,
 
-    commercialCode: line.commercialCode,
+    commercialCode:
+      line.commercialCode,
 
-    requestedQuantity: line.requestedQuantity,
+    requestedQuantity:
+      line.requestedQuantity,
 
-    receivedQuantity: line.receivedQuantity + (receiptById.get(line.lineId) ?? 0),
+    managedQuantity:
+      line.managedQuantity,
+
+    receivedQuantity:
+      line.receivedQuantity +
+      (
+        receiptById.get(
+          line.lineId,
+        ) ??
+        0
+      ),
   }));
 }
