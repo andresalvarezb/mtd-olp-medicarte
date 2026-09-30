@@ -1686,27 +1686,17 @@ export class ReceiptRepository {
                 is not null
 
             /*
-             * El vencimiento NO libera ni desasocia la demanda
-             * que originó la OC.
+             * La relación OC -> AUTO es la autoridad para
+             * materializar la reserva al confirmar recepción.
              *
-             * Una AUTO fuente puede recibir la reserva física aun
-             * si MEDICARTE confirma la recepción después de su
-             * fecha final de vigencia. El único cambio de AUTO
-             * permitido ocurre mediante la reasignación explícita
-             * de la plantilla de órdenes de compra.
+             * El vencimiento, la habilitación y los eventos de
+             * fulfillment/aplicación no reescriben
+             * retrospectivamente esa relación de compra.
+             *
+             * La protección contra duplicar una reserva activa
+             * se mantiene mediante
+             * inventory_authorization_allocations.
              */
-
-            and not exists (
-              select
-                1
-
-              from
-                authorization_fulfillments af
-
-              where
-                af.authorization_item_id =
-                  candidate.authorization_item_id
-            )
 
             and not exists (
               select
