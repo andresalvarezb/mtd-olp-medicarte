@@ -144,7 +144,7 @@ function fulfillmentStatusLabel(
       'Pendiente de atención',
 
     PARTIAL:
-      'Atención parcial',
+      'Con aplicación pendiente',
 
     COMPLETE:
       'Atención completa',
@@ -239,6 +239,30 @@ function operationalLabel(
 
   return labels[status];
 }
+
+function authorizationOperationalLabel(
+  item:
+    AuthorizationQueryItem,
+) {
+  if (
+    item.operationalStatus ===
+      'CLOSED'
+  ) {
+    return 'Cerrada';
+  }
+
+  if (
+    item.fulfillmentProgressStatus ===
+      'PARTIAL'
+  ) {
+    return 'Con aplicación pendiente';
+  }
+
+  return operationalLabel(
+    item.operationalStatus,
+  );
+}
+
 
 function singlePurchaseOrderCode(
   value:
@@ -2243,8 +2267,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                           textAlign: 'left',
                         }}
                       >
-                        {operationalLabel(
-                          item.operationalStatus,
+                        {authorizationOperationalLabel(
+                          item,
                         )}
                       </span>
                     </td>
@@ -2445,8 +2469,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   <strong
                     className={`authorization-operational-status ${selected.operationalStatus.toLowerCase()}`}
                   >
-                    {operationalLabel(
-                      selected.operationalStatus,
+                    {authorizationOperationalLabel(
+                      selected,
                     )}
                   </strong>
 
