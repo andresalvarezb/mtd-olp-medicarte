@@ -873,6 +873,12 @@ export class PurchaseOrderRepository {
      * de esas órdenes. Por ello el listado supplier no debe limitarse
      * por po.organization_id = OLP.
      *
+     * OLP conserva visibilidad durante todo el ciclo operacional:
+     * PENDING_OLP, PENDING_MEDICARTE,
+     * RECEIVED_WITH_PENDING y RECEIVED.
+     *
+     * La visibilidad no amplía permisos de acción.
+     *
      * El acceso continúa protegido por purchase_orders.read en el
      * controller supplier.
      */

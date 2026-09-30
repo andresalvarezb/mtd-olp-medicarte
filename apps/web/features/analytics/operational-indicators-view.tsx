@@ -14,8 +14,10 @@ import { Card, CardBody, CardHead } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/data-table';
 import { KpiCard, KpiGrid } from '@/components/ui/kpi-card';
 import { PageHeader } from '@/components/ui/page-header';
+import { PanelLoadingState } from '@/components/ui/loading-state';
 import { useRole } from '@/components/layout/role-context';
 import { useApiData } from '@/hooks/use-api-data';
+import { useLoadingFeedback } from '@/hooks/use-loading-feedback';
 import {
   getAnalyticsDrilldown,
   getAnalyticsInventory,
@@ -87,6 +89,12 @@ export function OperationalIndicatorsView() {
     [organizationId, JSON.stringify(query)],
     ['INVENTORY', 'DASHBOARD'],
   );
+  const dashboardLoading =
+    useLoadingFeedback(
+      analytics.loading ||
+      inventory.loading,
+    );
+
   const drilldown = useApiData(
     () =>
       drilldownKind
@@ -191,14 +199,17 @@ export function OperationalIndicatorsView() {
         </CardBody>
       </Card>
 
-      {analytics.loading ? <p style={{ color: 'var(--muted)' }}>Cargando indicadores…</p> : null}
       {analytics.error ? (
         <div className="login-error" role="alert">
           {analytics.error}
         </div>
       ) : null}
 
-      {data ? (
+      {dashboardLoading.visible ? (
+        <PanelLoadingState
+          label="Cargando indicadores"
+        />
+      ) : data ? (
         <>
           <FreshnessBanner freshness={data.freshness} demand={data.demand} />
           <Card>
