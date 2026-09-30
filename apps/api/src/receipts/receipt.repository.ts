@@ -1239,10 +1239,12 @@ export class ReceiptRepository {
     /*
      * La reconciliación respeta el scope de puntos
      * del usuario que materializa la asignación.
+     *
+     * Si no existen pools físicamente aceptados,
+     * no hay ningún punto que validar ni ninguna
+     * allocation que materializar.
      */
-    await lockActivePointGrants(
-      tx,
-      scope,
+    const poolPointIds =
       pools.rows
         .map(
           (pool) =>
@@ -1253,8 +1255,19 @@ export class ReceiptRepository {
             pointId,
           ): pointId is string =>
             Boolean(pointId),
-        ),
-    );
+        );
+
+
+    if (
+      poolPointIds.length >
+      0
+    ) {
+      await lockActivePointGrants(
+        tx,
+        scope,
+        poolPointIds,
+      );
+    }
 
 
 
