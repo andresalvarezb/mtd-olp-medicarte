@@ -144,7 +144,7 @@ function fulfillmentStatusLabel(
       'Pendiente de atención',
 
     PARTIAL:
-      'Atención parcial',
+      'Con aplicación pendiente',
 
     COMPLETE:
       'Atención completa',
@@ -239,6 +239,30 @@ function operationalLabel(
 
   return labels[status];
 }
+
+function authorizationOperationalLabel(
+  item:
+    AuthorizationQueryItem,
+) {
+  if (
+    item.operationalStatus ===
+      'CLOSED'
+  ) {
+    return 'Cerrada';
+  }
+
+  if (
+    item.fulfillmentProgressStatus ===
+      'PARTIAL'
+  ) {
+    return 'Con aplicación pendiente';
+  }
+
+  return operationalLabel(
+    item.operationalStatus,
+  );
+}
+
 
 function singlePurchaseOrderCode(
   value:
@@ -692,6 +716,7 @@ export function ConsultaAutorizacionesView() {
     patient: '',
     lifecycleEnablement: '',
     operationalStatus: '',
+    fulfillmentProgressStatus: '',
     coverageType: '',
   });
 
@@ -992,6 +1017,15 @@ const query = useApiData(
             }
           : {}),
 
+        ...(appliedFilters.fulfillmentProgressStatus
+          ? {
+              fulfillmentProgressStatus:
+                appliedFilters.fulfillmentProgressStatus as NonNullable<
+                  AuthorizationQueryFilters['fulfillmentProgressStatus']
+                >,
+            }
+          : {}),
+
         ...(appliedFilters.coverageType
           ? {
               coverageType: appliedFilters.coverageType as NonNullable<
@@ -1104,6 +1138,9 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
         '',
 
       operationalStatus:
+        '',
+
+      fulfillmentProgressStatus:
         '',
 
       coverageType:
@@ -2022,6 +2059,39 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
               </select>
             </FilterField>
 
+            <FilterField label="Estado de atención">
+              <select
+                className="control"
+                value={
+                  filters.fulfillmentProgressStatus
+                }
+                onChange={(event) =>
+                  setFilters({
+                    ...filters,
+
+                    fulfillmentProgressStatus:
+                      event.target.value,
+                  })
+                }
+              >
+                <option value="">
+                  Todos
+                </option>
+
+                <option value="PENDING">
+                  Pendiente de atención
+                </option>
+
+                <option value="PARTIAL">
+                  Con aplicación pendiente
+                </option>
+
+                <option value="COMPLETE">
+                  Atención completa
+                </option>
+              </select>
+            </FilterField>
+
             <FilterField label="Cobertura">
               <select
                 className="control"
@@ -2243,8 +2313,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                           textAlign: 'left',
                         }}
                       >
-                        {operationalLabel(
-                          item.operationalStatus,
+                        {authorizationOperationalLabel(
+                          item,
                         )}
                       </span>
                     </td>
@@ -2445,8 +2515,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   <strong
                     className={`authorization-operational-status ${selected.operationalStatus.toLowerCase()}`}
                   >
-                    {operationalLabel(
-                      selected.operationalStatus,
+                    {authorizationOperationalLabel(
+                      selected,
                     )}
                   </strong>
 
