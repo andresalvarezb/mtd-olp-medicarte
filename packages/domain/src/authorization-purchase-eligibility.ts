@@ -67,7 +67,10 @@ export function authorizationPurchaseMonthEnd(todayBogota: string): string {
  * Una AUTO puede participar dentro de la ventana operacional cuando:
  * - ESTADO_AUTORIZACION = 5;
  * - FECHA_ASIGNACION es válida y no supera HOY + 30 días;
- * - FECHA_FINAL_VIGENCIA es válida y no está vencida.
+ * - FECHA_FINAL_VIGENCIA es una fecha válida.
+ *
+ * EXPIRED es informativo y no bloquea demanda ni compra
+ * por sí solo.
  *
  * La fecha de asignación puede ser posterior a "hoy" siempre que no supere
  * el horizonte inclusivo de 30 días calendario.

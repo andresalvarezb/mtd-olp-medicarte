@@ -492,7 +492,7 @@ describe('Gate ESP-003 — programación de pacientes', () => {
     );
   });
 
-  it('rechaza autorizaciones vencidas y bloqueadas', async () => {
+  it('permite autorización vencida y rechaza autorización realmente bloqueada', async () => {
     const expired = await apiCall('POST', '/patient-schedules', {
       authorizationItemId: itemExpiredId,
       commercialCode: CODE_EXPIRED,
@@ -500,8 +500,7 @@ describe('Gate ESP-003 — programación de pacientes', () => {
       scheduledDate: scheduledDateIn('on-time'),
       quantity: 1,
     });
-    expect(expired.status).toBe(409);
-    expect(((await expired.json()) as { code: string }).code).toBe('AUTHORIZATION_EXPIRED');
+    expect(expired.status).toBe(201);
 
     const blocked = await apiCall('POST', '/patient-schedules', {
       authorizationItemId: itemBlockedId,
