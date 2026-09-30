@@ -2458,10 +2458,19 @@ export class InventoryAvailabilityRepository {
 
   }
 
-  private async reconcileIneligibleTx(
-    _tx: Tx,
-    _scope: Scope,
-  ) {
+  private reconcileIneligibleTx(
+    tx: Tx,
+    scope: Scope,
+  ): Promise<number> {
+    /*
+     * Hook transaccional conservado intencionalmente.
+     *
+     * La política actual de retención no ejecuta
+     * ninguna escritura durante la reconciliación.
+     */
+    void tx;
+    void scope;
+
     /*
      * RESERVATION RETENTION POLICY
      * ============================
@@ -2485,7 +2494,7 @@ export class InventoryAvailabilityRepository {
      *
      * Este reconciliador no modifica inventario.
      */
-    return 0;
+    return Promise.resolve(0);
   }
 
   private errorMessage(code: string) {
