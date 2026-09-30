@@ -3602,8 +3602,10 @@ export const authorizationFulfillments = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique('authorization_fulfillments_authorization_unique').on(
+    index('authorization_fulfillments_authorization_idx').on(
       table.authorizationItemId,
+      table.confirmedAt,
+      table.id,
     ),
 
     index('authorization_fulfillments_effective_idx').on(

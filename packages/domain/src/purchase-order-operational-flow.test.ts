@@ -164,6 +164,162 @@ describe('purchase order operational flow', () => {
     });
   });
 
+  it(
+    'closes when every line received the quantity managed by OLP',
+    () => {
+      expect(
+        derivePurchaseOrderMacroStatus({
+          olpAccepted:
+            true,
+
+          dispatchRecorded:
+            true,
+
+          lines: [
+            {
+              lineId:
+                'A',
+
+              commercialCode:
+                '10342',
+
+              requestedQuantity:
+                325,
+
+              managedQuantity:
+                325,
+
+              receivedQuantity:
+                325,
+            },
+            {
+              lineId:
+                'B',
+
+              commercialCode:
+                '10517',
+
+              requestedQuantity:
+                909,
+
+              managedQuantity:
+                909,
+
+              receivedQuantity:
+                909,
+            },
+            {
+              lineId:
+                'C',
+
+              commercialCode:
+                'TF0034',
+
+              requestedQuantity:
+                89,
+
+              managedQuantity:
+                89,
+
+              receivedQuantity:
+                89,
+            },
+          ],
+        }),
+      ).toBe(
+        'RECEIVED',
+      );
+    },
+  );
+
+  it(
+    'uses OLP managed quantity instead of original requested quantity',
+    () => {
+      expect(
+        derivePurchaseOrderMacroStatus({
+          olpAccepted:
+            true,
+
+          dispatchRecorded:
+            true,
+
+          lines: [
+            {
+              lineId:
+                'A',
+
+              commercialCode:
+                'PRODUCT-A',
+
+              requestedQuantity:
+                10,
+
+              managedQuantity:
+                8,
+
+              receivedQuantity:
+                8,
+            },
+          ],
+        }),
+      ).toBe(
+        'RECEIVED',
+      );
+    },
+  );
+
+  it(
+    'keeps received with pending when at least one managed line is incomplete',
+    () => {
+      expect(
+        derivePurchaseOrderMacroStatus({
+          olpAccepted:
+            true,
+
+          dispatchRecorded:
+            true,
+
+          lines: [
+            {
+              lineId:
+                'A',
+
+              commercialCode:
+                'PRODUCT-A',
+
+              requestedQuantity:
+                10,
+
+              managedQuantity:
+                10,
+
+              receivedQuantity:
+                10,
+            },
+            {
+              lineId:
+                'B',
+
+              commercialCode:
+                'PRODUCT-B',
+
+              requestedQuantity:
+                5,
+
+              managedQuantity:
+                5,
+
+              receivedQuantity:
+                4,
+            },
+          ],
+        }),
+      ).toBe(
+        'RECEIVED_WITH_PENDING',
+      );
+    },
+  );
+
   it('never closes using only the grand total when a product is still pending', () => {
     expect(() =>
       purchaseOrderBalances([

@@ -657,11 +657,11 @@ describe('Gate ESP-004 — demanda de compra basada en autorizaciones', () => {
     };
 
     expect(summary).toMatchObject({
-      lineCount: 2,
-      sourceCount: 3,
-      regularQuantity: 9,
+      lineCount: 3,
+      sourceCount: 4,
+      regularQuantity: 18,
       lateQuantity: 0,
-      projectedQuantity: 9,
+      projectedQuantity: 18,
     });
 
     const lines = await database.query<{
@@ -680,7 +680,7 @@ describe('Gate ESP-004 — demanda de compra basada en autorizaciones', () => {
       [periodPrimaryId],
     );
 
-    expect(lines.rows).toHaveLength(2);
+    expect(lines.rows).toHaveLength(3);
 
     expect(lines.rows).toEqual([
       {
@@ -692,6 +692,11 @@ describe('Gate ESP-004 — demanda de compra basada en autorizaciones', () => {
         commercial_code: CODE_B,
         dispensing_point_id: null,
         projected_quantity: 4,
+      },
+      {
+        commercial_code: CODE_EXPIRED,
+        dispensing_point_id: null,
+        projected_quantity: 9,
       },
     ]);
   });
@@ -711,7 +716,7 @@ describe('Gate ESP-004 — demanda de compra basada en autorizaciones', () => {
       }>;
     };
 
-    expect(body.items).toHaveLength(2);
+    expect(body.items).toHaveLength(3);
 
     expect(body.items.every((line) => line.dispensingPointId === null)).toBe(true);
 
@@ -742,17 +747,17 @@ describe('Gate ESP-004 — demanda de compra basada en autorizaciones', () => {
       [periodPrimaryId],
     );
 
-    expect(lineage.rows).toHaveLength(3);
+    expect(lineage.rows).toHaveLength(4);
 
     expect(lineage.rows.every((row) => row.patient_schedule_id === null)).toBe(true);
 
     expect(lineage.rows.map((row) => row.authorization_item_id).sort()).toEqual(
-      [itemA1Id, itemA2Id, itemBId].sort(),
+      [itemA1Id, itemA2Id, itemBId, expiredId].sort(),
     );
   });
 
-  it('3. excluye autorización bloqueada, vencida, sin AT o AT NO_PBS', async () => {
-    const excludedIds = [blockedId, noPbsId, expiredId, noTariffId];
+  it('3. excluye autorización bloqueada, sin AT o AT NO_PBS; vencida permanece operable', async () => {
+    const excludedIds = [blockedId, noPbsId, noTariffId];
 
     const sources = await database.query<{
       count: number;
@@ -775,7 +780,7 @@ describe('Gate ESP-004 — demanda de compra basada en autorizaciones', () => {
                 and dispensing_point_id is null
                 and commercial_code =
                     any($2::text[])`,
-      [periodPrimaryId, [CODE_BLOCKED, CODE_NO_PBS, CODE_EXPIRED, CODE_NO_TARIFF]],
+      [periodPrimaryId, [CODE_BLOCKED, CODE_NO_PBS, CODE_NO_TARIFF]],
     );
 
     expect(excludedCodes.rows[0]?.count).toBe(0);
@@ -947,11 +952,12 @@ describe('Gate ESP-004 — demanda de compra basada en autorizaciones', () => {
       projectedQuantity: number;
     };
 
-    // Solo cuenta la proyección viva authorization-based.
+    // Solo cuenta la proyección viva authorization-based,
+    // incluyendo AUTO EXPIRED operable.
     expect(summary).toMatchObject({
-      lineCount: 2,
-      sourceCount: 3,
-      projectedQuantity: 9,
+      lineCount: 3,
+      sourceCount: 4,
+      projectedQuantity: 18,
     });
 
     const liveA = await getLiveLineByCode(periodPrimaryId, CODE_A);
@@ -1007,7 +1013,7 @@ describe('Gate ESP-004 — demanda de compra basada en autorizaciones', () => {
       }>;
     };
 
-    expect(defaultItems.items).toHaveLength(2);
+    expect(defaultItems.items).toHaveLength(3);
 
     expect(defaultItems.items.every((item) => item.dispensingPointId === null)).toBe(true);
 
@@ -1189,8 +1195,8 @@ describe('Gate ESP-004 — demanda de compra basada en autorizaciones', () => {
       [periodPrimaryId],
     );
 
-    // A, B y D.
-    expect(liveLines.rows[0]?.count).toBe(3);
+    // A, B, EXPIRED y D.
+    expect(liveLines.rows[0]?.count).toBe(4);
   });
 
   it('9. RBAC conserva lectura MTD y restringe consolidación/no-MTD', async () => {

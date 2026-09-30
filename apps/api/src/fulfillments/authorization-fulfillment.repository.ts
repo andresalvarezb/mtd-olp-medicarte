@@ -102,6 +102,7 @@ export class AuthorizationFulfillmentRepository {
             body.purchaseOrderCode,
           );
 
+
         if (!authorization) {
           return {
             outcome:
@@ -109,45 +110,107 @@ export class AuthorizationFulfillmentRepository {
           };
         }
 
-        const existing =
+
+        /*
+         * Cantidad acumulada ya atendida.
+         *
+         * La existencia de un fulfillment ya NO
+         * implica cierre.
+         */
+        const fulfillmentTotals =
           (
             await tx.execute<{
-              id: string;
+              fulfilled_quantity:
+                number;
             }>(sql`
-              select id
-              from authorization_fulfillments
-              where authorization_item_id =
-                ${authorizationItemId}
-              limit 1
+              select
+                coalesce(
+                  sum(
+                    quantity
+                  ),
+                  0
+                )::int
+                  as fulfilled_quantity
+
+              from
+                authorization_fulfillments
+
+              where
+                authorization_item_id =
+                  ${authorizationItemId}
             `)
           ).rows[0];
 
+
+        const fulfilledQuantity =
+          Number(
+            fulfillmentTotals
+              ?.fulfilled_quantity
+            ??
+            0,
+          );
+
+
+        const remainingAuthorizedQuantity =
+          Math.max(
+            authorization.authorized_quantity
+            -
+            fulfilledQuantity,
+            0,
+          );
+
+
+        /*
+         * patient_applications permanece como flujo
+         * histórico separado durante STEP 2.
+         *
+         * Si existe una aplicación legacy confirmada,
+         * evitamos mezclar ambos caminos hasta la
+         * reconciliación integral de STEP 3.
+         */
         const previousApplication =
           (
             await tx.execute<{
               id: string;
             }>(sql`
-              select id
-              from patient_applications
-              where authorization_item_id =
-                ${authorizationItemId}
-                and status = 'CONFIRMED'
+              select
+                id
+
+              from
+                patient_applications
+
+              where
+                authorization_item_id =
+                  ${authorizationItemId}
+
+                and status =
+                  'CONFIRMED'
+
               limit 1
             `)
           ).rows[0];
 
-        if (previousApplication) {
+
+        if (
+          previousApplication
+        ) {
           throw new Error(
             'AUTHORIZATION_FULFILLMENT_ALREADY_APPLIED',
           );
         }
 
+
+        /*
+         * Solo se bloquean las allocations correspondientes
+         * a la AUTO + OC indicada.
+         */
         const allocations =
           await this.lockAllocations(
             tx,
             authorizationItemId,
             body.purchaseOrderCode,
           );
+
 
         const pointIds =
           new Set(
@@ -157,30 +220,32 @@ export class AuthorizationFulfillmentRepository {
             ),
           );
 
+
+        /*
+         * Saldo REAL asignado pendiente.
+         *
+         * No se exige que cubra toda la cantidad original
+         * de la AUTO. Solo debe cubrir body.quantity.
+         */
         const assignedQuantity =
           allocations.reduce(
             (
               total,
               row,
             ) =>
-              total +
+              total
+              +
               Math.max(
-                row.allocated_quantity -
-                  row.consumed_quantity -
-                  row.released_quantity,
+                row.allocated_quantity
+                -
+                row.consumed_quantity
+                -
+                row.released_quantity,
                 0,
               ),
             0,
           );
 
-        if (
-          assignedQuantity <
-          authorization.authorized_quantity
-        ) {
-          throw new Error(
-            'AUTHORIZATION_FULFILLMENT_PARTIAL_ASSIGNMENT',
-          );
-        }
 
         const todayBogota =
           currentBogotaDate();
@@ -196,10 +261,26 @@ export class AuthorizationFulfillmentRepository {
             todayBogota,
           });
 
+        /*
+         * El vencimiento impide nuevas asignaciones, pero no invalida
+         * una reserva física que ya pertenece a esta AUTO.
+         *
+         * INVALID_DATE y OUTSIDE_HORIZON continúan bloqueando.
+         */
+        const retainedExpiredAllocation =
+          operationalWindow.status ===
+            'EXPIRED'
+          &&
+          assignedQuantity >
+            0;
+
         if (
           authorization.enablement_status !==
             'ENABLED' ||
-          !operationalWindow.eligible
+          (
+            !operationalWindow.eligible &&
+            !retainedExpiredAllocation
+          )
         ) {
           throw new Error(
             'AUTHORIZATION_FULFILLMENT_AUTHORIZATION_NOT_ELIGIBLE',
@@ -220,13 +301,19 @@ export class AuthorizationFulfillmentRepository {
 
           todayBogota,
 
+          requestedQuantity:
+            body.quantity,
+
+          remainingAuthorizedQuantity,
+
           assignedQuantity,
 
           pointCount:
             pointIds.size,
 
           alreadyClosed:
-            Boolean(existing),
+            remainingAuthorizedQuantity <=
+              0,
         });
 
         if (
@@ -302,7 +389,7 @@ export class AuthorizationFulfillmentRepository {
 
           if (
             physicalAvailable <
-            assignedQuantity
+            body.quantity
           ) {
             throw new Error(
               'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY',
@@ -333,7 +420,7 @@ export class AuthorizationFulfillmentRepository {
                 ${authorizationItemId},
                 ${body.fulfillmentType},
                 ${body.effectiveDate}::date,
-                ${assignedQuantity},
+                ${body.quantity},
                 ${source},
                 ${scope.userId}
               )
@@ -343,36 +430,58 @@ export class AuthorizationFulfillmentRepository {
             `)
           ).rows[0]!;
 
+        let remainingToConsume =
+          body.quantity;
+
+
         if (
           inventoryMode ===
           'DIRECT_RECEIPT'
         ) {
           /*
-           * Flujo moderno quantity-only.
+           * Quantity-only:
+           * consume exactamente body.quantity.
            *
-           * La cantidad ya quedó reservada para esta AUTO
-           * en inventory_authorization_allocations durante
-           * la recepción de MEDICARTE.
-           *
-           * No existe lote físico y no debemos fabricarlo.
+           * Puede dejar la allocation en
+           * PARTIALLY_CONSUMED.
            */
           for (
             const allocation
             of allocations
           ) {
-            const quantity =
+            if (
+              remainingToConsume <=
+              0
+            ) {
+              break;
+            }
+
+
+            const outstanding =
               Math.max(
-                allocation.allocated_quantity -
-                  allocation.consumed_quantity -
-                  allocation.released_quantity,
+                allocation.allocated_quantity
+                -
+                allocation.consumed_quantity
+                -
+                allocation.released_quantity,
                 0,
               );
 
+
+            const quantity =
+              Math.min(
+                outstanding,
+                remainingToConsume,
+              );
+
+
             if (
-              quantity <= 0
+              quantity <=
+              0
             ) {
               continue;
             }
+
 
             await tx.execute(sql`
               insert into
@@ -388,6 +497,7 @@ export class AuthorizationFulfillmentRepository {
                 expiration_date,
                 quantity
               )
+
               values
               (
                 ${inserted.id},
@@ -402,17 +512,34 @@ export class AuthorizationFulfillmentRepository {
               )
             `);
 
+
             await tx.execute(sql`
               update
                 inventory_authorization_allocations
 
               set
                 consumed_quantity =
-                  consumed_quantity +
+                  consumed_quantity
+                  +
                   ${quantity},
 
                 status =
-                  'CONSUMED',
+                  case
+                    when
+                      consumed_quantity
+                      +
+                      ${quantity}
+                      +
+                      released_quantity
+                      >=
+                      allocated_quantity
+
+                    then
+                      'CONSUMED'
+
+                    else
+                      'PARTIALLY_CONSUMED'
+                  end,
 
                 updated_by =
                   ${scope.userId},
@@ -424,36 +551,70 @@ export class AuthorizationFulfillmentRepository {
                 id =
                   ${allocation.id}
             `);
+
+
+            remainingToConsume -=
+              quantity;
           }
+
         } else {
           /*
-           * Compatibilidad histórica:
-           * lote real + FEFO + inventory_movements.
+           * LOT_LEDGER:
+           * misma semántica parcial,
+           * conservando FEFO.
            */
-          let lotIndex = 0;
+          let lotIndex =
+            0;
+
           let lotRemaining =
-            lots[0]?.balance ?? 0;
+            lots[0]?.balance
+            ??
+            0;
+
 
           for (
             const allocation
             of allocations
           ) {
-            let allocationRemaining =
+            if (
+              remainingToConsume <=
+              0
+            ) {
+              break;
+            }
+
+
+            const outstanding =
               Math.max(
-                allocation.allocated_quantity -
-                  allocation.consumed_quantity -
-                  allocation.released_quantity,
+                allocation.allocated_quantity
+                -
+                allocation.consumed_quantity
+                -
+                allocation.released_quantity,
                 0,
               );
 
-            const quantityToConsume =
-              allocationRemaining;
+
+            const allocationToConsume =
+              Math.min(
+                outstanding,
+                remainingToConsume,
+              );
+
+
+            let allocationRemaining =
+              allocationToConsume;
+
 
             while (
-              allocationRemaining > 0
+              allocationRemaining >
+              0
             ) {
               const lot =
-                lots[lotIndex];
+                lots[
+                  lotIndex
+                ];
+
 
               if (!lot) {
                 throw new Error(
@@ -461,23 +622,31 @@ export class AuthorizationFulfillmentRepository {
                 );
               }
 
+
               if (
-                lotRemaining <= 0
+                lotRemaining <=
+                0
               ) {
-                lotIndex += 1;
+                lotIndex +=
+                  1;
 
                 lotRemaining =
-                  lots[lotIndex]
-                    ?.balance ?? 0;
+                  lots[
+                    lotIndex
+                  ]?.balance
+                  ??
+                  0;
 
                 continue;
               }
+
 
               const quantity =
                 Math.min(
                   allocationRemaining,
                   lotRemaining,
                 );
+
 
               const line =
                 (
@@ -497,6 +666,7 @@ export class AuthorizationFulfillmentRepository {
                       expiration_date,
                       quantity
                     )
+
                     values
                     (
                       ${inserted.id},
@@ -509,15 +679,19 @@ export class AuthorizationFulfillmentRepository {
                       ${lot.expiration_date}::date,
                       ${quantity}
                     )
-                    returning id
+
+                    returning
+                      id
                   `)
                 ).rows[0]!;
 
+
               const movementType =
                 body.fulfillmentType ===
-                'APPLICATION'
+                  'APPLICATION'
                   ? 'FULFILLMENT_APPLICATION'
                   : 'FULFILLMENT_DELIVERY';
+
 
               await tx.execute(sql`
                 insert into
@@ -532,6 +706,7 @@ export class AuthorizationFulfillmentRepository {
                   created_by,
                   metadata
                 )
+
                 values
                 (
                   ${lot.id},
@@ -542,20 +717,25 @@ export class AuthorizationFulfillmentRepository {
                   (
                     ${body.effectiveDate}::date
                     ::timestamp
+
                     at time zone
-                    'America/Bogota'
+                      'America/Bogota'
                   ),
                   ${scope.userId},
                   ${JSON.stringify({
                     authorizationItemId,
+
                     fulfillmentId:
                       inserted.id,
+
                     fulfillmentType:
                       body.fulfillmentType,
+
                     source,
                   })}::jsonb
                 )
               `);
+
 
               allocationRemaining -=
                 quantity;
@@ -564,30 +744,67 @@ export class AuthorizationFulfillmentRepository {
                 quantity;
             }
 
-            await tx.execute(sql`
-              update
-                inventory_authorization_allocations
 
-              set
-                consumed_quantity =
-                  consumed_quantity +
-                  ${quantityToConsume},
+            if (
+              allocationToConsume >
+              0
+            ) {
+              await tx.execute(sql`
+                update
+                  inventory_authorization_allocations
 
-                status =
-                  'CONSUMED',
+                set
+                  consumed_quantity =
+                    consumed_quantity
+                    +
+                    ${allocationToConsume},
 
-                updated_by =
-                  ${scope.userId},
+                  status =
+                    case
+                      when
+                        consumed_quantity
+                        +
+                        ${allocationToConsume}
+                        +
+                        released_quantity
+                        >=
+                        allocated_quantity
 
-                updated_at =
-                  now()
+                      then
+                        'CONSUMED'
 
-              where
-                id =
-                  ${allocation.id}
-            `);
+                      else
+                        'PARTIALLY_CONSUMED'
+                    end,
+
+                  updated_by =
+                    ${scope.userId},
+
+                  updated_at =
+                    now()
+
+                where
+                  id =
+                    ${allocation.id}
+              `);
+            }
+
+
+            remainingToConsume -=
+              allocationToConsume;
           }
         }
+
+
+        if (
+          remainingToConsume !==
+          0
+        ) {
+          throw new Error(
+            'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY',
+          );
+        }
+
 
         await tx.execute(sql`
           insert into audit_events
@@ -618,7 +835,7 @@ export class AuthorizationFulfillmentRepository {
               effectiveDate:
                 body.effectiveDate,
               quantity:
-                assignedQuantity,
+                body.quantity,
               dispensingPointId,
               source,
               inventoryMode,
@@ -653,7 +870,7 @@ export class AuthorizationFulfillmentRepository {
             body.effectiveDate,
 
           quantity:
-            assignedQuantity,
+            body.quantity,
 
           dispensingPointId,
 

@@ -49,14 +49,6 @@ describe(
             message:
               'Producto no listado/activo en Anexo Tarifario',
           },
-
-          {
-            code:
-              'EXPIRED',
-
-            message:
-              'Fecha final de vigencia vencida',
-          },
         ]);
       },
     );

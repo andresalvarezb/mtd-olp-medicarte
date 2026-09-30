@@ -140,7 +140,7 @@ describe('authorization eligibility for scheduling', () => {
     ).toBe(true);
   });
 
-  it('rejects blocked, expired and wrong-direction authorizations', () => {
+  it('rejects blocked and wrong-direction authorizations', () => {
     expect(
       evaluateScheduleAuthorizationEligibility({
         ...base,
@@ -148,8 +148,14 @@ describe('authorization eligibility for scheduling', () => {
       }),
     ).toMatchObject({ eligible: false, code: 'AUTHORIZATION_NOT_SCHEDULABLE' });
     expect(
-      evaluateScheduleAuthorizationEligibility({ ...base, expirationDate: '2031-03-01' }),
-    ).toMatchObject({ eligible: false, code: 'AUTHORIZATION_EXPIRED' });
+      evaluateScheduleAuthorizationEligibility({
+        ...base,
+        expirationDate: '2031-03-01',
+      }),
+    ).toMatchObject({
+      eligible: true,
+      code: null,
+    });
     expect(
       evaluateScheduleAuthorizationEligibility({
         ...base,

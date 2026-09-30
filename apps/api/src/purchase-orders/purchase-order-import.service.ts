@@ -6,6 +6,11 @@ import {
 
 import type { createDatabase } from '@authorization/database';
 
+import {
+  currentBogotaDate,
+  evaluateAuthorizationOperationalWindow,
+} from '@authorization/domain';
+
 import * as XLSX from 'xlsx';
 
 import type {
@@ -37,6 +42,12 @@ type ExistingAuthorizationRow =
     enablement_status: string;
 
     source_status_normalized: string;
+
+    assignment_raw:
+      string | null;
+
+    expiration_raw:
+      string | null;
 
     closed: boolean;
   }>;
@@ -2486,6 +2497,14 @@ export class PurchaseOrderImportService {
 
             ai.source_status_normalized,
 
+            ai.source_data
+              ->> 'FECHA_ASIGNACION'
+              as assignment_raw,
+
+            ai.source_data
+              ->> 'FECHA_FINAL_VIGENCIA'
+              as expiration_raw,
+
             (
               exists (
                 select
@@ -2574,6 +2593,34 @@ export class PurchaseOrderImportService {
 
 
     return result.rows[0]!;
+  }
+
+
+  private assertDestinationOperationalWindow(
+    destination:
+      ExistingAuthorizationRow,
+  ): void {
+    const operationalWindow =
+      evaluateAuthorizationOperationalWindow({
+        assignmentDate:
+          destination.assignment_raw,
+
+        expirationDate:
+          destination.expiration_raw,
+
+        todayBogota:
+          currentBogotaDate(),
+      });
+
+
+    if (
+      !operationalWindow.eligible
+    ) {
+      this.existingOrderError(
+        'PURCHASE_ORDER_DESTINATION_OUT_OF_OPERATION',
+        `AUTO_DESTINO ${destination.authorization_key} no está dentro de la ventana operacional vigente (${operationalWindow.status}).`,
+      );
+    }
   }
 
 
@@ -3316,6 +3363,11 @@ export class PurchaseOrderImportService {
         }
 
 
+        this.assertDestinationOperationalWindow(
+          destination,
+        );
+
+
         if (
           destination.commercial_code
             .trim()
@@ -3708,6 +3760,11 @@ export class PurchaseOrderImportService {
             `AUTO_DESTINO ${destination.authorization_key} no está habilitada para operación.`,
           );
         }
+
+
+        this.assertDestinationOperationalWindow(
+          destination,
+        );
 
 
         if (

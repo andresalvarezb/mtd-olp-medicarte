@@ -45,24 +45,27 @@ export type InventoryExpirationReleaseResult =
 
 
 /*
- * Regla:
+ * POLITICA VIGENTE
+ * =================
  *
- * día 0: vence la autorización.
+ * EXPIRED es informativo.
  *
- * días 1..5:
- *   la AUTO ya está vencida,
- *   pero conserva su reserva.
+ * El vencimiento:
  *
- * día 6+:
- *   FECHA_FINAL_VIGENCIA < HOY - 5
+ * - NO libera inventory_authorization_allocations;
+ * - NO incrementa released_quantity;
+ * - NO devuelve producto al disponible;
+ * - NO rompe AUTO -> OC;
+ * - NO impide entregar/aplicar;
+ * - NO impide reasignar si se cumplen las demás reglas.
  *
- *   se libera automáticamente el saldo:
+ * La reserva solo sale de la AUTO mediante:
  *
- *   allocated
- *   - consumed
- *   - released
+ * 1. consumo real; o
+ * 2. reasignación explícita y atómica.
  *
- * La allocation histórica NO se elimina.
+ * Este proceso conserva únicamente la invalidación
+ * temporal de los read models.
  */
 export async function runInventoryExpirationReleaseSweep(
   database: DatabaseLike,
@@ -78,8 +81,7 @@ export async function runInventoryExpirationReleaseSweep(
 
 
     /*
-     * Solo una instancia de worker puede ejecutar
-     * el sweep al mismo tiempo.
+     * Evita invalidaciones concurrentes duplicadas.
      */
     const lock =
       await client.query<{
@@ -97,9 +99,10 @@ export async function runInventoryExpirationReleaseSweep(
         `,
       );
 
+
     if (
-      lock.rows[0]?.locked
-      !== true
+      lock.rows[0]?.locked !==
+        true
     ) {
       await client.query(
         'ROLLBACK',
@@ -122,292 +125,11 @@ export async function runInventoryExpirationReleaseSweep(
 
 
     /*
-     * A partir del día 6 libera automáticamente
-     * el saldo activo.
-     */
-    const released =
-      await client.query<{
-        id: string;
-
-        organization_id: string;
-
-        authorization_item_id: string;
-
-        purchase_order_id: string;
-
-        commercial_code: string;
-
-        released_now: number;
-      }>(
-        `
-          WITH validity AS (
-            SELECT
-              ai.id,
-
-              CASE
-                WHEN
-                  BTRIM(
-                    COALESCE(
-                      ai.source_data
-                        ->> 'FECHA_FINAL_VIGENCIA',
-                      ''
-                    )
-                  ) ~ '^[0-9]{8}$'
-
-                  AND TO_CHAR(
-                    TO_DATE(
-                      BTRIM(
-                        ai.source_data
-                          ->> 'FECHA_FINAL_VIGENCIA'
-                      ),
-                      'YYYYMMDD'
-                    ),
-                    'YYYYMMDD'
-                  )
-                  =
-                  BTRIM(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA'
-                  )
-
-                THEN TO_DATE(
-                  BTRIM(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA'
-                  ),
-                  'YYYYMMDD'
-                )
-
-
-                WHEN
-                  BTRIM(
-                    COALESCE(
-                      ai.source_data
-                        ->> 'FECHA_FINAL_VIGENCIA',
-                      ''
-                    )
-                  )
-                  ~
-                  '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-
-                  AND TO_CHAR(
-                    TO_DATE(
-                      BTRIM(
-                        ai.source_data
-                          ->> 'FECHA_FINAL_VIGENCIA'
-                      ),
-                      'YYYY-MM-DD'
-                    ),
-                    'YYYY-MM-DD'
-                  )
-                  =
-                  BTRIM(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA'
-                  )
-
-                THEN TO_DATE(
-                  BTRIM(
-                    ai.source_data
-                      ->> 'FECHA_FINAL_VIGENCIA'
-                  ),
-                  'YYYY-MM-DD'
-                )
-
-                ELSE NULL
-              END
-                AS expiration_date
-
-            FROM
-              authorization_items ai
-          ),
-
-          eligible AS (
-            SELECT
-              iaa.id,
-
-              (
-                iaa.allocated_quantity
-                -
-                iaa.consumed_quantity
-                -
-                iaa.released_quantity
-              )::int
-                AS released_now
-
-            FROM
-              inventory_authorization_allocations iaa
-
-            JOIN
-              validity v
-                ON v.id =
-                   iaa.authorization_item_id
-
-            WHERE
-              iaa.status IN (
-                'ALLOCATED',
-                'PARTIALLY_CONSUMED'
-              )
-
-              AND (
-                iaa.allocated_quantity
-                -
-                iaa.consumed_quantity
-                -
-                iaa.released_quantity
-              ) > 0
-
-              AND v.expiration_date
-                IS NOT NULL
-
-              AND v.expiration_date
-                <
-                (
-                  $1::date
-                  -
-                  5
-                )
-
-            FOR UPDATE OF iaa
-          )
-
-          UPDATE
-            inventory_authorization_allocations iaa
-
-          SET
-            released_quantity =
-              iaa.allocated_quantity
-              -
-              iaa.consumed_quantity,
-
-            status =
-              'EXPIRED',
-
-            updated_at =
-              NOW()
-
-          FROM
-            eligible e
-
-          WHERE
-            iaa.id =
-              e.id
-
-          RETURNING
-            iaa.id,
-
-            iaa.organization_id,
-
-            iaa.authorization_item_id,
-
-            iaa.purchase_order_id,
-
-            iaa.commercial_code,
-
-            e.released_now
-        `,
-        [
-          todayBogota,
-        ],
-      );
-
-
-    const authorizationIds =
-      [
-        ...new Set(
-          released.rows.map(
-            (row) =>
-              row.authorization_item_id,
-          ),
-        ),
-      ];
-
-
-    /*
-     * La liberación afecta exclusivamente la reserva
-     * de inventario.
+     * La vigencia depende del día actual.
      *
-     * La relación histórica AUTO -> OC permanece
-     * intacta y continúa consultándose desde
-     * purchase_order_authorization_sources.
-     */
-    const clearedAuthorizations =
-      0;
-
-
-    /*
-     * Trazabilidad del proceso automático.
-     */
-    for (
-      const row of
-      released.rows
-    ) {
-      await client.query(
-        `
-          INSERT INTO
-            audit_events (
-              actor_type,
-              actor_id,
-              organization_id,
-              action,
-              resource_type,
-              resource_id,
-              after,
-              correlation_id,
-              request_id,
-              result
-            )
-
-          VALUES (
-            'SYSTEM',
-            NULL,
-            $1,
-            'INVENTORY_ALLOCATION_AUTO_RELEASED_EXPIRED',
-            'inventory_authorization_allocation',
-            $2,
-            jsonb_build_object(
-              'authorizationItemId',
-                $3::text,
-
-              'purchaseOrderId',
-                $4::text,
-
-              'commercialCode',
-                $5::text,
-
-              'releasedQuantity',
-                $6::int,
-
-              'graceDays',
-                5,
-
-              'effectiveDate',
-                $7::text
-            ),
-            gen_random_uuid(),
-            gen_random_uuid(),
-            'SUCCESS'
-          )
-        `,
-        [
-          row.organization_id,
-          row.id,
-          row.authorization_item_id,
-          row.purchase_order_id,
-          row.commercial_code,
-          Number(
-            row.released_now,
-          ),
-          todayBogota,
-        ],
-      );
-    }
-
-
-    /*
-     * Vigencia es derivada por fecha, por lo que necesita una invalidación
-     * diaria aunque no exista una escritura sobre authorization_items.
-     * La idempotency_key garantiza una sola por organización y fecha.
+     * Aunque no exista mutación de inventario,
+     * los consumidores deben refrescar el estado
+     * IN_WINDOW / EXPIRED / OUTSIDE_HORIZON.
      */
     await client.query(
       `
@@ -419,86 +141,78 @@ export async function runInventoryExpirationReleaseSweep(
           organization_id,
           idempotency_key
         )
+
         SELECT
           'realtime.invalidate',
           1,
+
           jsonb_build_object(
-            'topics', jsonb_build_array('AUTHORIZATIONS', 'DASHBOARD'),
-            'resource', jsonb_build_object(
-              'type', 'authorization_validity_date',
-              'id', $1::text
-            )
+            'topics',
+              jsonb_build_array(
+                'AUTHORIZATIONS',
+                'DASHBOARD'
+              ),
+
+            'resource',
+              jsonb_build_object(
+                'type',
+                  'authorization_validity_date',
+
+                'id',
+                  $1::text
+              )
           ),
+
           gen_random_uuid(),
           o.id,
-          'realtime:validity:' || $1::text || ':' || o.id::text
-        FROM organizations o
-        WHERE o.active = true
-          AND o.code IN ('MTD', 'MEDICARTE')
-        ON CONFLICT (idempotency_key) DO NOTHING
+
+          'realtime:validity:'
+            || $1::text
+            || ':'
+            || o.id::text
+
+        FROM
+          organizations o
+
+        WHERE
+          o.active =
+            true
+
+          AND o.code IN (
+            'MTD',
+            'MEDICARTE'
+          )
+
+        ON CONFLICT (
+          idempotency_key
+        )
+        DO NOTHING
       `,
-      [todayBogota],
+      [
+        todayBogota,
+      ],
     );
 
-    if (released.rows.length > 0) {
-      await client.query(
-        `
-          INSERT INTO outbox_events (
-            event_type,
-            version,
-            payload,
-            correlation_id,
-            organization_id,
-            idempotency_key
-          )
-          SELECT
-            'realtime.invalidate',
-            1,
-            jsonb_build_object(
-              'topics', jsonb_build_array('AUTHORIZATIONS', 'INVENTORY', 'DASHBOARD'),
-              'resource', jsonb_build_object(
-                'type', 'inventory_expiration_release',
-                'id', $1::text
-              )
-            ),
-            gen_random_uuid(),
-            o.id,
-            'realtime:' || gen_random_uuid()::text
-          FROM organizations o
-          WHERE o.active = true
-            AND o.code IN ('MTD', 'MEDICARTE')
-        `,
-        [todayBogota],
-      );
-    }
 
     await client.query(
       'COMMIT',
     );
 
+
     return {
       expiredAuthorizations:
-        authorizationIds.length,
+        0,
 
       releasedAllocations:
-        released.rowCount ?? 0,
+        0,
 
       releasedQuantity:
-        released.rows.reduce(
-          (
-            total,
-            row,
-          ) =>
-            total
-            +
-            Number(
-              row.released_now,
-            ),
-          0,
-        ),
+        0,
 
-      clearedAuthorizations,
+      clearedAuthorizations:
+        0,
     };
+
   } catch (
     error
   ) {
@@ -507,6 +221,7 @@ export async function runInventoryExpirationReleaseSweep(
     );
 
     throw error;
+
   } finally {
     client.release();
   }

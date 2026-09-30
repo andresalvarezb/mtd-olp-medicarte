@@ -81,7 +81,7 @@ describe(
     );
 
     it(
-      'inhabilita una autorización vencida',
+      'mantiene operable una autorización vencida',
       () => {
         expect(
           resolveAuthorizationLifecycleStatus({
@@ -92,7 +92,7 @@ describe(
               'EXPIRED',
           }),
         ).toBe(
-          'DISABLED',
+          'ENABLED',
         );
       },
     );
@@ -115,7 +115,7 @@ describe(
     );
 
     it(
-      'vencimiento tiene precedencia sobre validación pendiente',
+      'mantiene pendiente una validación pendiente aunque la vigencia esté vencida',
       () => {
         expect(
           resolveAuthorizationLifecycleStatus({
@@ -126,7 +126,7 @@ describe(
               'EXPIRED',
           }),
         ).toBe(
-          'DISABLED',
+          'PENDING',
         );
       },
     );

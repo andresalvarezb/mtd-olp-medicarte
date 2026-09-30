@@ -511,11 +511,11 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
     };
 
     expect(summary).toMatchObject({
-      lineCount: 3,
-      sourceCount: 4,
-      regularQuantity: 17,
+      lineCount: 4,
+      sourceCount: 5,
+      regularQuantity: 26,
       lateQuantity: 0,
-      projectedQuantity: 17,
+      projectedQuantity: 26,
     });
 
     const lines = await database.query<{
@@ -539,7 +539,7 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
       [periodId],
     );
 
-    expect(lines.rows).toHaveLength(3);
+    expect(lines.rows).toHaveLength(4);
 
     expect(lines.rows).toEqual([
       expect.objectContaining({
@@ -555,6 +555,13 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
         regular_quantity: 4,
         late_quantity: 0,
         projected_quantity: 4,
+      }),
+      expect.objectContaining({
+        commercial_code: CODE_EXPIRED,
+        dispensing_point_id: null,
+        regular_quantity: 9,
+        late_quantity: 0,
+        projected_quantity: 9,
       }),
       expect.objectContaining({
         commercial_code: CODE_STALE_COVERAGE,
@@ -584,12 +591,12 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
       [periodId],
     );
 
-    expect(sources.rows).toHaveLength(4);
+    expect(sources.rows).toHaveLength(5);
 
     expect(sources.rows.every((source) => source.patient_schedule_id === null)).toBe(true);
 
     expect(sources.rows.map((source) => source.authorization_item_id).sort()).toEqual(
-      [authA1Id, authA2Id, authBId, staleCoverageId].sort(),
+      [authA1Id, authA2Id, authBId, expiredId, staleCoverageId].sort(),
     );
 
     expect(
@@ -606,7 +613,7 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
     ).toBe(true);
 
     // AT activo NO_PBS prevalece incluso si coverage_type materializado dice PBS.
-    const excluded = new Set([futureId, blockedId, noPbsId, expiredId, noTariffId]);
+    const excluded = new Set([futureId, blockedId, noPbsId, noTariffId]);
 
     expect(
       sources.rows.some(

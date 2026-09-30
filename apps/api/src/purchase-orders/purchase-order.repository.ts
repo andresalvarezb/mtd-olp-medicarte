@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import {
   authorizationOperationalHorizonEnd,
   currentBogotaDate,
+  derivePurchaseOrderMacroStatus,
   isAuthorizationSourceEnabled,
 } from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
@@ -1273,28 +1274,28 @@ export class PurchaseOrderRepository {
           );
 
 
+        /*
+         * Estado macro del listado.
+         *
+         * requestedQuantity / receivedQuantity / pendingQuantity
+         * ya fueron calculados desde las cantidades operacionales
+         * de la consulta.
+         *
+         * El detalle conserva la evaluación autoritativa
+         * línea por línea mediante derivePurchaseOrderMacroStatus().
+         */
         const operationalState:
           | 'PENDING_OLP'
           | 'PENDING_MEDICARTE'
           | 'RECEIVED_WITH_PENDING'
-          | 'RECEIVED'
-          | 'REJECTED'
-          | 'CANCELLED' =
-          snapshot.technical_status ===
-          'CANCELLED'
-            ? 'CANCELLED'
-            : snapshot.technical_status ===
-                'REJECTED'
-              ? 'REJECTED'
-              : !snapshot.olp_accepted_at
-                ? 'PENDING_OLP'
-                : receivedQuantity <=
-                    0
-                  ? 'PENDING_MEDICARTE'
-                  : pendingQuantity >
-                      0
-                    ? 'RECEIVED_WITH_PENDING'
-                    : 'RECEIVED';
+          | 'RECEIVED' =
+          !snapshot.olp_accepted_at
+            ? 'PENDING_OLP'
+            : receivedQuantity <= 0
+              ? 'PENDING_MEDICARTE'
+              : pendingQuantity > 0
+                ? 'RECEIVED_WITH_PENDING'
+                : 'RECEIVED';
 
 
         return [
@@ -2536,33 +2537,43 @@ export class PurchaseOrderRepository {
         0,
       );
 
-    const allReceived =
-      lines.length > 0 &&
-      lines.every(
-        (line) =>
-          line.receivedQuantity >=
-          (
-            line.managedQuantity ??
-            0
-          ),
-      );
-
-    const anyReceiptEvent =
-      receipts.length > 0 ||
-      lines.some(
-        (line) =>
-          line.receiptOutcome !==
-          null,
-      );
-
+    /*
+     * Autoridad única para el estado macro de la OC.
+     *
+     * La recepción se compara contra la cantidad
+     * efectivamente gestionada por OLP, línea por línea.
+     */
     const operationalState =
-      allReceived
-        ? 'RECEIVED'
-        : anyReceiptEvent
-          ? 'RECEIVED_WITH_PENDING'
-          : order.olp_accepted_at
-            ? 'PENDING_MEDICARTE'
-            : 'PENDING_OLP';
+      derivePurchaseOrderMacroStatus({
+        olpAccepted:
+          Boolean(
+            order.olp_accepted_at,
+          ),
+
+        dispatchRecorded:
+          true,
+
+        lines:
+          lines.map(
+            (line) => ({
+              lineId:
+                line.id,
+
+              commercialCode:
+                line.commercialCode,
+
+              requestedQuantity:
+                line.requestedQuantity,
+
+              managedQuantity:
+                line.managedQuantity ??
+                line.requestedQuantity,
+
+              receivedQuantity:
+                line.receivedQuantity,
+            }),
+          ),
+      });
 
     const responsible =
       operationalState ===
@@ -3761,8 +3772,7 @@ export class PurchaseOrderRepository {
         sourceQuantity === source.quantity &&
         isStrictIsoDate(assignmentDate) &&
         assignmentDate <= operationalHorizonEnd &&
-        isStrictIsoDate(expirationDate) &&
-        expirationDate >= todayBogota;
+        isStrictIsoDate(expirationDate);
 
       if (!eligible) {
         throw new Error('PURCHASE_ORDER_DEMAND_STALE');

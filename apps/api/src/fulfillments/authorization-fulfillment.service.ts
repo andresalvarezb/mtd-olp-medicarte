@@ -127,10 +127,10 @@ export class AuthorizationFulfillmentService {
               ? 'La autorización todavía tiene una asignación parcial y no puede cerrarse.'
               : code ===
                   'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_OC_POOL'
-                ? 'La OC no tiene cantidad recibida suficiente para atender completamente esta autorización.'
+                ? 'La OC no tiene cantidad recibida suficiente para atender la cantidad solicitada.'
               : code ===
                   'AUTHORIZATION_FULFILLMENT_INSUFFICIENT_INVENTORY'
-                ? 'No existe inventario físico suficiente para completar la operación.'
+                ? 'No existe inventario físico suficiente para atender la cantidad solicitada.'
                 : code ===
                     'AUTHORIZATION_FULFILLMENT_OC_NOT_ELIGIBLE'
                   ? 'La autorización no está incluida en la OC indicada para este producto.'

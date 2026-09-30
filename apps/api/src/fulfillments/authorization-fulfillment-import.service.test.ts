@@ -205,7 +205,7 @@ describe(
   'AuthorizationFulfillment XLSX',
   () => {
     it(
-      'genera exactamente las cuatro columnas oficiales',
+      'genera exactamente las cinco columnas oficiales',
       () => {
         const output =
           createAuthorizationFulfillmentTemplate();
@@ -245,6 +245,7 @@ describe(
             'OC',
             'TIPO_DISPENSACION',
             'FECHA',
+            'CANTIDAD',
           ],
         ]);
       },
@@ -262,18 +263,21 @@ describe(
                 'OC',
                 'TIPO_DISPENSACION',
                 'FECHA',
+                'CANTIDAD',
               ],
               [
                 'AUTH-1',
                 'OC-1001',
                 'ENTREGA',
                 '22/09/2026',
+                2,
               ],
               [
                 'AUTH-2',
                 'OC-1002',
                 'APLICACIÓN',
                 '2026-09-21',
+                3,
               ],
             ]),
           );
@@ -292,6 +296,9 @@ describe(
 
           effectiveDate:
             '2026-09-22',
+
+          quantity:
+            2,
         });
 
         expect(
@@ -308,6 +315,9 @@ describe(
 
           effectiveDate:
             '2026-09-21',
+
+          quantity:
+            3,
         });
       },
     );
@@ -351,18 +361,21 @@ describe(
                   'OC',
                   'TIPO_DISPENSACION',
                   'FECHA',
+                  'CANTIDAD',
                 ],
                 [
                   'AUTH-DUP',
                   'OC-DUP',
                   'ENTREGA',
                   '2026-09-20',
+                  1,
                 ],
                 [
                   'AUTH-DUP',
                   'OC-DUP',
                   'APLICACION',
                   '2026-09-20',
+                  1,
                 ],
               ]),
             ),
@@ -410,12 +423,14 @@ describe(
                   'OC',
                   'TIPO_DISPENSACION',
                   'FECHA',
+                  'CANTIDAD',
                 ],
                 [
                   'AUTH-VALIDA',
                   'OC-VALIDA',
                   'ENTREGA',
                   '2026-09-20',
+                  4,
                 ],
               ]),
             ),
@@ -447,6 +462,9 @@ describe(
 
             effectiveDate:
               '2026-09-20',
+
+            quantity:
+              4,
           },
           scope,
           'XLSX',
@@ -483,12 +501,14 @@ describe(
                   'OC',
                   'TIPO_DISPENSACION',
                   'FECHA',
+                  'CANTIDAD',
                 ],
                 [
                   'AUTH-SIN-STOCK',
                   'OC-SIN-STOCK',
                   'APLICACION',
                   '2026-09-20',
+                  1,
                 ],
               ]),
             ),
@@ -541,12 +561,14 @@ describe(
                   'OC',
                   'TIPO_DISPENSACION',
                   'FECHA',
+                  'CANTIDAD',
                 ],
                 [
                   'AUTH-NO-EXISTE',
                   'OC-NO-EXISTE',
                   'ENTREGA',
                   '2026-09-20',
+                  1,
                 ],
               ]),
             ),

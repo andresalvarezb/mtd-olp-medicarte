@@ -79,17 +79,6 @@ export function evaluatePatientApplicationAuthorization(
     };
   }
 
-  if (
-    expiration &&
-    input.applicationDate !== undefined &&
-    input.applicationDate > expiration
-  ) {
-    return {
-      eligible: false,
-      code:
-        'PATIENT_APPLICATION_AUTHORIZATION_EXPIRED',
-    };
-  }
 
   return {
     eligible: true,

@@ -157,6 +157,12 @@ type AuthorizationConfig =
 
     sourceStatus:
       string;
+
+    assignmentRaw:
+      string;
+
+    expirationRaw:
+      string;
   }>;
 
 
@@ -182,6 +188,12 @@ const destinationDefault:
 
     sourceStatus:
       '5',
+
+    assignmentRaw:
+      '20200101',
+
+    expirationRaw:
+      '20991231',
   };
 
 
@@ -207,6 +219,12 @@ const originDefault:
 
     sourceStatus:
       '5',
+
+    assignmentRaw:
+      '20200101',
+
+    expirationRaw:
+      '20991231',
   };
 
 
@@ -273,6 +291,12 @@ function authorizationRow(
 
     source_status_normalized:
       config.sourceStatus,
+
+    assignment_raw:
+      config.assignmentRaw,
+
+    expiration_raw:
+      config.expirationRaw,
 
     closed:
       config.closed,
@@ -875,6 +899,12 @@ async function runCreateGuard(
               source_status_normalized:
                 '5',
 
+              assignment_raw:
+                '20200101',
+
+              expiration_raw:
+                '20991231',
+
               closed:
                 guard.closed,
             },
@@ -1225,6 +1255,39 @@ describe(
           ),
         ).toBe(
           true,
+        );
+      },
+    );
+
+
+    it(
+      'REASIGNAR no rechaza AUTO_DESTINO solo por estar vencida',
+      async () => {
+        const {
+          result,
+        } =
+          await runExisting(
+            [
+              'AUTO-ORIG',
+              'AUTO-DEST',
+              'OC-EXISTENTE',
+              'PROD-1',
+              2,
+            ],
+            {
+              destination: {
+                expirationRaw:
+                  '20000101',
+              },
+            },
+          );
+
+
+        expect(
+          result.results[0]
+            ?.errorCode,
+        ).toBe(
+          'NEGATIVE_RULE_MUST_NOT_WRITE',
         );
       },
     );

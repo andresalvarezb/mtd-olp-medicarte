@@ -634,7 +634,7 @@ describe('Wave 2B — stale authorization demand purchase boundary', () => {
     );
   });
 
-  it('blocks stale consolidated demand when authorization expired after consolidation', async () => {
+  it('keeps consolidated demand purchasable when authorization expires after consolidation', async () => {
     await database.query(
       `update authorization_items
               set source_data =
@@ -649,7 +649,18 @@ describe('Wave 2B — stale authorization demand purchase boundary', () => {
       [expiredDate, authorizationId],
     );
 
-    await expectStale('EXPIRED');
+    const response =
+      await createOrder(
+        'EXPIRED',
+      );
+
+    expect(
+      response.status,
+    ).toBe(
+      201,
+    );
+
+    await deleteOrders();
 
     await database.query(
       `update authorization_items

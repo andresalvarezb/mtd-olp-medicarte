@@ -131,13 +131,6 @@ export function evaluateScheduleAuthorizationEligibility(
       message: 'The authorization is not enabled for scheduling',
     };
   }
-  if (input.expirationDate !== null && input.todayBogota > input.expirationDate) {
-    return {
-      eligible: false,
-      code: 'AUTHORIZATION_EXPIRED',
-      message: 'The authorization expired before the scheduling date',
-    };
-  }
   if (input.coverageType === 'PBS' && input.directionStatus !== 'NOT_APPLICABLE') {
     return {
       eligible: false,

@@ -74,6 +74,9 @@ export type AuthorizationFulfillmentImportRowResult =
     effectiveDate:
       string | null;
 
+    quantity:
+      number | null;
+
     status:
       'ACCEPTED'
       | 'REJECTED';
@@ -232,6 +235,7 @@ function rejectedWorkbook(
         'OC',
         'TIPO_DISPENSACION',
         'FECHA',
+        'CANTIDAD',
         'CODIGO_ERROR',
         'DETALLE',
       ],
@@ -251,6 +255,7 @@ function rejectedWorkbook(
               : '',
 
           row.effectiveDate ?? '',
+          row.quantity ?? '',
           row.errorCode ?? '',
           row.errorMessage ?? '',
         ],
@@ -263,6 +268,7 @@ function rejectedWorkbook(
     { wch: 20 },
     { wch: 22 },
     { wch: 18 },
+    { wch: 14 },
     { wch: 48 },
     { wch: 72 },
   ];
@@ -470,6 +476,9 @@ export class AuthorizationFulfillmentImportService {
 
         effectiveDate:
           row.effectiveDate,
+
+        quantity:
+          row.quantity,
       } as const;
 
 
@@ -600,6 +609,33 @@ export class AuthorizationFulfillmentImportService {
 
           errorMessage:
             'FECHA debe contener una fecha válida.',
+        });
+
+        continue;
+      }
+
+
+      if (
+        row.quantity ===
+          null
+      ) {
+        results.push({
+          ...base,
+
+          status:
+            'REJECTED',
+
+          authorizationItemId:
+            null,
+
+          fulfillmentId:
+            null,
+
+          errorCode:
+            'AUTHORIZATION_FULFILLMENT_QUANTITY_INVALID',
+
+          errorMessage:
+            'CANTIDAD debe ser un entero positivo.',
         });
 
         continue;
@@ -741,6 +777,9 @@ export class AuthorizationFulfillmentImportService {
 
           effectiveDate:
             row.effectiveDate,
+
+          quantity:
+            row.quantity,
         });
 
 

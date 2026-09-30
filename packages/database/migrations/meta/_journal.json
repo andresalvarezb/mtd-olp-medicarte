@@ -638,6 +638,20 @@
       "when": 1790546878663,
       "tag": "0091_compensar_observer",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1790546879663,
+      "tag": "0092_purchase_order_receipts_quantity_only_fix",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1790546879664,
+      "tag": "0093_authorization_partial_fulfillments",
+      "breakpoints": true
     }
   ]
 }

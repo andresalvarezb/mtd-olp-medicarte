@@ -228,6 +228,50 @@ export class AuthorizationQueryController {
     );
   }
 
+  @Get(':id/history')
+  async history(
+    @Param('id')
+    rawId:
+      string,
+
+    @Headers(
+      'x-organization-id',
+    )
+    organizationId:
+      string | undefined,
+
+    @Req()
+    request:
+      AuthenticatedRequest,
+  ) {
+    const id =
+      uuid.parse(
+        rawId,
+      );
+
+    const result =
+      await this.repository.history(
+        id,
+        await this.scope(
+          request,
+          organizationId,
+        ),
+      );
+
+    if (!result) {
+      throw new NotFoundException({
+        code:
+          'AUTHORIZATION_NOT_FOUND',
+
+        message:
+          'La autorización no existe o no está disponible para la organización.',
+      });
+    }
+
+    return result;
+  }
+
+
   @Get(':id')
   async detail(
     @Param('id')

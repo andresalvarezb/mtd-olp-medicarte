@@ -211,57 +211,90 @@ flujo de consumo hasta que exista evidencia física compatible.
 
 ## Escasez, vencimiento y reasignación
 
-### AS-IS confirmado
+### DECISIÓN VIGENTE
 
-Las AUTO conservan su vínculo lógico con la OC mediante
-`purchase_order_authorization_sources`. `reconcileIneligibleTx()` libera o marca
-`EXPIRED` las allocations no consumidas cuando la AUTO vence, se bloquea, cambia
-su estado o la OC se cancela/rechaza. Se ejecuta de forma perezosa antes de
-operaciones de Disponibilidad/importación/asignación; no existe scheduler de
-reasignación automática.
+El vencimiento de una autorización es una condición
+de inhabilitación operacional.
 
-La liberación no crea movimiento de inventario ni asignación sustituta. La
-cantidad queda disponible para una asignación posterior explícita. Tampoco existe
-hoy una prioridad automática por vencimiento dentro de una ventana de 30 días.
+Una AUTO vencida:
 
-### DECISIÓN DE NEGOCIO
+- permanece visible para consulta y trazabilidad;
+- no puede registrar entrega;
+- no puede registrar aplicación;
+- conserva temporalmente la reserva ya materializada;
+- no puede ser AUTO_DESTINO de una reasignación.
 
-Si una AUTO vence sin consumo, la demanda deja de estar reservada
-operacionalmente, pero el producto no desaparece. Deben conservarse la relación
-original y la trazabilidad:
+La expiración no elimina la relación histórica entre
+la AUTO y la orden de compra.
 
-```text
-AUTO original → demanda de OC → venció sin consumo → producto liberado
-             → eventualmente AUTO sustituta
-```
+### GRACIA DE CINCO DÍAS
 
-Las AUTO vinculadas a una OC no adquieren propiedad física anticipada. Si hay 10
-AUTO elegibles y solo 5 unidades recibidas, puede consumir primero cualquiera de
-las AUTO válidas que efectivamente se atiendan. La operación debe ser atómica y
-segura ante concurrencia; la sexta atención falla o se bloquea cuando no quede
-existencia física.
+El día de vencimiento inicia el período de gracia.
 
-### TO-BE de reasignación
+Durante los días 1 a 5 posteriores al vencimiento,
+la allocation activa permanece asociada a la AUTO.
 
-Al vencer una AUTO sin consumo, el sistema debe intentar una reasignación
-atómica, auditable y sin doble asignación. La candidata debe cumplir:
+Durante esta gracia no se permite entrega ni aplicación.
 
-1. AUTO vigente y habilitada operacionalmente.
-2. Sin entrega/aplicación previa.
-3. Mismo código comercial y misma cantidad requerida.
-4. Compatible con el mismo punto operacional de MEDICARTE.
-5. Vencimiento dentro de `HOY <= fecha_vencimiento <= HOY + 30 días`.
+Si la allocation no tiene consumo previo, puede
+transferirse mediante una reasignación explícita y
+atómica hacia una AUTO_DESTINO válida.
 
-El orden determinístico es:
+A partir del día 6, cuando:
 
-```sql
-ORDER BY fecha_final_vigencia ASC, created_at ASC, id ASC
-```
+FECHA_FINAL_VIGENCIA < HOY - 5
 
-La fecha más cercana gana. Si no hay candidata, el producto queda liberado/sin
-AUTO sustituta y debe poder reconsiderarse cuando ingrese o se actualice una AUTO
-elegible. No se define aún una frecuencia técnica obligatoria: puede ser una
-reconciliación periódica o disparada por ingreso/actualización de AUTO.
+el worker libera automáticamente el saldo:
+
+allocated_quantity
+- consumed_quantity
+- released_quantity
+
+La allocation histórica no se elimina.
+
+La liberación afecta exclusivamente la disponibilidad
+física. La relación histórica AUTO -> OC permanece en
+purchase_order_authorization_sources.
+
+### REASIGNACIÓN EXPLÍCITA
+
+La reasignación se realiza mediante la plantilla de
+órdenes de compra usando AUTO_ORIGEN, AUTO_DESTINO,
+OC, CODIGO_PRODUCTO y CANTIDAD.
+
+AUTO_DESTINO debe:
+
+- estar habilitada;
+- estar dentro de la ventana operacional;
+- no estar vencida;
+- no estar fuera de Hoy + 30;
+- no estar cerrada;
+- no tener otra OC o reserva activa incompatible;
+- tener el mismo producto;
+- tener la misma cantidad completa;
+- resolver el mismo punto operacional.
+
+AUTO_ORIGEN puede estar vencida dentro de la gracia,
+pero no puede tener producto consumido ni una
+entrega/aplicación confirmada.
+
+La transferencia de inventory_authorization_allocations
+y purchase_order_authorization_sources debe ocurrir
+en la misma transacción.
+
+Si falla cualquier validación, AUTO_ORIGEN conserva
+íntegramente su reserva.
+
+### EXPORTAR AUTO PARA OC
+
+El exportable de candidatos para nueva OC incluye
+únicamente AUTO operables dentro de la ventana vigente.
+
+EXPIRED, OUTSIDE_HORIZON e INVALID_DATE no son
+candidatas para una nueva OC.
+
+Una AUTO que ya posee una OC activa no vuelve a
+exportarse para generar otra compra.
 
 ## Entrega/aplicación y cantidades
 
@@ -292,9 +325,9 @@ previamente. Una unidad ya entregada/aplicada nunca puede reasignarse.
 - Nunca `CONSUMIDO > RECIBIDO`.
 - Actualizar una AUTO no modifica el snapshot histórico de una OC.
 - La relación AUTO → OC permanece aunque la AUTO venza.
-- Una unidad no consumida puede reutilizarse para una AUTO compatible.
+- Una unidad reservada y no consumida solo puede pasar a otra AUTO mediante reasignación explícita y atómica.
 - Una unidad consumida no puede reasignarse.
-- La reasignación por vencimiento es determinística y auditable.
+- El vencimiento por sí solo nunca libera una reserva.
 
 ## Modelo temporal y trazabilidad mínima
 
@@ -318,7 +351,7 @@ reasignación.
 | Disponibilidad | `InventoryAvailabilityRepository` usa `inventory_authorization_allocations` y carga UI/XLSX | Sigue siendo una segunda asignación técnica; TO-BE la deja fuera de la responsabilidad de asignar AUTO |
 | Fulfillment automático | `ensureAutomaticAllocation()` crea allocations desde el snapshot de OC | El contrato backend actual todavía materializa asignación al atender; debe alinearse con la asignación lógica nacida en la OC |
 | Recepción histórica | `recordConfirmedReceipt()` sí crea lotes y movimientos `RECEIPT` | Conviven dos arquitecturas y la quantity-only no tiene la misma evidencia física |
-| Liberación/reasignación | `reconcileIneligibleTx()` libera perezosamente y no busca candidata sustituta | No existe reasignación automática, ventana +30 días ni orden determinístico |
+| Retención/reasignación | `reconcileIneligibleTx()` no libera reservas; la transferencia explícita vive en `PurchaseOrderImportService` | No debe reintroducirse liberación automática por vencimiento o cambios administrativos |
 | Concurrencia de consumo | Fulfillment usa transacción, locks de autorización/allocation/punto y valida lotes | El TO-BE exige además una reserva/consumo atómico que no elija AUTO propietaria por anticipado en escasez |
 
 Estos GAPs no se presentan como funcionalidades implementadas. La

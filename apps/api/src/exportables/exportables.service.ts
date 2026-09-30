@@ -727,8 +727,10 @@ export class ExportablesService {
               'PASSED'
 
             and
-            e.validity_status =
-              'IN_WINDOW'
+            e.validity_status in (
+              'IN_WINDOW',
+              'EXPIRED'
+            )
 
             and not exists (
               select 1
@@ -2185,27 +2187,28 @@ export class ExportablesService {
                 initialValidationStatus ===
                   'PASSED'
                 &&
-                validityStatus ===
-                  'IN_WINDOW';
+                (
+                  validityStatus ===
+                    'IN_WINDOW'
+                  ||
+                  validityStatus ===
+                    'EXPIRED'
+                );
 
 
               const operationalStatus =
                 resolveAuthorizationOperationalStatus({
-                  hasFulfillment:
-                    row[
-                      'fulfillment_type'
-                    ] !==
-                      null
-                    &&
-                    row[
-                      'fulfillment_type'
-                    ] !==
-                      undefined
-                    ||
-                    row[
-                      'has_legacy_fulfillment'
-                    ] ===
-                      true,
+                  fulfilledQuantity:
+                    Math.max(
+                      Number(
+                        row[
+                          'consumed_quantity'
+                        ]
+                        ??
+                        0,
+                      ),
+                      0,
+                    ),
 
                   operationalEligible,
 

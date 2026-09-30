@@ -37,7 +37,7 @@ describe('authorization operational window', () => {
     });
   });
 
-  it('expires only before today', () => {
+  it('classifies dates before today as expired but operable', () => {
     expect(
       evaluateAuthorizationOperationalWindow({
         assignmentDate: '2026-09-01',
@@ -56,7 +56,7 @@ describe('authorization operational window', () => {
         todayBogota: '2026-09-25',
       }),
     ).toMatchObject({
-      eligible: false,
+      eligible: true,
       status: 'EXPIRED',
     });
   });
