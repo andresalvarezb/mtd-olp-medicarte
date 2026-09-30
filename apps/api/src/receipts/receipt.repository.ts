@@ -574,20 +574,6 @@ export class ReceiptRepository {
             left join product_delivery_point_mappings mapped
               on pol.dispensing_point_id is null
 
-             and btrim(
-                   coalesce(
-                     tap.numero_expediente_invima,
-                     ''
-                   )
-                 ) ~ '^[0-9]+$'
-
-             and btrim(
-                   coalesce(
-                     tap.consecutivo_invima_presentacion,
-                     ''
-                   )
-                 ) ~ '^[0-9]+$'
-
              and mapped.invima_record_normalized =
                  coalesce(
                    nullif(
@@ -836,11 +822,13 @@ export class ReceiptRepository {
          * usuario intente entregar/aplicar una autorización.
          */
         const automaticAllocation =
-          await this.allocateDirectReceiptByAuthorizationUrgency(
+          await this.reconcilePurchaseOrderAuthorizationAllocations(
             tx,
             purchaseOrderId,
-            receiptId,
             scope,
+            {
+              receiptId,
+            },
           );
 
 
@@ -1036,14 +1024,27 @@ export class ReceiptRepository {
    * 5. NO usa lotes ni fecha de vencimiento física
    *    del medicamento.
    */
-  private async allocateDirectReceiptByAuthorizationUrgency(
+  private async reconcilePurchaseOrderAuthorizationAllocations(
     tx: Tx,
     purchaseOrderId: string,
-    receiptId: string,
     scope: Scope,
+    options: {
+      receiptId?: string;
+    } = {},
   ) {
+    const receiptId =
+      options.receiptId ?? null;
     /*
-     * Identificar los pools afectados en ESTA recepción.
+     * Identificar pools recibidos.
+     *
+     * Con receiptId:
+     *   únicamente los pools afectados por ESA recepción.
+     *
+     * Sin receiptId:
+     *   todos los pools históricamente recibidos de la OC.
+     *
+     * El algoritmo de materialización posterior es idéntico
+     * para recepción nueva y reconciliación histórica.
      *
      * Pool:
      * OC + producto + punto.
@@ -1075,6 +1076,10 @@ export class ReceiptRepository {
         from
           purchase_order_receipt_lines porl
 
+        join purchase_order_receipts por
+          on por.id =
+             porl.receipt_id
+
         join purchase_order_lines pol
           on pol.id =
              porl.purchase_order_line_id
@@ -1089,20 +1094,6 @@ export class ReceiptRepository {
         left join product_delivery_point_mappings mapped
           on pol.dispensing_point_id
              is null
-
-         and btrim(
-               coalesce(
-                 tap.numero_expediente_invima,
-                 ''
-               )
-             ) ~ '^[0-9]+$'
-
-         and btrim(
-               coalesce(
-                 tap.consecutivo_invima_presentacion,
-                 ''
-               )
-             ) ~ '^[0-9]+$'
 
          and mapped.invima_record_normalized =
              coalesce(
@@ -1133,8 +1124,14 @@ export class ReceiptRepository {
              )
 
         where
-          porl.receipt_id =
-            ${receiptId}
+          por.purchase_order_id =
+            ${purchaseOrderId}
+
+          and (
+            ${receiptId}::uuid is null
+            or porl.receipt_id =
+               ${receiptId}
+          )
 
           and porl.received_quantity >
             0
@@ -1278,20 +1275,6 @@ export class ReceiptRepository {
           left join product_delivery_point_mappings mapped
             on pol.dispensing_point_id
                is null
-
-           and btrim(
-                 coalesce(
-                   tap.numero_expediente_invima,
-                   ''
-                 )
-               ) ~ '^[0-9]+$'
-
-           and btrim(
-                 coalesce(
-                   tap.consecutivo_invima_presentacion,
-                   ''
-                 )
-               ) ~ '^[0-9]+$'
 
            and mapped.invima_record_normalized =
                coalesce(
@@ -1473,6 +1456,13 @@ export class ReceiptRepository {
 
       /*
        * Candidatas exclusivamente provenientes de ESTA OC.
+       *
+       * purchase_order_authorization_sources es la autoridad
+       * de la relación material entre la OC y sus AUTO.
+       *
+       * Una recepción NO discrimina la relación logística por
+       * estado clínico, habilitación, vencimiento, fulfillment
+       * o aplicación posterior de la AUTO.
        *
        * source_quantity_snapshot protege la cantidad
        * comprometida cuando se creó la OC.
@@ -1664,28 +1654,6 @@ export class ReceiptRepository {
             join authorization_items ai
               on ai.id =
                  source_snapshot.authorization_item_id
-
-            where
-              ai.source_status_normalized =
-                '5'
-
-              and ai.enablement_status =
-                'ENABLED'
-
-              and not exists (
-                select
-                  1
-
-                from
-                  patient_applications pa
-
-                where
-                  pa.authorization_item_id =
-                    ai.id
-
-                  and pa.status =
-                    'CONFIRMED'
-              )
           )
 
 
@@ -1698,7 +1666,10 @@ export class ReceiptRepository {
 
             candidate.required_quantity,
 
-            candidate.expiration_date::text
+            coalesce(
+              candidate.expiration_date::text,
+              ''
+            )
               as expiration_date,
 
             candidate.assignment_date::text
@@ -1710,32 +1681,6 @@ export class ReceiptRepository {
           where
             candidate.required_quantity >
               0
-
-            and candidate.expiration_date
-                is not null
-
-            /*
-             * Una AUTO vencida al momento de la
-             * recepción no puede ganar asignación.
-             */
-            and candidate.expiration_date >=
-              (
-                now()
-                at time zone
-                'America/Bogota'
-              )::date
-
-            and not exists (
-              select
-                1
-
-              from
-                authorization_fulfillments af
-
-              where
-                af.authorization_item_id =
-                  candidate.authorization_item_id
-            )
 
             and not exists (
               select
@@ -1772,7 +1717,7 @@ export class ReceiptRepository {
              * es la más urgente.
              */
             candidate.expiration_date
-              asc,
+              asc nulls last,
 
             candidate.assignment_date
               asc nulls last,
@@ -1786,7 +1731,6 @@ export class ReceiptRepository {
 
 
       /*
-       * Whole-AUTO allocation.      /*
        * Whole-AUTO allocation.
        *
        * Si una AUTO necesita 2 y queda solo 1,
@@ -2047,6 +1991,69 @@ export class ReceiptRepository {
 
       assignments,
     };
+  }
+
+
+  async reconcilePurchaseOrderAllocations(
+    purchaseOrderId: string,
+    scope: Scope,
+  ) {
+    return this.database.db.transaction(
+      async (tx) => {
+        /*
+         * Serializar reconciliación completa de la OC.
+         * Evita que una recepción concurrente y un backfill
+         * materialicen simultáneamente el mismo saldo.
+         */
+        const lockKey =
+          [
+            'OC_AUTO_RECONCILIATION',
+            purchaseOrderId,
+          ].join(':');
+
+        await tx.execute(sql`
+          select
+            pg_advisory_xact_lock(
+              hashtextextended(
+                ${lockKey},
+                0
+              )
+            )
+        `);
+
+        const order =
+          await tx.execute<{
+            id: string;
+          }>(sql`
+            select
+              id
+
+            from
+              purchase_orders
+
+            where
+              id =
+                ${purchaseOrderId}
+
+            for update
+          `);
+
+        if (
+          order.rows.length !==
+          1
+        ) {
+          throw new Error(
+            'PURCHASE_ORDER_RECONCILIATION_NOT_FOUND',
+          );
+        }
+
+        return this.reconcilePurchaseOrderAuthorizationAllocations(
+          tx,
+          purchaseOrderId,
+          scope,
+        );
+      },
+    );
   }
 
 
