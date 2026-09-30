@@ -1715,15 +1715,15 @@ export class ReceiptRepository {
                 is not null
 
             /*
-             * Una AUTO vencida al momento de la
-             * recepción no puede ganar asignación.
+             * El vencimiento NO libera ni desasocia la demanda
+             * que originó la OC.
+             *
+             * Una AUTO fuente puede recibir la reserva física aun
+             * si MEDICARTE confirma la recepción después de su
+             * fecha final de vigencia. El único cambio de AUTO
+             * permitido ocurre mediante la reasignación explícita
+             * de la plantilla de órdenes de compra.
              */
-            and candidate.expiration_date >=
-              (
-                now()
-                at time zone
-                'America/Bogota'
-              )::date
 
             and not exists (
               select

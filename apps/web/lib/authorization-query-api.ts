@@ -20,6 +20,12 @@ export type AuthorizationQueryFulfillmentStatus =
   | 'DELIVERED'
   | 'APPLIED';
 
+export type AuthorizationFulfillmentProgressStatus =
+  | 'PENDING'
+  | 'PARTIAL'
+  | 'COMPLETE';
+
+
 export type AuthorizationInitialValidationStatus =
   | 'PASSED'
   | 'PENDING'
@@ -109,8 +115,23 @@ export type AuthorizationQueryItem = {
   patientName:
     string | null;
 
+  dosage:
+    string | null;
+
   quantity:
     string | null;
+
+  authorizedQuantity:
+    number;
+
+  fulfilledQuantity:
+    number;
+
+  remainingAuthorizedQuantity:
+    number;
+
+  fulfillmentProgressStatus:
+    AuthorizationFulfillmentProgressStatus;
 
   assignmentDate:
     string | null;
@@ -240,6 +261,9 @@ export type FulfillAuthorizationInput = {
 
   effectiveDate:
     string;
+
+  quantity:
+    number;
 };
 
 export function listAuthorizationQuery(
@@ -359,6 +383,64 @@ export function getAuthorizationQueryItem(
     },
   );
 }
+
+export type AuthorizationHistoryDetail =
+  Readonly<{
+    label: string;
+
+    value: string;
+  }>;
+
+
+export type AuthorizationHistoryEvent =
+  Readonly<{
+    id: string;
+
+    type: string;
+
+    occurredAt: string;
+
+    title: string;
+
+    description: string;
+
+    actorName: string | null;
+
+    organizationCode: string | null;
+
+    details:
+      AuthorizationHistoryDetail[];
+  }>;
+
+
+export type AuthorizationHistoryResponse =
+  Readonly<{
+    authorizationItemId: string;
+
+    authorizationNumber: string;
+
+    items:
+      AuthorizationHistoryEvent[];
+  }>;
+
+
+export function getAuthorizationHistory(
+  organizationId:
+    string,
+
+  authorizationItemId:
+    string,
+) {
+  return apiRequest<
+    AuthorizationHistoryResponse
+  >(
+    `/authorization-query/${authorizationItemId}/history`,
+    {
+      organizationId,
+    },
+  );
+}
+
 
 export type ManualEditAuthorizationInput = {
   commercialCode:

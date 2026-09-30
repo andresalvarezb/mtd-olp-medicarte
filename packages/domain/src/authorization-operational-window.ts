@@ -80,8 +80,15 @@ export function evaluateAuthorizationOperationalWindow(
   }
 
   if (expirationDate < input.todayBogota) {
+    /*
+     * EXPIRED es un estado informativo.
+     *
+     * La vigencia vencida NO inhabilita la operación:
+     * puede entregar, aplicar, conservar OC/asignación
+     * y participar en los flujos operativos permitidos.
+     */
     return {
-      eligible: false,
+      eligible: true,
       status: 'EXPIRED' as const,
       horizonEnd,
       assignmentDate,

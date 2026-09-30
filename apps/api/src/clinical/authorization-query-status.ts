@@ -6,35 +6,107 @@ export type AuthorizationOperationalStatus =
   | 'CLOSED';
 
 
+export type AuthorizationFulfillmentProgressStatus =
+  | 'PENDING'
+  | 'PARTIAL'
+  | 'COMPLETE';
+
+
+export function resolveAuthorizationFulfillmentProgressStatus(
+  input: Readonly<{
+    authorizedQuantity: number;
+    fulfilledQuantity: number;
+  }>,
+): AuthorizationFulfillmentProgressStatus {
+  const authorized =
+    Math.max(
+      input.authorizedQuantity,
+      0,
+    );
+
+  const fulfilled =
+    Math.max(
+      input.fulfilledQuantity,
+      0,
+    );
+
+
+  if (
+    authorized > 0 &&
+    fulfilled >= authorized
+  ) {
+    return 'COMPLETE';
+  }
+
+
+  if (
+    fulfilled > 0
+  ) {
+    return 'PARTIAL';
+  }
+
+
+  return 'PENDING';
+}
+
+
 export function resolveAuthorizationOperationalStatus(
   input: Readonly<{
-    hasFulfillment: boolean;
+    fulfilledQuantity: number;
     operationalEligible: boolean;
     remainingAssignedQuantity: number;
     authorizedQuantity: number;
   }>,
 ): AuthorizationOperationalStatus {
+  const authorizedQuantity =
+    Math.max(
+      input.authorizedQuantity,
+      0,
+    );
+
+  const fulfilledQuantity =
+    Math.max(
+      input.fulfilledQuantity,
+      0,
+    );
+
+  const remainingAuthorizedQuantity =
+    Math.max(
+      authorizedQuantity
+      -
+      fulfilledQuantity,
+      0,
+    );
+
+
   /*
    * Precedencia:
    *
-   * 1. Cumplimiento real => CLOSED.
+   * 1. Solo se cierra al consumir TODO lo autorizado.
    * 2. No elegible => OUT_OF_OPERATION.
-   * 3. Sin saldo => UNASSIGNED.
-   * 4. Saldo menor a la cantidad autorizada =>
+   * 3. Sin saldo asignado => UNASSIGNED.
+   * 4. Asignación menor al saldo pendiente =>
    *    PARTIALLY_ASSIGNED.
-   * 5. Cobertura completa => ASSIGNED.
+   * 5. Cobertura suficiente del saldo pendiente =>
+   *    ASSIGNED.
    */
   if (
-    input.hasFulfillment
+    authorizedQuantity >
+      0
+    &&
+    remainingAuthorizedQuantity ===
+      0
   ) {
     return 'CLOSED';
   }
+
 
   if (
     !input.operationalEligible
   ) {
     return 'OUT_OF_OPERATION';
   }
+
 
   if (
     input.remainingAssignedQuantity <=
@@ -43,15 +115,17 @@ export function resolveAuthorizationOperationalStatus(
     return 'UNASSIGNED';
   }
 
+
   if (
-    input.authorizedQuantity >
+    remainingAuthorizedQuantity >
       0
     &&
     input.remainingAssignedQuantity <
-      input.authorizedQuantity
+      remainingAuthorizedQuantity
   ) {
     return 'PARTIALLY_ASSIGNED';
   }
+
 
   return 'ASSIGNED';
 }

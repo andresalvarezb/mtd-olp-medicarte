@@ -29,6 +29,7 @@ import {
 } from '../tokens';
 
 import {
+  resolveAuthorizationFulfillmentProgressStatus,
   resolveAuthorizationOperationalStatus,
 } from './authorization-query-status';
 
@@ -99,6 +100,9 @@ interface AuthorizationQueryRow
   patient_name:
     string | null;
 
+  dosage:
+    string | null;
+
   quantity:
     string | null;
 
@@ -139,6 +143,12 @@ interface AuthorizationQueryRow
     number;
 
   remaining_assigned_quantity:
+    number;
+
+  fulfilled_quantity:
+    number;
+
+  remaining_authorized_quantity:
     number;
 
   purchase_order:
@@ -502,8 +512,10 @@ export class AuthorizationQueryRepository {
       (
         ${this.validityStatusSql()}
       )
-      =
-      'IN_WINDOW'
+      in (
+        'IN_WINDOW',
+        'EXPIRED'
+      )
     `;
   }
 
@@ -739,6 +751,218 @@ export class AuthorizationQueryRepository {
   }
 
 
+  private retainedExpiredAssignmentEligibility(): SQL {
+    return sql`
+      (
+        ${this.initialValidationPassed()}
+      )
+
+      and
+
+      (
+        ${this.validityStatusSql()}
+      )
+      =
+      'EXPIRED'
+
+      and
+
+      exists (
+        select
+          1
+
+        from
+          inventory_authorization_allocations
+            iaa_retained
+
+        where
+          iaa_retained.authorization_item_id =
+            i.id
+
+          and iaa_retained.status in (
+            'ALLOCATED',
+            'PARTIALLY_CONSUMED'
+          )
+
+          and (
+            iaa_retained.allocated_quantity
+            -
+            iaa_retained.consumed_quantity
+            -
+            iaa_retained.released_quantity
+          ) > 0
+      )
+    `;
+  }
+
+
+  private assignmentOperationalEligibility(): SQL {
+    return sql`
+      (
+        ${this.operationalEligibility()}
+      )
+
+      or
+
+      (
+        ${this.retainedExpiredAssignmentEligibility()}
+      )
+    `;
+  }
+
+
+  private authorizedQuantitySql(): SQL {
+    return sql`
+      case
+        when
+          btrim(
+            coalesce(
+              i.source_data
+                ->>
+                'CANTIDAD',
+              ''
+            )
+          ) ~ '^[1-9][0-9]*$'
+
+        then
+          (
+            i.source_data
+              ->>
+              'CANTIDAD'
+          )::int
+
+        else
+          0
+      end
+    `;
+  }
+
+
+  private fulfilledQuantitySql(): SQL {
+    /*
+     * Durante la coexistencia de fulfillment y
+     * patient_applications usamos la evidencia
+     * acumulada máxima, NO la suma entre canales.
+     *
+     * Esto evita doble contabilización cuando una
+     * misma operación ya dejó consumo de allocation.
+     */
+    return sql`
+      greatest(
+        coalesce(
+          (
+            select
+              sum(
+                af_progress.quantity
+              )::int
+
+            from
+              authorization_fulfillments
+                af_progress
+
+            where
+              af_progress.authorization_item_id =
+                i.id
+          ),
+          0
+        ),
+
+        coalesce(
+          (
+            select
+              sum(
+                pal_progress.quantity
+              )::int
+
+            from
+              patient_applications
+                pa_progress
+
+            join
+              patient_application_lines
+                pal_progress
+                  on pal_progress.patient_application_id =
+                     pa_progress.id
+
+            where
+              pa_progress.authorization_item_id =
+                i.id
+
+              and pa_progress.status =
+                'CONFIRMED'
+          ),
+          0
+        ),
+
+        coalesce(
+          (
+            select
+              sum(
+                iaa_progress.consumed_quantity
+              )::int
+
+            from
+              inventory_authorization_allocations
+                iaa_progress
+
+            where
+              iaa_progress.authorization_item_id =
+                i.id
+          ),
+          0
+        )
+      )
+    `;
+  }
+
+
+  private remainingAuthorizedQuantitySql(): SQL {
+    return sql`
+      greatest(
+        ${this.authorizedQuantitySql()}
+        -
+        ${this.fulfilledQuantitySql()},
+        0
+      )
+    `;
+  }
+
+
+  private remainingAssignedQuantitySql(): SQL {
+    return sql`
+      coalesce(
+        (
+          select
+            sum(
+              greatest(
+                iaa_progress.allocated_quantity
+                -
+                iaa_progress.consumed_quantity
+                -
+                iaa_progress.released_quantity,
+                0
+              )
+            )::int
+
+          from
+            inventory_authorization_allocations
+              iaa_progress
+
+          where
+            iaa_progress.authorization_item_id =
+              i.id
+
+            and iaa_progress.status in (
+              'ALLOCATED',
+              'PARTIALLY_CONSUMED'
+            )
+        ),
+        0
+      )
+    `;
+  }
+
+
   async list(
     filters:
       AuthorizationQueryFilters,
@@ -879,305 +1103,106 @@ export class AuthorizationQueryRepository {
     }
 
     /*
-     * Estado operacional REAL de la AUTO.
+     * Estado operacional acumulado.
      *
-     * No se deriva de estados ni referencias logísticas
-     * históricas. La autoridad para ASSIGNED es
-     * exclusivamente inventory_authorization_allocations
-     * con saldo disponible.
+     * CLOSED solamente cuando:
+     *
+     * fulfilled >= authorized.
+     *
+     * La cobertura física se compara contra el
+     * saldo autorizado pendiente, no contra la
+     * cantidad original.
      */
-    if (
-      filters.operationalStatus ===
-      'CLOSED'
-    ) {
-      conditions.push(sql`
-        (
-          exists (
-            select 1
+    const authorizedQuantityFilter =
+      this.authorizedQuantitySql();
 
-            from
-              authorization_fulfillments
-                af_filter
+    const remainingAuthorizedQuantityFilter =
+      this.remainingAuthorizedQuantitySql();
 
-            where
-              af_filter.authorization_item_id =
-                i.id
-          )
-
-          or
-
-          exists (
-            select 1
-
-            from
-              patient_applications
-                pa_filter
-
-            where
-              pa_filter.authorization_item_id =
-                i.id
-
-              and pa_filter.status =
-                'CONFIRMED'
-          )
-        )
-      `);
-    }
-
-    if (
-      filters.operationalStatus ===
-      'ASSIGNED'
-    ) {
-      conditions.push(sql`
-        not exists (
-          select 1
-          from authorization_fulfillments af_filter
-          where af_filter.authorization_item_id = i.id
-        )
-
-        and not exists (
-          select 1
-          from patient_applications pa_filter
-          where pa_filter.authorization_item_id = i.id
-            and pa_filter.status = 'CONFIRMED'
-        )
-
-        and coalesce(
-          (
-            select
-              sum(
-                greatest(
-                  iaa_filter.allocated_quantity
-                  -
-                  iaa_filter.consumed_quantity
-                  -
-                  iaa_filter.released_quantity,
-                  0
-                )
-              )
-
-            from
-              inventory_authorization_allocations
-                iaa_filter
-
-            where
-              iaa_filter.authorization_item_id =
-                i.id
-
-              and iaa_filter.status in (
-                'ALLOCATED',
-                'PARTIALLY_CONSUMED'
-              )
-          ),
-          0
-        )
-        >=
-        case
-          when
-            btrim(
-              coalesce(
-                i.source_data
-                  ->>
-                  'CANTIDAD',
-                ''
-              )
-            ) ~ '^[0-9]+$'
-          then
-            (
-              i.source_data
-                ->>
-                'CANTIDAD'
-            )::int
-          else
-            2147483647
-        end
-      `);
-    }
+    const remainingAssignedQuantityFilter =
+      this.remainingAssignedQuantitySql();
 
 
     if (
       filters.operationalStatus ===
-      'PARTIALLY_ASSIGNED'
+        'CLOSED'
     ) {
       conditions.push(sql`
-        not exists (
-          select 1
-          from authorization_fulfillments af_filter
-          where af_filter.authorization_item_id = i.id
-        )
+        ${authorizedQuantityFilter}
+          > 0
 
-        and not exists (
-          select 1
-          from patient_applications pa_filter
-          where pa_filter.authorization_item_id = i.id
-            and pa_filter.status = 'CONFIRMED'
-        )
+        and
 
-        and coalesce(
-          (
-            select
-              sum(
-                greatest(
-                  iaa_filter.allocated_quantity
-                  -
-                  iaa_filter.consumed_quantity
-                  -
-                  iaa_filter.released_quantity,
-                  0
-                )
-              )
-
-            from
-              inventory_authorization_allocations
-                iaa_filter
-
-            where
-              iaa_filter.authorization_item_id =
-                i.id
-
-              and iaa_filter.status in (
-                'ALLOCATED',
-                'PARTIALLY_CONSUMED'
-              )
-          ),
-          0
-        ) > 0
-
-        and coalesce(
-          (
-            select
-              sum(
-                greatest(
-                  iaa_filter.allocated_quantity
-                  -
-                  iaa_filter.consumed_quantity
-                  -
-                  iaa_filter.released_quantity,
-                  0
-                )
-              )
-
-            from
-              inventory_authorization_allocations
-                iaa_filter
-
-            where
-              iaa_filter.authorization_item_id =
-                i.id
-
-              and iaa_filter.status in (
-                'ALLOCATED',
-                'PARTIALLY_CONSUMED'
-              )
-          ),
-          0
-        )
-        <
-        case
-          when
-            btrim(
-              coalesce(
-                i.source_data
-                  ->>
-                  'CANTIDAD',
-                ''
-              )
-            ) ~ '^[0-9]+$'
-          then
-            (
-              i.source_data
-                ->>
-                'CANTIDAD'
-            )::int
-          else
-            0
-        end
+        ${remainingAuthorizedQuantityFilter}
+          = 0
       `);
     }
 
 
-    if (
-      filters.operationalStatus ===
-      'UNASSIGNED'
-    ) {
-      conditions.push(sql`
-        not exists (
-          select 1
-
-          from
-            authorization_fulfillments
-              af_filter
-
-          where
-            af_filter.authorization_item_id =
-              i.id
-        )
-
-        and not exists (
-          select 1
-
-          from
-            patient_applications
-              pa_filter
-
-          where
-            pa_filter.authorization_item_id =
-              i.id
-
-            and pa_filter.status =
-              'CONFIRMED'
-        )
-
-        and not exists (
-          select 1
-
-          from
-            inventory_authorization_allocations
-              iaa_filter
-
-          where
-            iaa_filter.authorization_item_id =
-              i.id
-
-            and iaa_filter.status in (
-              'ALLOCATED',
-              'PARTIALLY_CONSUMED'
-            )
-
-            and (
-              iaa_filter.allocated_quantity
-              -
-              iaa_filter.consumed_quantity
-              -
-              iaa_filter.released_quantity
-            ) > 0
-        )
-      `);
-    }
-
-    /*
-     * OPERATIONAL ELIGIBILITY FILTER
-     *
-     * ASSIGNED y UNASSIGNED son estados de una AUTO
-     * actualmente operable.
-     *
-     * Una AUTO que no supera validación/vigencia queda
-     * OUT_OF_OPERATION mientras no exista un cumplimiento
-     * histórico que la cierre.
-     */
     if (
       filters.operationalStatus ===
         'ASSIGNED'
-      ||
+    ) {
+      conditions.push(sql`
+        ${this.operationalEligibility()}
+
+        and
+
+        ${remainingAuthorizedQuantityFilter}
+          > 0
+
+        and
+
+        ${remainingAssignedQuantityFilter}
+          >=
+        ${remainingAuthorizedQuantityFilter}
+      `);
+    }
+
+
+    if (
       filters.operationalStatus ===
         'PARTIALLY_ASSIGNED'
-      ||
+    ) {
+      conditions.push(sql`
+        ${this.operationalEligibility()}
+
+        and
+
+        ${remainingAuthorizedQuantityFilter}
+          > 0
+
+        and
+
+        ${remainingAssignedQuantityFilter}
+          > 0
+
+        and
+
+        ${remainingAssignedQuantityFilter}
+          <
+        ${remainingAuthorizedQuantityFilter}
+      `);
+    }
+
+
+    if (
       filters.operationalStatus ===
         'UNASSIGNED'
     ) {
-      conditions.push(
-        this.operationalEligibility(),
-      );
+      conditions.push(sql`
+        ${this.operationalEligibility()}
+
+        and
+
+        ${remainingAuthorizedQuantityFilter}
+          > 0
+
+        and
+
+        ${remainingAssignedQuantityFilter}
+          <= 0
+      `);
     }
 
 
@@ -1186,36 +1211,19 @@ export class AuthorizationQueryRepository {
         'OUT_OF_OPERATION'
     ) {
       conditions.push(sql`
-        not exists (
-          select 1
+        not (
+          ${authorizedQuantityFilter}
+            > 0
 
-          from
-            authorization_fulfillments
-              af_filter
+          and
 
-          where
-            af_filter.authorization_item_id =
-              i.id
+          ${remainingAuthorizedQuantityFilter}
+            = 0
         )
 
         and
 
-        not exists (
-          select 1
-
-          from
-            patient_applications
-              pa_filter
-
-          where
-            pa_filter.authorization_item_id =
-              i.id
-
-            and pa_filter.status =
-              'CONFIRMED'
-        )
-
-        and not (
+        not (
           ${this.operationalEligibility()}
         )
       `);
@@ -1411,6 +1419,2101 @@ export class AuthorizationQueryRepository {
               ', ',
             )
           : response.dispensingPointName,
+    };
+  }
+
+
+  async history(
+    id: string,
+    scope: Scope,
+  ) {
+    /*
+     * HISTORIAL DE AUTO
+     * =================
+     *
+     * Read model exclusivamente de consulta.
+     *
+     * No reconstruye estados inventados a partir del
+     * snapshot actual. Cada tarjeta nace de evidencia
+     * persistida:
+     *
+     * - authorization_items
+     * - purchase_order_authorization_sources
+     * - purchase_order_receipts / receipts
+     * - inventory_authorization_allocations
+     * - authorization_fulfillments
+     * - patient_applications
+     * - audit_events
+     *
+     * La reasignación utiliza el audit_event
+     * PURCHASE_ORDER_AUTHORIZATION_REASSIGNED porque
+     * purchase_order_authorization_sources e
+     * inventory_authorization_allocations cambian su FK
+     * hacia la AUTO destino.
+     */
+
+    type HistoryEvent = {
+      id: string;
+
+      type: string;
+
+      occurredAt: string;
+
+      title: string;
+
+      description: string;
+
+      actorName: string | null;
+
+      organizationCode: string | null;
+
+      details: Array<{
+        label: string;
+
+        value: string;
+      }>;
+    };
+
+
+    const authorization =
+      (
+        await this.database.db.execute<{
+          id: string;
+
+          authorization_key: string;
+
+          authorization_number: string;
+
+          commercial_code: string;
+
+          patient_name: string | null;
+
+          created_at: Date | string;
+
+          created_by_name: string | null;
+
+          organization_code: string | null;
+        }>(sql`
+          select
+            i.id,
+
+            i.authorization_key,
+
+            i.numero_autorizacion
+              as authorization_number,
+
+            i.codigo_medicamento
+              as commercial_code,
+
+            coalesce(
+              nullif(
+                btrim(
+                  i.source_data
+                    ->>
+                    'NOMBRE_PACIENTE'
+                ),
+                ''
+              ),
+              nullif(
+                btrim(
+                  i.source_data
+                    ->>
+                    'PACIENTE'
+                ),
+                ''
+              )
+            )
+              as patient_name,
+
+            i.created_at,
+
+            creator.display_name
+              as created_by_name,
+
+            import_org.code
+              as organization_code
+
+          from
+            authorization_items i
+
+          left join
+            import_batches ib
+              on ib.id =
+                 i.created_from_batch_id
+
+          left join
+            users creator
+              on creator.id =
+                 ib.created_by
+
+          left join
+            organizations import_org
+              on import_org.id =
+                 ib.organization_id
+
+          where
+            i.id =
+              ${id}
+
+            and ${this.visibility(scope)}
+
+          limit 1
+        `)
+      ).rows[0];
+
+
+    if (!authorization) {
+      return null;
+    }
+
+
+    const events:
+      HistoryEvent[] =
+      [];
+
+
+    events.push({
+      id:
+        `authorization-created:${authorization.id}`,
+
+      type:
+        'AUTHORIZATION_CREATED',
+
+      occurredAt:
+        toIsoTimestamp(
+          authorization.created_at,
+        ),
+
+      title:
+        'Autorización registrada',
+
+      description:
+        `Se registró la autorización ${authorization.authorization_number}${authorization.patient_name ? ` para ${authorization.patient_name}` : ''}.`,
+
+      actorName:
+        authorization.created_by_name,
+
+      organizationCode:
+        authorization.organization_code,
+
+      details: [
+        {
+          label:
+            'Autorización',
+
+          value:
+            authorization.authorization_number,
+        },
+
+        {
+          label:
+            'Producto',
+
+          value:
+            authorization.commercial_code,
+        },
+      ],
+    });
+
+
+    /*
+     * ======================================================
+     * REASIGNACIONES
+     * ======================================================
+     *
+     * Esta es la fuente histórica autoritativa.
+     *
+     * No depende del authorization_item_id actual de la
+     * allocation/source, porque esas FKs sí cambian durante
+     * una reasignación.
+     */
+    const reassignments =
+      await this.database.db.execute<{
+        id: string;
+
+        occurred_at: Date | string;
+
+        actor_name: string | null;
+
+        organization_code: string | null;
+
+        purchase_order_code: string | null;
+
+        commercial_code: string | null;
+
+        quantity: string | null;
+
+        origin_authorization_key: string | null;
+
+        destination_authorization_key: string | null;
+
+        origin_authorization_number: string | null;
+
+        destination_authorization_number: string | null;
+
+        origin_patient_name: string | null;
+
+        destination_patient_name: string | null;
+
+        dispensing_point_code: string | null;
+
+        dispensing_point_name: string | null;
+      }>(sql`
+        select
+          ae.id,
+
+          ae.occurred_at,
+
+          actor.display_name
+            as actor_name,
+
+          actor_org.code
+            as organization_code,
+
+          ae.after
+            ->>
+            'purchaseOrderCode'
+            as purchase_order_code,
+
+          ae.after
+            ->>
+            'commercialCode'
+            as commercial_code,
+
+          ae.after
+            ->>
+            'quantity'
+            as quantity,
+
+          ae.after
+            ->>
+            'originAuthorizationKey'
+            as origin_authorization_key,
+
+          ae.after
+            ->>
+            'destinationAuthorizationKey'
+            as destination_authorization_key,
+
+          origin_auto.numero_autorizacion
+            as origin_authorization_number,
+
+          destination_auto.numero_autorizacion
+            as destination_authorization_number,
+
+          coalesce(
+            origin_auto.source_data
+              ->>
+              'NOMBRE_PACIENTE',
+            origin_auto.source_data
+              ->>
+              'PACIENTE'
+          )
+            as origin_patient_name,
+
+          coalesce(
+            destination_auto.source_data
+              ->>
+              'NOMBRE_PACIENTE',
+            destination_auto.source_data
+              ->>
+              'PACIENTE'
+          )
+            as destination_patient_name,
+
+          dp.code
+            as dispensing_point_code,
+
+          dp.name
+            as dispensing_point_name
+
+        from
+          audit_events ae
+
+        left join
+          users actor
+            on actor.id =
+               ae.actor_id
+
+        left join
+          organizations actor_org
+            on actor_org.id =
+               ae.organization_id
+
+        left join
+          authorization_items origin_auto
+            on origin_auto.authorization_key =
+               ae.after
+                 ->>
+                 'originAuthorizationKey'
+
+        left join
+          authorization_items destination_auto
+            on destination_auto.authorization_key =
+               ae.after
+                 ->>
+                 'destinationAuthorizationKey'
+
+        left join
+          dispensing_points dp
+            on dp.id::text =
+               ae.after
+                 ->>
+                 'dispensingPointId'
+
+        where
+          ae.action =
+            'PURCHASE_ORDER_AUTHORIZATION_REASSIGNED'
+
+          and ae.result =
+            'SUCCESS'
+
+          and (
+            ae.after
+              ->>
+              'originAuthorizationKey'
+              =
+              ${authorization.authorization_key}
+
+            or
+
+            ae.after
+              ->>
+              'destinationAuthorizationKey'
+              =
+              ${authorization.authorization_key}
+          )
+
+        order by
+          ae.occurred_at,
+          ae.id
+      `);
+
+
+    const inboundReassignmentOrders =
+      new Set<string>();
+
+
+    for (
+      const row of
+      reassignments.rows
+    ) {
+      const isOrigin =
+        row.origin_authorization_key ===
+          authorization.authorization_key;
+
+
+      if (
+        !isOrigin &&
+        row.purchase_order_code
+      ) {
+        inboundReassignmentOrders.add(
+          row.purchase_order_code,
+        );
+      }
+
+
+      const originNumber =
+        row.origin_authorization_number
+        ??
+        row.origin_authorization_key
+        ??
+        'AUTO origen no identificada';
+
+
+      const destinationNumber =
+        row.destination_authorization_number
+        ??
+        row.destination_authorization_key
+        ??
+        'AUTO destino no identificada';
+
+
+      const originReference =
+        row.origin_patient_name
+          ? `${originNumber} · ${row.origin_patient_name}`
+          : originNumber;
+
+
+      const destinationReference =
+        row.destination_patient_name
+          ? `${destinationNumber} · ${row.destination_patient_name}`
+          : destinationNumber;
+
+
+      events.push({
+        id:
+          `reassignment:${row.id}:${isOrigin ? 'out' : 'in'}`,
+
+        type:
+          isOrigin
+            ? 'REASSIGNMENT_OUT'
+            : 'REASSIGNMENT_IN',
+
+        occurredAt:
+          toIsoTimestamp(
+            row.occurred_at,
+          ),
+
+        title:
+          isOrigin
+            ? 'Producto reasignado'
+            : 'Producto recibido por reasignación',
+
+        description:
+          `La reserva fue reasignada desde ${originReference} hacia ${destinationReference}.`,
+
+        actorName:
+          row.actor_name,
+
+        organizationCode:
+          row.organization_code,
+
+        details: [
+          ...(
+            row.purchase_order_code
+              ? [
+                  {
+                    label:
+                      'Orden de compra',
+
+                    value:
+                      row.purchase_order_code,
+                  },
+                ]
+              : []
+          ),
+
+          ...(
+            row.commercial_code
+              ? [
+                  {
+                    label:
+                      'Producto',
+
+                    value:
+                      row.commercial_code,
+                  },
+                ]
+              : []
+          ),
+
+          ...(
+            row.quantity
+              ? [
+                  {
+                    label:
+                      'Cantidad',
+
+                    value:
+                      row.quantity,
+                  },
+                ]
+              : []
+          ),
+
+          {
+            label:
+              'Desde · AUTO origen',
+
+            value:
+              originReference,
+          },
+
+          {
+            label:
+              'Hacia · AUTO destino',
+
+            value:
+              destinationReference,
+          },
+
+          ...(
+            row.dispensing_point_code
+              ? [
+                  {
+                    label:
+                      'Punto',
+
+                    value:
+                      row.dispensing_point_name
+                        ? `${row.dispensing_point_code} · ${row.dispensing_point_name}`
+                        : row.dispensing_point_code,
+                  },
+                ]
+              : []
+          ),
+        ],
+      });
+    }
+
+
+    /*
+     * ======================================================
+     * AUTO -> OC
+     * ======================================================
+     */
+    const purchaseOrders =
+      await this.database.db.execute<{
+        id: string;
+
+        purchase_order_code: string;
+
+        occurred_at: Date | string;
+
+        quantity: number;
+
+        actor_name: string | null;
+
+        dispensing_point_code: string | null;
+
+        dispensing_point_name: string | null;
+      }>(sql`
+        select
+          po.id,
+
+          coalesce(
+            po.purchase_order_code,
+            po.id::text
+          )
+            as purchase_order_code,
+
+          min(
+            poas.created_at
+          )
+            as occurred_at,
+
+          coalesce(
+            sum(
+              poas.source_quantity_snapshot
+            ),
+            0
+          )::int
+            as quantity,
+
+          creator.display_name
+            as actor_name,
+
+          string_agg(
+            distinct
+              dp.code,
+            ', '
+          )
+            as dispensing_point_code,
+
+          string_agg(
+            distinct
+              dp.name,
+            ', '
+          )
+            as dispensing_point_name
+
+        from
+          purchase_order_authorization_sources poas
+
+        join
+          purchase_order_lines pol
+            on pol.id =
+               poas.purchase_order_line_id
+
+        join
+          purchase_orders po
+            on po.id =
+               pol.purchase_order_id
+
+        left join
+          dispensing_points dp
+            on dp.id =
+               pol.dispensing_point_id
+
+        left join
+          users creator
+            on creator.id =
+               po.created_by
+
+        where
+          poas.authorization_item_id =
+            ${id}
+
+        group by
+          po.id,
+          po.purchase_order_code,
+          creator.display_name
+
+        order by
+          min(
+            poas.created_at
+          ),
+          po.id
+      `);
+
+
+    for (
+      const row of
+      purchaseOrders.rows
+    ) {
+      /*
+       * Si esta OC llegó a la AUTO mediante una
+       * reasignación, su evento real es REASSIGNMENT_IN.
+       *
+       * No debemos presentar el created_at histórico de
+       * purchase_order_authorization_sources como si la
+       * AUTO destino hubiera estado allí desde el inicio.
+       */
+      if (
+        inboundReassignmentOrders.has(
+          row.purchase_order_code,
+        )
+      ) {
+        continue;
+      }
+
+
+      events.push({
+        id:
+          `purchase-order:${row.id}`,
+
+        type:
+          'PURCHASE_ORDER_LINKED',
+
+        occurredAt:
+          toIsoTimestamp(
+            row.occurred_at,
+          ),
+
+        title:
+          'Orden de compra relacionada',
+
+        description:
+          `Esta autorización fue incluida como fuente de la OC ${row.purchase_order_code}.`,
+
+        actorName:
+          row.actor_name,
+
+        organizationCode:
+          null,
+
+        details: [
+          {
+            label:
+              'Orden de compra',
+
+            value:
+              row.purchase_order_code,
+          },
+
+          {
+            label:
+              'Cantidad vinculada',
+
+            value:
+              String(
+                row.quantity,
+              ),
+          },
+
+          ...(
+            row.dispensing_point_code
+              ? [
+                  {
+                    label:
+                      'Punto',
+
+                    value:
+                      row.dispensing_point_name
+                        ? `${row.dispensing_point_code} · ${row.dispensing_point_name}`
+                        : row.dispensing_point_code,
+                  },
+                ]
+              : []
+          ),
+        ],
+      });
+    }
+
+
+    /*
+     * ======================================================
+     * RECEPCIÓN MODERNA
+     * purchase_order_receipts
+     * ======================================================
+     */
+    const directReceipts =
+      await this.database.db.execute<{
+        id: string;
+
+        purchase_order_code: string;
+
+        occurred_at: Date | string;
+
+        quantity: number;
+
+        actor_name: string | null;
+
+        dispensing_point_code: string | null;
+
+        dispensing_point_name: string | null;
+      }>(sql`
+        select
+          por.id,
+
+          coalesce(
+            po.purchase_order_code,
+            po.id::text
+          )
+            as purchase_order_code,
+
+          por.confirmed_at
+            as occurred_at,
+
+          coalesce(
+            sum(
+              porl.received_quantity
+            ),
+            0
+          )::int
+            as quantity,
+
+          confirmer.display_name
+            as actor_name,
+
+          string_agg(
+            distinct
+              dp.code,
+            ', '
+          )
+            as dispensing_point_code,
+
+          string_agg(
+            distinct
+              dp.name,
+            ', '
+          )
+            as dispensing_point_name
+
+        from
+          purchase_order_receipts por
+
+        join
+          purchase_order_receipt_lines porl
+            on porl.receipt_id =
+               por.id
+
+        join
+          purchase_order_lines pol
+            on pol.id =
+               porl.purchase_order_line_id
+
+        join
+          purchase_orders po
+            on po.id =
+               por.purchase_order_id
+
+        join
+          purchase_order_authorization_sources poas
+            on poas.purchase_order_line_id =
+               pol.id
+
+           and poas.authorization_item_id =
+               ${id}
+
+        left join
+          dispensing_points dp
+            on dp.id =
+               pol.dispensing_point_id
+
+        left join
+          users confirmer
+            on confirmer.id =
+               por.confirmed_by
+
+        where
+          porl.received_quantity >
+            0
+
+        group by
+          por.id,
+          po.id,
+          po.purchase_order_code,
+          por.confirmed_at,
+          confirmer.display_name
+
+        order by
+          por.confirmed_at,
+          por.id
+      `);
+
+
+    for (
+      const row of
+      directReceipts.rows
+    ) {
+      events.push({
+        id:
+          `direct-receipt:${row.id}`,
+
+        type:
+          'PRODUCT_RECEIVED',
+
+        occurredAt:
+          toIsoTimestamp(
+            row.occurred_at,
+          ),
+
+        title:
+          'Producto recibido',
+
+        description:
+          `Se confirmó la recepción de producto de la OC ${row.purchase_order_code}.`,
+
+        actorName:
+          row.actor_name,
+
+        organizationCode:
+          null,
+
+        details: [
+          {
+            label:
+              'Orden de compra',
+
+            value:
+              row.purchase_order_code,
+          },
+
+          {
+            label:
+              'Cantidad recibida',
+
+            value:
+              String(
+                row.quantity,
+              ),
+          },
+
+          ...(
+            row.dispensing_point_code
+              ? [
+                  {
+                    label:
+                      'Punto',
+
+                    value:
+                      row.dispensing_point_name
+                        ? `${row.dispensing_point_code} · ${row.dispensing_point_name}`
+                        : row.dispensing_point_code,
+                  },
+                ]
+              : []
+          ),
+        ],
+      });
+    }
+
+
+    /*
+     * ======================================================
+     * RECEPCIÓN LOGÍSTICA LEGACY/DELIVERY
+     * receipts + deliveries
+     * ======================================================
+     */
+    const logisticsReceipts =
+      await this.database.db.execute<{
+        id: string;
+
+        purchase_order_code: string;
+
+        occurred_at: Date | string;
+
+        quantity: number;
+
+        actor_name: string | null;
+
+        dispensing_point_code: string | null;
+
+        dispensing_point_name: string | null;
+      }>(sql`
+        select
+          r.id,
+
+          coalesce(
+            po.purchase_order_code,
+            po.id::text
+          )
+            as purchase_order_code,
+
+          coalesce(
+            r.confirmed_at,
+            r.received_at
+          )
+            as occurred_at,
+
+          coalesce(
+            sum(
+              rl.received_quantity
+            ),
+            0
+          )::int
+            as quantity,
+
+          confirmer.display_name
+            as actor_name,
+
+          string_agg(
+            distinct
+              dp.code,
+            ', '
+          )
+            as dispensing_point_code,
+
+          string_agg(
+            distinct
+              dp.name,
+            ', '
+          )
+            as dispensing_point_name
+
+        from
+          receipts r
+
+        join
+          deliveries d
+            on d.id =
+               r.delivery_id
+
+        join
+          receipt_lines rl
+            on rl.receipt_id =
+               r.id
+
+        join
+          delivery_lines dl
+            on dl.id =
+               rl.delivery_line_id
+
+        join
+          purchase_order_lines pol
+            on pol.id =
+               dl.purchase_order_line_id
+
+        join
+          purchase_orders po
+            on po.id =
+               d.purchase_order_id
+
+        join
+          purchase_order_authorization_sources poas
+            on poas.purchase_order_line_id =
+               pol.id
+
+           and poas.authorization_item_id =
+               ${id}
+
+        left join
+          dispensing_points dp
+            on dp.id =
+               dl.dispensing_point_id
+
+        left join
+          users confirmer
+            on confirmer.id =
+               r.updated_by
+
+        where
+          r.status =
+            'CONFIRMED'
+
+          and rl.received_quantity >
+            0
+
+        group by
+          r.id,
+          po.id,
+          po.purchase_order_code,
+          r.confirmed_at,
+          r.received_at,
+          confirmer.display_name
+
+        order by
+          coalesce(
+            r.confirmed_at,
+            r.received_at
+          ),
+          r.id
+      `);
+
+
+    for (
+      const row of
+      logisticsReceipts.rows
+    ) {
+      events.push({
+        id:
+          `logistics-receipt:${row.id}`,
+
+        type:
+          'PRODUCT_RECEIVED',
+
+        occurredAt:
+          toIsoTimestamp(
+            row.occurred_at,
+          ),
+
+        title:
+          'Producto recibido',
+
+        description:
+          `MEDICARTE confirmó la recepción del producto relacionado con la OC ${row.purchase_order_code}.`,
+
+        actorName:
+          row.actor_name,
+
+        organizationCode:
+          null,
+
+        details: [
+          {
+            label:
+              'Orden de compra',
+
+            value:
+              row.purchase_order_code,
+          },
+
+          {
+            label:
+              'Cantidad recibida',
+
+            value:
+              String(
+                row.quantity,
+              ),
+          },
+
+          ...(
+            row.dispensing_point_code
+              ? [
+                  {
+                    label:
+                      'Punto',
+
+                    value:
+                      row.dispensing_point_name
+                        ? `${row.dispensing_point_code} · ${row.dispensing_point_name}`
+                        : row.dispensing_point_code,
+                  },
+                ]
+              : []
+          ),
+        ],
+      });
+    }
+
+
+    /*
+     * ======================================================
+     * RESERVA / ALLOCATION
+     * ======================================================
+     */
+    const allocations =
+      await this.database.db.execute<{
+        id: string;
+
+        occurred_at: Date | string;
+
+        quantity: number;
+
+        purchase_order_code: string;
+
+        dispensing_point_code: string | null;
+
+        dispensing_point_name: string | null;
+
+        actor_name: string | null;
+      }>(sql`
+        select
+          iaa.id,
+
+          iaa.created_at
+            as occurred_at,
+
+          iaa.allocated_quantity
+            as quantity,
+
+          coalesce(
+            po.purchase_order_code,
+            po.id::text
+          )
+            as purchase_order_code,
+
+          dp.code
+            as dispensing_point_code,
+
+          dp.name
+            as dispensing_point_name,
+
+          creator.display_name
+            as actor_name
+
+        from
+          inventory_authorization_allocations iaa
+
+        join
+          purchase_orders po
+            on po.id =
+               iaa.purchase_order_id
+
+        left join
+          dispensing_points dp
+            on dp.id =
+               iaa.dispensing_point_id
+
+        left join
+          users creator
+            on creator.id =
+               iaa.created_by
+
+        where
+          iaa.authorization_item_id =
+            ${id}
+
+        order by
+          iaa.created_at,
+          iaa.id
+      `);
+
+
+    for (
+      const row of
+      allocations.rows
+    ) {
+      /*
+       * La fila física conserva su created_at original
+       * cuando cambia de AUTO.
+       *
+       * Si la AUTO recibió esta reserva por reasignación,
+       * no debemos mostrarla como una asignación ocurrida
+       * antes de la propia reasignación.
+       */
+      if (
+        inboundReassignmentOrders.has(
+          row.purchase_order_code,
+        )
+      ) {
+        continue;
+      }
+
+
+      events.push({
+        id:
+          `allocation:${row.id}`,
+
+        type:
+          'INVENTORY_ASSIGNED',
+
+        occurredAt:
+          toIsoTimestamp(
+            row.occurred_at,
+          ),
+
+        title:
+          'Producto asignado a la autorización',
+
+        description:
+          `Se reservaron ${row.quantity} unidad(es) para esta autorización.`,
+
+        actorName:
+          row.actor_name,
+
+        organizationCode:
+          null,
+
+        details: [
+          {
+            label:
+              'Cantidad asignada',
+
+            value:
+              String(
+                row.quantity,
+              ),
+          },
+
+          {
+            label:
+              'Orden de compra',
+
+            value:
+              row.purchase_order_code,
+          },
+
+          ...(
+            row.dispensing_point_code
+              ? [
+                  {
+                    label:
+                      'Punto',
+
+                    value:
+                      row.dispensing_point_name
+                        ? `${row.dispensing_point_code} · ${row.dispensing_point_name}`
+                        : row.dispensing_point_code,
+                  },
+                ]
+              : []
+          ),
+        ],
+      });
+    }
+
+
+    /*
+     * ======================================================
+     * ENTREGA / APLICACIÓN MODERNA
+     * ======================================================
+     */
+    const fulfillments =
+      await this.database.db.execute<{
+        id: string;
+
+        fulfillment_type: string;
+
+        effective_date: string;
+
+        quantity: number;
+
+        confirmed_at: Date | string;
+
+        source: string;
+
+        actor_name: string | null;
+
+        organization_code: string | null;
+      }>(sql`
+        select
+          af.id,
+
+          af.fulfillment_type,
+
+          af.effective_date::text
+            as effective_date,
+
+          af.quantity,
+
+          af.confirmed_at,
+
+          af.source,
+
+          confirmer.display_name
+            as actor_name,
+
+          fulfillment_org.code
+            as organization_code
+
+        from
+          authorization_fulfillments af
+
+        left join
+          users confirmer
+            on confirmer.id =
+               af.confirmed_by
+
+        left join
+          organizations fulfillment_org
+            on fulfillment_org.id =
+               af.organization_id
+
+        where
+          af.authorization_item_id =
+            ${id}
+
+        order by
+          af.confirmed_at,
+          af.id
+      `);
+
+
+    for (
+      const row of
+      fulfillments.rows
+    ) {
+      const application =
+        row.fulfillment_type ===
+          'APPLICATION';
+
+
+      events.push({
+        id:
+          `fulfillment:${row.id}`,
+
+        type:
+          application
+            ? 'APPLICATION_RECORDED'
+            : 'DELIVERY_RECORDED',
+
+        occurredAt:
+          toIsoTimestamp(
+            row.confirmed_at,
+          ),
+
+        title:
+          application
+            ? 'Aplicación registrada'
+            : 'Entrega registrada',
+
+        description:
+          application
+            ? `Se registró la aplicación de ${row.quantity} unidad(es) al paciente.`
+            : `Se registró la entrega de ${row.quantity} unidad(es) al paciente.`,
+
+        actorName:
+          row.actor_name,
+
+        organizationCode:
+          row.organization_code,
+
+        details: [
+          {
+            label:
+              'Cantidad',
+
+            value:
+              String(
+                row.quantity,
+              ),
+          },
+
+          {
+            label:
+              'Fecha efectiva',
+
+            value:
+              row.effective_date,
+          },
+
+          {
+            label:
+              'Origen del registro',
+
+            value:
+              row.source,
+          },
+        ],
+      });
+    }
+
+
+    /*
+     * ======================================================
+     * APLICACIÓN HISTÓRICA / LEGACY
+     * ======================================================
+     */
+    const applications =
+      await this.database.db.execute<{
+        id: string;
+
+        application_date: string;
+
+        confirmed_at: Date | string;
+
+        quantity: number;
+
+        actor_name: string | null;
+
+        dispensing_point_code: string | null;
+
+        dispensing_point_name: string | null;
+      }>(sql`
+        select
+          pa.id,
+
+          pa.application_date::text
+            as application_date,
+
+          coalesce(
+            pa.confirmed_at,
+            pa.updated_at
+          )
+            as confirmed_at,
+
+          coalesce(
+            sum(
+              pal.quantity
+            ),
+            0
+          )::int
+            as quantity,
+
+          confirmer.display_name
+            as actor_name,
+
+          dp.code
+            as dispensing_point_code,
+
+          dp.name
+            as dispensing_point_name
+
+        from
+          patient_applications pa
+
+        left join
+          patient_application_lines pal
+            on pal.patient_application_id =
+               pa.id
+
+        left join
+          users confirmer
+            on confirmer.id =
+               pa.confirmed_by
+
+        left join
+          dispensing_points dp
+            on dp.id =
+               pa.dispensing_point_id
+
+        where
+          pa.authorization_item_id =
+            ${id}
+
+          and pa.status =
+            'CONFIRMED'
+
+        group by
+          pa.id,
+          pa.application_date,
+          pa.confirmed_at,
+          pa.updated_at,
+          confirmer.display_name,
+          dp.code,
+          dp.name
+
+        order by
+          coalesce(
+            pa.confirmed_at,
+            pa.updated_at
+          ),
+          pa.id
+      `);
+
+
+    for (
+      const row of
+      applications.rows
+    ) {
+      events.push({
+        id:
+          `patient-application:${row.id}`,
+
+        type:
+          'APPLICATION_RECORDED',
+
+        occurredAt:
+          toIsoTimestamp(
+            row.confirmed_at,
+          ),
+
+        title:
+          'Aplicación registrada',
+
+        description:
+          `Se confirmó la aplicación de ${row.quantity} unidad(es) al paciente.`,
+
+        actorName:
+          row.actor_name,
+
+        organizationCode:
+          null,
+
+        details: [
+          {
+            label:
+              'Cantidad',
+
+            value:
+              String(
+                row.quantity,
+              ),
+          },
+
+          {
+            label:
+              'Fecha efectiva',
+
+            value:
+              row.application_date,
+          },
+
+          ...(
+            row.dispensing_point_code
+              ? [
+                  {
+                    label:
+                      'Punto',
+
+                    value:
+                      row.dispensing_point_name
+                        ? `${row.dispensing_point_code} · ${row.dispensing_point_name}`
+                        : row.dispensing_point_code,
+                  },
+                ]
+              : []
+          ),
+        ],
+      });
+    }
+
+
+    /*
+     * ======================================================
+     * OTRAS ACCIONES AUDITADAS SOBRE LA AUTO
+     * ======================================================
+     */
+    const auditedActions =
+      await this.database.db.execute<{
+        id: string;
+
+        occurred_at: Date | string;
+
+        action: string;
+
+        actor_name: string | null;
+
+        organization_code: string | null;
+
+        before_commercial_code: string | null;
+
+        after_commercial_code: string | null;
+
+        before_quantity: string | null;
+
+        after_quantity: string | null;
+
+        before_validity_end_date: string | null;
+
+        after_validity_end_date: string | null;
+      }>(sql`
+        select
+          ae.id,
+
+          ae.occurred_at,
+
+          ae.action,
+
+          actor.display_name
+            as actor_name,
+
+          actor_org.code
+            as organization_code,
+
+          coalesce(
+            nullif(
+              ae.before
+                ->>
+                'commercialCode',
+              ''
+            ),
+            nullif(
+              ae.before
+                ->>
+                'codigoMedicamento',
+              ''
+            ),
+            nullif(
+              ae.before
+                ->>
+                'commercial_code',
+              ''
+            )
+          )
+            as before_commercial_code,
+
+          coalesce(
+            nullif(
+              ae.after
+                ->>
+                'commercialCode',
+              ''
+            ),
+            nullif(
+              ae.after
+                ->>
+                'codigoMedicamento',
+              ''
+            ),
+            nullif(
+              ae.after
+                ->>
+                'commercial_code',
+              ''
+            )
+          )
+            as after_commercial_code,
+
+          coalesce(
+            nullif(
+              ae.before
+                ->>
+                'quantity',
+              ''
+            ),
+            nullif(
+              ae.before
+                ->>
+                'authorizedQuantity',
+              ''
+            ),
+            nullif(
+              ae.before
+                ->>
+                'cantidad',
+              ''
+            ),
+            nullif(
+              ae.before
+                ->>
+                'CANTIDAD',
+              ''
+            )
+          )
+            as before_quantity,
+
+          coalesce(
+            nullif(
+              ae.after
+                ->>
+                'quantity',
+              ''
+            ),
+            nullif(
+              ae.after
+                ->>
+                'authorizedQuantity',
+              ''
+            ),
+            nullif(
+              ae.after
+                ->>
+                'cantidad',
+              ''
+            ),
+            nullif(
+              ae.after
+                ->>
+                'CANTIDAD',
+              ''
+            )
+          )
+            as after_quantity,
+
+          coalesce(
+            nullif(
+              ae.before
+                ->>
+                'validityEndDate',
+              ''
+            ),
+            nullif(
+              ae.before
+                ->>
+                'validity_end_date',
+              ''
+            ),
+            nullif(
+              ae.before
+                ->>
+                'FECHA_FINAL_VIGENCIA',
+              ''
+            )
+          )
+            as before_validity_end_date,
+
+          coalesce(
+            nullif(
+              ae.after
+                ->>
+                'validityEndDate',
+              ''
+            ),
+            nullif(
+              ae.after
+                ->>
+                'validity_end_date',
+              ''
+            ),
+            nullif(
+              ae.after
+                ->>
+                'FECHA_FINAL_VIGENCIA',
+              ''
+            )
+          )
+            as after_validity_end_date
+
+        from
+          audit_events ae
+
+        left join
+          users actor
+            on actor.id =
+               ae.actor_id
+
+        left join
+          organizations actor_org
+            on actor_org.id =
+               ae.organization_id
+
+        where
+          ae.result =
+            'SUCCESS'
+
+          and (
+            ae.resource_id =
+              ${id}::text
+
+            or
+
+            ae.after
+              ->>
+              'authorizationItemId'
+              =
+              ${id}::text
+          )
+
+          and (
+            upper(
+              ae.action
+            ) like
+              '%EDIT%'
+
+            or
+
+            upper(
+              ae.action
+            ) like
+              '%UPDATE%'
+
+            or
+
+            upper(
+              ae.action
+            ) like
+              '%AUDIT%'
+          )
+
+        order by
+          ae.occurred_at,
+          ae.id
+      `);
+
+
+    for (
+      const row of
+      auditedActions.rows
+    ) {
+      const action =
+        row.action.toUpperCase();
+
+
+      /*
+       * ====================================================
+       * EDICIÓN / ACTUALIZACIÓN DE LA AUTO
+       * ====================================================
+       *
+       * El historial debe explicar QUÉ cambió.
+       *
+       * No basta con mostrar:
+       * "Autorización modificada".
+       */
+      if (
+        action.includes(
+          'EDIT',
+        )
+        ||
+        action.includes(
+          'UPDATE',
+        )
+      ) {
+        const changes:
+          Array<{
+            label: string;
+
+            before: string | null;
+
+            after: string | null;
+          }> =
+          [];
+
+
+        if (
+          row.before_commercial_code !==
+            row.after_commercial_code
+          &&
+          (
+            row.before_commercial_code
+            ||
+            row.after_commercial_code
+          )
+        ) {
+          changes.push({
+            label:
+              'Producto',
+
+            before:
+              row.before_commercial_code,
+
+            after:
+              row.after_commercial_code,
+          });
+        }
+
+
+        if (
+          row.before_quantity !==
+            row.after_quantity
+          &&
+          (
+            row.before_quantity
+            ||
+            row.after_quantity
+          )
+        ) {
+          changes.push({
+            label:
+              'Cantidad autorizada',
+
+            before:
+              row.before_quantity,
+
+            after:
+              row.after_quantity,
+          });
+        }
+
+
+        if (
+          row.before_validity_end_date !==
+            row.after_validity_end_date
+          &&
+          (
+            row.before_validity_end_date
+            ||
+            row.after_validity_end_date
+          )
+        ) {
+          changes.push({
+            label:
+              'Vigencia',
+
+            before:
+              row.before_validity_end_date,
+
+            after:
+              row.after_validity_end_date,
+          });
+        }
+
+
+        let title =
+          'Autorización modificada';
+
+        let description =
+          'Se modificó información de la autorización.';
+
+
+        if (
+          changes.length ===
+          1
+        ) {
+          const field =
+            changes[0]!;
+
+
+          if (
+            field.label ===
+              'Producto'
+          ) {
+            title =
+              'Producto modificado';
+
+            description =
+              'Se modificó el producto asociado a la autorización.';
+          } else if (
+            field.label ===
+              'Cantidad autorizada'
+          ) {
+            title =
+              'Cantidad autorizada modificada';
+
+            description =
+              'Se modificó la cantidad autorizada.';
+          } else if (
+            field.label ===
+              'Vigencia'
+          ) {
+            title =
+              'Vigencia modificada';
+
+            description =
+              'Se modificó la fecha final de vigencia.';
+          }
+        } else if (
+          changes.length >
+          1
+        ) {
+          description =
+            `Se modificaron ${changes.length} campos de la autorización.`;
+        }
+
+
+        events.push({
+          id:
+            `audit:${row.id}`,
+
+          type:
+            'AUTHORIZATION_UPDATED',
+
+          occurredAt:
+            toIsoTimestamp(
+              row.occurred_at,
+            ),
+
+          title,
+
+          description,
+
+          actorName:
+            row.actor_name,
+
+          organizationCode:
+            row.organization_code,
+
+          details:
+            changes.length >
+              0
+              ? changes.map(
+                  (
+                    change,
+                  ) => ({
+                    label:
+                      change.label,
+
+                    value:
+                      `${change.before ?? 'Sin valor'} → ${change.after ?? 'Sin valor'}`,
+                  }),
+                )
+              : [
+                  {
+                    label:
+                      'Tipo de acción',
+
+                    value:
+                      row.action,
+                  },
+                ],
+        });
+
+
+        continue;
+      }
+
+
+      /*
+       * ====================================================
+       * AUDITORÍA
+       * ====================================================
+       */
+      let title =
+        'Auditoría registrada';
+
+      let description =
+        'Se registró una acción de auditoría sobre esta autorización.';
+
+
+      if (
+        action.includes(
+          'APPROV',
+        )
+      ) {
+        title =
+          'Auditoría aprobada';
+
+        description =
+          'La auditoría relacionada con esta autorización fue aprobada.';
+      } else if (
+        action.includes(
+          'REJECT',
+        )
+      ) {
+        title =
+          'Auditoría rechazada';
+
+        description =
+          'La auditoría relacionada con esta autorización fue rechazada.';
+      }
+
+
+      events.push({
+        id:
+          `audit:${row.id}`,
+
+        type:
+          'AUDITED_ACTION',
+
+        occurredAt:
+          toIsoTimestamp(
+            row.occurred_at,
+          ),
+
+        title,
+
+        description,
+
+        actorName:
+          row.actor_name,
+
+        organizationCode:
+          row.organization_code,
+
+        details: [
+          {
+            label:
+              'Acción',
+
+            value:
+              row.action,
+          },
+        ],
+      });
+    }
+
+
+    /*
+     * Más reciente primero.
+     */
+    events.sort(
+      (
+        left,
+        right,
+      ) =>
+        new Date(
+          right.occurredAt,
+        ).getTime()
+        -
+        new Date(
+          left.occurredAt,
+        ).getTime(),
+    );
+
+
+    return {
+      authorizationItemId:
+        id,
+
+      authorizationNumber:
+        authorization.authorization_number,
+
+      items:
+        events,
     };
   }
 
@@ -1896,6 +3999,16 @@ export class AuthorizationQueryRepository {
         end
       `;
 
+    const authorizedQuantity =
+      this.authorizedQuantitySql();
+
+    const fulfilledQuantity =
+      this.fulfilledQuantitySql();
+
+    const remainingAuthorizedQuantity =
+      this.remainingAuthorizedQuantitySql();
+
+
     /*
      * CLOSED tiene prioridad absoluta de salida:
      * cualquier AUTO cerrada va después de todas las
@@ -1905,18 +4018,22 @@ export class AuthorizationQueryRepository {
       sql`
         case
           when
-            fulfillment.id
-              is not null
+            ${authorizedQuantity}
+              > 0
 
-            or
+            and
 
-            legacy_application.id
-              is not null
-          then 1
+            ${remainingAuthorizedQuantity}
+              = 0
 
-          else 0
+          then
+            1
+
+          else
+            0
         end
       `;
+
 
     /*
      * Entre AUTO activas:
@@ -1972,6 +4089,11 @@ export class AuthorizationQueryRepository {
 
         i.source_data
           ->>
+          'DOSIS'
+          as dosage,
+
+        i.source_data
+          ->>
           'CANTIDAD'
           as quantity,
 
@@ -2002,29 +4124,36 @@ export class AuthorizationQueryRepository {
 
         case
           when
-            fulfillment.id
-            is not null
+            ${authorizedQuantity}
+              > 0
+
+            and
+
+            ${remainingAuthorizedQuantity}
+              = 0
+
           then
             'FULFILLED'
 
           when
-            legacy_application.id
-            is not null
+            ${fulfilledQuantity}
+              > 0
+
           then
-            'APPLIED'
+            'PARTIALLY_FULFILLED'
 
           when
             coalesce(
               allocation.remaining_quantity,
               0
-            )
-            >
-            0
+            ) > 0
+
           then
             'INVENTORY_ASSIGNED'
 
           when exists (
-            select 1
+            select
+              1
 
             from
               patient_schedules ps
@@ -2038,6 +4167,7 @@ export class AuthorizationQueryRepository {
                 'RESCHEDULED'
               )
           )
+
           then
             'SCHEDULED'
 
@@ -2048,13 +4178,14 @@ export class AuthorizationQueryRepository {
 
         case
           when
-            fulfillment.id
-            is not null
+            ${authorizedQuantity}
+              > 0
 
-            or
+            and
 
-            legacy_application.id
-            is not null
+            ${remainingAuthorizedQuantity}
+              = 0
+
           then
             'CLOSED'
 
@@ -2063,13 +4194,24 @@ export class AuthorizationQueryRepository {
               allocation.remaining_quantity,
               0
             )
-            >
-            0
+            <= 0
+
           then
-            'ASSIGNED'
+            'UNASSIGNED'
+
+          when
+            coalesce(
+              allocation.remaining_quantity,
+              0
+            )
+            <
+            ${remainingAuthorizedQuantity}
+
+          then
+            'PARTIALLY_ASSIGNED'
 
           else
-            'UNASSIGNED'
+            'ASSIGNED'
         end
           as operational_status,
 
@@ -2084,6 +4226,12 @@ export class AuthorizationQueryRepository {
           0
         )::int
           as remaining_assigned_quantity,
+
+        ${fulfilledQuantity}::int
+          as fulfilled_quantity,
+
+        ${remainingAuthorizedQuantity}::int
+          as remaining_authorized_quantity,
 
         coalesce(
           allocation.purchase_order,
@@ -2450,6 +4598,12 @@ export class AuthorizationQueryRepository {
           af.authorization_item_id =
             i.id
 
+        order by
+          af.confirmed_at
+            desc,
+          af.id
+            desc
+
         limit 1
       ) fulfillment
         on true
@@ -2608,6 +4762,41 @@ export class AuthorizationQueryRepository {
     row:
       AuthorizationQueryRow,
   ) {
+    const authorizedQuantity =
+      Math.max(
+        Number(
+          row.quantity
+          ??
+          0,
+        ),
+        0,
+      );
+
+    const fulfilledQuantity =
+      Math.max(
+        Number(
+          row.fulfilled_quantity
+          ??
+          0,
+        ),
+        0,
+      );
+
+    const remainingAuthorizedQuantity =
+      Math.max(
+        Number(
+          row.remaining_authorized_quantity
+          ??
+          (
+            authorizedQuantity
+            -
+            fulfilledQuantity
+          ),
+        ),
+        0,
+      );
+
+
     const fulfillment =
       row.fulfillment_id
         ? {
@@ -2719,8 +4908,13 @@ export class AuthorizationQueryRepository {
       initialValidationStatus ===
         'PASSED'
       &&
-      validityStatus ===
-        'IN_WINDOW';
+      (
+        validityStatus ===
+          'IN_WINDOW'
+        ||
+        validityStatus ===
+          'EXPIRED'
+      );
 
     return {
       id:
@@ -2741,8 +4935,23 @@ export class AuthorizationQueryRepository {
       patientName:
         row.patient_name,
 
+      dosage:
+        row.dosage,
+
       quantity:
         row.quantity,
+
+      authorizedQuantity,
+
+      fulfilledQuantity,
+
+      remainingAuthorizedQuantity,
+
+      fulfillmentProgressStatus:
+        resolveAuthorizationFulfillmentProgressStatus({
+          authorizedQuantity,
+          fulfilledQuantity,
+        }),
 
       assignmentDate:
         row.assignment_date,
@@ -2783,10 +4992,7 @@ export class AuthorizationQueryRepository {
 
       operationalStatus:
         resolveAuthorizationOperationalStatus({
-          hasFulfillment:
-            Boolean(
-              row.fulfillment_id,
-            ),
+          fulfilledQuantity,
 
           operationalEligible,
 
@@ -2797,12 +5003,7 @@ export class AuthorizationQueryRepository {
               0,
             ),
 
-          authorizedQuantity:
-            Number(
-              row.quantity
-              ??
-              0,
-            ),
+          authorizedQuantity,
         }),
 
       allocatedQuantity:

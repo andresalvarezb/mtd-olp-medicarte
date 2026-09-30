@@ -423,28 +423,57 @@ beforeAll(
     }
 
 
+    /*
+     * Fixture autocontenido.
+     *
+     * La base E2E recién reseteada no tiene por qué contener
+     * import_batches previos. authorization_items exige
+     * created_from_batch_id, por lo que este escenario crea
+     * su propia evidencia de carga.
+     */
     const sourceBatch =
       await database.query<{
         id: string;
       }>(
         `
-          SELECT id
-          FROM import_batches
-          ORDER BY created_at
-          LIMIT 1
+          INSERT INTO
+            import_batches (
+              organization_id,
+              created_by,
+              original_filename,
+              mime_type,
+              size_bytes,
+              sha256,
+              processor_version,
+              status
+            )
+
+          VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            1,
+            $5,
+            1,
+            'COMPLETED'
+          )
+
+          RETURNING id
         `,
+        [
+          ORGANIZATION_IDS.MTD,
+          foundationUserId,
+          `expiration-e2e-${suffix}.xlsx`,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          '0'.repeat(
+            64,
+          ),
+        ],
       );
 
     const sourceBatchId =
-      sourceBatch.rows[0]?.id;
-
-    if (
-      !sourceBatchId
-    ) {
-      throw new Error(
-        'SOURCE_IMPORT_BATCH_NOT_FOUND',
-      );
-    }
+      sourceBatch.rows[0]!.id;
 
 
     const point =
@@ -860,10 +889,10 @@ afterAll(
 
 
 describe(
-  'Vencimiento automatico -> Disponible sin asignar',
+  'Vencimiento automatico -> conserva reserva asignada',
   () => {
     it(
-      'conserva reserva hasta dia 5 y la libera automaticamente en dia 6',
+      'conserva la reserva despues del vencimiento y nunca la libera automaticamente',
       async () => {
         const today =
           bogotaToday();
@@ -986,13 +1015,13 @@ describe(
         expect(
           day6.releasedAllocations,
         ).toBe(
-          1,
+          0,
         );
 
         expect(
           day6.releasedQuantity,
         ).toBe(
-          5,
+          0,
         );
 
         expect(
@@ -1003,8 +1032,8 @@ describe(
 
 
         /*
-         * La allocation permanece como evidencia,
-         * pero ya no existe saldo asignado activo.
+         * La allocation continúa siendo la reserva operativa.
+         * El vencimiento no mueve ni libera el producto.
          */
         expect(
           await allocationSnapshot(),
@@ -1016,10 +1045,10 @@ describe(
             0,
 
           released_quantity:
-            5,
+            0,
 
           status:
-            'EXPIRED',
+            'ALLOCATED',
         });
 
 
@@ -1073,7 +1102,8 @@ describe(
 
 
         /*
-         * Las unidades regresan al pool fungible.
+         * Las unidades NO regresan a un pool libre.
+         * Cinco siguen reservadas a la AUTO original.
          */
         const after =
           await inventory();
@@ -1102,7 +1132,7 @@ describe(
             'assignedQuantity',
           ),
         ).toBe(
-          0,
+          5,
         );
 
         expect(
@@ -1111,7 +1141,7 @@ describe(
             'availableQuantity',
           ),
         ).toBe(
-          10,
+          5,
         );
 
 
@@ -1190,18 +1220,8 @@ describe(
         expect(
           audit.rows,
         ).toHaveLength(
-          1,
+          0,
         );
-
-        expect(
-          audit.rows[0],
-        ).toMatchObject({
-          action:
-            'INVENTORY_ALLOCATION_AUTO_RELEASED_EXPIRED',
-
-          released:
-            '5',
-        });
 
 
         /*
@@ -1249,7 +1269,7 @@ describe(
             .rows[0]
             ?.total,
         ).toBe(
-          1,
+          0,
         );
       },
       60_000,

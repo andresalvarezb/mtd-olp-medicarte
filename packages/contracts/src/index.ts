@@ -2567,6 +2567,11 @@ export const fulfillAuthorizationRequestSchema =
         .regex(
           /^\d{4}-\d{2}-\d{2}$/,
         ),
+
+    quantity:
+      z.number()
+        .int()
+        .positive(),
   });
 
 export type FulfillAuthorizationRequest =

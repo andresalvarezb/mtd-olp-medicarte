@@ -258,6 +258,12 @@ describe(
                     source_status_normalized:
                       '5',
 
+                    assignment_raw:
+                      '20200101',
+
+                    expiration_raw:
+                      '20991231',
+
                     closed:
                       false,
                   },
@@ -775,6 +781,12 @@ describe(
 
                     source_status_normalized:
                       '5',
+
+                    assignment_raw:
+                      '20200101',
+
+                    expiration_raw:
+                      '20991231',
 
                     closed:
                       false,

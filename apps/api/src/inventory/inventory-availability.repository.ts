@@ -2458,106 +2458,34 @@ export class InventoryAvailabilityRepository {
 
   }
 
-  private async reconcileIneligibleTx(tx: Tx, scope: Scope) {
+  private async reconcileIneligibleTx(
+    _tx: Tx,
+    _scope: Scope,
+  ) {
     /*
-     * El vencimiento tiene un flujo propio y NO se resuelve aquí.
+     * RESERVATION RETENTION POLICY
+     * ============================
      *
-     * Regla operativa:
-     * - al vencer, la AUTO deja de participar en nuevas asignaciones;
-     * - durante los primeros 5 días conserva temporalmente cualquier
-     *   reserva no consumida;
-     * - a partir del día 6, el worker
-     *   inventory-expiration-release libera automáticamente el saldo
-     *   no consumido y lo devuelve a Disponibilidad.
+     * Una reserva ya materializada permanece
+     * asociada a su AUTO hasta:
      *
-     * reconcileIneligibleTx() conserva exclusivamente las
-     * liberaciones por otras causas de inelegibilidad y no debe
-     * duplicar la responsabilidad del sweep de vencimientos.
+     * 1. consumo real por entrega/aplicación; o
+     * 2. reasignación explícita y atómica.
+     *
+     * NO liberan una reserva:
+     *
+     * - vencimiento;
+     * - cambio de source_status;
+     * - cambio de enablement_status;
+     * - cancelación/rechazo administrativo de OC;
+     * - patient_application CONFIRMED.
+     *
+     * patient_application CONFIRMED consume
+     * allocations en PatientApplicationRepository.
+     *
+     * Este reconciliador no modifica inventario.
      */
-    const released = await tx.execute<{
-      id: string;
-    }>(sql`
-        UPDATE
-          inventory_authorization_allocations iaa
-
-        SET
-          released_quantity =
-            GREATEST(
-              iaa.allocated_quantity
-              -
-              iaa.consumed_quantity,
-              0
-            ),
-
-          status =
-            'RELEASED',
-
-          updated_by =
-            ${scope.userId},
-
-          updated_at =
-            NOW()
-
-        FROM
-          authorization_items ai,
-          purchase_orders po
-
-        WHERE
-          iaa.authorization_item_id =
-            ai.id
-
-          AND iaa.purchase_order_id =
-            po.id
-
-          AND iaa.organization_id =
-            ${scope.organizationId}
-
-          AND iaa.status IN (
-            'ALLOCATED',
-            'PARTIALLY_CONSUMED'
-          )
-
-          AND (
-            ai.source_status_normalized
-              <>
-              '5'
-
-            OR
-
-            ai.enablement_status
-              <>
-              'ENABLED'
-
-            OR
-
-            po.status IN (
-              'CANCELLED',
-              'REJECTED'
-            )
-
-            OR
-
-            EXISTS (
-              SELECT
-                1
-
-              FROM
-                patient_applications pa
-
-              WHERE
-                pa.authorization_item_id =
-                  ai.id
-
-                AND pa.status =
-                  'CONFIRMED'
-            )
-          )
-
-        RETURNING
-          iaa.id
-      `);
-
-    return released.rows.length;
+    return 0;
   }
 
   private errorMessage(code: string) {

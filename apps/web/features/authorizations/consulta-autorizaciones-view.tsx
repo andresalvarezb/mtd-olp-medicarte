@@ -21,8 +21,10 @@ import {
   editAuthorizationManually,
   fulfillAuthorization,
   getAuthorizationQueryItem,
+  getAuthorizationHistory,
   listAuthorizationQuery,
   type AuthorizationFulfillmentType,
+  type AuthorizationHistoryEvent,
   type AuthorizationQueryAuditStatus,
   type AuthorizationQueryFilters,
   type AuthorizationQueryItem,
@@ -133,40 +135,22 @@ function fulfillmentStatusLabel(
   item:
     AuthorizationQueryItem,
 ) {
-  if (
-    item.fulfillmentStatus ===
-      'PENDING'
-    &&
-    (
-      item.initialValidationStatus ===
-        'FAILED'
-      ||
-      item.validityStatus ===
-        'EXPIRED'
-      ||
-      item.validityStatus ===
-        'INVALID_DATE'
-    )
-  ) {
-    return 'No realizada';
-  }
-
   const labels = {
     PENDING:
-      'Pendiente',
+      'Pendiente de atención',
 
-    DELIVERED:
-      'Entregada',
+    PARTIAL:
+      'Atención parcial',
 
-    APPLIED:
-      'Aplicada',
+    COMPLETE:
+      'Atención completa',
   } satisfies Record<
-    AuthorizationQueryItem['fulfillmentStatus'],
+    AuthorizationQueryItem['fulfillmentProgressStatus'],
     string
   >;
 
   return labels[
-    item.fulfillmentStatus
+    item.fulfillmentProgressStatus
   ];
 }
 
@@ -789,6 +773,12 @@ export function ConsultaAutorizacionesView() {
     useState('');
 
   const [
+    fulfillmentQuantity,
+    setFulfillmentQuantity,
+  ] =
+    useState('');
+
+  const [
     fulfilling,
     setFulfilling,
   ] =
@@ -802,11 +792,68 @@ export function ConsultaAutorizacionesView() {
       null,
     );
 
+  const summaryTopRef =
+    useRef<HTMLDivElement | null>(
+      null,
+    );
+
+
+  const [
+    fulfillmentSuccess,
+    setFulfillmentSuccess,
+  ] =
+    useState<{
+      type:
+        AuthorizationFulfillmentType;
+
+      quantity:
+        number;
+
+      effectiveDate:
+        string;
+    } | null>(
+      null,
+    );
+
+
   const [
     managingAuthorization,
     setManagingAuthorization,
   ] =
     useState(false);
+
+  const [
+    viewingHistory,
+    setViewingHistory,
+  ] =
+    useState(false);
+
+  const [
+    authorizationHistory,
+    setAuthorizationHistory,
+  ] =
+    useState<
+      AuthorizationHistoryEvent[]
+    >(
+      [],
+    );
+
+  const [
+    authorizationHistoryLoading,
+    setAuthorizationHistoryLoading,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    authorizationHistoryError,
+    setAuthorizationHistoryError,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
 
   const [
     exportingAuthorizations,
@@ -1052,6 +1099,10 @@ const query = useApiData(
             false,
           );
 
+          setViewingHistory(
+            false,
+          );
+
           setEditingAuthorization(
             false,
           );
@@ -1133,11 +1184,23 @@ const query = useApiData(
       '',
     );
 
+    setFulfillmentQuantity(
+      '',
+    );
+
     setFulfillmentError(
       null,
     );
 
+    setFulfillmentSuccess(
+      null,
+    );
+
     setManagingAuthorization(
+      false,
+    );
+
+    setViewingHistory(
       false,
     );
 
@@ -1383,10 +1446,57 @@ const query = useApiData(
     }
 
     if (
-      !selected.operationalEligible
+      selected.operationalStatus !==
+        'ASSIGNED'
+      &&
+      selected.operationalStatus !==
+        'PARTIALLY_ASSIGNED'
     ) {
       setFulfillmentError(
-        'La autorización no está habilitada para entrega/aplicación porque está fuera de la ventana operacional Hoy + 30 o no superó la validación.',
+        'La autorización no tiene saldo físico disponible para registrar entrega o aplicación.',
+      );
+
+      return;
+    }
+
+    const fulfillmentQuantityNumber =
+      Number(
+        fulfillmentQuantity,
+      );
+
+    const fulfillmentMaxQuantity =
+      Math.max(
+        0,
+        Math.min(
+          selected.remainingAuthorizedQuantity,
+          selected.remainingAssignedQuantity,
+        ),
+      );
+
+    if (
+      !Number.isInteger(
+        fulfillmentQuantityNumber,
+      )
+      ||
+      fulfillmentQuantityNumber <=
+        0
+      ||
+      fulfillmentQuantityNumber >
+        fulfillmentMaxQuantity
+    ) {
+      setFulfillmentError(
+        `Ingresa una cantidad entera entre 1 y ${fulfillmentMaxQuantity}.`,
+      );
+
+      return;
+    }
+
+    if (
+      fulfillmentDate >
+        currentBogotaDate()
+    ) {
+      setFulfillmentError(
+        'La fecha efectiva no puede ser futura.',
       );
 
       return;
@@ -1401,6 +1511,23 @@ const query = useApiData(
 
       return;
     }
+
+    /*
+     * Snapshot visual de la operación confirmada.
+     *
+     * Se conserva antes del await para que la alerta
+     * muestre exactamente lo enviado en esta operación,
+     * no el acumulado posterior.
+     */
+    const submittedFulfillmentType =
+      fulfillmentType;
+
+    const submittedFulfillmentQuantity =
+      fulfillmentQuantityNumber;
+
+    const submittedFulfillmentDate =
+      fulfillmentDate;
+
 
     setFulfilling(
       true,
@@ -1419,6 +1546,9 @@ const query = useApiData(
 
           fulfillmentType,
 
+          quantity:
+            fulfillmentQuantityNumber,
+
           effectiveDate:
             fulfillmentDate,
         },
@@ -1434,13 +1564,52 @@ const query = useApiData(
         refreshed,
       );
 
+      setFulfillmentSuccess({
+        type:
+          submittedFulfillmentType,
+
+        quantity:
+          submittedFulfillmentQuantity,
+
+        effectiveDate:
+          submittedFulfillmentDate,
+      });
+
+
       setFulfillmentDate(
+        '',
+      );
+
+      setFulfillmentQuantity(
         '',
       );
 
       setManagingAuthorization(
         false,
       );
+
+      setViewingHistory(
+        false,
+      );
+
+      requestAnimationFrame(() => {
+        const drawer =
+          summaryTopRef.current?.closest(
+            '.authorization-detail-drawer',
+          );
+
+        if (
+          drawer instanceof HTMLElement
+        ) {
+          drawer.scrollTo({
+            top:
+              0,
+
+            behavior:
+              'smooth',
+          });
+        }
+      });
 
       query.reload();
     } catch (caught) {
@@ -1459,18 +1628,13 @@ const query = useApiData(
   const todayBogota =
     currentBogotaDate();
 
-  const selectedValidityEndDate =
-    authorizationDateInputValue(
-      selected?.validityEndDate ??
-        null,
-    );
-
+  /*
+   * Una reserva ya asignada puede cerrarse después
+   * del vencimiento. La única cota de fecha efectiva
+   * es que no sea futura.
+   */
   const fulfillmentMaxDate =
-    selectedValidityEndDate &&
-    selectedValidityEndDate <
-      todayBogota
-      ? selectedValidityEndDate
-      : todayBogota;
+    todayBogota;
 
   /*
    * OC durablemente relacionada con la autorización.
@@ -1521,13 +1685,96 @@ const query = useApiData(
         )
       : null;
 
+  const selectedFulfillmentMaxQuantity =
+    selected
+      ? Math.max(
+          0,
+          Math.min(
+            selected.remainingAuthorizedQuantity,
+            selected.remainingAssignedQuantity,
+          ),
+        )
+      : 0;
+
+  const fulfillmentQuantityNumber =
+    Number(
+      fulfillmentQuantity,
+    );
+
+  const fulfillmentQuantityValid =
+    Number.isInteger(
+      fulfillmentQuantityNumber,
+    )
+    &&
+    fulfillmentQuantityNumber >
+      0
+    &&
+    fulfillmentQuantityNumber <=
+      selectedFulfillmentMaxQuantity;
+
+  const fulfillmentDateValid =
+    Boolean(
+      fulfillmentDate
+      &&
+      fulfillmentDate <=
+        todayBogota,
+    );
+
+  async function loadAuthorizationHistory(
+    authorizationItemId:
+      string,
+  ) {
+    setAuthorizationHistoryLoading(
+      true,
+    );
+
+    setAuthorizationHistoryError(
+      null,
+    );
+
+    try {
+      const response =
+        await getAuthorizationHistory(
+          organizationId,
+          authorizationItemId,
+        );
+
+      setAuthorizationHistory(
+        response.items,
+      );
+    } catch (
+      cause
+    ) {
+      setAuthorizationHistory(
+        [],
+      );
+
+      setAuthorizationHistoryError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible consultar el historial de la autorización.',
+      );
+    } finally {
+      setAuthorizationHistoryLoading(
+        false,
+      );
+    }
+  }
+
+
   const canFulfillSelected =
     Boolean(
       selected &&
-      selected.operationalEligible &&
       canFulfill &&
-      selected.operationalStatus ===
-        'ASSIGNED' &&
+      (
+        selected.operationalStatus ===
+          'ASSIGNED'
+        ||
+        selected.operationalStatus ===
+          'PARTIALLY_ASSIGNED'
+      ) &&
+      selected.remainingAuthorizedQuantity >
+        0 &&
       selected.remainingAssignedQuantity >
         0 &&
       selectedActivePurchaseOrderCode !==
@@ -2175,10 +2422,12 @@ const query = useApiData(
                 type="button"
                 role="tab"
                 aria-selected={
-                  !managingAuthorization
+                  !managingAuthorization &&
+                  !viewingHistory
                 }
                 className={
-                  !managingAuthorization
+                  !managingAuthorization &&
+                  !viewingHistory
                     ? 'active'
                     : ''
                 }
@@ -2187,7 +2436,15 @@ const query = useApiData(
                     false,
                   );
 
+                  setViewingHistory(
+                    false,
+                  );
+
                   setFulfillmentDate(
+                    '',
+                  );
+
+                  setFulfillmentQuantity(
                     '',
                   );
 
@@ -2204,10 +2461,12 @@ const query = useApiData(
                   type="button"
                   role="tab"
                   aria-selected={
-                    managingAuthorization
+                    managingAuthorization &&
+                    !viewingHistory
                   }
                   className={
-                    managingAuthorization
+                    managingAuthorization &&
+                    !viewingHistory
                       ? 'active'
                       : ''
                   }
@@ -2230,12 +2489,22 @@ const query = useApiData(
                       true,
                     );
 
+                    setViewingHistory(
+                      false,
+                    );
+
                     setFulfillmentType(
                       'APPLICATION',
                     );
 
                     setFulfillmentDate(
                       '',
+                    );
+
+                    setFulfillmentQuantity(
+                      String(
+                        selectedFulfillmentMaxQuantity,
+                      ),
                     );
 
                     setFulfillmentError(
@@ -2246,11 +2515,250 @@ const query = useApiData(
                   Gestionar entrega / aplicación
                 </button>
               ) : null}
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={
+                  viewingHistory
+                }
+                className={
+                  viewingHistory
+                    ? 'active'
+                    : ''
+                }
+                disabled={
+                  editingAuthorization
+                }
+                title={
+                  editingAuthorization
+                    ? 'Guarda o cancela la edición antes de cambiar de vista.'
+                    : undefined
+                }
+                onClick={() => {
+                  if (
+                    editingAuthorization
+                  ) {
+                    return;
+                  }
+
+                  setManagingAuthorization(
+                    false,
+                  );
+
+                  setViewingHistory(
+                    true,
+                  );
+
+                  void loadAuthorizationHistory(
+                    selected.id,
+                  );
+
+                  setFulfillmentError(
+                    null,
+                  );
+                }}
+              >
+                Historial
+              </button>
             </div>
 
 
-            {!managingAuthorization ? (
+            {viewingHistory ? (
               <>
+                <div className="authorization-summary-section-heading">
+                  <strong>
+                    Historial
+                  </strong>
+
+                  <span>
+                    Acciones y movimientos registrados sobre esta autorización.
+                  </span>
+                </div>
+
+                {authorizationHistoryLoading ? (
+                  <div className="authorization-history-empty">
+                    Cargando historial…
+                  </div>
+                ) : authorizationHistoryError ? (
+                  <div
+                    className="authorization-fulfillment-error"
+                    role="alert"
+                  >
+                    {authorizationHistoryError}
+                  </div>
+                ) : authorizationHistory.length ===
+                  0 ? (
+                  <div className="authorization-history-empty">
+                    No existen eventos registrados para esta autorización.
+                  </div>
+                ) : (
+                  <div className="authorization-history-list">
+                    {authorizationHistory.map(
+                      (
+                        event,
+                        index,
+                      ) => (
+                        <article
+                          key={
+                            event.id
+                          }
+                          className="authorization-history-card"
+                        >
+                          <div className="authorization-history-card-rail">
+                            <span className="authorization-history-dot" />
+
+                            {index <
+                            authorizationHistory.length -
+                              1 ? (
+                              <span className="authorization-history-line" />
+                            ) : null}
+                          </div>
+
+                          <div className="authorization-history-card-content">
+                            <div className="authorization-history-card-header">
+                              <div>
+                                <strong>
+                                  {event.title}
+                                </strong>
+
+                                <span>
+                                  {dateTimeLabel(
+                                    event.occurredAt,
+                                  )}
+                                </span>
+                              </div>
+
+                              <span className="authorization-history-event-type">
+                                {event.type ===
+                                'AUTHORIZATION_CREATED'
+                                  ? 'Autorización'
+                                  : event.type ===
+                                      'PURCHASE_ORDER_LINKED'
+                                    ? 'Orden de compra'
+                                    : event.type ===
+                                        'PRODUCT_RECEIVED'
+                                      ? 'Recepción'
+                                      : event.type ===
+                                          'INVENTORY_ASSIGNED'
+                                        ? 'Asignación'
+                                        : event.type ===
+                                              'REASSIGNMENT_OUT' ||
+                                            event.type ===
+                                              'REASSIGNMENT_IN'
+                                          ? 'Reasignación'
+                                          : event.type ===
+                                                'APPLICATION_RECORDED'
+                                            ? 'Aplicación'
+                                            : event.type ===
+                                                  'DELIVERY_RECORDED'
+                                              ? 'Entrega'
+                                              : 'Acción'}
+                              </span>
+                            </div>
+
+                            <p className="authorization-history-description">
+                              {event.description}
+                            </p>
+
+                            {event.details.length >
+                            0 ? (
+                              <div className="authorization-history-details">
+                                {event.details.map(
+                                  (
+                                    detail,
+                                    detailIndex,
+                                  ) => (
+                                    <div
+                                      key={`${event.id}:${detail.label}:${detailIndex}`}
+                                    >
+                                      <span>
+                                        {detail.label}
+                                      </span>
+
+                                      <strong>
+                                        {detail.value}
+                                      </strong>
+                                    </div>
+                                  ),
+                                )}
+                              </div>
+                            ) : null}
+
+                            {event.actorName ||
+                            event.organizationCode ? (
+                              <div className="authorization-history-actor">
+                                Registrado por{' '}
+                                <strong>
+                                  {event.actorName ??
+                                    'Sistema'}
+                                </strong>
+
+                                {event.organizationCode
+                                  ? ` · ${event.organizationCode}`
+                                  : ''}
+                              </div>
+                            ) : null}
+                          </div>
+                        </article>
+                      ),
+                    )}
+                  </div>
+                )}
+              </>
+            ) : !managingAuthorization ? (
+              <>
+                <div
+                  ref={summaryTopRef}
+                  className="authorization-summary-top-anchor"
+                />
+                {fulfillmentSuccess ? (
+                  <div
+                    className="authorization-fulfillment-success"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <div
+                      className="authorization-fulfillment-success-icon"
+                      aria-hidden="true"
+                    >
+                      ✓
+                    </div>
+
+                    <div className="authorization-fulfillment-success-copy">
+                      <strong>
+                        {fulfillmentSuccess.type ===
+                        'APPLICATION'
+                          ? 'Aplicación registrada correctamente'
+                          : 'Entrega registrada correctamente'}
+                      </strong>
+
+                      <span>
+                        {fulfillmentSuccess.quantity}{' '}
+                        unidad(es) registradas
+                        {' · '}
+                        Fecha efectiva:{' '}
+                        {authorizationDateLabel(
+                          fulfillmentSuccess.effectiveDate,
+                        )}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="authorization-fulfillment-success-close"
+                      aria-label="Cerrar confirmación"
+                      onClick={() => {
+                        setFulfillmentSuccess(
+                          null,
+                        );
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : null}
+
                 <div className="authorization-summary-section-heading">
                   <strong>
                     Paciente
@@ -2296,7 +2804,7 @@ const query = useApiData(
                   </span>
                 </div>
 
-                <div className="authorization-detail-grid authorization-summary-grid">
+                <div className="authorization-detail-grid authorization-summary-grid authorization-summary-medication-grid">
                   <div>
                     <span>
                       Código
@@ -2358,11 +2866,35 @@ const query = useApiData(
                       />
                     ) : (
                       <strong>
-                        {selected.quantity ??
-                          '—'}
+                        {selected.authorizedQuantity}
                       </strong>
                     )}
                   </div>
+                </div>
+
+                <div className="authorization-detail-grid authorization-summary-grid">
+                  <div className="authorization-summary-span-2">
+                    <span>
+                      Posología
+                    </span>
+
+                    <strong>
+                      {selected.dosage ??
+                        'Sin posología registrada'}
+                    </strong>
+                  </div>
+                  <div className="authorization-summary-span-2">
+                    <span>
+                      Atendido
+                    </span>
+
+                    <strong>
+                      {selected.fulfilledQuantity}
+                      {' / '}
+                      {selected.authorizedQuantity}
+                    </strong>
+                  </div>
+
                 </div>
 
 
@@ -2629,7 +3161,11 @@ const query = useApiData(
 
                 {!selected.operationalEligible &&
                 selected.operationalStatus !==
-                  'CLOSED' ? (
+                  'CLOSED' &&
+                selected.operationalStatus !==
+                  'ASSIGNED' &&
+                selected.operationalStatus !==
+                  'PARTIALLY_ASSIGNED' ? (
                   <div className="authorization-operation-message authorization-summary-operation-message">
                     Esta autorización se conserva visible para consulta,
                     pero actualmente no está habilitada para operaciones.
@@ -2683,7 +3219,40 @@ const query = useApiData(
 
                   <div>
                     <span>
-                      Disponible
+                      Posología
+                    </span>
+
+                    <strong>
+                      {selected.dosage ??
+                        'Sin posología registrada'}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Autorizado
+                    </span>
+
+                    <strong>
+                      {selected.authorizedQuantity}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>
+                      Atendido
+                    </span>
+
+                    <strong>
+                      {selected.fulfilledQuantity}
+                      {' / '}
+                      {selected.authorizedQuantity}
+                    </strong>
+                  </div>
+
+
+                  <div>
+                    <span>
+                      Asignado disponible
                     </span>
 
                     <strong>
@@ -2693,6 +3262,18 @@ const query = useApiData(
                     <small>
                       Punto: {selected.dispensingPointCode ?? 'Sin punto'}
                     </small>
+                  </div>
+
+                  <div>
+                    <span>
+                      Estado
+                    </span>
+
+                    <strong>
+                      {fulfillmentStatusLabel(
+                        selected,
+                      )}
+                    </strong>
                   </div>
 
                   <div>
@@ -2812,6 +3393,12 @@ const query = useApiData(
                           '',
                         );
 
+                        setFulfillmentQuantity(
+                          String(
+                            selectedFulfillmentMaxQuantity,
+                          ),
+                        );
+
                         setFulfillmentError(
                           null,
                         );
@@ -2906,6 +3493,38 @@ const query = useApiData(
 
                     <label className="authorization-fulfillment-date">
                       <span>
+                        Cantidad a entregar / aplicar
+                      </span>
+
+                      <input
+                        type="number"
+                        className="control"
+                        min="1"
+                        step="1"
+                        max={
+                          selectedFulfillmentMaxQuantity
+                        }
+                        value={
+                          fulfillmentQuantity
+                        }
+                        onChange={(event) => {
+                          setFulfillmentQuantity(
+                            event.target.value,
+                          );
+
+                          setFulfillmentError(
+                            null,
+                          );
+                        }}
+                      />
+
+                      <small>
+                        Máximo operable: {selectedFulfillmentMaxQuantity}
+                      </small>
+                    </label>
+
+                    <label className="authorization-fulfillment-date">
+                      <span>
                         {fulfillmentType ===
                         'APPLICATION'
                           ? 'Fecha de aplicación'
@@ -2930,7 +3549,7 @@ const query = useApiData(
                     </label>
 
                     <p className="authorization-fulfillment-help">
-                      La fecha efectiva no puede superar la fecha de vencimiento de la autorización.
+                      La fecha efectiva no puede ser futura. Una reserva ya asignada se conserva aunque la autorización haya vencido.
                     </p>
 
                     {fulfillmentError ? (
@@ -2960,6 +3579,10 @@ const query = useApiData(
                             '',
                           );
 
+                          setFulfillmentQuantity(
+                            '',
+                          );
+
                           setFulfillmentError(
                             null,
                           );
@@ -2972,7 +3595,8 @@ const query = useApiData(
                         type="button"
                         className="btn primary"
                         disabled={
-                          !fulfillmentDate ||
+                          !fulfillmentQuantityValid ||
+                          !fulfillmentDateValid ||
                           fulfilling
                         }
                         onClick={() =>
@@ -2996,7 +3620,7 @@ const query = useApiData(
                 'OUT_OF_OPERATION'
                   ? selected.validityStatus ===
                       'EXPIRED'
-                    ? 'La autorización está vencida y se encuentra fuera de operación. No puede recibir nuevas asignaciones ni registrar entrega o aplicación. La relación con órdenes de compra anteriores se conserva únicamente como trazabilidad histórica; una vez cumplido el periodo de gracia de 5 días, cualquier saldo reservado no consumido debe quedar liberado en Disponibilidad.'
+                    ? 'La autorización está vencida y no tiene una reserva activa disponible. No recibe nuevas asignaciones. Si existe una reserva en otra autorización, el producto solo puede cambiar de AUTO mediante una reasignación explícita.'
                     : selected.initialValidationStatus ===
                         'FAILED'
                       ? 'La autorización no superó la validación inicial y se encuentra fuera de operación. No puede recibir asignaciones ni registrar entrega o aplicación.'

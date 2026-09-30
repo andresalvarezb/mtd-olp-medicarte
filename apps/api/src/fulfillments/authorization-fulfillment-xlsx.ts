@@ -7,13 +7,14 @@ import type {
 
 /*
  * Contrato oficial:
- * CLAVE_AUTORIZACION,OC,TIPO_DISPENSACION,FECHA
+ * CLAVE_AUTORIZACION,OC,TIPO_DISPENSACION,FECHA,CANTIDAD
  */
 export const AUTHORIZATION_FULFILLMENT_XLSX_COLUMNS = [
   'CLAVE_AUTORIZACION',
   'OC',
   'TIPO_DISPENSACION',
   'FECHA',
+  'CANTIDAD',
 ] as const;
 
 export const AUTHORIZATION_FULFILLMENT_XLSX_SHEET =
@@ -38,6 +39,9 @@ export type AuthorizationFulfillmentImportRow =
 
     effectiveDate:
       string | null;
+
+    quantity:
+      number | null;
   }>;
 
 
@@ -403,6 +407,39 @@ function parseType(
 }
 
 
+
+
+function parseQuantity(
+  value:
+    unknown,
+): number | null {
+  const normalized =
+    text(
+      value,
+    );
+
+  if (
+    !normalized
+    ||
+    !/^[1-9][0-9]*$/.test(
+      normalized,
+    )
+  ) {
+    return null;
+  }
+
+  const quantity =
+    Number(
+      normalized,
+    );
+
+  return Number.isSafeInteger(
+    quantity,
+  )
+    ? quantity
+    : null;
+}
+
 export function createAuthorizationFulfillmentTemplate():
   Buffer {
   const workbook =
@@ -420,6 +457,7 @@ export function createAuthorizationFulfillmentTemplate():
     { wch: 20 },
     { wch: 22 },
     { wch: 18 },
+    { wch: 14 },
   ];
 
   XLSX.utils.book_append_sheet(
@@ -583,10 +621,18 @@ export function parseAuthorizationFulfillmentWorkbook(
     const rawDate =
       values[3];
 
+    const rawQuantity =
+      values[4];
+
 
     const hasDate =
       hasCellValue(
         rawDate,
+      );
+
+    const hasQuantity =
+      hasCellValue(
+        rawQuantity,
       );
 
 
@@ -594,7 +640,8 @@ export function parseAuthorizationFulfillmentWorkbook(
       !authorizationKey &&
       !purchaseOrderCode &&
       !rawFulfillmentType &&
-      !hasDate
+      !hasDate &&
+      !hasQuantity
     ) {
       continue;
     }
@@ -618,6 +665,11 @@ export function parseAuthorizationFulfillmentWorkbook(
       effectiveDate:
         parseDate(
           rawDate,
+        ),
+
+      quantity:
+        parseQuantity(
+          rawQuantity,
         ),
     });
   }

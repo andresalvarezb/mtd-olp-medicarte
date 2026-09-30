@@ -81,7 +81,7 @@ describe(
     );
 
     it(
-      'inhabilita una autorización vencida',
+      'mantiene operable una autorización vencida',
       () => {
         expect(
           resolveAuthorizationLifecycleStatus({
