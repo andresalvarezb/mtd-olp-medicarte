@@ -648,3 +648,21 @@ export function createPurchaseOrderDirectReceipt(
     },
   );
 }
+
+
+export function reconcilePurchaseOrderAllocations(
+  organizationId: string,
+  purchaseOrderId: string,
+) {
+  return apiRequest<{
+    receivedNow: number;
+    assignedNow: number;
+    unassignedNow: number;
+  }>(
+    `/medicarte/purchase-orders/${purchaseOrderId}/reconcile-allocations`,
+    {
+      method: 'POST',
+      organizationId,
+    },
+  );
+}

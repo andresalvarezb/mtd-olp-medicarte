@@ -30,6 +30,20 @@ export class ReceiptService {
   }
 
 
+  reconcilePurchaseOrderAllocations(
+    purchaseOrderId: string,
+    scope: Scope,
+  ) {
+    return this.run(
+      () =>
+        this.repository.reconcilePurchaseOrderAllocations(
+          purchaseOrderId,
+          scope,
+        ),
+    );
+  }
+
+
   create(id: string, scope: Scope) {
     return this.run(() => this.repository.create(id, scope));
   }
