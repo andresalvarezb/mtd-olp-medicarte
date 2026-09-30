@@ -11,6 +11,7 @@ import {
   FilterField,
 } from '@/components/ui/filter-bar';
 import { useApiData } from '@/hooks/use-api-data';
+import { useLoadingFeedback } from '@/hooks/use-loading-feedback';
 import { listTariffProducts, type TariffProductListItem } from '@/lib/tariff-products-api';
 
 function formatCurrency(product: TariffProductListItem): string {
@@ -80,6 +81,11 @@ export function TariffProductsTable() {
     [organizationId],
     ['TARIFF_ANNEX'],
   );
+
+  const tariffLoading =
+    useLoadingFeedback(
+      loading,
+    );
 
   const products = useMemo(() => data?.items ?? [], [data?.items]);
 
@@ -181,6 +187,8 @@ export function TariffProductsTable() {
   ]);
 
   function applyFilters() {
+    tariffLoading.trigger();
+
     setAppliedSearch(search);
     setAppliedInclusion(inclusion);
     setAppliedPoint(point);
@@ -188,6 +196,8 @@ export function TariffProductsTable() {
   }
 
   function clearFilters() {
+    tariffLoading.trigger();
+
     setSearch('');
     setInclusion('ALL');
     setPoint('ALL');
@@ -318,33 +328,24 @@ export function TariffProductsTable() {
         <div className="operational-list-table-scope tariff-products-table">
           <DataTable
             columns={COLUMNS}
-            rows={
-              loading
-                ? undefined
-                : rows
-            }
+            rows={rows}
+            loading={tariffLoading.visible}
+            loadingLabel="Cargando Anexo Tarifario"
             aria-label="Productos del Anexo Tarifario vigente"
             emptyIcon="AT"
-            emptyTitle={
-              loading
-                ? 'Cargando Anexo Tarifario…'
-                : 'Sin productos'
-            }
-            emptyDescription={
-              loading
-                ? 'Consultando la configuración vigente.'
-                : 'No existen productos que coincidan con los filtros aplicados.'
-            }
+            emptyTitle="Sin productos"
+            emptyDescription="No existen productos que coincidan con los filtros aplicados."
           />
         </div>
 
-        {!loading ? (
-          <div className="list-pagination">
+        <div className="list-pagination">
             <div className="list-pagination-summary">
               <span>
-                {totalFiltered === 0
-                  ? 'Mostrando 0–0 de 0'
-                  : `Mostrando ${startIndex + 1}–${endIndex} de ${totalFiltered}`}
+                {tariffLoading.visible
+                  ? 'Mostrando —'
+                  : totalFiltered === 0
+                    ? 'Mostrando 0–0 de 0'
+                    : `Mostrando ${startIndex + 1}–${endIndex} de ${totalFiltered}`}
               </span>
 
               <label>
@@ -390,6 +391,7 @@ export function TariffProductsTable() {
                 type="button"
                 className="btn"
                 disabled={
+                  tariffLoading.visible ||
                   totalFiltered === 0 ||
                   currentPage <= 1
                 }
@@ -413,6 +415,7 @@ export function TariffProductsTable() {
                 type="button"
                 className="btn"
                 disabled={
+                  tariffLoading.visible ||
                   totalFiltered === 0 ||
                   currentPage >= totalPages
                 }
@@ -429,7 +432,6 @@ export function TariffProductsTable() {
               </button>
             </div>
           </div>
-        ) : null}
       </Card>
     </div>
   );

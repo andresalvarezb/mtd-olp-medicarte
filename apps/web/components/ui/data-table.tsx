@@ -1,3 +1,4 @@
+import { TableLoadingRow } from '@/components/ui/loading-state';
 import type { ReactNode } from 'react';
 import { EmptyState } from '@/components/ui/empty-state';
 
@@ -8,6 +9,8 @@ interface Column {
 interface DataTableProps {
   columns: Column[];
   rows?: ReactNode[][] | undefined;
+  loading?: boolean;
+  loadingLabel?: string;
   emptyIcon: string;
   emptyTitle: string;
   emptyDescription: string;
@@ -19,7 +22,16 @@ interface DataTableProps {
  * ocupando el ancho completo de columnas. Si se entregan filas, se renderizan
  * en lugar del estado vacío.
  */
-export function DataTable({ columns, rows, emptyIcon, emptyTitle, emptyDescription, ...rest }: DataTableProps) {
+export function DataTable({
+  columns,
+  rows,
+  loading = false,
+  loadingLabel = 'Cargando',
+  emptyIcon,
+  emptyTitle,
+  emptyDescription,
+  ...rest
+}: DataTableProps) {
   const hasRows = rows && rows.length > 0;
   return (
     <div className="table-wrap">
@@ -32,7 +44,12 @@ export function DataTable({ columns, rows, emptyIcon, emptyTitle, emptyDescripti
           </tr>
         </thead>
         <tbody>
-          {hasRows ? (
+          {loading ? (
+            <TableLoadingRow
+              colSpan={columns.length}
+              label={loadingLabel}
+            />
+          ) : hasRows ? (
             rows.map((cells, rowIndex) => (
               <tr key={rowIndex}>
                 {cells.map((cell, cellIndex) => (

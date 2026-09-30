@@ -1,5 +1,9 @@
 'use client';
 
+import { useLoadingFeedback } from '@/hooks/use-loading-feedback';
+
+import { TableLoadingRow } from '@/components/ui/loading-state';
+
 import { useEffect, useRef, useState } from 'react';
 
 import { PageHeader } from '@/components/ui/page-header';
@@ -891,6 +895,15 @@ export function ConsultaAutorizacionesView() {
     hasPermission(
       'authorizations.manual_edit',
     );
+const [
+  filterQueryRevision,
+  setFilterQueryRevision,
+] =
+  useState(
+    0,
+  );
+
+
 const query = useApiData(
     () =>
       listAuthorizationQuery(organizationId, {
@@ -940,11 +953,23 @@ const query = useApiData(
             }
           : {}),
       }),
-    [organizationId, appliedFilters, page, pageSize],
+    [
+      organizationId,
+      appliedFilters,
+      page,
+      pageSize,
+      filterQueryRevision,
+    ],
     ['AUTHORIZATIONS'],
   );
 
-  const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
+  const authorizationLoading =
+  useLoadingFeedback(
+    query.loading,
+  );
+
+
+const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
   const selectedAuthorizationId = selected?.id ?? null;
 
   useEffect(() => {
@@ -975,7 +1000,13 @@ const query = useApiData(
     selectedAuthorizationId,
   ]);
 
-  const data = query.data;
+  const data =
+    query.data;
+
+  const showAuthorizationLoading =
+    authorizationLoading.visible;
+
+
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
@@ -993,24 +1024,73 @@ const query = useApiData(
       : 0;
 
   function applyFilters() {
-    setPage(1);
-    setAppliedFilters(filters);
+    authorizationLoading.trigger();
+
+    setPage(
+      1,
+    );
+
+    setAppliedFilters({
+      ...filters,
+    });
+
+    setFilterQueryRevision(
+      (current) =>
+        current +
+        1,
+    );
   }
+
 
   function clearFilters() {
     const cleared = {
-      authorizationNumber: '',
-      commercialCode: '',
-      patient: '',
-      lifecycleEnablement: '',
-      operationalStatus: '',
-      coverageType: '',
+      authorizationNumber:
+        '',
+
+      commercialCode:
+        '',
+
+      patient:
+        '',
+
+      lifecycleEnablement:
+        '',
+
+      operationalStatus:
+        '',
+
+      coverageType:
+        '',
     };
 
-    setFilters(cleared);
-    setAppliedFilters(cleared);
-    setPage(1);
+    /*
+     * Limpiar afecta tanto los controles visibles
+     * como los filtros realmente enviados a la API.
+     */
+    setFilters({
+      ...cleared,
+    });
+
+    setAppliedFilters({
+      ...cleared,
+    });
+
+    setPage(
+      1,
+    );
+
+    authorizationLoading.trigger();
+
+    /*
+     * Siempre vuelve a consultar el listado completo.
+     */
+    setFilterQueryRevision(
+      (current) =>
+        current +
+        1,
+    );
   }
+
 
   function closeAuthorizationDetail() {
     if (
@@ -1791,6 +1871,15 @@ const query = useApiData(
               </thead>
 
               <tbody>
+                {showAuthorizationLoading ? (
+                  <TableLoadingRow
+                    colSpan={10}
+                    label="Cargando autorizaciones"
+                  />
+                ) : (
+
+                  <>
+
                 {(data?.items ?? []).map((item) => (
                   <tr key={item.id}>
                     <td>
@@ -1973,6 +2062,9 @@ const query = useApiData(
                     </td>
                   </tr>
                 ) : null}
+
+                  </>
+                )}
               </tbody>
             </table>
           </div>
@@ -1980,9 +2072,11 @@ const query = useApiData(
           <div className="authorization-query-pagination list-pagination">
             <div className="authorization-query-pagination-summary">
               <span>
-                {data
-                  ? `Mostrando ${firstVisible}–${lastVisible} de ${data.total}`
-                  : 'Cargando…'}
+                {showAuthorizationLoading
+                  ? 'Mostrando —'
+                  : data
+                    ? `Mostrando ${firstVisible}–${lastVisible} de ${data.total}`
+                    : 'Mostrando —'}
               </span>
 
               <label className="authorization-query-page-size-field">
@@ -2028,7 +2122,7 @@ const query = useApiData(
                 className="btn"
                 disabled={
                   page <= 1 ||
-                  query.loading
+                  showAuthorizationLoading
                 }
                 onClick={() =>
                   setPage(
@@ -2052,7 +2146,7 @@ const query = useApiData(
                 className="btn"
                 disabled={
                   page >= totalPages ||
-                  query.loading
+                  showAuthorizationLoading
                 }
                 onClick={() =>
                   setPage(
