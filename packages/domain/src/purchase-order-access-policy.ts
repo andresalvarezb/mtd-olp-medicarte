@@ -22,6 +22,52 @@ export const PURCHASE_ORDER_ACTORS = ['MTD', 'OLP', 'MEDICARTE', 'AUDIT', 'READ_
 
 export type PurchaseOrderActor = (typeof PURCHASE_ORDER_ACTORS)[number];
 
+export const PURCHASE_ORDER_VISIBLE_STATES_BY_ACTOR = {
+  MTD: [
+    'PENDING_OLP',
+    'PENDING_MEDICARTE',
+    'RECEIVED_WITH_PENDING',
+    'RECEIVED',
+  ],
+  OLP: [
+    'PENDING_OLP',
+    'PENDING_MEDICARTE',
+    'RECEIVED_WITH_PENDING',
+    'RECEIVED',
+  ],
+  MEDICARTE: [
+    'PENDING_MEDICARTE',
+    'RECEIVED_WITH_PENDING',
+    'RECEIVED',
+  ],
+  AUDIT: [
+    'PENDING_OLP',
+    'PENDING_MEDICARTE',
+    'RECEIVED_WITH_PENDING',
+    'RECEIVED',
+  ],
+  READ_ONLY: [
+    'PENDING_OLP',
+    'PENDING_MEDICARTE',
+    'RECEIVED_WITH_PENDING',
+    'RECEIVED',
+  ],
+} as const satisfies Record<
+  PurchaseOrderActor,
+  readonly PurchaseOrderMacroStatus[]
+>;
+
+export function canViewPurchaseOrderState(
+  actor: PurchaseOrderActor,
+  status: PurchaseOrderMacroStatus,
+): boolean {
+  return (
+    PURCHASE_ORDER_VISIBLE_STATES_BY_ACTOR[
+      actor
+    ] as readonly PurchaseOrderMacroStatus[]
+  ).includes(status);
+}
+
 export type PurchaseOrderOperationalContext = Readonly<{
   actor: PurchaseOrderActor;
 
@@ -79,7 +125,11 @@ export function derivePurchaseOrderAllowedActions(
     actor === 'MEDICARTE' && (status === 'PENDING_MEDICARTE' || status === 'RECEIVED_WITH_PENDING');
 
   return {
-    canView: true,
+    canView:
+      canViewPurchaseOrderState(
+        actor,
+        status,
+      ),
 
     canUpload: actor === 'MTD',
 
