@@ -81,6 +81,14 @@ const querySchema =
       ])
         .optional(),
 
+    fulfillmentProgressStatus:
+      z.enum([
+        'PENDING',
+        'PARTIAL',
+        'COMPLETE',
+      ])
+        .optional(),
+
     coverageType:
       z.enum([
         'PBS',

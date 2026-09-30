@@ -716,6 +716,7 @@ export function ConsultaAutorizacionesView() {
     patient: '',
     lifecycleEnablement: '',
     operationalStatus: '',
+    fulfillmentProgressStatus: '',
     coverageType: '',
   });
 
@@ -1016,6 +1017,15 @@ const query = useApiData(
             }
           : {}),
 
+        ...(appliedFilters.fulfillmentProgressStatus
+          ? {
+              fulfillmentProgressStatus:
+                appliedFilters.fulfillmentProgressStatus as NonNullable<
+                  AuthorizationQueryFilters['fulfillmentProgressStatus']
+                >,
+            }
+          : {}),
+
         ...(appliedFilters.coverageType
           ? {
               coverageType: appliedFilters.coverageType as NonNullable<
@@ -1128,6 +1138,9 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
         '',
 
       operationalStatus:
+        '',
+
+      fulfillmentProgressStatus:
         '',
 
       coverageType:
@@ -2042,6 +2055,39 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
                 <option value="CLOSED">
                   Cerrada
+                </option>
+              </select>
+            </FilterField>
+
+            <FilterField label="Estado de atención">
+              <select
+                className="control"
+                value={
+                  filters.fulfillmentProgressStatus
+                }
+                onChange={(event) =>
+                  setFilters({
+                    ...filters,
+
+                    fulfillmentProgressStatus:
+                      event.target.value,
+                  })
+                }
+              >
+                <option value="">
+                  Todos
+                </option>
+
+                <option value="PENDING">
+                  Pendiente de atención
+                </option>
+
+                <option value="PARTIAL">
+                  Con aplicación pendiente
+                </option>
+
+                <option value="COMPLETE">
+                  Atención completa
                 </option>
               </select>
             </FilterField>

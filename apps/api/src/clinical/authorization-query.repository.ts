@@ -72,6 +72,11 @@ export interface AuthorizationQueryFilters {
     | 'OUT_OF_OPERATION'
     | 'CLOSED';
 
+  fulfillmentProgressStatus?:
+    | 'PENDING'
+    | 'PARTIAL'
+    | 'COMPLETE';
+
   coverageType?:
     | 'PBS'
     | 'NO_PBS';
@@ -1121,6 +1126,59 @@ export class AuthorizationQueryRepository {
 
     const remainingAssignedQuantityFilter =
       this.remainingAssignedQuantitySql();
+
+    const fulfilledQuantityFilter =
+      this.fulfilledQuantitySql();
+
+
+    if (
+      filters.fulfillmentProgressStatus ===
+        'PENDING'
+    ) {
+      conditions.push(sql`
+        ${fulfilledQuantityFilter}
+          <= 0
+      `);
+    }
+
+
+    if (
+      filters.fulfillmentProgressStatus ===
+        'PARTIAL'
+    ) {
+      conditions.push(sql`
+        ${fulfilledQuantityFilter}
+          > 0
+
+        and
+
+        not (
+          ${authorizedQuantityFilter}
+            > 0
+
+          and
+
+          ${remainingAuthorizedQuantityFilter}
+            = 0
+        )
+      `);
+    }
+
+
+    if (
+      filters.fulfillmentProgressStatus ===
+        'COMPLETE'
+    ) {
+      conditions.push(sql`
+        ${authorizedQuantityFilter}
+          > 0
+
+        and
+
+        ${remainingAuthorizedQuantityFilter}
+          = 0
+      `);
+    }
 
 
     if (

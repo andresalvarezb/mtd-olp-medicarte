@@ -229,6 +229,9 @@ export type AuthorizationQueryFilters = {
   operationalStatus?:
     AuthorizationOperationalStatus;
 
+  fulfillmentProgressStatus?:
+    AuthorizationFulfillmentProgressStatus;
+
   coverageType?:
     | 'PBS'
     | 'NO_PBS';
@@ -336,6 +339,15 @@ export function listAuthorizationQuery(
     params.set(
       'operationalStatus',
       filters.operationalStatus,
+    );
+  }
+
+  if (
+    filters.fulfillmentProgressStatus
+  ) {
+    params.set(
+      'fulfillmentProgressStatus',
+      filters.fulfillmentProgressStatus,
     );
   }
 
