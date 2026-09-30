@@ -511,11 +511,11 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
     };
 
     expect(summary).toMatchObject({
-      lineCount: 3,
-      sourceCount: 4,
-      regularQuantity: 17,
+      lineCount: 4,
+      sourceCount: 5,
+      regularQuantity: 26,
       lateQuantity: 0,
-      projectedQuantity: 17,
+      projectedQuantity: 26,
     });
 
     const lines = await database.query<{

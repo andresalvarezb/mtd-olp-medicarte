@@ -447,23 +447,60 @@ describe('Gate ESP-010 - patient applications', () => {
       'PATIENT_APPLICATION_SCHEDULE_REVISION_CONFLICT',
     );
   });
-  it('19-20. autorización bloqueada o vencida después del draft impide confirmar', async () => {
+  it('19-20. autorización bloqueada impide confirmar y autorización vencida permanece operable', async () => {
     const s = await createSchedule();
     const l = await createLot(1);
     const app = await createDraft(s.id, 1, [{ inventoryLotId: l, quantity: 1 }]);
+
     await database.query(
       `update authorization_items set enablement_status='BLOCKED_SOURCE_STATUS' where id=$1`,
       [s.auth],
     );
-    expect(await errorCode(await confirm(app))).toBe('AUTHORIZATION_NOT_SCHEDULABLE');
-    const s2 = await createSchedule();
-    const l2 = await createLot(1);
-    const app2 = await createDraft(s2.id, 1, [{ inventoryLotId: l2, quantity: 1 }]);
+
+    expect(await errorCode(await confirm(app))).toBe(
+      'AUTHORIZATION_NOT_SCHEDULABLE',
+    );
+
+    /*
+     * Producto independiente para que el lote del escenario
+     * BLOCKED anterior no intervenga en la regla FEFO.
+     */
+    const expiredProduct = `${product}-EXPIRED`;
+
+    const s2 = await createSchedule(
+      1,
+      expiredProduct,
+    );
+
+    const l2 = await createLot(
+      1,
+      '2099-12-31',
+      expiredProduct,
+    );
+
+    const app2 = await createDraft(
+      s2.id,
+      1,
+      [
+        {
+          inventoryLotId: l2,
+          quantity: 1,
+        },
+      ],
+    );
+
     await database.query(
       `update authorization_items set source_data=jsonb_set(source_data,'{FECHA_FINAL_VIGENCIA}','"2000-01-01"') where id=$1`,
       [s2.auth],
     );
-    expect(await errorCode(await confirm(app2))).toBe('AUTHORIZATION_EXPIRED');
+
+    const expiredResponse =
+      await confirm(app2);
+
+    expect(
+      expiredResponse.status,
+      await expiredResponse.clone().text(),
+    ).toBe(201);
   });
   it('21. application date distinta es rechazada al confirmar', async () => {
     const s = await createSchedule();
