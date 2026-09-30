@@ -310,3 +310,84 @@ describe('purchase order access policy', () => {
   });
 
 });
+
+
+describe('purchase order visibility by actor', () => {
+  it('keeps OLP visibility through the complete operational cycle', () => {
+    const states = [
+      'PENDING_OLP',
+      'PENDING_MEDICARTE',
+      'RECEIVED_WITH_PENDING',
+      'RECEIVED',
+    ] as const;
+
+    for (const status of states) {
+      expect(
+        derivePurchaseOrderAllowedActions({
+          actor: 'OLP',
+          status,
+          olpAccepted:
+            status !== 'PENDING_OLP',
+        }).canView,
+      ).toBe(true);
+    }
+  });
+
+  it('does not expose PENDING_OLP to MEDICARTE', () => {
+    expect(
+      derivePurchaseOrderAllowedActions({
+        actor: 'MEDICARTE',
+        status: 'PENDING_OLP',
+        olpAccepted: false,
+      }).canView,
+    ).toBe(false);
+  });
+
+  it('keeps MEDICARTE visibility after OLP acceptance', () => {
+    const states = [
+      'PENDING_MEDICARTE',
+      'RECEIVED_WITH_PENDING',
+      'RECEIVED',
+    ] as const;
+
+    for (const status of states) {
+      expect(
+        derivePurchaseOrderAllowedActions({
+          actor: 'MEDICARTE',
+          status,
+          olpAccepted: true,
+        }).canView,
+      ).toBe(true);
+    }
+  });
+
+  it('does not grant OLP receipt actions in RECEIVED_WITH_PENDING', () => {
+    const actions =
+      derivePurchaseOrderAllowedActions({
+        actor: 'OLP',
+        status:
+          'RECEIVED_WITH_PENDING',
+        olpAccepted: true,
+      });
+
+    expect(actions.canView).toBe(true);
+    expect(
+      actions.canRecordReceipt,
+    ).toBe(false);
+  });
+
+  it('keeps MEDICARTE receipt action in RECEIVED_WITH_PENDING', () => {
+    const actions =
+      derivePurchaseOrderAllowedActions({
+        actor: 'MEDICARTE',
+        status:
+          'RECEIVED_WITH_PENDING',
+        olpAccepted: true,
+      });
+
+    expect(actions.canView).toBe(true);
+    expect(
+      actions.canRecordReceipt,
+    ).toBe(true);
+  });
+});
