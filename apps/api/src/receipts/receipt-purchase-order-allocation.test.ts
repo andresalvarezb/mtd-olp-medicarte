@@ -246,6 +246,46 @@ describe(
     );
 
     it(
+      'la recepcion legacy confirmada tambien materializa allocation OC -> AUTO',
+      () => {
+        const confirmStart =
+          source.indexOf(
+            'async confirm(',
+          );
+
+        const directReceiptStart =
+          source.indexOf(
+            'async createPurchaseOrderReceipt(',
+            confirmStart,
+          );
+
+        const legacyConfirm =
+          source.slice(
+            confirmStart,
+            directReceiptStart,
+          );
+
+        expect(confirmStart).toBeGreaterThan(-1);
+        expect(directReceiptStart).toBeGreaterThan(
+          confirmStart,
+        );
+
+        expect(legacyConfirm).toContain(
+          'reconcilePurchaseOrderAuthorizationAllocations(',
+        );
+
+        expect(source).toContain(
+          'rl.accepted_quantity',
+        );
+
+        expect(source).toContain(
+          'purchase_order_receipt_lines',
+        );
+      },
+    );
+
+
+    it(
       'la recepcion directa ejecuta allocation despues de insertar las lineas recibidas',
       () => {
         const receipt =

@@ -422,6 +422,23 @@ export class ReceiptRepository {
         scope.userId,
       );
 
+      /*
+       * Acoplamiento físico:
+       *
+       * una recepción legacy confirmada también debe
+       * materializar las allocations OC -> AUTO.
+       */
+      const automaticAllocation =
+        await this.reconcilePurchaseOrderAuthorizationAllocations(
+          tx,
+          delivery.rows[0].purchase_order_id,
+          scope,
+          {
+            receiptId:
+              id,
+          },
+        );
+
       await this.audit(
         tx,
         scope,
@@ -430,6 +447,7 @@ export class ReceiptRepository {
         {
           conformity: overall,
           deliveryStatus,
+          automaticAllocation,
         },
       );
       return this.findOn(tx, id, scope);
@@ -1059,91 +1077,185 @@ export class ReceiptRepository {
         received_now:
           number;
       }>(sql`
-        select
-          pol.commercial_code,
+        with received_sources as (
 
-          coalesce(
-            pol.dispensing_point_id,
-            mapped.dispensing_point_id
-          )
-            as dispensing_point_id,
+          /*
+           * Flujo moderno:
+           *
+           * recepción directa de OC.
+           */
+          select
+            pol.commercial_code,
+
+            coalesce(
+              pol.dispensing_point_id,
+              mapped.dispensing_point_id
+            )
+              as dispensing_point_id,
+
+            porl.received_quantity::int
+              as quantity,
+
+            porl.receipt_id
+              as receipt_id
+
+          from
+            purchase_order_receipt_lines porl
+
+          join purchase_order_receipts por
+            on por.id =
+               porl.receipt_id
+
+          join purchase_order_lines pol
+            on pol.id =
+               porl.purchase_order_line_id
+
+          left join tariff_annex_products tap
+            on tap.codigo_producto =
+               pol.commercial_code
+
+           and tap.active =
+               true
+
+          left join product_delivery_point_mappings mapped
+            on pol.dispensing_point_id
+               is null
+
+           and mapped.invima_record_normalized =
+               coalesce(
+                 nullif(
+                   ltrim(
+                     btrim(
+                       tap.numero_expediente_invima
+                     ),
+                     '0'
+                   ),
+                   ''
+                 ),
+                 '0'
+               )
+
+           and mapped.invima_presentation_normalized =
+               coalesce(
+                 nullif(
+                   ltrim(
+                     btrim(
+                       tap.consecutivo_invima_presentacion
+                     ),
+                     '0'
+                   ),
+                   ''
+                 ),
+                 '0'
+               )
+
+          where
+            por.purchase_order_id =
+              ${purchaseOrderId}
+
+            and porl.received_quantity >
+              0
+
+
+          union all
+
+
+          /*
+           * Flujo histórico:
+           *
+           * delivery -> receipt confirmado.
+           *
+           * Solo accepted_quantity se convierte en
+           * disponibilidad física asignable.
+           */
+          select
+            dl.commercial_code,
+
+            dl.dispensing_point_id,
+
+            rl.accepted_quantity::int
+              as quantity,
+
+            rl.receipt_id
+              as receipt_id
+
+          from
+            receipt_lines rl
+
+          join receipts r
+            on r.id =
+               rl.receipt_id
+
+           and r.status =
+               'CONFIRMED'
+
+          join delivery_lines dl
+            on dl.id =
+               rl.delivery_line_id
+
+          join deliveries d
+            on d.id =
+               dl.delivery_id
+
+          where
+            d.purchase_order_id =
+              ${purchaseOrderId}
+
+            and rl.accepted_quantity >
+              0
+        )
+
+
+        select
+          commercial_code,
+
+          dispensing_point_id,
 
           sum(
-            porl.received_quantity
+            quantity
           )::int
             as received_now
 
         from
-          purchase_order_receipt_lines porl
-
-        join purchase_order_receipts por
-          on por.id =
-             porl.receipt_id
-
-        join purchase_order_lines pol
-          on pol.id =
-             porl.purchase_order_line_id
-
-        left join tariff_annex_products tap
-          on tap.codigo_producto =
-             pol.commercial_code
-
-         and tap.active =
-             true
-
-        left join product_delivery_point_mappings mapped
-          on pol.dispensing_point_id
-             is null
-
-         and mapped.invima_record_normalized =
-             coalesce(
-               nullif(
-                 ltrim(
-                   btrim(
-                     tap.numero_expediente_invima
-                   ),
-                   '0'
-                 ),
-                 ''
-               ),
-               '0'
-             )
-
-         and mapped.invima_presentation_normalized =
-             coalesce(
-               nullif(
-                 ltrim(
-                   btrim(
-                     tap.consecutivo_invima_presentacion
-                   ),
-                   '0'
-                 ),
-                 ''
-               ),
-               '0'
-             )
+          received_sources
 
         where
-          por.purchase_order_id =
-            ${purchaseOrderId}
+          (
+            ${receiptId}::uuid
+              is null
 
-          and (
-            ${receiptId}::uuid is null
-            or porl.receipt_id =
-               ${receiptId}
+            or
+
+            receipt_id =
+              ${receiptId}
           )
-
-          and porl.received_quantity >
-            0
 
         group by
-          pol.commercial_code,
-
-          coalesce(
-            pol.dispensing_point_id,
-            mapped.dispensing_point_id
-          )
+          commercial_code,
+          dispensing_point_id
       `);
+
+
+    /*
+     * La reconciliación respeta el scope de puntos
+     * del usuario que materializa la asignación.
+     */
+    await lockActivePointGrants(
+      tx,
+      scope,
+      pools.rows
+        .map(
+          (pool) =>
+            pool.dispensing_point_id,
+        )
+        .filter(
+          (
+            pointId,
+          ): pointId is string =>
+            Boolean(pointId),
+        ),
+    );
+
 
 
     const assignments:
@@ -1350,36 +1462,80 @@ export class ReceiptRepository {
           quantity: number;
         }>(sql`
           select
-            coalesce(
-              sum(
-                porl.received_quantity
-              ),
-              0
+            (
+              coalesce(
+                (
+                  select
+                    sum(
+                      porl.received_quantity
+                    )::int
+
+                  from
+                    purchase_order_receipt_lines porl
+
+                  join purchase_order_receipts por
+                    on por.id =
+                       porl.receipt_id
+
+                  where
+                    por.purchase_order_id =
+                      ${purchaseOrderId}
+
+                    and porl.purchase_order_line_id
+                        in (
+                          ${sql.join(
+                            poolLineIds.map(
+                              (id) =>
+                                sql`${id}`,
+                            ),
+                            sql`,`,
+                          )}
+                        )
+                ),
+                0
+              )
+
+              +
+
+              coalesce(
+                (
+                  select
+                    sum(
+                      rl.accepted_quantity
+                    )::int
+
+                  from
+                    receipt_lines rl
+
+                  join receipts r
+                    on r.id =
+                       rl.receipt_id
+
+                   and r.status =
+                       'CONFIRMED'
+
+                  join delivery_lines dl
+                    on dl.id =
+                       rl.delivery_line_id
+
+                  where
+                    dl.purchase_order_line_id
+                      in (
+                        ${sql.join(
+                          poolLineIds.map(
+                            (id) =>
+                              sql`${id}`,
+                          ),
+                          sql`,`,
+                        )}
+                      )
+                ),
+                0
+              )
             )::int
               as quantity
-
-          from
-            purchase_order_receipt_lines porl
-
-          join purchase_order_receipts por
-            on por.id =
-               porl.receipt_id
-
-          where
-            por.purchase_order_id =
-              ${purchaseOrderId}
-
-            and porl.purchase_order_line_id
-                in (
-                  ${sql.join(
-                    poolLineIds.map(
-                      (id) =>
-                        sql`${id}`,
-                    ),
-                    sql`,`,
-                  )}
-                )
         `);
+
 
 
       /*
@@ -2063,11 +2219,72 @@ export class ReceiptRepository {
           );
         }
 
-        return this.reconcilePurchaseOrderAuthorizationAllocations(
-          tx,
-          purchaseOrderId,
-          scope,
-        );
+        const result =
+          await this.reconcilePurchaseOrderAuthorizationAllocations(
+            tx,
+            purchaseOrderId,
+            scope,
+          );
+
+
+        if (
+          result.assignedNow >
+          0
+        ) {
+          await tx.execute(sql`
+            insert into audit_events (
+              actor_type,
+              actor_id,
+              organization_id,
+              action,
+              resource_type,
+              resource_id,
+              after,
+              correlation_id,
+              request_id,
+              result
+            )
+            values (
+              'USER',
+              ${scope.userId},
+              ${scope.organizationId},
+              'PURCHASE_ORDER_AUTHORIZATION_ALLOCATION_RECONCILED',
+              'purchase_order',
+              ${purchaseOrderId},
+              ${JSON.stringify(result)}::jsonb,
+              ${scope.correlationId},
+              ${scope.correlationId},
+              'SUCCESS'
+            )
+          `);
+
+
+          await tx.execute(
+            realtimeInvalidationSql({
+              organizationCodes:
+                REALTIME_AUDIENCE.INVENTORY,
+
+              topics: [
+                'AUTHORIZATIONS',
+                'INVENTORY',
+              ],
+
+              correlationId:
+                scope.correlationId,
+
+              resource: {
+                type:
+                  'purchase_order',
+
+                id:
+                  purchaseOrderId,
+              },
+            }),
+          );
+        }
+
+
+        return result;
       },
     );
   }

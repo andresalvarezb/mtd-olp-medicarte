@@ -30,6 +30,7 @@ import {
 import {
   acceptOperationalPurchaseOrder,
   createPurchaseOrderDirectReceipt,
+  reconcilePurchaseOrderAllocations,
   getPurchaseOrderOperationalDetail,
   type PurchaseOrderOperationalDetail,
   type PurchaseOrderOperationalLine,
@@ -908,11 +909,68 @@ export function PurchaseOrderOperationalView() {
     setError(null);
 
     try {
-      const result =
+      let result =
         await getPurchaseOrderOperationalDetail(
           organizationId,
           id,
         );
+
+
+      /*
+       * Self-healing de OCs recibidas antes de que
+       * existiera la materialización automática
+       * OC -> AUTO.
+       *
+       * Solo Medicarte con permiso de recepción
+       * ejecuta la reconciliación.
+       *
+       * El backend es idempotente: si ya está
+       * reconciliada, assignedNow será 0.
+       */
+      if (
+        !preserveDraft
+        &&
+        isMedicarte
+        &&
+        canReceiveMedicarte
+        &&
+        (
+          result.operationalState ===
+            'RECEIVED'
+          ||
+          result.operationalState ===
+            'RECEIVED_WITH_PENDING'
+        )
+      ) {
+        try {
+          const reconciliation =
+            await reconcilePurchaseOrderAllocations(
+              organizationId,
+              id,
+            );
+
+
+          if (
+            reconciliation.assignedNow >
+            0
+          ) {
+            result =
+              await getPurchaseOrderOperationalDetail(
+                organizationId,
+                id,
+              );
+          }
+        } catch (
+          cause
+        ) {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : 'La OC está recibida, pero no fue posible reconciliar sus asignaciones.',
+          );
+        }
+      }
+
 
       setDetail(result);
 

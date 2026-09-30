@@ -46,6 +46,31 @@ export class ReceiptController {
   }
 
 
+  @Post(
+    'medicarte/purchase-orders/:id/reconcile-allocations',
+  )
+  async reconcilePurchaseOrderAllocations(
+    @Param('id')
+    id: string,
+
+    @Headers('x-organization-id')
+    org: string | undefined,
+
+    @Req()
+    req: AuthenticatedRequest,
+  ) {
+    return this.receipts.reconcilePurchaseOrderAllocations(
+      uuid.parse(id),
+
+      await this.scope(
+        req,
+        org,
+        'medicarte_receipts.manage',
+      ),
+    );
+  }
+
+
   @Post('medicarte/receipts') async create(
     @Body() raw: unknown,
     @Headers('x-organization-id') org: string | undefined,
