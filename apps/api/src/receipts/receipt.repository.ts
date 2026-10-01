@@ -2250,6 +2250,270 @@ export class ReceiptRepository {
   }
 
 
+  /*
+   * Recupera la relación histórica OC -> AUTO usando
+   * authorization_items.orden_compra.
+   *
+   * Solo materializa purchase_order_authorization_sources
+   * cuando la relación puede resolverse sin ambigüedad:
+   *
+   * - mismo código de OC;
+   * - mismo código comercial;
+   * - una sola línea posible; o
+   * - múltiples líneas pero exactamente un punto coincide
+   *   con lugar_dispensacion.
+   *
+   * Nunca asigna inventario aquí. El allocator canónico
+   * continúa siendo reconcilePurchaseOrderAuthorizationAllocations().
+   */
+  private async recoverHistoricalAuthorizationSources(
+    tx: Tx,
+    purchaseOrderId: string,
+  ) {
+    await tx.execute(sql`
+      with base as (
+        select
+          ai.id
+            as authorization_item_id,
+
+          pol.id
+            as purchase_order_line_id,
+
+          (
+            ai.source_data
+              ->> 'CANTIDAD'
+          )::int
+            as source_quantity_snapshot,
+
+          ai.lugar_dispensacion,
+
+          dp.code
+            as dispensing_point_code,
+
+          dp.name
+            as dispensing_point_name,
+
+          (
+            ai.lugar_dispensacion
+              is not null
+
+            and
+
+            (
+              lower(
+                btrim(
+                  ai.lugar_dispensacion
+                )
+              ) =
+              lower(
+                btrim(
+                  coalesce(
+                    dp.code,
+                    ''
+                  )
+                )
+              )
+
+              or
+
+              lower(
+                btrim(
+                  ai.lugar_dispensacion
+                )
+              ) =
+              lower(
+                btrim(
+                  coalesce(
+                    dp.name,
+                    ''
+                  )
+                )
+              )
+            )
+          )
+            as point_match
+
+        from
+          purchase_orders po
+
+        join
+          authorization_items ai
+            on po.purchase_order_code
+               is not null
+
+           and ai.orden_compra
+               is not null
+
+           and btrim(
+                 ai.orden_compra
+               ) =
+               btrim(
+                 po.purchase_order_code
+               )
+
+        join
+          purchase_order_lines pol
+            on pol.purchase_order_id =
+               po.id
+
+           and btrim(
+                 pol.commercial_code
+               ) =
+               btrim(
+                 ai.codigo_medicamento
+               )
+
+        left join
+          tariff_annex_products tap
+            on tap.codigo_producto =
+               pol.commercial_code
+
+           and tap.active =
+               true
+
+        left join
+          product_delivery_point_mappings mapped
+            on pol.dispensing_point_id
+               is null
+
+           and mapped.invima_record_normalized =
+               coalesce(
+                 nullif(
+                   ltrim(
+                     btrim(
+                       tap.numero_expediente_invima
+                     ),
+                     '0'
+                   ),
+                   ''
+                 ),
+                 '0'
+               )
+
+           and mapped.invima_presentation_normalized =
+               coalesce(
+                 nullif(
+                   ltrim(
+                     btrim(
+                       tap.consecutivo_invima_presentacion
+                     ),
+                     '0'
+                   ),
+                   ''
+                 ),
+                 '0'
+               )
+
+        left join
+          dispensing_points dp
+            on dp.id =
+               coalesce(
+                 pol.dispensing_point_id,
+                 mapped.dispensing_point_id
+               )
+
+        where
+          po.id =
+            ${purchaseOrderId}
+
+          and btrim(
+                coalesce(
+                  ai.source_data
+                    ->> 'CANTIDAD',
+                  ''
+                )
+              )
+              ~ '^[1-9][0-9]*$'
+      ),
+
+
+      ranked as (
+        select
+          base.*,
+
+          count(*) over (
+            partition by
+              authorization_item_id
+          )
+            as product_line_count,
+
+          sum(
+            case
+              when point_match
+                then 1
+              else 0
+            end
+          ) over (
+            partition by
+              authorization_item_id
+          )
+            as point_match_count
+
+        from
+          base
+      ),
+
+
+      resolved as (
+        select
+          authorization_item_id,
+          purchase_order_line_id,
+          source_quantity_snapshot
+
+        from
+          ranked
+
+        where
+          product_line_count =
+            1
+
+          or (
+            product_line_count >
+              1
+
+            and point_match_count =
+              1
+
+            and point_match =
+              true
+          )
+      )
+
+
+      insert into
+        purchase_order_authorization_sources (
+          purchase_order_line_id,
+          authorization_item_id,
+          projected_demand_line_id,
+          projected_demand_revision,
+          source_quantity_snapshot,
+          provenance,
+          evidence_at,
+          created_at
+        )
+
+      select
+        resolved.purchase_order_line_id,
+        resolved.authorization_item_id,
+        null,
+        null,
+        resolved.source_quantity_snapshot,
+        'LEGACY_CURRENT_STATE',
+        null,
+        now()
+
+      from
+        resolved
+
+      on conflict (
+        purchase_order_line_id,
+        authorization_item_id
+      )
+      do nothing
+    `);
+  }
+
+
   async reconcilePurchaseOrderAllocations(
     purchaseOrderId: string,
     scope: Scope,
@@ -2302,6 +2566,12 @@ export class ReceiptRepository {
             'PURCHASE_ORDER_RECONCILIATION_NOT_FOUND',
           );
         }
+
+        await this.recoverHistoricalAuthorizationSources(
+          tx,
+          purchaseOrderId,
+        );
+
 
         const result =
           await this.reconcilePurchaseOrderAuthorizationAllocations(
@@ -2362,43 +2632,51 @@ export class ReceiptRepository {
     options: {
       purchaseOrderCode?: string;
       limit?: number;
+      cursor?: string;
     } = {},
   ) {
     const purchaseOrderCode =
       options.purchaseOrderCode ??
       null;
 
+    const cursor =
+      options.cursor ??
+      null;
+
+    /*
+     * Lotes deliberadamente pequeños.
+     *
+     * El endpoint anterior permitía 1000 OCs dentro de una
+     * misma petición y llegó a degradar la conexión de BD.
+     */
     const limit =
       Math.min(
         Math.max(
           options.limit ??
-          100,
+          10,
           1,
         ),
-        1000,
+        50,
       );
+
+    const queryLimit =
+      limit + 1;
 
 
     /*
-     * BACKFILL OC RECIBIDA -> AUTO
-     * =============================
+     * Una OC entra al backfill si:
      *
-     * Esta operación NO crea allocations por una segunda
-     * implementación.
+     * A) ya posee purchase_order_authorization_sources
+     *    pendiente de allocation;
      *
-     * Solamente identifica OCs potencialmente pendientes
-     * y reutiliza reconcilePurchaseOrderAllocations(),
-     * que a su vez usa el mismo allocator de la recepción
-     * normal.
+     * o
      *
-     * Eso garantiza:
+     * B) existe relación histórica directa
+     *    authorization_items.orden_compra -> purchase_orders
+     *    para el mismo producto y todavía no hay allocation.
      *
-     * - idempotencia;
-     * - mismas reglas de prioridad;
-     * - mismo cálculo received - assigned;
-     * - mismo point scope;
-     * - mismo audit;
-     * - mismo realtime.
+     * El caso B permite recuperar OCs históricas como 9219
+     * que antes devolvían scanned=0.
      */
     const candidates =
       await this.database.db.execute<{
@@ -2408,7 +2686,6 @@ export class ReceiptRepository {
       }>(sql`
         select
           po.id,
-
           po.purchase_order_code
 
         from
@@ -2425,62 +2702,140 @@ export class ReceiptRepository {
               ${purchaseOrderCode}
           )
 
+          and (
+            ${cursor}::uuid
+              is null
 
-          /*
-           * Debe existir al menos una AUTO fuente todavía
-           * sin allocation material activa para ESTA OC.
-           */
-          and exists (
-            select
-              1
+            or
 
-            from
-              purchase_order_lines pol
+            po.id >
+              ${cursor}::uuid
+          )
 
-            join
-              purchase_order_authorization_sources poas
-                on poas.purchase_order_line_id =
-                   pol.id
+          and (
+            /*
+             * Relación material ya existente.
+             */
+            exists (
+              select
+                1
 
-            where
-              pol.purchase_order_id =
-                po.id
+              from
+                purchase_order_lines pol
 
-              and not exists (
-                select
-                  1
+              join
+                purchase_order_authorization_sources poas
+                  on poas.purchase_order_line_id =
+                     pol.id
 
-                from
-                  inventory_authorization_allocations iaa
+              where
+                pol.purchase_order_id =
+                  po.id
 
-                where
-                  iaa.authorization_item_id =
-                    poas.authorization_item_id
+                and not exists (
+                  select
+                    1
 
-                  and iaa.purchase_order_id =
-                    po.id
+                  from
+                    inventory_authorization_allocations iaa
 
-                  and iaa.commercial_code =
-                    pol.commercial_code
+                  where
+                    iaa.authorization_item_id =
+                      poas.authorization_item_id
 
-                  and (
-                    iaa.allocated_quantity
-                    -
-                    iaa.released_quantity
-                  ) >
-                  0
-              )
+                    and iaa.purchase_order_id =
+                      po.id
+
+                    and iaa.commercial_code =
+                      pol.commercial_code
+
+                    and (
+                      iaa.allocated_quantity
+                      -
+                      iaa.released_quantity
+                    ) >
+                    0
+                )
+            )
+
+            or
+
+            /*
+             * Relación histórica directa todavía no
+             * materializada en purchase_order_authorization_sources.
+             */
+            exists (
+              select
+                1
+
+              from
+                authorization_items ai
+
+              join
+                purchase_order_lines pol
+                  on pol.purchase_order_id =
+                     po.id
+
+                 and btrim(
+                       pol.commercial_code
+                     ) =
+                     btrim(
+                       ai.codigo_medicamento
+                     )
+
+              where
+                po.purchase_order_code
+                  is not null
+
+                and ai.orden_compra
+                  is not null
+
+                and btrim(
+                      ai.orden_compra
+                    ) =
+                    btrim(
+                      po.purchase_order_code
+                    )
+
+                and btrim(
+                      coalesce(
+                        ai.source_data
+                          ->> 'CANTIDAD',
+                        ''
+                      )
+                    )
+                    ~ '^[1-9][0-9]*$'
+
+                and not exists (
+                  select
+                    1
+
+                  from
+                    inventory_authorization_allocations iaa
+
+                  where
+                    iaa.authorization_item_id =
+                      ai.id
+
+                    and iaa.purchase_order_id =
+                      po.id
+
+                    and iaa.commercial_code =
+                      pol.commercial_code
+
+                    and (
+                      iaa.allocated_quantity
+                      -
+                      iaa.released_quantity
+                    ) >
+                    0
+                )
+            )
           )
 
 
           /*
-           * Debe existir evidencia física positiva.
-           *
-           * Flujo directo:
-           * purchase_order_receipt_lines.received_quantity
-           *
-           * Flujo legacy:
-           * receipt_lines.accepted_quantity de receipt CONFIRMED.
+           * Evidencia física positiva.
            */
           and (
             exists (
@@ -2535,15 +2890,32 @@ export class ReceiptRepository {
           )
 
         order by
-          po.purchase_order_code
-            asc nulls last,
-
-          po.id
-            asc
+          po.id asc
 
         limit
-          ${limit}
+          ${queryLimit}
       `);
+
+
+    const page =
+      candidates.rows.slice(
+        0,
+        limit,
+      );
+
+    const hasMore =
+      candidates.rows.length >
+      limit;
+
+    const nextCursor =
+      hasMore
+        ? (
+            page[
+              page.length - 1
+            ]?.id ??
+            null
+          )
+        : null;
 
 
     const items:
@@ -2583,13 +2955,10 @@ export class ReceiptRepository {
 
     /*
      * Una transacción independiente por OC.
-     *
-     * Si una OC tiene un problema de datos, no revierte
-     * las demás y queda reportada como FAILED.
      */
     for (
       const candidate of
-      candidates.rows
+      page
     ) {
       try {
         const result =
@@ -2669,8 +3038,10 @@ export class ReceiptRepository {
 
       limit,
 
+      cursor,
+
       scanned:
-        candidates.rows.length,
+        page.length,
 
       changed,
 
@@ -2679,6 +3050,10 @@ export class ReceiptRepository {
       failed,
 
       assignedQuantity,
+
+      hasMore,
+
+      nextCursor,
 
       items,
     };

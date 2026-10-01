@@ -27,7 +27,12 @@ const purchaseOrderAllocationBackfillRequestSchema =
       z.number()
         .int()
         .min(1)
-        .max(1000)
+        .max(50)
+        .optional(),
+
+    cursor:
+      z.string()
+        .uuid()
         .optional(),
   })
     .strict();
@@ -126,6 +131,7 @@ export class ReceiptController {
     const options: {
       purchaseOrderCode?: string;
       limit?: number;
+      cursor?: string;
     } = {};
 
 
@@ -144,6 +150,15 @@ export class ReceiptController {
     ) {
       options.limit =
         body.limit;
+    }
+
+
+    if (
+      body.cursor !==
+      undefined
+    ) {
+      options.cursor =
+        body.cursor;
     }
 
 

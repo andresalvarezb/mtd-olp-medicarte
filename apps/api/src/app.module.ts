@@ -50,6 +50,7 @@ import { DeliveryService } from './deliveries/delivery.service';
 import { ReceiptController, OlpReceiptController } from './receipts/receipt.controller';
 import { ReceiptRepository } from './receipts/receipt.repository';
 import { ReceiptService } from './receipts/receipt.service';
+import { ReceivedAllocationBackfillBootstrapService } from './receipts/received-allocation-backfill.bootstrap';
 import { InventoryController } from './inventory/inventory.controller';
 import { InventoryAvailabilityController } from './inventory/inventory-availability.controller';
 import { InventoryAvailabilityRepository } from './inventory/inventory-availability.repository';
@@ -218,6 +219,7 @@ ClinicalModule.register(database),
     DeliveryService,
     ReceiptRepository,
     ReceiptService,
+    ReceivedAllocationBackfillBootstrapService,
     InventoryRepository,
     InventoryAvailabilityRepository,
     InventoryService,
