@@ -9009,8 +9009,7 @@ table.operational-list-table tbody tr:hover {
     minmax(0, 0.92fr)
     minmax(0, 1fr)
     minmax(0, 0.88fr)
-    minmax(0, 0.9fr)
-    minmax(0, 0.86fr)
+    minmax(210px, 1.25fr)
     auto;
 
   align-items: end;
@@ -9083,11 +9082,11 @@ table.operational-list-table tbody tr:hover {
  * Solo cuando realmente no existe ancho suficiente
  * permitimos pasar a dos filas.
  */
-@media (max-width: 1180px) {
+@media (max-width: 900px) {
   .authorization-query-workspace .filter-bar {
     grid-template-columns:
       repeat(
-        3,
+        2,
         minmax(0, 1fr)
       );
   }
