@@ -264,6 +264,80 @@ function authorizationOperationalLabel(
 }
 
 
+type AuthorizationUnifiedStatus =
+  | ''
+  | 'UNASSIGNED'
+  | 'PARTIALLY_ASSIGNED'
+  | 'ASSIGNED'
+  | 'APPLICATION_PENDING'
+  | 'OUT_OF_OPERATION'
+  | 'CLOSED';
+
+
+function authorizationUnifiedStatusFilters(
+  status:
+    AuthorizationUnifiedStatus,
+): AuthorizationQueryFilters {
+  switch (
+    status
+  ) {
+    case 'UNASSIGNED':
+      return {
+        operationalStatus:
+          'UNASSIGNED',
+
+        fulfillmentProgressStatus:
+          'PENDING',
+      };
+
+
+    case 'PARTIALLY_ASSIGNED':
+      return {
+        operationalStatus:
+          'PARTIALLY_ASSIGNED',
+
+        fulfillmentProgressStatus:
+          'PENDING',
+      };
+
+
+    case 'ASSIGNED':
+      return {
+        operationalStatus:
+          'ASSIGNED',
+
+        fulfillmentProgressStatus:
+          'PENDING',
+      };
+
+
+    case 'APPLICATION_PENDING':
+      return {
+        fulfillmentProgressStatus:
+          'PARTIAL',
+      };
+
+
+    case 'OUT_OF_OPERATION':
+      return {
+        operationalStatus:
+          'OUT_OF_OPERATION',
+      };
+
+
+    case 'CLOSED':
+      return {
+        operationalStatus:
+          'CLOSED',
+      };
+
+
+    default:
+      return {};
+  }
+}
+
+
 function singlePurchaseOrderCode(
   value:
     string | null,
@@ -710,14 +784,36 @@ function dateTimeLabel(
 export function ConsultaAutorizacionesView() {
   const { organizationId, hasPermission } = useRole();
 
-  const [filters, setFilters] = useState({
-    authorizationNumber: '',
-    commercialCode: '',
-    patient: '',
-    lifecycleEnablement: '',
-    operationalStatus: '',
-    fulfillmentProgressStatus: '',
-    coverageType: '',
+  const [filters, setFilters] = useState<{
+    authorizationNumber:
+      string;
+
+    commercialCode:
+      string;
+
+    patient:
+      string;
+
+    lifecycleEnablement:
+      string;
+
+    status:
+      AuthorizationUnifiedStatus;
+  }>({
+    authorizationNumber:
+      '',
+
+    commercialCode:
+      '',
+
+    patient:
+      '',
+
+    lifecycleEnablement:
+      '',
+
+    status:
+      '',
   });
 
   const [appliedFilters, setAppliedFilters] = useState(filters);
@@ -1009,30 +1105,9 @@ const query = useApiData(
             }
           : {}),
 
-        ...(appliedFilters.operationalStatus
-          ? {
-              operationalStatus: appliedFilters.operationalStatus as NonNullable<
-                AuthorizationQueryFilters['operationalStatus']
-              >,
-            }
-          : {}),
-
-        ...(appliedFilters.fulfillmentProgressStatus
-          ? {
-              fulfillmentProgressStatus:
-                appliedFilters.fulfillmentProgressStatus as NonNullable<
-                  AuthorizationQueryFilters['fulfillmentProgressStatus']
-                >,
-            }
-          : {}),
-
-        ...(appliedFilters.coverageType
-          ? {
-              coverageType: appliedFilters.coverageType as NonNullable<
-                AuthorizationQueryFilters['coverageType']
-              >,
-            }
-          : {}),
+        ...authorizationUnifiedStatusFilters(
+          appliedFilters.status,
+        ),
       }),
     [
       organizationId,
@@ -1137,14 +1212,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
       lifecycleEnablement:
         '',
 
-      operationalStatus:
-        '',
-
-      fulfillmentProgressStatus:
-        '',
-
-      coverageType:
-        '',
+      status:
+        '' as AuthorizationUnifiedStatus,
     };
 
     /*
@@ -2023,13 +2092,18 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
             <FilterField label="Estado">
               <select
                 className="control"
-                value={filters.operationalStatus}
-                onChange={(event) =>
+                value={
+                  filters.status
+                }
+                onChange={(
+                  event,
+                ) =>
                   setFilters({
                     ...filters,
 
-                    operationalStatus:
-                      event.target.value,
+                    status:
+                      event.target.value
+                        as AuthorizationUnifiedStatus,
                   })
                 }
               >
@@ -2038,15 +2112,19 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                 </option>
 
                 <option value="UNASSIGNED">
-                  Pendiente de recepción/asignación
+                  Sin asignar
+                </option>
+
+                <option value="PARTIALLY_ASSIGNED">
+                  Parcialmente asignada
                 </option>
 
                 <option value="ASSIGNED">
                   Lista para entrega/aplicación
                 </option>
 
-                <option value="PARTIALLY_ASSIGNED">
-                  Asignación parcial
+                <option value="APPLICATION_PENDING">
+                  Con aplicación pendiente
                 </option>
 
                 <option value="OUT_OF_OPERATION">
@@ -2056,59 +2134,6 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                 <option value="CLOSED">
                   Cerrada
                 </option>
-              </select>
-            </FilterField>
-
-            <FilterField label="Estado de atención">
-              <select
-                className="control"
-                value={
-                  filters.fulfillmentProgressStatus
-                }
-                onChange={(event) =>
-                  setFilters({
-                    ...filters,
-
-                    fulfillmentProgressStatus:
-                      event.target.value,
-                  })
-                }
-              >
-                <option value="">
-                  Todos
-                </option>
-
-                <option value="PENDING">
-                  Pendiente de atención
-                </option>
-
-                <option value="PARTIAL">
-                  Con aplicación pendiente
-                </option>
-
-                <option value="COMPLETE">
-                  Atención completa
-                </option>
-              </select>
-            </FilterField>
-
-            <FilterField label="Cobertura">
-              <select
-                className="control"
-                value={filters.coverageType}
-                onChange={(event) =>
-                  setFilters({
-                    ...filters,
-
-                    coverageType: event.target.value,
-                  })
-                }
-              >
-                <option value="">Todas</option>
-
-                <option value="PBS">PBS</option>
-
-                <option value="NO_PBS">NO PBS</option>
               </select>
             </FilterField>
 
