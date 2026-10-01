@@ -98,6 +98,7 @@ import { ProductDeliveryPointService } from './product-delivery-points/product-d
 import { AccessScopeController } from './access-scopes/access-scope.controller';
 import { OperationalAccessScopeService } from './access-scopes/operational-access-scope.service';
 import { LegacyAuthorizationHistoryRepository } from './legacy/legacy-authorization-history.repository';
+import { HistoricalPurchaseOrderSourceRecoveryService } from './legacy/historical-purchase-order-source-recovery.service';
 import { LegacyCompatibilityProjectionService } from './legacy/legacy-compatibility-projection.service';
 import { ReconciliationController } from './reconciliation/reconciliation.controller';
 import { ReconciliationIssuesRepository } from './reconciliation/reconciliation-issues.repository';
@@ -239,6 +240,7 @@ ClinicalModule.register(database),
     AuthorizationFulfillmentAuditService,
     LegacyAuthorizationHistoryRepository,
     LegacyCompatibilityProjectionService,
+    HistoricalPurchaseOrderSourceRecoveryService,
     AnalyticsRepository,
     AnalyticsService,
     BulkImportRepository,

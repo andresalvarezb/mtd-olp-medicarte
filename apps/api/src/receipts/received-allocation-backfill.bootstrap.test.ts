@@ -30,23 +30,49 @@ describe(
       );
 
 
+    const historicalRecovery =
+      fs.readFileSync(
+        path.resolve(
+          __dirname,
+          '../legacy/historical-purchase-order-source-recovery.service.ts',
+        ),
+        'utf8',
+      );
+
+
     it(
-      'recupera source historico desde orden_compra sin crear segundo allocator',
+      'recupera lineage historico en el boundary ESP-016 sin crear segundo allocator',
       () => {
-        expect(repository).toContain(
+        expect(historicalRecovery).toContain(
           'ai.orden_compra',
         );
 
-        expect(repository).toContain(
+        expect(historicalRecovery).toContain(
           "'LEGACY_CURRENT_STATE'",
         );
 
+        expect(repository).not.toContain(
+          'ai.orden_compra',
+        );
+
+        expect(repository).not.toContain(
+          'ai.lugar_dispensacion',
+        );
+
         expect(repository).toContain(
-          'recoverHistoricalAuthorizationSources',
+          'historicalSourceRecovery.recoverPage',
+        );
+
+        expect(repository).toContain(
+          'historicalSourceRecovery.recoverForPurchaseOrder',
         );
 
         expect(repository).toContain(
           'this.reconcilePurchaseOrderAuthorizationAllocations(',
+        );
+
+        expect(historicalRecovery).not.toContain(
+          'insert into inventory_authorization_allocations',
         );
       },
     );
