@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -39,6 +40,42 @@ export class ReceiptService {
         this.repository.reconcilePurchaseOrderAllocations(
           purchaseOrderId,
           scope,
+        ),
+    );
+  }
+
+
+  reconcileReceivedPurchaseOrders(
+    body: {
+      purchaseOrderCode?: string;
+      limit?: number;
+    },
+    scope: Scope,
+  ) {
+    /*
+     * El backfill masivo es una operación administrativa.
+     *
+     * La recepción normal continúa siendo automática para
+     * Medicarte; esto existe exclusivamente para reparar
+     * evidencia histórica ya recibida.
+     */
+    if (
+      !scope.isFoundationAdmin
+    ) {
+      throw new ForbiddenException({
+        code:
+          'RECONCILIATION_ADMIN_REQUIRED',
+
+        message:
+          'System administrator access is required',
+      });
+    }
+
+    return this.run(
+      () =>
+        this.repository.reconcileReceivedPurchaseOrders(
+          scope,
+          body,
         ),
     );
   }

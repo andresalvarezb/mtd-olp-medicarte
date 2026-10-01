@@ -12,6 +12,27 @@ import { AccessService } from '../identity/access.service';
 import type { AuthenticatedRequest } from '../types';
 import { ReceiptService } from './receipt.service';
 const uuid = z.string().uuid();
+
+
+const purchaseOrderAllocationBackfillRequestSchema =
+  z.object({
+    purchaseOrderCode:
+      z.string()
+        .trim()
+        .min(1)
+        .max(255)
+        .optional(),
+
+    limit:
+      z.number()
+        .int()
+        .min(1)
+        .max(1000)
+        .optional(),
+  })
+    .strict();
+
+
 @Controller()
 @UseGuards(AuthGuard)
 export class ReceiptController {
@@ -61,6 +82,73 @@ export class ReceiptController {
   ) {
     return this.receipts.reconcilePurchaseOrderAllocations(
       uuid.parse(id),
+
+      await this.scope(
+        req,
+        org,
+        'medicarte_receipts.manage',
+      ),
+    );
+  }
+
+
+  @Post(
+    'admin/purchase-orders/reconcile-received-allocations',
+  )
+  async reconcileReceivedPurchaseOrders(
+    @Body()
+    raw: unknown,
+
+    @Headers('x-organization-id')
+    org: string | undefined,
+
+    @Req()
+    req: AuthenticatedRequest,
+  ) {
+    const body =
+      purchaseOrderAllocationBackfillRequestSchema.parse(
+        raw ??
+        {},
+      );
+
+
+    /*
+     * exactOptionalPropertyTypes:
+     *
+     * Zod representa una propiedad opcional como
+     * T | undefined, mientras que el contrato interno
+     * usa ausencia real de la propiedad.
+     *
+     * Normalizamos aquí, en la frontera HTTP, para que
+     * service y repository nunca reciban propiedades
+     * presentes con valor undefined.
+     */
+    const options: {
+      purchaseOrderCode?: string;
+      limit?: number;
+    } = {};
+
+
+    if (
+      body.purchaseOrderCode !==
+      undefined
+    ) {
+      options.purchaseOrderCode =
+        body.purchaseOrderCode;
+    }
+
+
+    if (
+      body.limit !==
+      undefined
+    ) {
+      options.limit =
+        body.limit;
+    }
+
+
+    return this.receipts.reconcileReceivedPurchaseOrders(
+      options,
 
       await this.scope(
         req,
