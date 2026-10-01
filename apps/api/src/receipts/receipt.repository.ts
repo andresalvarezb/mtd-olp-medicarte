@@ -16,6 +16,7 @@ import type {
   UpdateReceiptRequest,
 } from '@authorization/contracts';
 import { InventoryRepository } from '../inventory/inventory.repository';
+import { HistoricalPurchaseOrderSourceRecoveryService } from '../legacy/historical-purchase-order-source-recovery.service';
 
 type Database = ReturnType<typeof createDatabase>;
 type Tx = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -53,6 +54,8 @@ export class ReceiptRepository {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly inventory: InventoryRepository,
+    private readonly historicalSourceRecovery:
+      HistoricalPurchaseOrderSourceRecoveryService,
   ) {}
 
 
@@ -2303,6 +2306,12 @@ export class ReceiptRepository {
           );
         }
 
+        await this.historicalSourceRecovery.recoverForPurchaseOrder(
+          tx,
+          purchaseOrderId,
+        );
+
+
         const result =
           await this.reconcilePurchaseOrderAuthorizationAllocations(
             tx,
@@ -2362,44 +2371,46 @@ export class ReceiptRepository {
     options: {
       purchaseOrderCode?: string;
       limit?: number;
+      cursor?: string;
     } = {},
   ) {
     const purchaseOrderCode =
       options.purchaseOrderCode ??
       null;
 
+    const cursor =
+      options.cursor ??
+      null;
+
     const limit =
       Math.min(
         Math.max(
           options.limit ??
-          100,
+          10,
           1,
         ),
-        1000,
+        50,
       );
+
+    const queryLimit =
+      limit + 1;
 
 
     /*
-     * BACKFILL OC RECIBIDA -> AUTO
-     * =============================
+     * ESP-016:
      *
-     * Esta operación NO crea allocations por una segunda
-     * implementación.
-     *
-     * Solamente identifica OCs potencialmente pendientes
-     * y reutiliza reconcilePurchaseOrderAllocations(),
-     * que a su vez usa el mismo allocator de la recepción
-     * normal.
-     *
-     * Eso garantiza:
-     *
-     * - idempotencia;
-     * - mismas reglas de prioridad;
-     * - mismo cálculo received - assigned;
-     * - mismo point scope;
-     * - mismo audit;
-     * - mismo realtime.
+     * La evidencia histórica se interpreta únicamente dentro
+     * del boundary legacy. Aquí recibimos lineage moderno
+     * materializado en purchase_order_authorization_sources.
      */
+    await this.historicalSourceRecovery.recoverPage({
+      purchaseOrderCode,
+      cursor,
+      limit:
+        queryLimit,
+    });
+
+
     const candidates =
       await this.database.db.execute<{
         id: string;
@@ -2408,7 +2419,6 @@ export class ReceiptRepository {
       }>(sql`
         select
           po.id,
-
           po.purchase_order_code
 
         from
@@ -2425,11 +2435,16 @@ export class ReceiptRepository {
               ${purchaseOrderCode}
           )
 
+          and (
+            ${cursor}::uuid
+              is null
 
-          /*
-           * Debe existir al menos una AUTO fuente todavía
-           * sin allocation material activa para ESTA OC.
-           */
+            or
+
+            po.id >
+              ${cursor}::uuid
+          )
+
           and exists (
             select
               1
@@ -2468,20 +2483,10 @@ export class ReceiptRepository {
                     -
                     iaa.released_quantity
                   ) >
-                  0
+                    0
               )
           )
 
-
-          /*
-           * Debe existir evidencia física positiva.
-           *
-           * Flujo directo:
-           * purchase_order_receipt_lines.received_quantity
-           *
-           * Flujo legacy:
-           * receipt_lines.accepted_quantity de receipt CONFIRMED.
-           */
           and (
             exists (
               select
@@ -2535,15 +2540,32 @@ export class ReceiptRepository {
           )
 
         order by
-          po.purchase_order_code
-            asc nulls last,
-
-          po.id
-            asc
+          po.id asc
 
         limit
-          ${limit}
+          ${queryLimit}
       `);
+
+
+    const page =
+      candidates.rows.slice(
+        0,
+        limit,
+      );
+
+    const hasMore =
+      candidates.rows.length >
+      limit;
+
+    const nextCursor =
+      hasMore
+        ? (
+            page[
+              page.length - 1
+            ]?.id ??
+            null
+          )
+        : null;
 
 
     const items:
@@ -2581,15 +2603,9 @@ export class ReceiptRepository {
       0;
 
 
-    /*
-     * Una transacción independiente por OC.
-     *
-     * Si una OC tiene un problema de datos, no revierte
-     * las demás y queda reportada como FAILED.
-     */
     for (
       const candidate of
-      candidates.rows
+      page
     ) {
       try {
         const result =
@@ -2617,6 +2633,7 @@ export class ReceiptRepository {
           unchanged +=
             1;
         }
+
 
         items.push({
           purchaseOrderId:
@@ -2666,20 +2683,18 @@ export class ReceiptRepository {
 
     return {
       purchaseOrderCode,
-
       limit,
+      cursor,
 
       scanned:
-        candidates.rows.length,
+        page.length,
 
       changed,
-
       unchanged,
-
       failed,
-
       assignedQuantity,
-
+      hasMore,
+      nextCursor,
       items,
     };
   }

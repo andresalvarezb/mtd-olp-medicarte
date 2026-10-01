@@ -49,6 +49,7 @@ export class ReceiptService {
     body: {
       purchaseOrderCode?: string;
       limit?: number;
+      cursor?: string;
     },
     scope: Scope,
   ) {
