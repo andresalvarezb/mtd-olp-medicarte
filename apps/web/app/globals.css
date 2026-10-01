@@ -7981,13 +7981,13 @@ table.operational-list-table tbody tr:hover {
 
 .authorization-detail-drawer {
   width: min(
-    980px,
+    784px,
     calc(100vw - 48px)
   );
 
   padding:
-    24px
-    28px;
+    19px
+    22px;
 }
 
 .authorization-drawer-tabs {
@@ -7997,9 +7997,9 @@ table.operational-list-table tbody tr:hover {
   gap: 6px;
 
   margin:
-    -6px
+    -4px
     0
-    24px;
+    19px;
 
   padding: 4px;
 
@@ -8010,11 +8010,11 @@ table.operational-list-table tbody tr:hover {
 }
 
 .authorization-drawer-tabs button {
-  min-height: 36px;
+  min-height: 32px;
 
   padding:
-    8px
-    14px;
+    7px
+    12px;
 
   border: 0;
   border-radius: 8px;
@@ -8054,9 +8054,9 @@ table.operational-list-table tbody tr:hover {
   gap: 9px;
 
   margin:
-    22px
+    18px
     0
-    10px;
+    8px;
 }
 
 .authorization-summary-section-heading:first-of-type {
@@ -8083,7 +8083,7 @@ table.operational-list-table tbody tr:hover {
       minmax(0, 1fr)
     );
 
-  gap: 10px;
+  gap: 8px;
 }
 
 .authorization-summary-span-2 {
@@ -8105,8 +8105,8 @@ table.operational-list-table tbody tr:hover {
   margin-top: 10px;
 
   padding:
-    12px
-    14px;
+    10px
+    12px;
 
   border: 1px solid #e4e7ec;
   border-radius: 10px;
@@ -8155,8 +8155,8 @@ table.operational-list-table tbody tr:hover {
   margin-top: 10px;
 
   padding:
-    12px
-    14px;
+    10px
+    12px;
 
   border: 1px solid #e4e7ec;
   border-radius: 10px;
@@ -8278,11 +8278,11 @@ table.operational-list-table tbody tr:hover {
 
 
 .authorization-summary-operation-message {
-  margin-top: 18px;
+  margin-top: 14px;
 
   padding:
-    14px
-    16px;
+    11px
+    14px;
 
   border-color: #dbe3f0;
 
@@ -9122,3 +9122,349 @@ table.operational-list-table tbody tr:hover {
 }
 
 /* END AUTHORIZATION QUERY FILTER ROW V1 */
+
+/* ==========================================================
+   AUTHORIZATION DETAIL COMPACT 20%
+   Aplica al drawer completo:
+   - Resumen
+   - Gestionar entrega/aplicación
+   - Historial
+   ========================================================== */
+
+@media (min-width: 641px) {
+  .authorization-detail-drawer {
+    width: min(
+      1080px,
+      calc(100vw - 48px)
+    );
+
+    padding:
+      20px
+      22px;
+  }
+
+  .authorization-detail-drawer .operation-drawer-header {
+    gap: 16px;
+
+    padding-bottom: 16px;
+    margin-bottom: 18px;
+  }
+
+  .authorization-detail-drawer .operation-drawer-header h2 {
+    font-size: 21px;
+  }
+
+  .authorization-detail-drawer .operation-close {
+    width: 34px;
+    height: 34px;
+
+    font-size: 20px;
+  }
+
+  .authorization-detail-drawer .authorization-drawer-action {
+    min-height: 34px;
+
+    padding:
+      0
+      12px;
+  }
+
+  .authorization-detail-drawer .authorization-drawer-tabs {
+    gap: 5px;
+
+    margin:
+      -4px
+      0
+      18px;
+
+    padding: 3px;
+  }
+
+  .authorization-detail-drawer .authorization-drawer-tabs button {
+    min-height: 32px;
+
+    padding:
+      6px
+      12px;
+  }
+
+  .authorization-detail-drawer .authorization-summary-section-heading {
+    gap: 7px;
+
+    margin:
+      17px
+      0
+      8px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-detail-grid.authorization-summary-grid {
+    gap: 8px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-detail-grid > div {
+    padding: 11px 12px;
+
+    border-radius: 9px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-detail-grid span {
+    margin-bottom: 4px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-detail-grid small {
+    margin-top: 3px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-management-context {
+    margin-bottom: 14px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-management-entry,
+  .authorization-detail-drawer
+    .authorization-fulfillment-form,
+  .authorization-detail-drawer
+    .authorization-closure-panel {
+    padding: 13px;
+
+    border-radius: 10px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-fulfillment-form {
+    gap: 13px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-fulfillment-choice {
+    gap: 8px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-fulfillment-choice label {
+    min-height: 38px;
+
+    padding:
+      8px
+      10px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-management-summary {
+    gap: 8px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-management-summary > div,
+  .authorization-detail-drawer
+    .authorization-closure-summary > div {
+    padding: 10px;
+  }
+
+  .authorization-detail-drawer
+    .operation-section-title {
+    margin:
+      18px
+      0
+      10px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-summary-message,
+  .authorization-detail-drawer
+    .authorization-summary-oc-message,
+  .authorization-detail-drawer
+    .authorization-summary-operation-message {
+    padding:
+      10px
+      12px;
+  }
+}
+
+/* Mantener comportamiento móvil existente. */
+@media (max-width: 640px) {
+  .authorization-detail-drawer {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* END AUTHORIZATION DETAIL COMPACT 20% */
+
+/* ==========================================================
+   AUTHORIZATION DETAIL COMPACT 20%
+   Aplica al drawer completo:
+   - Resumen
+   - Gestionar entrega/aplicación
+   - Historial
+   ========================================================== */
+
+@media (min-width: 641px) {
+  .authorization-detail-drawer {
+    width: min(
+      1080px,
+      calc(100vw - 48px)
+    );
+
+    padding:
+      20px
+      22px;
+  }
+
+  .authorization-detail-drawer .operation-drawer-header {
+    gap: 16px;
+
+    padding-bottom: 16px;
+    margin-bottom: 18px;
+  }
+
+  .authorization-detail-drawer .operation-drawer-header h2 {
+    font-size: 21px;
+  }
+
+  .authorization-detail-drawer .operation-close {
+    width: 34px;
+    height: 34px;
+
+    font-size: 20px;
+  }
+
+  .authorization-detail-drawer .authorization-drawer-action {
+    min-height: 34px;
+
+    padding:
+      0
+      12px;
+  }
+
+  .authorization-detail-drawer .authorization-drawer-tabs {
+    gap: 5px;
+
+    margin:
+      -4px
+      0
+      18px;
+
+    padding: 3px;
+  }
+
+  .authorization-detail-drawer .authorization-drawer-tabs button {
+    min-height: 32px;
+
+    padding:
+      6px
+      12px;
+  }
+
+  .authorization-detail-drawer .authorization-summary-section-heading {
+    gap: 7px;
+
+    margin:
+      17px
+      0
+      8px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-detail-grid.authorization-summary-grid {
+    gap: 8px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-detail-grid > div {
+    padding: 11px 12px;
+
+    border-radius: 9px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-detail-grid span {
+    margin-bottom: 4px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-detail-grid small {
+    margin-top: 3px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-management-context {
+    margin-bottom: 14px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-management-entry,
+  .authorization-detail-drawer
+    .authorization-fulfillment-form,
+  .authorization-detail-drawer
+    .authorization-closure-panel {
+    padding: 13px;
+
+    border-radius: 10px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-fulfillment-form {
+    gap: 13px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-fulfillment-choice {
+    gap: 8px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-fulfillment-choice label {
+    min-height: 38px;
+
+    padding:
+      8px
+      10px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-management-summary {
+    gap: 8px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-management-summary > div,
+  .authorization-detail-drawer
+    .authorization-closure-summary > div {
+    padding: 10px;
+  }
+
+  .authorization-detail-drawer
+    .operation-section-title {
+    margin:
+      18px
+      0
+      10px;
+  }
+
+  .authorization-detail-drawer
+    .authorization-summary-message,
+  .authorization-detail-drawer
+    .authorization-summary-oc-message,
+  .authorization-detail-drawer
+    .authorization-summary-operation-message {
+    padding:
+      10px
+      12px;
+  }
+}
+
+/* Mantener comportamiento móvil existente. */
+@media (max-width: 640px) {
+  .authorization-detail-drawer {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* END AUTHORIZATION DETAIL COMPACT 20% */
