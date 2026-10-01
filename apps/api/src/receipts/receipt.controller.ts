@@ -111,8 +111,44 @@ export class ReceiptController {
         {},
       );
 
+
+    /*
+     * exactOptionalPropertyTypes:
+     *
+     * Zod representa una propiedad opcional como
+     * T | undefined, mientras que el contrato interno
+     * usa ausencia real de la propiedad.
+     *
+     * Normalizamos aquí, en la frontera HTTP, para que
+     * service y repository nunca reciban propiedades
+     * presentes con valor undefined.
+     */
+    const options: {
+      purchaseOrderCode?: string;
+      limit?: number;
+    } = {};
+
+
+    if (
+      body.purchaseOrderCode !==
+      undefined
+    ) {
+      options.purchaseOrderCode =
+        body.purchaseOrderCode;
+    }
+
+
+    if (
+      body.limit !==
+      undefined
+    ) {
+      options.limit =
+        body.limit;
+    }
+
+
     return this.receipts.reconcileReceivedPurchaseOrders(
-      body,
+      options,
 
       await this.scope(
         req,
