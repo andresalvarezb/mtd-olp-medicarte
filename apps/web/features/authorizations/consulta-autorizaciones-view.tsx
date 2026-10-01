@@ -2102,8 +2102,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                     ...filters,
 
                     status:
-                      event.target.value
-                        as AuthorizationUnifiedStatus,
+                      event.target.value as AuthorizationUnifiedStatus,
                   })
                 }
               >
