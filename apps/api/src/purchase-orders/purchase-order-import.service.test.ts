@@ -8,6 +8,7 @@ import {
 import * as XLSX from 'xlsx';
 
 import {
+  calculateDestinationPurchaseDeficit,
   PurchaseOrderImportService,
 } from './purchase-order-import.service';
 
@@ -417,5 +418,101 @@ describe(
         ).not.toHaveBeenCalled();
       },
     );
+
+    it(
+      'calcula el faltante real cuando la AUTO ya tiene producto asignado',
+      () => {
+        expect(
+          calculateDestinationPurchaseDeficit({
+            authorizedQuantity:
+              5,
+
+            fulfilledQuantity:
+              0,
+
+            assignedQuantity:
+              3,
+
+            committedQuantity:
+              3,
+          }),
+        ).toBe(
+          2,
+        );
+      },
+    );
+
+
+    it(
+      'calcula el faltante real cuando la AUTO ya fue atendida parcialmente',
+      () => {
+        expect(
+          calculateDestinationPurchaseDeficit({
+            authorizedQuantity:
+              3,
+
+            fulfilledQuantity:
+              2,
+
+            assignedQuantity:
+              0,
+
+            committedQuantity:
+              2,
+          }),
+        ).toBe(
+          1,
+        );
+      },
+    );
+
+
+    it(
+      'considera OC activas pendientes para no comprar dos veces',
+      () => {
+        expect(
+          calculateDestinationPurchaseDeficit({
+            authorizedQuantity:
+              5,
+
+            fulfilledQuantity:
+              1,
+
+            assignedQuantity:
+              1,
+
+            committedQuantity:
+              4,
+          }),
+        ).toBe(
+          1,
+        );
+      },
+    );
+
+
+    it(
+      'devuelve cero cuando la AUTO ya está completamente cubierta',
+      () => {
+        expect(
+          calculateDestinationPurchaseDeficit({
+            authorizedQuantity:
+              5,
+
+            fulfilledQuantity:
+              2,
+
+            assignedQuantity:
+              3,
+
+            committedQuantity:
+              5,
+          }),
+        ).toBe(
+          0,
+        );
+      },
+    );
+
   },
 );

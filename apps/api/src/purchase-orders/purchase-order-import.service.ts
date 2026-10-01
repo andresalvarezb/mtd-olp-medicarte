@@ -55,6 +55,62 @@ type ExistingAuthorizationRow =
 
 
 
+type DestinationPurchaseCoverage =
+  Readonly<{
+    fulfilledQuantity: number;
+
+    assignedQuantity: number;
+
+    committedQuantity: number;
+
+    coveredQuantity: number;
+
+    deficitQuantity: number;
+  }>;
+
+
+export function calculateDestinationPurchaseDeficit(
+  input:
+    Readonly<{
+      authorizedQuantity: number;
+
+      fulfilledQuantity: number;
+
+      assignedQuantity: number;
+
+      committedQuantity: number;
+    }>,
+): number {
+  /*
+   * Una OC previa y una asignación/atención pueden
+   * representar la misma cobertura física.
+   *
+   * Por eso NO sumamos compromiso de OC +
+   * atendido + asignado.
+   *
+   * Tomamos la mayor evidencia de cobertura:
+   *
+   * - lo ya comprometido en OC activas; o
+   * - lo ya atendido + la reserva todavía disponible.
+   */
+  const coveredQuantity =
+    Math.max(
+      input.committedQuantity,
+
+      input.fulfilledQuantity +
+        input.assignedQuantity,
+    );
+
+
+  return Math.max(
+    input.authorizedQuantity -
+      coveredQuantity,
+
+    0,
+  );
+}
+
+
 export type UploadedPurchaseOrderFile =
   Readonly<{
     originalname: string;
@@ -2624,6 +2680,239 @@ export class PurchaseOrderImportService {
   }
 
 
+  private async destinationPurchaseCoverage(
+    client: PoolClient,
+    destination:
+      ExistingAuthorizationRow,
+  ): Promise<DestinationPurchaseCoverage> {
+    /*
+     * COBERTURA PARA UNA NUEVA OC
+     * ===========================
+     *
+     * fulfilledQuantity:
+     * misma semántica del read model:
+     * MAX(
+     *   fulfillment moderno,
+     *   aplicación legacy,
+     *   consumo de allocation
+     * )
+     *
+     * assignedQuantity:
+     * reserva física aún disponible.
+     *
+     * committedQuantity:
+     * cantidad de esta AUTO ya incluida en
+     * OC no canceladas/rechazadas.
+     *
+     * No se suman committed + fulfilled + assigned,
+     * porque representarían cobertura duplicada.
+     */
+    const result =
+      await client.query<{
+        fulfilled_quantity:
+          number;
+
+        assigned_quantity:
+          number;
+
+        committed_quantity:
+          number;
+      }>(
+        `
+          select
+            greatest(
+              coalesce(
+                (
+                  select
+                    sum(
+                      af.quantity
+                    )::int
+
+                  from
+                    authorization_fulfillments af
+
+                  where
+                    af.authorization_item_id =
+                      $1
+                ),
+                0
+              ),
+
+              coalesce(
+                (
+                  select
+                    sum(
+                      pal.quantity
+                    )::int
+
+                  from
+                    patient_applications pa
+
+                  join
+                    patient_application_lines pal
+                      on pal.patient_application_id =
+                         pa.id
+
+                  where
+                    pa.authorization_item_id =
+                      $1
+
+                    and pa.status =
+                      'CONFIRMED'
+                ),
+                0
+              ),
+
+              coalesce(
+                (
+                  select
+                    sum(
+                      iaa_consumed.consumed_quantity
+                    )::int
+
+                  from
+                    inventory_authorization_allocations
+                      iaa_consumed
+
+                  where
+                    iaa_consumed.authorization_item_id =
+                      $1
+                ),
+                0
+              )
+            )::int
+              as fulfilled_quantity,
+
+
+            coalesce(
+              (
+                select
+                  sum(
+                    greatest(
+                      iaa_active.allocated_quantity
+                      -
+                      iaa_active.consumed_quantity
+                      -
+                      iaa_active.released_quantity,
+
+                      0
+                    )
+                  )::int
+
+                from
+                  inventory_authorization_allocations
+                    iaa_active
+
+                where
+                  iaa_active.authorization_item_id =
+                    $1
+
+                  and iaa_active.status in (
+                    'ALLOCATED',
+                    'PARTIALLY_CONSUMED'
+                  )
+              ),
+              0
+            )::int
+              as assigned_quantity,
+
+
+            coalesce(
+              (
+                select
+                  sum(
+                    poas.source_quantity_snapshot
+                  )::int
+
+                from
+                  purchase_order_authorization_sources
+                    poas
+
+                join
+                  purchase_order_lines pol
+                    on pol.id =
+                       poas.purchase_order_line_id
+
+                join
+                  purchase_orders po
+                    on po.id =
+                       pol.purchase_order_id
+
+                where
+                  poas.authorization_item_id =
+                    $1
+
+                  and po.status not in (
+                    'CANCELLED',
+                    'REJECTED'
+                  )
+              ),
+              0
+            )::int
+              as committed_quantity
+        `,
+        [
+          destination.id,
+        ],
+      );
+
+
+    const fulfilledQuantity =
+      Number(
+        result.rows[0]
+          ?.fulfilled_quantity ??
+        0,
+      );
+
+    const assignedQuantity =
+      Number(
+        result.rows[0]
+          ?.assigned_quantity ??
+        0,
+      );
+
+    const committedQuantity =
+      Number(
+        result.rows[0]
+          ?.committed_quantity ??
+        0,
+      );
+
+    const coveredQuantity =
+      Math.max(
+        committedQuantity,
+
+        fulfilledQuantity +
+          assignedQuantity,
+      );
+
+    const deficitQuantity =
+      calculateDestinationPurchaseDeficit({
+        authorizedQuantity:
+          destination.authorized_quantity,
+
+        fulfilledQuantity,
+
+        assignedQuantity,
+
+        committedQuantity,
+      });
+
+
+    return {
+      fulfilledQuantity,
+
+      assignedQuantity,
+
+      committedQuantity,
+
+      coveredQuantity,
+
+      deficitQuantity,
+    };
+  }
+
+
   private async destinationIsBusy(
     client: PoolClient,
     authorizationItemId: string,
@@ -3341,16 +3630,6 @@ export class PurchaseOrderImportService {
 
 
         if (
-          destination.closed
-        ) {
-          this.existingOrderError(
-            'PURCHASE_ORDER_DESTINATION_CLOSED',
-            `AUTO_DESTINO ${destination.authorization_key} ya está cerrada por entrega o aplicación.`,
-          );
-        }
-
-
-        if (
           destination.enablement_status !==
             'ENABLED' ||
           destination.source_status_normalized !==
@@ -3383,26 +3662,31 @@ export class PurchaseOrderImportService {
         }
 
 
+        const coverage =
+          await this.destinationPurchaseCoverage(
+            client,
+            destination,
+          );
+
+
         if (
-          destination.authorized_quantity !==
-            row.quantity
+          coverage.deficitQuantity <=
+          0
         ) {
           this.existingOrderError(
-            'PURCHASE_ORDER_DESTINATION_QUANTITY_MISMATCH',
-            `AUTO_DESTINO requiere exactamente ${destination.authorized_quantity} unidad(es); la fila contiene ${row.quantity}.`,
+            'PURCHASE_ORDER_DESTINATION_ALREADY_COVERED',
+            `AUTO_DESTINO ${destination.authorization_key} ya está completamente cubierta. Autorizada: ${destination.authorized_quantity}; atendida: ${coverage.fulfilledQuantity}; asignada disponible: ${coverage.assignedQuantity}; comprometida en OC activas: ${coverage.committedQuantity}. No se creó una nueva OC.`,
           );
         }
 
 
         if (
-          await this.destinationIsBusy(
-            client,
-            destination.id,
-          )
+          row.quantity !==
+            coverage.deficitQuantity
         ) {
           this.existingOrderError(
-            'PURCHASE_ORDER_DESTINATION_ALREADY_ASSIGNED',
-            `AUTO_DESTINO ${destination.authorization_key} ya tiene una OC o asignación activa.`,
+            'PURCHASE_ORDER_DESTINATION_QUANTITY_MISMATCH',
+            `AUTO_DESTINO ${destination.authorization_key} tiene un faltante real de ${coverage.deficitQuantity} unidad(es); la fila contiene ${row.quantity}. La nueva OC debe cubrir exactamente el faltante.`,
           );
         }
 
