@@ -914,6 +914,34 @@ async function runCreateGuard(
 
         if (
           normalized.includes(
+            'as fulfilled_quantity',
+          ) &&
+          normalized.includes(
+            'as assigned_quantity',
+          ) &&
+          normalized.includes(
+            'as committed_quantity',
+          )
+        ) {
+          return queryResult([
+            {
+              fulfilled_quantity:
+                0,
+
+              assigned_quantity:
+                0,
+
+              committed_quantity:
+                guard.assigned
+                  ? 2
+                  : 0,
+            },
+          ]);
+        }
+
+
+        if (
+          normalized.includes(
             'as source_busy',
           )
         ) {
@@ -1057,7 +1085,7 @@ describe(
 
 
     it(
-      'CREAR_OC rechaza AUTO_DESTINO que ya tiene otra OC o asignación activa',
+      'CREAR_OC rechaza AUTO_DESTINO completamente cubierta',
       async () => {
         const {
           result,
@@ -1076,7 +1104,7 @@ describe(
           result.results[0]
             ?.errorCode,
         ).toBe(
-          'PURCHASE_ORDER_DESTINATION_ALREADY_ASSIGNED',
+          'PURCHASE_ORDER_DESTINATION_ALREADY_COVERED',
         );
 
         expect(
