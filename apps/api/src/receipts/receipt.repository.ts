@@ -55,6 +55,37 @@ export class ReceiptRepository {
     private readonly inventory: InventoryRepository,
   ) {}
 
+
+  private async emitAllocationInvalidation(
+    tx: Tx,
+    purchaseOrderId: string,
+    scope: Scope,
+  ) {
+    await tx.execute(
+      realtimeInvalidationSql({
+        organizationCodes:
+          REALTIME_AUDIENCE.INVENTORY,
+
+        topics: [
+          'AUTHORIZATIONS',
+          'INVENTORY',
+        ],
+
+        correlationId:
+          scope.correlationId,
+
+        resource: {
+          type:
+            'purchase_order',
+
+          id:
+            purchaseOrderId,
+        },
+      }),
+    );
+  }
+
+
   async create(deliveryId: string, scope: Scope) {
     return this.database.db.transaction(async (tx) => {
       const delivery = await tx.execute<{ purchase_order_id: string; status: string }>(
@@ -438,6 +469,29 @@ export class ReceiptRepository {
               id,
           },
         );
+
+
+      /*
+       * La materialización OC -> AUTO modifica inmediatamente
+       * el estado operativo de Consulta de Autorizaciones.
+       *
+       * La UI no persiste ese estado:
+       * lo deriva de inventory_authorization_allocations.
+       *
+       * Por eso invalidamos AUTHORIZATIONS e INVENTORY
+       * en la misma confirmación de recepción.
+       */
+      if (
+        automaticAllocation.assignedNow >
+        0
+      ) {
+        await this.emitAllocationInvalidation(
+          tx,
+          delivery.rows[0].purchase_order_id,
+          scope,
+        );
+      }
+
 
       await this.audit(
         tx,
@@ -848,6 +902,23 @@ export class ReceiptRepository {
               receiptId,
             },
           );
+
+
+        /*
+         * Una recepción parcial o total que materialice
+         * producto para una AUTO debe reflejarse de inmediato
+         * en Consulta de Autorizaciones.
+         */
+        if (
+          automaticAllocation.assignedNow >
+          0
+        ) {
+          await this.emitAllocationInvalidation(
+            tx,
+            purchaseOrderId,
+            scope,
+          );
+        }
 
 
         /*
@@ -2272,27 +2343,10 @@ export class ReceiptRepository {
           `);
 
 
-          await tx.execute(
-            realtimeInvalidationSql({
-              organizationCodes:
-                REALTIME_AUDIENCE.INVENTORY,
-
-              topics: [
-                'AUTHORIZATIONS',
-                'INVENTORY',
-              ],
-
-              correlationId:
-                scope.correlationId,
-
-              resource: {
-                type:
-                  'purchase_order',
-
-                id:
-                  purchaseOrderId,
-              },
-            }),
+          await this.emitAllocationInvalidation(
+            tx,
+            purchaseOrderId,
+            scope,
           );
         }
 
@@ -2300,6 +2354,334 @@ export class ReceiptRepository {
         return result;
       },
     );
+  }
+
+
+  async reconcileReceivedPurchaseOrders(
+    scope: Scope,
+    options: {
+      purchaseOrderCode?: string;
+      limit?: number;
+    } = {},
+  ) {
+    const purchaseOrderCode =
+      options.purchaseOrderCode ??
+      null;
+
+    const limit =
+      Math.min(
+        Math.max(
+          options.limit ??
+          100,
+          1,
+        ),
+        1000,
+      );
+
+
+    /*
+     * BACKFILL OC RECIBIDA -> AUTO
+     * =============================
+     *
+     * Esta operación NO crea allocations por una segunda
+     * implementación.
+     *
+     * Solamente identifica OCs potencialmente pendientes
+     * y reutiliza reconcilePurchaseOrderAllocations(),
+     * que a su vez usa el mismo allocator de la recepción
+     * normal.
+     *
+     * Eso garantiza:
+     *
+     * - idempotencia;
+     * - mismas reglas de prioridad;
+     * - mismo cálculo received - assigned;
+     * - mismo point scope;
+     * - mismo audit;
+     * - mismo realtime.
+     */
+    const candidates =
+      await this.database.db.execute<{
+        id: string;
+        purchase_order_code:
+          string | null;
+      }>(sql`
+        select
+          po.id,
+
+          po.purchase_order_code
+
+        from
+          purchase_orders po
+
+        where
+          (
+            ${purchaseOrderCode}::text
+              is null
+
+            or
+
+            po.purchase_order_code =
+              ${purchaseOrderCode}
+          )
+
+
+          /*
+           * Debe existir al menos una AUTO fuente todavía
+           * sin allocation material activa para ESTA OC.
+           */
+          and exists (
+            select
+              1
+
+            from
+              purchase_order_lines pol
+
+            join
+              purchase_order_authorization_sources poas
+                on poas.purchase_order_line_id =
+                   pol.id
+
+            where
+              pol.purchase_order_id =
+                po.id
+
+              and not exists (
+                select
+                  1
+
+                from
+                  inventory_authorization_allocations iaa
+
+                where
+                  iaa.authorization_item_id =
+                    poas.authorization_item_id
+
+                  and iaa.purchase_order_id =
+                    po.id
+
+                  and iaa.commercial_code =
+                    pol.commercial_code
+
+                  and (
+                    iaa.allocated_quantity
+                    -
+                    iaa.released_quantity
+                  ) >
+                  0
+              )
+          )
+
+
+          /*
+           * Debe existir evidencia física positiva.
+           *
+           * Flujo directo:
+           * purchase_order_receipt_lines.received_quantity
+           *
+           * Flujo legacy:
+           * receipt_lines.accepted_quantity de receipt CONFIRMED.
+           */
+          and (
+            exists (
+              select
+                1
+
+              from
+                purchase_order_receipts por
+
+              join
+                purchase_order_receipt_lines porl
+                  on porl.receipt_id =
+                     por.id
+
+              where
+                por.purchase_order_id =
+                  po.id
+
+                and porl.received_quantity >
+                  0
+            )
+
+            or
+
+            exists (
+              select
+                1
+
+              from
+                deliveries d
+
+              join
+                receipts r
+                  on r.delivery_id =
+                     d.id
+
+              join
+                receipt_lines rl
+                  on rl.receipt_id =
+                     r.id
+
+              where
+                d.purchase_order_id =
+                  po.id
+
+                and r.status =
+                  'CONFIRMED'
+
+                and rl.accepted_quantity >
+                  0
+            )
+          )
+
+        order by
+          po.purchase_order_code
+            asc nulls last,
+
+          po.id
+            asc
+
+        limit
+          ${limit}
+      `);
+
+
+    const items:
+      Array<{
+        purchaseOrderId:
+          string;
+
+        purchaseOrderCode:
+          string | null;
+
+        assignedNow:
+          number;
+
+        status:
+          'CHANGED'
+          | 'UNCHANGED'
+          | 'FAILED';
+
+        error:
+          string | null;
+      }> =
+      [];
+
+
+    let changed =
+      0;
+
+    let unchanged =
+      0;
+
+    let failed =
+      0;
+
+    let assignedQuantity =
+      0;
+
+
+    /*
+     * Una transacción independiente por OC.
+     *
+     * Si una OC tiene un problema de datos, no revierte
+     * las demás y queda reportada como FAILED.
+     */
+    for (
+      const candidate of
+      candidates.rows
+    ) {
+      try {
+        const result =
+          await this.reconcilePurchaseOrderAllocations(
+            candidate.id,
+            scope,
+          );
+
+        const assignedNow =
+          Number(
+            result.assignedNow ??
+            0,
+          );
+
+        assignedQuantity +=
+          assignedNow;
+
+        if (
+          assignedNow >
+          0
+        ) {
+          changed +=
+            1;
+        } else {
+          unchanged +=
+            1;
+        }
+
+        items.push({
+          purchaseOrderId:
+            candidate.id,
+
+          purchaseOrderCode:
+            candidate.purchase_order_code,
+
+          assignedNow,
+
+          status:
+            assignedNow >
+            0
+              ? 'CHANGED'
+              : 'UNCHANGED',
+
+          error:
+            null,
+        });
+      } catch (
+        cause
+      ) {
+        failed +=
+          1;
+
+        items.push({
+          purchaseOrderId:
+            candidate.id,
+
+          purchaseOrderCode:
+            candidate.purchase_order_code,
+
+          assignedNow:
+            0,
+
+          status:
+            'FAILED',
+
+          error:
+            cause instanceof Error
+              ? cause.message
+              : 'UNKNOWN_RECONCILIATION_ERROR',
+        });
+      }
+    }
+
+
+    return {
+      purchaseOrderCode,
+
+      limit,
+
+      scanned:
+        candidates.rows.length,
+
+      changed,
+
+      unchanged,
+
+      failed,
+
+      assignedQuantity,
+
+      items,
+    };
   }
 
 

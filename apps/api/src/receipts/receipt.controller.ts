@@ -12,6 +12,27 @@ import { AccessService } from '../identity/access.service';
 import type { AuthenticatedRequest } from '../types';
 import { ReceiptService } from './receipt.service';
 const uuid = z.string().uuid();
+
+
+const purchaseOrderAllocationBackfillRequestSchema =
+  z.object({
+    purchaseOrderCode:
+      z.string()
+        .trim()
+        .min(1)
+        .max(255)
+        .optional(),
+
+    limit:
+      z.number()
+        .int()
+        .min(1)
+        .max(1000)
+        .optional(),
+  })
+    .strict();
+
+
 @Controller()
 @UseGuards(AuthGuard)
 export class ReceiptController {
@@ -61,6 +82,37 @@ export class ReceiptController {
   ) {
     return this.receipts.reconcilePurchaseOrderAllocations(
       uuid.parse(id),
+
+      await this.scope(
+        req,
+        org,
+        'medicarte_receipts.manage',
+      ),
+    );
+  }
+
+
+  @Post(
+    'admin/purchase-orders/reconcile-received-allocations',
+  )
+  async reconcileReceivedPurchaseOrders(
+    @Body()
+    raw: unknown,
+
+    @Headers('x-organization-id')
+    org: string | undefined,
+
+    @Req()
+    req: AuthenticatedRequest,
+  ) {
+    const body =
+      purchaseOrderAllocationBackfillRequestSchema.parse(
+        raw ??
+        {},
+      );
+
+    return this.receipts.reconcileReceivedPurchaseOrders(
+      body,
 
       await this.scope(
         req,

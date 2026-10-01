@@ -314,5 +314,111 @@ describe(
         );
       },
     );
+
+
+    it(
+      'el backfill general reutiliza exactamente el reconciliador OC -> AUTO',
+      () => {
+        const start =
+          source.indexOf(
+            'async reconcileReceivedPurchaseOrders(',
+          );
+
+        const end =
+          source.indexOf(
+            'list(scope:',
+            start,
+          );
+
+        expect(start).toBeGreaterThan(-1);
+        expect(end).toBeGreaterThan(start);
+
+        const backfill =
+          source.slice(
+            start,
+            end,
+          );
+
+        expect(backfill).toContain(
+          'this.reconcilePurchaseOrderAllocations(',
+        );
+
+        expect(backfill).toContain(
+          'purchase_order_authorization_sources',
+        );
+
+        expect(backfill).toContain(
+          'purchase_order_receipt_lines',
+        );
+
+        expect(backfill).toContain(
+          'receipt_lines',
+        );
+
+        /*
+         * El backfill no puede implementar un segundo
+         * INSERT de allocations.
+         */
+        expect(backfill).not.toContain(
+          'insert into\n            inventory_authorization_allocations',
+        );
+      },
+    );
+
+
+    it(
+      'una allocation creada durante recepcion invalida AUTHORIZATIONS e INVENTORY',
+      () => {
+        expect(source).toContain(
+          'private async emitAllocationInvalidation(',
+        );
+
+        const legacyStart =
+          source.indexOf(
+            'async confirm(',
+          );
+
+        const directStart =
+          source.indexOf(
+            'async createPurchaseOrderReceipt(',
+            legacyStart,
+          );
+
+        const allocatorStart =
+          source.indexOf(
+            'private async reconcilePurchaseOrderAuthorizationAllocations(',
+            directStart,
+          );
+
+        const legacy =
+          source.slice(
+            legacyStart,
+            directStart,
+          );
+
+        const direct =
+          source.slice(
+            directStart,
+            allocatorStart,
+          );
+
+        expect(legacy).toContain(
+          'this.emitAllocationInvalidation(',
+        );
+
+        expect(direct).toContain(
+          'this.emitAllocationInvalidation(',
+        );
+
+        expect(source).toContain(
+          "'AUTHORIZATIONS'",
+        );
+
+        expect(source).toContain(
+          "'INVENTORY'",
+        );
+      },
+    );
+
   },
 );
