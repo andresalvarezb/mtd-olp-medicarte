@@ -3630,6 +3630,16 @@ export class PurchaseOrderImportService {
 
 
         if (
+          destination.closed
+        ) {
+          this.existingOrderError(
+            'PURCHASE_ORDER_DESTINATION_CLOSED',
+            `AUTO_DESTINO ${destination.authorization_key} ya está cerrada por entrega o aplicación.`,
+          );
+        }
+
+
+        if (
           destination.enablement_status !==
             'ENABLED' ||
           destination.source_status_normalized !==

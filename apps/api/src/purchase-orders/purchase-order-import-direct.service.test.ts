@@ -269,6 +269,32 @@ describe(
 
               if (
                 normalized.includes(
+                  'as fulfilled_quantity',
+                ) &&
+                normalized.includes(
+                  'as assigned_quantity',
+                ) &&
+                normalized.includes(
+                  'as committed_quantity',
+                )
+              ) {
+                return result([
+                  {
+                    fulfilled_quantity:
+                      0,
+
+                    assigned_quantity:
+                      0,
+
+                    committed_quantity:
+                      0,
+                  },
+                ]);
+              }
+
+
+              if (
+                normalized.includes(
                   'as source_busy',
                 )
               ) {
