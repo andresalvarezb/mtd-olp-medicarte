@@ -141,7 +141,7 @@ describe(
   'PurchaseOrderImportService OC existente',
   () => {
     it(
-      'agrega AUTO a OC existente desde AT sin exigir recepción previa',
+      'agrega cantidad parcial de AUTO a OC existente sin exigir recepción previa',
       async () => {
         const poolQuery =
           vi.fn(
@@ -269,6 +269,32 @@ describe(
                   },
                 ]);
               }
+
+              if (
+                normalized.includes(
+                  'as fulfilled_quantity',
+                ) &&
+                normalized.includes(
+                  'as assigned_quantity',
+                ) &&
+                normalized.includes(
+                  'as committed_quantity',
+                )
+              ) {
+                return queryResult([
+                  {
+                    fulfilled_quantity:
+                      0,
+
+                    assigned_quantity:
+                      0,
+
+                    committed_quantity:
+                      0,
+                  },
+                ]);
+              }
+
 
               if (
                 normalized.includes(
@@ -477,7 +503,7 @@ describe(
                 'AUTO-DEST',
                 'OC-100',
                 'PROD-1',
-                2,
+                1,
               ]),
             ),
             scope,

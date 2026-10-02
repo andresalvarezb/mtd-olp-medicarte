@@ -84,7 +84,14 @@ function workbook(): Buffer {
         'AUTO-DEST',
         'OC-NUEVA-100',
         'PROD-1',
-        2,
+        4,
+      ],
+      [
+        '',
+        'AUTO-DEST',
+        'OC-NUEVA-200',
+        'PROD-1',
+        6,
       ],
     ]),
     'ORDENES_COMPRA',
@@ -124,7 +131,7 @@ describe(
   'PurchaseOrderImportService OC directa desde autorización',
   () => {
     it(
-      'crea OC sin demanda, sin agenda y sin recepción previa',
+      'distribuye AUTO 10 entre OC1=4 y OC2=6 sin demanda, agenda ni recepción previa',
       async () => {
         const poolQueries:
           string[] = [];
@@ -246,7 +253,7 @@ describe(
                       1,
 
                     authorized_quantity:
-                      2,
+                      10,
 
                     enablement_status:
                       'ENABLED',
@@ -459,7 +466,7 @@ describe(
         expect(
           imported.acceptedRows,
         ).toBe(
-          1,
+          2,
         );
 
         expect(
@@ -471,7 +478,7 @@ describe(
         expect(
           imported.createdOrders,
         ).toBe(
-          1,
+          2,
         );
 
 
@@ -538,7 +545,7 @@ describe(
         expect(
           release,
         ).toHaveBeenCalledTimes(
-          1,
+          2,
         );
       },
     );

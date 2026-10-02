@@ -243,6 +243,15 @@ type ExistingOptions =
     destinationBusy?:
       boolean;
 
+    fulfilledQuantity?:
+      number;
+
+    assignedQuantity?:
+      number;
+
+    committedQuantity?:
+      number;
+
     availableQuantity?:
       number;
 
@@ -435,6 +444,35 @@ async function runExisting(
                 ? origin
                 : destination,
             ),
+          ]);
+        }
+
+
+        if (
+          normalized.includes(
+            'as fulfilled_quantity',
+          ) &&
+          normalized.includes(
+            'as assigned_quantity',
+          ) &&
+          normalized.includes(
+            'as committed_quantity',
+          )
+        ) {
+          return queryResult([
+            {
+              fulfilled_quantity:
+                options.fulfilledQuantity ??
+                0,
+
+              assigned_quantity:
+                options.assignedQuantity ??
+                0,
+
+              committed_quantity:
+                options.committedQuantity ??
+                0,
+            },
           ]);
         }
 
@@ -1169,7 +1207,7 @@ describe(
 
 
     it(
-      'ASIGNAR_DISPONIBLE rechaza cantidad diferente a la cantidad completa de AUTO_DESTINO',
+      'ASIGNAR_DISPONIBLE rechaza cantidad superior al saldo pendiente de AUTO_DESTINO',
       async () => {
         const {
           result,
@@ -1179,20 +1217,20 @@ describe(
             'AUTO-DEST',
             'OC-EXISTENTE',
             'PROD-1',
-            1,
+            3,
           ]);
 
 
         expectRejected(
           result,
-          'PURCHASE_ORDER_DESTINATION_QUANTITY_MISMATCH',
+          'PURCHASE_ORDER_DESTINATION_QUANTITY_EXCEEDS_AVAILABLE',
         );
       },
     );
 
 
     it(
-      'ASIGNAR_DISPONIBLE rechaza AUTO_DESTINO ya asignada',
+      'ASIGNAR_DISPONIBLE rechaza AUTO_DESTINO completamente cubierta',
       async () => {
         const {
           result,
@@ -1203,18 +1241,18 @@ describe(
               'AUTO-DEST',
               'OC-EXISTENTE',
               'PROD-1',
-              2,
+              1,
             ],
             {
-              destinationBusy:
-                true,
+              committedQuantity:
+                2,
             },
           );
 
 
         expectRejected(
           result,
-          'PURCHASE_ORDER_DESTINATION_ALREADY_ASSIGNED',
+          'PURCHASE_ORDER_DESTINATION_ALREADY_COVERED',
         );
       },
     );
@@ -1283,6 +1321,35 @@ describe(
           ),
         ).toBe(
           true,
+        );
+      },
+    );
+
+
+    it(
+      'REASIGNAR rechaza AUTO_DESTINO que ya tiene asignación activa',
+      async () => {
+        const {
+          result,
+        } =
+          await runExisting(
+            [
+              'AUTO-ORIG',
+              'AUTO-DEST',
+              'OC-EXISTENTE',
+              'PROD-1',
+              2,
+            ],
+            {
+              destinationBusy:
+                true,
+            },
+          );
+
+
+        expectRejected(
+          result,
+          'PURCHASE_ORDER_DESTINATION_ALREADY_ASSIGNED',
         );
       },
     );

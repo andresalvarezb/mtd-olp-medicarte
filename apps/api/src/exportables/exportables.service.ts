@@ -398,11 +398,14 @@ export class ExportablesService {
    * Regla:
    *
    * - validación inicial PASSED;
-   * - vigencia IN_WINDOW (Hoy + 30);
-   * - sin OC activa.
+   * - vigencia operacional válida;
+   * - saldo pendiente para compra > 0.
+   *
+   * Una AUTO puede estar parcialmente comprometida en
+   * una o varias OC y seguir apareciendo por su saldo.
    *
    * Una OC REJECTED/CANCELLED no representa cobertura
-   * operacional vigente y no bloquea una nueva compra.
+   * operacional vigente.
    * ==================================================
    */
   async purchaseOrderCandidates(
@@ -718,9 +721,126 @@ export class ExportablesService {
             authorization_key,
             numero_autorizacion,
             codigo_medicamento,
-            cantidad
+            purchase_balance.remaining_quantity
+              as cantidad
 
           from evaluated e
+
+          cross join lateral (
+            select
+              greatest(
+                coalesce(
+                  e.cantidad,
+                  0
+                )
+                -
+                greatest(
+                  /*
+                   * Cantidad comprometida en OC activas.
+                   */
+                  coalesce(
+                    (
+                      select
+                        sum(
+                          source.source_quantity_snapshot
+                        )::int
+
+                      from
+                        purchase_order_authorization_sources
+                          source
+
+                      join
+                        purchase_order_lines line
+                          on line.id =
+                             source.purchase_order_line_id
+
+                      join
+                        purchase_orders po
+                          on po.id =
+                             line.purchase_order_id
+
+                      where
+                        source.authorization_item_id =
+                          e.id
+
+                        and po.status not in (
+                          'REJECTED',
+                          'CANCELLED'
+                        )
+                    ),
+                    0
+                  ),
+
+                  /*
+                   * Cobertura física/atendida.
+                   *
+                   * Igual que el importador:
+                   * fulfilled + saldo físico asignado.
+                   */
+                  (
+                    coalesce(
+                      (
+                        select
+                          sum(
+                            af.quantity
+                          )::int
+
+                        from
+                          authorization_fulfillments af
+
+                        where
+                          af.authorization_item_id =
+                            e.id
+                      ),
+                      0
+                    )
+
+                    +
+
+                    coalesce(
+                      (
+                        select
+                          sum(
+                            greatest(
+                              iaa.allocated_quantity
+                              -
+                              iaa.consumed_quantity
+                              -
+                              iaa.released_quantity,
+                              0
+                            )
+                          )::int
+
+                        from
+                          inventory_authorization_allocations iaa
+
+                        join
+                          purchase_orders allocation_po
+                            on allocation_po.id =
+                               iaa.purchase_order_id
+
+                        where
+                          iaa.authorization_item_id =
+                            e.id
+
+                          and iaa.status in (
+                            'ALLOCATED',
+                            'PARTIALLY_CONSUMED'
+                          )
+
+                          and allocation_po.status not in (
+                            'REJECTED',
+                            'CANCELLED'
+                          )
+                      ),
+                      0
+                    )
+                  )
+                ),
+                0
+              )::int
+                as remaining_quantity
+          ) purchase_balance
 
           where
             e.initial_validation =
@@ -732,35 +852,9 @@ export class ExportablesService {
               'EXPIRED'
             )
 
-            and not exists (
-              select 1
-
-              from
-                purchase_order_authorization_sources
-                  source
-
-              join
-                purchase_order_lines line
-                on
-                  line.id =
-                  source.purchase_order_line_id
-
-              join
-                purchase_orders po
-                on
-                  po.id =
-                  line.purchase_order_id
-
-              where
-                source.authorization_item_id =
-                  e.id
-
-                and
-                po.status not in (
-                  'REJECTED',
-                  'CANCELLED'
-                )
-            )
+            and
+            purchase_balance.remaining_quantity >
+              0
 
           order by
             numero_autorizacion,
@@ -783,8 +877,8 @@ export class ExportablesService {
       XLSX.utils.aoa_to_sheet(
         [
           [
-            'AUTO_ORIGEN',
-            'AUTO_DESTINO',
+            'CLAVE_AUTORIZACION_ORIGEN',
+            'CLAVE_AUTORIZACION_DESTINO',
             'OC',
             'CODIGO_PRODUCTO',
             'CANTIDAD',
@@ -844,7 +938,7 @@ export class ExportablesService {
         [
           [
             'templateVersion',
-            'PURCHASE_ORDERS_V2',
+            'PURCHASE_ORDERS_V3',
           ],
 
           [

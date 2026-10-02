@@ -1459,6 +1459,9 @@ export class AuthorizationQueryRepository {
 
             sourceQuantity:
               order.sourceQuantity,
+
+            availableQuantity:
+              order.availableQuantity,
           }),
         ),
 
@@ -3621,6 +3624,9 @@ export class AuthorizationQueryRepository {
         source_quantity:
           number;
 
+        available_quantity:
+          number;
+
         dispensing_point_code:
           string | null;
 
@@ -3640,6 +3646,40 @@ export class AuthorizationQueryRepository {
             0
           )::int
             as source_quantity,
+
+          coalesce(
+            (
+              select
+                sum(
+                  greatest(
+                    iaa_link.allocated_quantity
+                    -
+                    iaa_link.consumed_quantity
+                    -
+                    iaa_link.released_quantity,
+                    0
+                  )
+                )::int
+
+              from
+                inventory_authorization_allocations
+                  iaa_link
+
+              where
+                iaa_link.authorization_item_id =
+                  ${authorizationItemId}
+
+                and iaa_link.purchase_order_id =
+                  po_link.id
+
+                and iaa_link.status in (
+                  'ALLOCATED',
+                  'PARTIALLY_CONSUMED'
+                )
+            ),
+            0
+          )::int
+            as available_quantity,
 
           string_agg(
             distinct
@@ -3807,6 +3847,12 @@ export class AuthorizationQueryRepository {
         sourceQuantity:
           Number(
             row.source_quantity ??
+            0,
+          ),
+
+        availableQuantity:
+          Number(
+            row.available_quantity ??
             0,
           ),
 
