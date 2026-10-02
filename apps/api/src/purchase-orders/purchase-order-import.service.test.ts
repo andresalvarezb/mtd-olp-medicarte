@@ -354,7 +354,7 @@ describe(
 
 
     it(
-      'rechaza todas las filas cuando AUTO_DESTINO está duplicada',
+      'rechaza filas duplicadas de la misma AUTO dentro de la misma OC',
       async () => {
         const {
           instance,
@@ -381,7 +381,7 @@ describe(
             [
               '',
               'AUTH-DUP|ABC',
-              'OC-B',
+              'OC-A',
               'ABC',
               1,
             ],
@@ -407,7 +407,7 @@ describe(
           result.results.every(
             (row) =>
               row.errorCode ===
-              'PURCHASE_ORDER_DUPLICATE_AUTHORIZATION_KEY',
+              'PURCHASE_ORDER_DUPLICATE_AUTHORIZATION_ORDER',
           ),
         ).toBe(
           true,

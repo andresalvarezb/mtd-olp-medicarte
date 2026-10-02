@@ -713,10 +713,13 @@ export class PurchaseOrderImportService {
 
 
     /*
-     * Una autorización solo puede aparecer una vez
-     * dentro del archivo.
+     * Una misma AUTO puede distribuirse entre varias OC.
+     *
+     * Lo que no permitimos es repetir la misma relación
+     * AUTO_DESTINO + OC dentro del archivo, porque esa
+     * duplicidad sería ambigua y podría duplicar cantidades.
      */
-    const keyCounts =
+    const assignmentCounts =
       new Map<
         string,
         number
@@ -726,16 +729,20 @@ export class PurchaseOrderImportService {
       const row of rows
     ) {
       if (
-        !row.authorizationKey
+        !row.authorizationKey ||
+        !row.purchaseOrderCode
       ) {
         continue;
       }
 
-      keyCounts.set(
-        row.authorizationKey,
+      const assignmentKey =
+        `${row.authorizationKey}::${row.purchaseOrderCode}`;
+
+      assignmentCounts.set(
+        assignmentKey,
         (
-          keyCounts.get(
-            row.authorizationKey,
+          assignmentCounts.get(
+            assignmentKey,
           ) ?? 0
         ) + 1,
       );
@@ -746,17 +753,24 @@ export class PurchaseOrderImportService {
     ) {
       if (
         row.authorizationKey &&
-        (
-          keyCounts.get(
-            row.authorizationKey,
-          ) ?? 0
-        ) > 1
+        row.purchaseOrderCode
       ) {
-        reject(
-          row,
-          'PURCHASE_ORDER_DUPLICATE_AUTHORIZATION_KEY',
-          'CLAVE_AUTORIZACION_DESTINO está repetida dentro del archivo.',
-        );
+        const assignmentKey =
+          `${row.authorizationKey}::${row.purchaseOrderCode}`;
+
+        if (
+          (
+            assignmentCounts.get(
+              assignmentKey,
+            ) ?? 0
+          ) > 1
+        ) {
+          reject(
+            row,
+            'PURCHASE_ORDER_DUPLICATE_AUTHORIZATION_ORDER',
+            'La combinación CLAVE_AUTORIZACION_DESTINO + OC está repetida dentro del archivo.',
+          );
+        }
       }
     }
 
@@ -2562,16 +2576,41 @@ export class PurchaseOrderImportService {
               as expiration_raw,
 
             (
-              exists (
-                select
-                  1
+              (
+                coalesce(
+                  (
+                    select
+                      sum(
+                        af.quantity
+                      )::int
 
-                from
-                  authorization_fulfillments af
+                    from
+                      authorization_fulfillments af
 
-                where
-                  af.authorization_item_id =
-                    ai.id
+                    where
+                      af.authorization_item_id =
+                        ai.id
+                  ),
+                  0
+                )
+                >=
+                case
+                  when btrim(
+                         coalesce(
+                           ai.source_data
+                             ->> 'CANTIDAD',
+                           ''
+                         )
+                       )
+                       ~ '^[1-9][0-9]*$'
+
+                  then (
+                    ai.source_data
+                      ->> 'CANTIDAD'
+                  )::int
+
+                  else 0
+                end
               )
 
               or
@@ -3691,12 +3730,12 @@ export class PurchaseOrderImportService {
 
 
         if (
-          row.quantity !==
+          row.quantity! >
             coverage.deficitQuantity
         ) {
           this.existingOrderError(
-            'PURCHASE_ORDER_DESTINATION_QUANTITY_MISMATCH',
-            `AUTO_DESTINO ${destination.authorization_key} tiene un faltante real de ${coverage.deficitQuantity} unidad(es); la fila contiene ${row.quantity}. La nueva OC debe cubrir exactamente el faltante.`,
+            'PURCHASE_ORDER_DESTINATION_QUANTITY_EXCEEDS_AVAILABLE',
+            `AUTO_DESTINO ${destination.authorization_key} tiene un saldo disponible para OC de ${coverage.deficitQuantity} unidad(es); la fila contiene ${row.quantity}. La cantidad no puede superar el saldo pendiente.`,
           );
         }
 
@@ -4076,27 +4115,43 @@ export class PurchaseOrderImportService {
         }
 
 
+        /*
+         * La distribución parcial entre múltiples OC
+         * solamente aplica cuando se está agregando la
+         * AUTO a una OC, es decir, AUTO_ORIGEN vacía.
+         *
+         * REASIGNAR conserva su contrato histórico 1:1.
+         */
         if (
-          destination.authorized_quantity !==
-            row.quantity
+          !row.originAuthorizationKey
         ) {
-          this.existingOrderError(
-            'PURCHASE_ORDER_DESTINATION_QUANTITY_MISMATCH',
-            `AUTO_DESTINO requiere exactamente ${destination.authorized_quantity} unidad(es); la fila contiene ${row.quantity}.`,
-          );
-        }
+          const coverage =
+            await this.destinationPurchaseCoverage(
+              client,
+              destination,
+            );
 
 
-        if (
-          await this.destinationIsBusy(
-            client,
-            destination.id,
-          )
-        ) {
-          this.existingOrderError(
-            'PURCHASE_ORDER_DESTINATION_ALREADY_ASSIGNED',
-            `AUTO_DESTINO ${destination.authorization_key} ya tiene una OC o asignación activa.`,
-          );
+          if (
+            coverage.deficitQuantity <=
+            0
+          ) {
+            this.existingOrderError(
+              'PURCHASE_ORDER_DESTINATION_ALREADY_COVERED',
+              `AUTO_DESTINO ${destination.authorization_key} ya está completamente cubierta. Autorizada: ${destination.authorized_quantity}; atendida: ${coverage.fulfilledQuantity}; asignada disponible: ${coverage.assignedQuantity}; comprometida en OC activas: ${coverage.committedQuantity}.`,
+            );
+          }
+
+
+          if (
+            row.quantity! >
+              coverage.deficitQuantity
+          ) {
+            this.existingOrderError(
+              'PURCHASE_ORDER_DESTINATION_QUANTITY_EXCEEDS_AVAILABLE',
+              `AUTO_DESTINO ${destination.authorization_key} tiene un saldo disponible para OC de ${coverage.deficitQuantity} unidad(es); la fila contiene ${row.quantity}.`,
+            );
+          }
         }
 
 
@@ -4136,6 +4191,27 @@ export class PurchaseOrderImportService {
 
 
           continue;
+        }
+
+
+        /*
+         * REASIGNAR conserva la protección histórica:
+         * AUTO_DESTINO no puede tener una OC o reserva
+         * incompatible ya activa.
+         *
+         * Esta regla NO aplica al nuevo flujo parcial
+         * de compra con AUTO_ORIGEN vacía.
+         */
+        if (
+          await this.destinationIsBusy(
+            client,
+            destination.id,
+          )
+        ) {
+          this.existingOrderError(
+            'PURCHASE_ORDER_DESTINATION_ALREADY_ASSIGNED',
+            `AUTO_DESTINO ${destination.authorization_key} ya tiene una OC o asignación activa.`,
+          );
         }
 
 

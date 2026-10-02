@@ -904,6 +904,12 @@ export function ConsultaAutorizacionesView() {
     useState('');
 
   const [
+    fulfillmentPurchaseOrderCode,
+    setFulfillmentPurchaseOrderCode,
+  ] =
+    useState('');
+
+  const [
     fulfilling,
     setFulfilling,
   ] =
@@ -1617,6 +1623,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
   async function confirmFulfillment() {
     const purchaseOrderCode =
+      fulfillmentPurchaseOrderCode
+      ||
       singlePurchaseOrderCode(
         selected?.purchaseOrder ??
           null,
@@ -1692,7 +1700,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
       !purchaseOrderCode
     ) {
       setFulfillmentError(
-        'No existe una única orden de compra asociada a la asignación disponible.',
+        'Selecciona la orden de compra desde la cual se entregó o aplicó el producto.',
       );
 
       return;
@@ -1832,52 +1840,47 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
    * Una AUTO puede tener OC relacionada aunque todavía
    * no exista inventory_authorization_allocation.
    */
-  const selectedLinkedPurchaseOrderCodes =
-    selected
-      ? [
-          ...new Set(
-            selected.purchaseOrders
-              .map(
-                (order) =>
-                  order.purchaseOrderCode
-                    .trim(),
-              )
-              .filter(
-                Boolean,
-              ),
-          ),
-        ]
-      : [];
 
-  const selectedLinkedPurchaseOrderCode =
-    selectedLinkedPurchaseOrderCodes.length ===
-      1
-      ? selectedLinkedPurchaseOrderCodes[0]!
-      : null;
 
 
   /*
-   * La OC operativamente utilizable para fulfillment
-   * sí requiere saldo físico asignado.
+   * Las OC operativamente utilizables para fulfillment
+   * requieren saldo físico asignado.
    *
-   * No cambiar esta regla.
+   * Una AUTO puede tener más de una OC activa.
    */
-  const selectedActivePurchaseOrderCode =
-    selected &&
-    selected.remainingAssignedQuantity >
-      0
-      ? singlePurchaseOrderCode(
-          selected.purchaseOrder,
+  const selectedActivePurchaseOrders =
+    selected
+      ? selected.purchaseOrders.filter(
+          (order) =>
+            order.availableQuantity >
+              0,
         )
-      : null;
+      : [];
+
+  const selectedActivePurchaseOrder =
+    selectedActivePurchaseOrders.find(
+      (order) =>
+        order.purchaseOrderCode ===
+          fulfillmentPurchaseOrderCode,
+    )
+    ??
+    (
+      selectedActivePurchaseOrders.length ===
+        1
+        ? selectedActivePurchaseOrders[0]!
+        : null
+    );
+
 
   const selectedFulfillmentMaxQuantity =
-    selected
+    selected &&
+    selectedActivePurchaseOrder
       ? Math.max(
           0,
           Math.min(
             selected.remainingAuthorizedQuantity,
-            selected.remainingAssignedQuantity,
+            selectedActivePurchaseOrder.availableQuantity,
           ),
         )
       : 0;
@@ -1963,8 +1966,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
         0 &&
       selected.remainingAssignedQuantity >
         0 &&
-      selectedActivePurchaseOrderCode !==
-        null,
+      selectedActivePurchaseOrders.length >
+        0,
     );
 
 
@@ -3229,20 +3232,42 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
                   <div>
                     <span>
-                      OC relacionada
+                      OC relacionadas
                     </span>
 
-                    <strong>
-                      {selectedLinkedPurchaseOrderCode ??
-                        (
-                          selectedLinkedPurchaseOrderCodes.length >
-                            1
-                            ? selectedLinkedPurchaseOrderCodes.join(
-                                ', ',
-                              )
-                            : 'Sin OC relacionada'
+                    {selected.purchaseOrders.length >
+                      0 ? (
+                      <div>
+                        {selected.purchaseOrders.map(
+                          (order) => (
+                            <small
+                              key={
+                                order.id
+                              }
+                              style={{
+                                display:
+                                  'block',
+                              }}
+                            >
+                              <strong>
+                                {order.purchaseOrderCode}
+                              </strong>
+                              {' · '}
+                              {order.sourceQuantity}
+                              {' unidad(es) asociadas'}
+                              {order.availableQuantity >
+                                0
+                                ? ` · ${order.availableQuantity} disponible(s)`
+                                : ''}
+                            </small>
+                          ),
                         )}
-                    </strong>
+                      </div>
+                    ) : (
+                      <strong>
+                        Sin OC relacionada
+                      </strong>
+                    )}
                   </div>
 
                   <div>
@@ -3581,9 +3606,26 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                           '',
                         );
 
+                        const defaultPurchaseOrder =
+                          selectedActivePurchaseOrders[0]
+                          ??
+                          null;
+
+                        setFulfillmentPurchaseOrderCode(
+                          defaultPurchaseOrder
+                            ?.purchaseOrderCode
+                          ??
+                          '',
+                        );
+
                         setFulfillmentQuantity(
                           String(
-                            selectedFulfillmentMaxQuantity,
+                            defaultPurchaseOrder
+                              ? Math.min(
+                                  selected.remainingAuthorizedQuantity,
+                                  defaultPurchaseOrder.availableQuantity,
+                                )
+                              : 0,
                           ),
                         );
 
@@ -3679,6 +3721,70 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                       </label>
                     </div>
 
+                    {selectedActivePurchaseOrders.length >
+                      1 ? (
+                      <label className="authorization-fulfillment-date">
+                        <span>
+                          Orden de compra
+                        </span>
+
+                        <select
+                          className="control"
+                          value={
+                            fulfillmentPurchaseOrderCode
+                          }
+                          onChange={(event) => {
+                            const code =
+                              event.target.value;
+
+                            setFulfillmentPurchaseOrderCode(
+                              code,
+                            );
+
+                            const order =
+                              selectedActivePurchaseOrders.find(
+                                (candidate) =>
+                                  candidate.purchaseOrderCode ===
+                                    code,
+                              );
+
+                            setFulfillmentQuantity(
+                              order
+                                ? String(
+                                    Math.min(
+                                      selected.remainingAuthorizedQuantity,
+                                      order.availableQuantity,
+                                    ),
+                                  )
+                                : '',
+                            );
+
+                            setFulfillmentError(
+                              null,
+                            );
+                          }}
+                        >
+                          {selectedActivePurchaseOrders.map(
+                            (order) => (
+                              <option
+                                key={
+                                  order.id
+                                }
+                                value={
+                                  order.purchaseOrderCode
+                                }
+                              >
+                                {order.purchaseOrderCode}
+                                {' · '}
+                                {order.availableQuantity}
+                                {' disponible'}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </label>
+                    ) : null}
+
                     <label className="authorization-fulfillment-date">
                       <span>
                         Cantidad a entregar / aplicar
@@ -3768,6 +3874,10 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                           );
 
                           setFulfillmentQuantity(
+                            '',
+                          );
+
+                          setFulfillmentPurchaseOrderCode(
                             '',
                           );
 

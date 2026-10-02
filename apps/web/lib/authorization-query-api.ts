@@ -73,6 +73,13 @@ export type AuthorizationLinkedPurchaseOrder =
 
     sourceQuantity:
       number;
+
+    /*
+     * Saldo físico actualmente utilizable para
+     * entrega/aplicación desde esta OC.
+     */
+    availableQuantity:
+      number;
   }>;
 
 

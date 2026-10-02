@@ -293,8 +293,25 @@ El exportable de candidatos para nueva OC incluye
 EXPIRED, OUTSIDE_HORIZON e INVALID_DATE no son
 candidatas para una nueva OC.
 
-Una AUTO que ya posee una OC activa no vuelve a
-exportarse para generar otra compra.
+Una AUTO puede distribuir su cantidad autorizada entre múltiples OC activas mientras exista saldo pendiente de compra.
+
+La cobertura para compra se calcula como:
+
+CANTIDAD_CUBIERTA = MAX(
+  CANTIDAD_COMPROMETIDA_EN_OC_ACTIVAS,
+  CANTIDAD_ENTREGADA_APLICADA + CANTIDAD_FISICA_ASIGNADA_PENDIENTE
+)
+
+SALDO_PARA_OC = MAX(
+  CANTIDAD_AUTORIZADA - CANTIDAD_CUBIERTA,
+  0
+)
+
+La cantidad de cada fila debe cumplir:
+
+0 < CANTIDAD_FILA <= SALDO_PARA_OC
+
+La parcialidad aplica a la asignación de compra. La reasignación explícita AUTO_ORIGEN -> AUTO_DESTINO conserva la regla de cantidad completa 1:1.
 
 ## Entrega/aplicación y cantidades
 
