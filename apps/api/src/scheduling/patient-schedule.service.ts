@@ -334,6 +334,7 @@ export class PatientScheduleService {
       enablementStatus: item.enablementStatus,
       coverageType: item.coverageType,
       directionStatus: item.directionStatus,
+      mipresManualDecision: item.mipresManualDecision,
       expirationDate: item.authorizationExpiresOn,
       todayBogota: scheduleToday(),
     });
@@ -408,6 +409,7 @@ export function toScheduleAuthorizationOption(
     enablementStatus: item.enablementStatus,
     coverageType: item.coverageType,
     directionStatus: item.directionStatus,
+    mipresManualDecision: item.mipresManualDecision,
     expirationDate: authorizationExpiresOn,
     todayBogota: scheduleToday(),
   });

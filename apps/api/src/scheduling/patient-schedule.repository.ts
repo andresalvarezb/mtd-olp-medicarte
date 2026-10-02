@@ -14,6 +14,7 @@ import {
   calculateAuthorizationPriority,
   classifyScheduleTiming,
   evaluateScheduleAuthorizationEligibility,
+  type MipresManualDecision,
   parseAuthorizationExpiration,
   scheduleToday,
 } from '@authorization/domain';
@@ -1124,6 +1125,7 @@ type AuthorizableItemRow = {
   enablement_status: string;
   coverage_type: string;
   direction_status: string;
+  mipres_manual_decision: MipresManualDecision;
   expiration_raw: string | null;
 };
 
@@ -1136,6 +1138,7 @@ function eligibilityOf(item: AuthorizableItemRow) {
     enablementStatus: item.enablement_status,
     coverageType: item.coverage_type,
     directionStatus: item.direction_status,
+    mipresManualDecision: item.mipres_manual_decision,
     expirationDate: parseAuthorizationExpiration(item.expiration_raw),
     todayBogota: scheduleToday(),
   });
@@ -1156,6 +1159,7 @@ async function lockAuthorizableItem(
            ai.enablement_status,
            ai.coverage_type,
            ai.direction_status,
+           ai.mipres_manual_decision,
            ${sql.raw(SCHEDULING_EXPIRATION_COLUMN)} as expiration_raw
     from authorization_items ai
     where ai.id = ${authorizationItemId}

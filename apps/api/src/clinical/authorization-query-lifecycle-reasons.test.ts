@@ -139,7 +139,7 @@ describe(
 
 
     it(
-      'explica direccionamiento NO PBS pendiente',
+      'explica habilitacion manual MIPRES pendiente',
       () => {
         expect(
           resolveAuthorizationLifecycleReasons({
@@ -156,7 +156,10 @@ describe(
               'NO_PBS',
 
             directionStatus:
-              'PENDING',
+              'CONFIRMED',
+
+            mipresManualDecision:
+              'PENDING_MANUAL_ENABLEMENT',
 
             quantity:
               '1',
@@ -170,10 +173,55 @@ describe(
         ).toEqual([
           {
             code:
-              'DIRECTION_PENDING',
+              'MIPRES_MANUAL_ENABLEMENT_PENDING',
 
             message:
-              'Direccionamiento NO PBS pendiente',
+              'Pendiente por habilitar manualmente',
+          },
+        ]);
+      },
+    );
+
+
+    it(
+      'explica inhabilitacion manual MIPRES como bloqueo definitivo',
+      () => {
+        expect(
+          resolveAuthorizationLifecycleReasons({
+            lifecycleStatus:
+              'DISABLED',
+
+            enablementStatus:
+              'ENABLED',
+
+            tariffMembershipStatus:
+              'LISTED',
+
+            coverageType:
+              'NO_PBS',
+
+            directionStatus:
+              'CONFIRMED',
+
+            mipresManualDecision:
+              'MANUALLY_DISABLED',
+
+            quantity:
+              '1',
+
+            minimumQuantity:
+              1,
+
+            validityStatus:
+              'IN_WINDOW',
+          }),
+        ).toEqual([
+          {
+            code:
+              'MIPRES_MANUALLY_DISABLED',
+
+            message:
+              'Control operacional MIPRES inhabilitado manualmente por MTD',
           },
         ]);
       },

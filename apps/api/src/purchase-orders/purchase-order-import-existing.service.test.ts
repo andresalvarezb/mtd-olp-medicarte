@@ -258,6 +258,15 @@ describe(
                     source_status_normalized:
                       '5',
 
+                    coverage_type:
+                      'PBS',
+
+                    direction_status:
+                      'NOT_APPLICABLE',
+
+                    mipres_manual_decision:
+                      'PENDING_MANUAL_ENABLEMENT',
+
                     assignment_raw:
                       '20200101',
 
@@ -781,6 +790,15 @@ describe(
 
                     source_status_normalized:
                       '5',
+
+                    coverage_type:
+                      'PBS',
+
+                    direction_status:
+                      'NOT_APPLICABLE',
+
+                    mipres_manual_decision:
+                      'PENDING_MANUAL_ENABLEMENT',
 
                     assignment_raw:
                       '20200101',

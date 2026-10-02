@@ -19,6 +19,7 @@ import {
   assertAuthorizationFulfillment,
   currentBogotaDate,
   evaluateAuthorizationOperationalWindow,
+  evaluateEffectiveMipresEligibility,
   parseAuthorizationExpiration,
 } from '@authorization/domain';
 
@@ -58,6 +59,9 @@ type AuthorizationRow = {
   expiration_raw: string | null;
   assignment_raw: string | null;
   enablement_status: string;
+  coverage_type: string;
+  direction_status: string;
+  mipres_manual_decision: string;
 };
 
 type AllocationRow = {
@@ -274,9 +278,22 @@ export class AuthorizationFulfillmentRepository {
           assignedQuantity >
             0;
 
+        const mipresEligible =
+          evaluateEffectiveMipresEligibility({
+            coverageType:
+              authorization.coverage_type,
+
+            directionStatus:
+              authorization.direction_status,
+
+            manualDecision:
+              authorization.mipres_manual_decision,
+          }).eligible;
+
         if (
           authorization.enablement_status !==
             'ENABLED' ||
+          !mipresEligible ||
           (
             !operationalWindow.eligible &&
             !retainedExpiredAllocation
@@ -997,7 +1014,13 @@ export class AuthorizationFulfillmentRepository {
               'FECHA_ASIGNACION'
               as assignment_raw,
 
-            i.enablement_status
+            i.enablement_status,
+
+            i.coverage_type,
+
+            i.direction_status,
+
+            i.mipres_manual_decision
 
           from
             authorization_items i

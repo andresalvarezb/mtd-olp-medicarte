@@ -158,6 +158,15 @@ type AuthorizationConfig =
     sourceStatus:
       string;
 
+    coverageType:
+      string;
+
+    directionStatus:
+      string;
+
+    mipresManualDecision:
+      string;
+
     assignmentRaw:
       string;
 
@@ -189,6 +198,15 @@ const destinationDefault:
     sourceStatus:
       '5',
 
+    coverageType:
+      'PBS',
+
+    directionStatus:
+      'NOT_APPLICABLE',
+
+    mipresManualDecision:
+      'PENDING_MANUAL_ENABLEMENT',
+
     assignmentRaw:
       '20200101',
 
@@ -219,6 +237,15 @@ const originDefault:
 
     sourceStatus:
       '5',
+
+    coverageType:
+      'PBS',
+
+    directionStatus:
+      'NOT_APPLICABLE',
+
+    mipresManualDecision:
+      'PENDING_MANUAL_ENABLEMENT',
 
     assignmentRaw:
       '20200101',
@@ -291,6 +318,15 @@ function authorizationRow(
 
     source_status_normalized:
       config.sourceStatus,
+
+    coverage_type:
+      config.coverageType,
+
+    direction_status:
+      config.directionStatus,
+
+    mipres_manual_decision:
+      config.mipresManualDecision,
 
     assignment_raw:
       config.assignmentRaw,
@@ -898,6 +934,15 @@ async function runCreateGuard(
 
               source_status_normalized:
                 '5',
+
+              coverage_type:
+                'PBS',
+
+              direction_status:
+                'NOT_APPLICABLE',
+
+              mipres_manual_decision:
+                'PENDING_MANUAL_ENABLEMENT',
 
               assignment_raw:
                 '20200101',

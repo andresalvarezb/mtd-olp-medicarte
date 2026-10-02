@@ -94,8 +94,32 @@ describe('authorization query derived state', () => {
           tariffMembershipStatus: 'LISTED',
           coverageType: 'NO_PBS',
           directionStatus: 'CONFIRMED',
+          mipresManualDecision:
+            'MANUALLY_ENABLED',
         }),
       ).toBe('PASSED');
+
+      expect(
+        resolveAuthorizationInitialValidationStatus({
+          enablementStatus: 'ENABLED',
+          tariffMembershipStatus: 'LISTED',
+          coverageType: 'NO_PBS',
+          directionStatus: 'CONFIRMED',
+          mipresManualDecision:
+            'PENDING_MANUAL_ENABLEMENT',
+        }),
+      ).toBe('PENDING');
+
+      expect(
+        resolveAuthorizationInitialValidationStatus({
+          enablementStatus: 'ENABLED',
+          tariffMembershipStatus: 'LISTED',
+          coverageType: 'NO_PBS',
+          directionStatus: 'CONFIRMED',
+          mipresManualDecision:
+            'MANUALLY_DISABLED',
+        }),
+      ).toBe('FAILED');
     });
 
     it('marks terminal initial failures', () => {
@@ -133,7 +157,9 @@ describe('authorization query derived state', () => {
           enablementStatus: 'ENABLED',
           tariffMembershipStatus: 'LISTED',
           coverageType: 'NO_PBS',
-          directionStatus: 'PENDING',
+          directionStatus: 'CONFIRMED',
+          mipresManualDecision:
+            'PENDING_MANUAL_ENABLEMENT',
         }),
       ).toBe('PENDING');
     });

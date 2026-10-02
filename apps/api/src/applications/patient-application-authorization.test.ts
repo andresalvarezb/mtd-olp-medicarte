@@ -1,23 +1,28 @@
 import { describe, expect, it } from 'vitest';
+
 import { evaluatePatientApplicationAuthorization } from './patient-application-authorization';
 
 const TODAY = '2031-03-10';
 
 const base = {
   enablementStatus: 'ENABLED',
+
   coverageType: 'PBS',
+
   directionStatus: 'NOT_APPLICABLE',
+
   assignmentDate: TODAY,
+
   expirationDate: '2031-12-31',
+
   todayBogota: TODAY,
 };
 
 describe('patient application authorization eligibility', () => {
   it('allows an enabled authorization inside the operational window', () => {
-    expect(
-      evaluatePatientApplicationAuthorization(base),
-    ).toEqual({
+    expect(evaluatePatientApplicationAuthorization(base)).toEqual({
       eligible: true,
+
       code: null,
     });
   });
@@ -26,10 +31,12 @@ describe('patient application authorization eligibility', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         assignmentDate: '2031-04-09',
       }),
     ).toEqual({
       eligible: true,
+
       code: null,
     });
   });
@@ -38,10 +45,12 @@ describe('patient application authorization eligibility', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         assignmentDate: '2031-04-10',
       }),
     ).toEqual({
       eligible: false,
+
       code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
     });
   });
@@ -50,24 +59,28 @@ describe('patient application authorization eligibility', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         expirationDate: '2031-03-01',
       }),
     ).toEqual({
       eligible: true,
+
       code: null,
     });
   });
-
 
   it('allows application date after expiration', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         expirationDate: '2031-03-01',
+
         applicationDate: '2031-03-10',
       }),
     ).toEqual({
       eligible: true,
+
       code: null,
     });
   });
@@ -76,10 +89,12 @@ describe('patient application authorization eligibility', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         assignmentDate: null,
       }),
     ).toEqual({
       eligible: false,
+
       code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
     });
   });
@@ -88,10 +103,12 @@ describe('patient application authorization eligibility', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         assignmentDate: 'INVALID',
       }),
     ).toEqual({
       eligible: false,
+
       code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
     });
   });
@@ -100,10 +117,12 @@ describe('patient application authorization eligibility', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         expirationDate: null,
       }),
     ).toEqual({
       eligible: false,
+
       code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
     });
   });
@@ -112,37 +131,83 @@ describe('patient application authorization eligibility', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         enablementStatus: 'BLOCKED_SOURCE_STATUS',
       }),
     ).toEqual({
       eligible: false,
+
       code: 'AUTHORIZATION_NOT_SCHEDULABLE',
     });
   });
 
-  it('preserves NO_PBS direction rule', () => {
+  it('keeps NO_PBS pending when MIPRES direction is pending', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         coverageType: 'NO_PBS',
+
         directionStatus: 'PENDING',
       }),
     ).toEqual({
       eligible: false,
+
       code: 'AUTHORIZATION_NOT_SCHEDULABLE',
     });
   });
 
-  it('allows NO_PBS with confirmed direction', () => {
+  it('keeps NO_PBS blocked even with confirmed direction until MTD manually enables it', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         coverageType: 'NO_PBS',
+
         directionStatus: 'CONFIRMED',
+
+        mipresManualDecision: 'PENDING_MANUAL_ENABLEMENT',
+      }),
+    ).toEqual({
+      eligible: false,
+
+      code: 'AUTHORIZATION_NOT_SCHEDULABLE',
+    });
+  });
+
+  it('allows NO_PBS after explicit MTD manual enablement', () => {
+    expect(
+      evaluatePatientApplicationAuthorization({
+        ...base,
+
+        coverageType: 'NO_PBS',
+
+        directionStatus: 'CONFIRMED',
+
+        mipresManualDecision: 'MANUALLY_ENABLED',
       }),
     ).toEqual({
       eligible: true,
+
       code: null,
+    });
+  });
+
+  it('manual disable blocks NO_PBS even with confirmed direction', () => {
+    expect(
+      evaluatePatientApplicationAuthorization({
+        ...base,
+
+        coverageType: 'NO_PBS',
+
+        directionStatus: 'CONFIRMED',
+
+        mipresManualDecision: 'MANUALLY_DISABLED',
+      }),
+    ).toEqual({
+      eligible: false,
+
+      code: 'AUTHORIZATION_NOT_SCHEDULABLE',
     });
   });
 
@@ -150,11 +215,14 @@ describe('patient application authorization eligibility', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         expirationDate: '2031-04-20',
+
         applicationDate: '2031-04-21',
       }),
     ).toEqual({
       eligible: true,
+
       code: null,
     });
   });
@@ -163,11 +231,14 @@ describe('patient application authorization eligibility', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
+
         expirationDate: '2031-04-20',
+
         applicationDate: '2031-04-20',
       }),
     ).toEqual({
       eligible: true,
+
       code: null,
     });
   });

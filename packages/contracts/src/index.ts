@@ -537,16 +537,12 @@ export const fulfillmentAuditListQuerySchema = z.object({
 export type FulfillmentAuditListQuery = z.infer<typeof fulfillmentAuditListQuerySchema>;
 
 export const approveFulfillmentAuditRequestSchema = z.object({});
-export type ApproveFulfillmentAuditRequest = z.infer<
-  typeof approveFulfillmentAuditRequestSchema
->;
+export type ApproveFulfillmentAuditRequest = z.infer<typeof approveFulfillmentAuditRequestSchema>;
 
 export const rejectFulfillmentAuditRequestSchema = z.object({
   observation: z.string().trim().min(1).max(1000),
 });
-export type RejectFulfillmentAuditRequest = z.infer<
-  typeof rejectFulfillmentAuditRequestSchema
->;
+export type RejectFulfillmentAuditRequest = z.infer<typeof rejectFulfillmentAuditRequestSchema>;
 
 export const fulfillmentAuditResponseSchema = z.object({
   id: z.string().uuid().nullable(),
@@ -1265,37 +1261,28 @@ export const purchaseOrderStatusSchema = z.enum([
 ]);
 export type PurchaseOrderStatus = z.infer<typeof purchaseOrderStatusSchema>;
 
+export const purchaseOrderOperationalStateSchema = z.enum([
+  'PENDING_OLP',
+  'PENDING_MEDICARTE',
+  'RECEIVED_WITH_PENDING',
+  'RECEIVED',
+  'REJECTED',
+  'CANCELLED',
+]);
 
-export const purchaseOrderOperationalStateSchema =
-  z.enum([
-    'PENDING_OLP',
-    'PENDING_MEDICARTE',
-    'RECEIVED_WITH_PENDING',
-    'RECEIVED',
-    'REJECTED',
-    'CANCELLED',
-  ]);
+export type PurchaseOrderOperationalState = z.infer<typeof purchaseOrderOperationalStateSchema>;
 
+export type PurchaseOrderListOperationalProjection = Readonly<{
+  olpAcceptedAt: string | null;
 
-export type PurchaseOrderOperationalState =
-  z.infer<
-    typeof purchaseOrderOperationalStateSchema
-  >;
+  operationalState: PurchaseOrderOperationalState;
 
+  requestedQuantity: number;
 
-export type PurchaseOrderListOperationalProjection =
-  Readonly<{
-    olpAcceptedAt: string | null;
+  receivedQuantity: number;
 
-    operationalState:
-      PurchaseOrderOperationalState;
-
-    requestedQuantity: number;
-
-    receivedQuantity: number;
-
-    pendingQuantity: number;
-  }>;
+  pendingQuantity: number;
+}>;
 
 export const purchaseOrderTransitions: Record<PurchaseOrderStatus, readonly PurchaseOrderStatus[]> =
   {
@@ -1414,13 +1401,11 @@ export const deliveryActionRequestSchema = z.object({
   expectedVersion: z.number().int().positive(),
 });
 
-export const deliveryDispatchRequestSchema =
-  deliveryActionRequestSchema.extend({
-    declaredDispatchDate: z.string().date(),
-  });
+export const deliveryDispatchRequestSchema = deliveryActionRequestSchema.extend({
+  declaredDispatchDate: z.string().date(),
+});
 
-export type DeliveryDispatchRequest =
-  z.infer<typeof deliveryDispatchRequestSchema>;
+export type DeliveryDispatchRequest = z.infer<typeof deliveryDispatchRequestSchema>;
 export const deliveryLineResponseSchema = z.object({
   id: z.string().uuid(),
   purchaseOrderLineId: z.string().uuid(),
@@ -1513,57 +1498,31 @@ export const receiptResponseSchema = z.object({
 });
 export type ReceiptResponse = z.infer<typeof receiptResponseSchema>;
 
-export const purchaseOrderReceiptOutcomeSchema =
-  z.enum([
-    'RECEIVED_COMPLETE',
-    'RECEIVED_PARTIAL',
-    'NOT_RECEIVED',
-  ]);
+export const purchaseOrderReceiptOutcomeSchema = z.enum([
+  'RECEIVED_COMPLETE',
+  'RECEIVED_PARTIAL',
+  'NOT_RECEIVED',
+]);
 
-export type PurchaseOrderReceiptOutcome =
-  z.infer<
-    typeof purchaseOrderReceiptOutcomeSchema
-  >;
+export type PurchaseOrderReceiptOutcome = z.infer<typeof purchaseOrderReceiptOutcomeSchema>;
 
+export const purchaseOrderDirectReceiptLineSchema = z.object({
+  purchaseOrderLineId: z.string().uuid(),
 
-export const purchaseOrderDirectReceiptLineSchema =
-  z.object({
-    purchaseOrderLineId:
-      z.string().uuid(),
+  receivedQuantity: z.number().int().positive(),
+});
 
-    receivedQuantity:
-      z.number()
-        .int()
-        .positive(),
-  });
+export const purchaseOrderDirectReceiptRequestSchema = z.object({
+  receivedAt: isoDateTimeSchema.optional(),
 
+  observation: z.string().trim().max(2000).optional().nullable(),
 
-export const purchaseOrderDirectReceiptRequestSchema =
-  z.object({
-    receivedAt:
-      isoDateTimeSchema.optional(),
+  lines: z.array(purchaseOrderDirectReceiptLineSchema).min(1),
+});
 
-    observation:
-      z.string()
-        .trim()
-        .max(2000)
-        .optional()
-        .nullable(),
-
-    lines:
-      z.array(
-        purchaseOrderDirectReceiptLineSchema,
-      )
-        .min(1),
-  });
-
-
-export type PurchaseOrderDirectReceiptRequest =
-  z.infer<
-    typeof purchaseOrderDirectReceiptRequestSchema
-  >;
-
-
+export type PurchaseOrderDirectReceiptRequest = z.infer<
+  typeof purchaseOrderDirectReceiptRequestSchema
+>;
 
 export const inventoryMovementTypeSchema = z.enum([
   'RECEIPT',
@@ -2540,75 +2499,96 @@ export type TriggerManualOperationExecutionRequest = z.infer<
 
 /* Authorization operational fulfillment */
 
-export const authorizationFulfillmentTypeSchema =
-  z.enum([
-    'APPLICATION',
-    'DELIVERY',
-  ]);
+export const authorizationFulfillmentTypeSchema = z.enum(['APPLICATION', 'DELIVERY']);
 
-export type AuthorizationFulfillmentType =
-  z.infer<
-    typeof authorizationFulfillmentTypeSchema
-  >;
+export type AuthorizationFulfillmentType = z.infer<typeof authorizationFulfillmentTypeSchema>;
 
-export const fulfillAuthorizationRequestSchema =
-  z.object({
-    purchaseOrderCode:
-      z.string()
-        .trim()
-        .min(1)
-        .max(255),
+export const fulfillAuthorizationRequestSchema = z.object({
+  purchaseOrderCode: z.string().trim().min(1).max(255),
 
-    fulfillmentType:
-      authorizationFulfillmentTypeSchema,
+  fulfillmentType: authorizationFulfillmentTypeSchema,
 
-    effectiveDate:
-      z.string()
-        .regex(
-          /^\d{4}-\d{2}-\d{2}$/,
-        ),
+  effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 
-    quantity:
-      z.number()
-        .int()
-        .positive(),
-  });
+  quantity: z.number().int().positive(),
+});
 
-export type FulfillAuthorizationRequest =
-  z.infer<
-    typeof fulfillAuthorizationRequestSchema
-  >;
+export type FulfillAuthorizationRequest = z.infer<typeof fulfillAuthorizationRequestSchema>;
 
-export const authorizationFulfillmentResponseSchema =
-  z.object({
-    id:
-      z.string().uuid(),
+export const authorizationFulfillmentResponseSchema = z.object({
+  id: z.string().uuid(),
 
-    authorizationItemId:
-      z.string().uuid(),
+  authorizationItemId: z.string().uuid(),
 
-    fulfillmentType:
-      authorizationFulfillmentTypeSchema,
+  fulfillmentType: authorizationFulfillmentTypeSchema,
 
-    effectiveDate:
-      z.string(),
+  effectiveDate: z.string(),
 
-    quantity:
-      z.number().int().positive(),
+  quantity: z.number().int().positive(),
 
-    dispensingPointId:
-      z.string().uuid(),
+  dispensingPointId: z.string().uuid(),
 
-    purchaseOrders:
-      z.array(
-        z.string(),
-      ),
+  purchaseOrders: z.array(z.string()),
 
-    confirmedAt:
-      z.string(),
-  });
+  confirmedAt: z.string(),
+});
 
-export type AuthorizationFulfillmentResponse =
-  z.infer<
-    typeof authorizationFulfillmentResponseSchema
-  >;
+export type AuthorizationFulfillmentResponse = z.infer<
+  typeof authorizationFulfillmentResponseSchema
+>;
+
+/**
+ * MIPRES manual decision.
+ *
+ * This is the internal MTD operational decision.
+ * It never represents or rewrites external MIPRES evidence.
+ */
+export const mipresManualDecisionActionSchema = z.enum(['ENABLE', 'DISABLE', 'RESET']);
+
+export type MipresManualDecisionAction = z.infer<typeof mipresManualDecisionActionSchema>;
+
+export const mipresManualDecisionRequestSchema = z
+  .object({
+    action: mipresManualDecisionActionSchema,
+
+    expectedVersion: z.number().int().nonnegative(),
+
+    conceptCode: z.string().trim().min(1).max(80).optional(),
+
+    observation: z.string().trim().min(1).max(1000).optional(),
+  })
+  .strict();
+
+export type MipresManualDecisionRequest = z.infer<typeof mipresManualDecisionRequestSchema>;
+
+export const mipresManualDecisionStateSchema = z.enum([
+  'PENDING_MANUAL_ENABLEMENT',
+  'MANUALLY_ENABLED',
+  'MANUALLY_DISABLED',
+]);
+
+export type MipresManualDecisionState = z.infer<typeof mipresManualDecisionStateSchema>;
+
+export const mipresManualDecisionResponseSchema = z.object({
+  itemId: z.string().uuid(),
+
+  decision: mipresManualDecisionStateSchema,
+
+  version: z.number().int().nonnegative(),
+
+  conceptCode: z.string().nullable(),
+
+  conceptName: z.string().nullable(),
+
+  note: z.string().nullable(),
+
+  updatedAt: isoDateTimeSchema,
+
+  updatedBy: z.object({
+    id: z.string().uuid(),
+
+    displayName: z.string(),
+  }),
+});
+
+export type MipresManualDecisionResponse = z.infer<typeof mipresManualDecisionResponseSchema>;

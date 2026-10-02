@@ -10,9 +10,29 @@ import {
 describe('ESP-020 access registry', () => {
   it('covers every current permission exactly once', () => {
     validateAccessRegistry();
-    expect(ACCESS_PERMISSION_REGISTRY).toHaveLength(81);
-    expect(new Set(ACCESS_PERMISSION_REGISTRY.map((entry) => entry.permissionCode)).size).toBe(81);
+    expect(ACCESS_PERMISSION_REGISTRY).toHaveLength(82);
+    expect(new Set(ACCESS_PERMISSION_REGISTRY.map((entry) => entry.permissionCode)).size).toBe(82);
     expect(new Set(ACCESS_RETIRED_PERMISSION_CODES).size).toBe(6);
+
+    const mipresDecision = ACCESS_PERMISSION_REGISTRY.find(
+      (entry) => entry.permissionCode === 'mipres.decision.manage',
+    );
+
+    expect(mipresDecision).toMatchObject({
+      permissionCode: 'mipres.decision.manage',
+
+      moduleCode: 'authorizations',
+
+      actionCode: 'MIPRES_DECIDE',
+
+      lifecycle: 'ACTIVE',
+
+      actorBoundary: 'MTD_ONLY',
+
+      configurable: true,
+
+      systemAllowed: true,
+    });
   });
 
   it('classifies every current permission with an approved lifecycle', () => {

@@ -405,6 +405,7 @@ export class PatientScheduleImportService {
       enablementStatus: item.enablementStatus,
       coverageType: item.coverageType,
       directionStatus: item.directionStatus,
+      mipresManualDecision: item.mipresManualDecision,
       expirationDate: item.authorizationExpiresOn,
       todayBogota: scheduleToday(),
     });
