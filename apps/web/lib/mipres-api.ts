@@ -11,6 +11,11 @@ export type MipresDecisionAction = 'ENABLE' | 'DISABLE' | 'RESET';
 
 export type MipresConceptAction = 'ENABLE' | 'DISABLE';
 
+export type MipresManualUnlockMode =
+  | 'NATURALLY_ENABLED'
+  | 'PENDING_MANUAL_OVERRIDE'
+  | 'NOT_ALLOWED';
+
 export type MipresOperationalState = 'READY' | 'BLOCKED' | 'UNKNOWN';
 
 export interface MipresDecisionConcept {
@@ -44,6 +49,8 @@ export interface MipresListItem {
 
   productDescription: string | null;
 
+  productCode: string | null;
+
   commercialCode: string | null;
 
   quantity: string | null;
@@ -60,6 +67,12 @@ export interface MipresListItem {
   authorizationState: 'ENABLED' | 'PENDING' | 'DISABLED';
 
   mipresState: 'LOCKED' | 'UNLOCKED';
+
+  manualUnlockAllowed: boolean;
+
+  manualUnlockMode: MipresManualUnlockMode;
+
+  blockedReasons: string[];
 
   manualVersion: number;
 
@@ -110,10 +123,16 @@ export interface MipresListResponse {
 
 export interface MipresListFilters {
   search?: string;
+
+  authorization?: string;
+
+  patient?: string;
   directionStatus?: string;
   atStatus?: string;
   manualDecision?: string;
   state?: string;
+  authorizationState?: 'ENABLED' | 'PENDING' | 'DISABLED';
+  mipresState?: 'LOCKED' | 'UNLOCKED';
   page?: number;
   limit?: number;
 }
@@ -172,6 +191,18 @@ function booleanValue(value: unknown): boolean | null {
   }
 
   return null;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const normalized = stringValue(item);
+
+    return normalized ? [normalized] : [];
+  });
 }
 
 function firstString(source: JsonObject, keys: string[]): string | null {
@@ -312,9 +343,13 @@ function normalizeListItem(value: unknown): MipresListItem {
     firstString(source, ['productDescription', 'medicationName', 'productName', 'producto']) ??
     sourceString(source, ['DESCRIPCION_PRODUCTO', 'NOMBRE_MEDICAMENTO', 'PRODUCTO', 'MEDICAMENTO']);
 
-  const commercialCode =
-    firstString(source, ['commercialCode', 'codigoComercial', 'codigoMedicamento']) ??
-    sourceString(source, ['CODIGO_COMERCIAL', 'CODIGO_MEDICAMENTO']);
+  const productCode =
+    firstString(source, [
+      'productCode',
+      'commercialCode',
+      'codigoComercial',
+      'codigoMedicamento',
+    ]) ?? sourceString(source, ['CODIGO_COMERCIAL', 'CODIGO_MEDICAMENTO']);
 
   const quantity =
     firstString(source, ['quantity', 'cantidad']) ?? sourceString(source, ['CANTIDAD']);
@@ -361,7 +396,9 @@ function normalizeListItem(value: unknown): MipresListItem {
 
     productDescription,
 
-    commercialCode,
+    productCode,
+
+    commercialCode: productCode,
 
     quantity,
 
@@ -370,6 +407,21 @@ function normalizeListItem(value: unknown): MipresListItem {
     authorizationState,
 
     mipresState,
+
+    manualUnlockAllowed:
+      firstBoolean(source, ['manualUnlockAllowed', 'manual_unlock_allowed']) === true,
+
+    manualUnlockMode: (() => {
+      const value = firstString(source, ['manualUnlockMode', 'manual_unlock_mode']);
+
+      if (value === 'NATURALLY_ENABLED' || value === 'PENDING_MANUAL_OVERRIDE') {
+        return value;
+      }
+
+      return 'NOT_ALLOWED';
+    })(),
+
+    blockedReasons: stringArray(source.blockedReasons ?? source.blocked_reasons),
 
     coverageType: firstString(source, ['coverageType', 'coverage_type']),
 
@@ -708,10 +760,16 @@ function normalizeConcept(value: unknown): MipresDecisionConcept | null {
 function queryString(filters: MipresListFilters): string {
   const params = new URLSearchParams();
 
+  if (filters.authorization) {
+    params.set('authorization', filters.authorization);
+  }
+
+  if (filters.patient) {
+    params.set('patient', filters.patient);
+  }
+
   if (filters.search) {
     params.set('search', filters.search);
-
-    params.set('q', filters.search);
   }
 
   if (filters.directionStatus) {
@@ -724,14 +782,18 @@ function queryString(filters: MipresListFilters): string {
 
   if (filters.manualDecision) {
     params.set('manualDecision', filters.manualDecision);
-
-    params.set('decision', filters.manualDecision);
   }
 
   if (filters.state) {
     params.set('state', filters.state);
+  }
 
-    params.set('operationalState', filters.state);
+  if (filters.authorizationState) {
+    params.set('authorizationState', filters.authorizationState);
+  }
+
+  if (filters.mipresState) {
+    params.set('mipresState', filters.mipresState);
   }
 
   params.set('page', String(filters.page ?? 1));

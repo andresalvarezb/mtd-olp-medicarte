@@ -14,6 +14,7 @@ import {
   normalizeSourceDate,
   parsePositiveInteger,
   resolveMipresReadState,
+  resolveMipresManualUnlockEligibility,
   resolveOperationalWindow,
 } from './mipres-read-model';
 
@@ -22,12 +23,20 @@ type Database = ReturnType<typeof createDatabase>;
 export type MipresListFilters = Readonly<{
   search?: string;
 
+  authorization?: string;
+
+  patient?: string;
+
   directionStatus?: 'CONFIRMED' | 'PENDING' | 'QUERY_ERROR';
   atStatus?: 'LISTED' | 'NOT_LISTED' | 'NOT_EVALUATED';
 
   manualDecision?: 'PENDING_MANUAL_ENABLEMENT' | 'MANUALLY_ENABLED' | 'MANUALLY_DISABLED';
 
   state?: 'OPERABLE' | 'BLOCKED';
+
+  authorizationState?: 'ENABLED' | 'PENDING' | 'DISABLED';
+
+  mipresState?: 'LOCKED' | 'UNLOCKED';
 
   page: number;
 
@@ -381,6 +390,131 @@ export class MipresReadRepository {
     `;
   }
 
+  private authorizationStateSql(scope: Scope): SQL {
+    const quantity = this.quantitySql();
+
+    const minimumQuantity = this.minimumQuantitySql(scope);
+
+    const operationalWindow = this.operationalWindowStatusSql();
+
+    const disabled = sql`
+      (
+        i.enablement_status
+          is distinct from
+          'ENABLED'
+
+        or
+
+        i.tariff_membership_status =
+          'NOT_LISTED'
+
+        or
+
+        ${quantity}
+          is null
+
+        or
+
+        ${minimumQuantity}
+          < 1
+
+        or
+
+        (
+          ${quantity}
+            is not null
+
+          and
+
+          ${quantity}
+            <
+          ${minimumQuantity}
+        )
+
+        or
+
+        (
+          ${operationalWindow}
+        )
+          in (
+            'EXPIRED',
+            'INVALID_DATE'
+          )
+      )
+    `;
+
+    const coveragePending = sql`
+      (
+        (
+          i.coverage_type =
+            'NO_PBS'
+
+          and
+
+          i.direction_status
+            is distinct from
+            'CONFIRMED'
+        )
+
+        or
+
+        (
+          i.coverage_type =
+            'PBS'
+
+          and
+
+          i.direction_status
+            is distinct from
+            'NOT_APPLICABLE'
+        )
+
+        or
+
+        i.coverage_type
+          is null
+
+        or
+
+        i.coverage_type
+          not in (
+            'PBS',
+            'NO_PBS'
+          )
+      )
+    `;
+
+    return sql`
+      case
+        when
+          ${disabled}
+        then
+          'DISABLED'
+
+        when
+          i.tariff_membership_status
+            is distinct from
+            'LISTED'
+
+          or
+
+          (
+            ${operationalWindow}
+          ) =
+            'OUTSIDE_HORIZON'
+
+          or
+
+          ${coveragePending}
+        then
+          'PENDING'
+
+        else
+          'ENABLED'
+      end
+    `;
+  }
+
   private operableSql(scope: Scope): SQL {
     const quantity = this.quantitySql();
 
@@ -698,6 +832,20 @@ export class MipresReadRepository {
       operationalWindow,
     });
 
+    const unlockEligibility = resolveMipresManualUnlockEligibility({
+      authorizationState: operational.authorizationState,
+
+      operationalWindow,
+
+      enablementStatus: row.enablement_status,
+
+      tariffMembershipStatus: row.tariff_membership_status,
+
+      coverageType: row.coverage_type,
+
+      directionStatus: row.direction_status,
+    });
+
     return {
       id: row.id,
 
@@ -724,6 +872,10 @@ export class MipresReadRepository {
       authorizationState: operational.authorizationState,
 
       mipresState: operational.mipresState,
+
+      manualUnlockAllowed: unlockEligibility.allowed,
+
+      manualUnlockMode: unlockEligibility.mode,
 
       state: operational.state,
 
@@ -828,6 +980,57 @@ export class MipresReadRepository {
           ''
         `,
     ];
+
+    if (filters.authorization) {
+      const authorization = `%${filters.authorization}%`;
+
+      conditions.push(sql`
+        (
+          i.numero_autorizacion
+            ilike
+            ${authorization}
+
+          or
+
+          i.no_prescripcion
+            ilike
+            ${authorization}
+        )
+      `);
+    }
+
+    if (filters.patient) {
+      const patient = `%${filters.patient}%`;
+
+      conditions.push(sql`
+        (
+          coalesce(
+            i.source_data
+              ->>
+              'IDENTIFICACION_PACIENTE',
+
+            i.source_data
+              ->>
+              'NUM_DOCUMENTO',
+
+            ''
+          )
+            ilike
+            ${patient}
+
+          or
+
+          coalesce(
+            i.source_data
+              ->>
+              'NOMBRE_PACIENTE',
+            ''
+          )
+            ilike
+            ${patient}
+        )
+      `);
+    }
 
     if (filters.search) {
       const search = `%${filters.search}%`;
@@ -971,6 +1174,30 @@ export class MipresReadRepository {
       conditions.push(sql`
         i.mipres_manual_decision =
           ${filters.manualDecision}
+      `);
+    }
+
+    if (filters.authorizationState) {
+      conditions.push(sql`
+        (
+          ${this.authorizationStateSql(scope)}
+        ) =
+          ${filters.authorizationState}
+      `);
+    }
+
+    if (filters.mipresState === 'UNLOCKED') {
+      conditions.push(sql`
+        i.mipres_manual_decision =
+          'MANUALLY_ENABLED'
+      `);
+    }
+
+    if (filters.mipresState === 'LOCKED') {
+      conditions.push(sql`
+        i.mipres_manual_decision
+          is distinct from
+          'MANUALLY_ENABLED'
       `);
     }
 

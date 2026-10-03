@@ -4,6 +4,7 @@ import {
   normalizeSourceDate,
   parsePositiveInteger,
   resolveMipresReadState,
+  resolveMipresManualUnlockEligibility,
   resolveOperationalWindow,
 } from './mipres-read-model';
 
@@ -172,5 +173,127 @@ describe('MIPRES read model', () => {
     expect(result.mipresState).toBe('UNLOCKED');
 
     expect(result.state).toBe('BLOCKED');
+  });
+
+  it('allows manual unlock when pending only because of future window', () => {
+    const state = resolveMipresReadState({
+      enablementStatus: 'ENABLED',
+
+      tariffMembershipStatus: 'LISTED',
+
+      coverageType: 'NO_PBS',
+
+      directionStatus: 'CONFIRMED',
+
+      manualDecision: 'PENDING_MANUAL_ENABLEMENT',
+
+      quantity: 4,
+
+      minimumQuantity: 1,
+
+      operationalWindow: 'OUTSIDE_HORIZON',
+    });
+
+    expect(state.authorizationState).toBe('PENDING');
+
+    expect(
+      resolveMipresManualUnlockEligibility({
+        authorizationState: state.authorizationState,
+
+        operationalWindow: 'OUTSIDE_HORIZON',
+
+        enablementStatus: 'ENABLED',
+
+        tariffMembershipStatus: 'LISTED',
+
+        coverageType: 'NO_PBS',
+
+        directionStatus: 'CONFIRMED',
+      }),
+    ).toEqual({
+      allowed: true,
+
+      mode: 'PENDING_MANUAL_OVERRIDE',
+    });
+  });
+
+  it('allows manual unlock while authorization remains pending', () => {
+    const state = resolveMipresReadState({
+      enablementStatus: 'ENABLED',
+
+      tariffMembershipStatus: 'LISTED',
+
+      coverageType: 'NO_PBS',
+
+      directionStatus: 'PENDING',
+
+      manualDecision: 'PENDING_MANUAL_ENABLEMENT',
+
+      quantity: 4,
+
+      minimumQuantity: 1,
+
+      operationalWindow: 'IN_WINDOW',
+    });
+
+    expect(state.authorizationState).toBe('PENDING');
+
+    expect(
+      resolveMipresManualUnlockEligibility({
+        authorizationState: state.authorizationState,
+
+        operationalWindow: 'IN_WINDOW',
+
+        enablementStatus: 'ENABLED',
+
+        tariffMembershipStatus: 'LISTED',
+
+        coverageType: 'NO_PBS',
+
+        directionStatus: 'PENDING',
+      }),
+    ).toEqual({
+      allowed: true,
+
+      mode: 'PENDING_MANUAL_OVERRIDE',
+    });
+  });
+
+  it('does not allow manual unlock for disabled authorization', () => {
+    const state = resolveMipresReadState({
+      enablementStatus: 'ENABLED',
+
+      tariffMembershipStatus: 'LISTED',
+
+      coverageType: 'NO_PBS',
+
+      directionStatus: 'CONFIRMED',
+
+      manualDecision: 'PENDING_MANUAL_ENABLEMENT',
+
+      quantity: 4,
+
+      minimumQuantity: 1,
+
+      operationalWindow: 'EXPIRED',
+    });
+
+    expect(state.authorizationState).toBe('DISABLED');
+
+    expect(
+      resolveMipresManualUnlockEligibility({
+        authorizationState: state.authorizationState,
+
+        operationalWindow: 'EXPIRED',
+
+        enablementStatus: 'ENABLED',
+
+        tariffMembershipStatus: 'LISTED',
+
+        coverageType: 'NO_PBS',
+
+        directionStatus: 'CONFIRMED',
+      }).allowed,
+    ).toBe(false);
   });
 });

@@ -1,9 +1,3 @@
-.page {
-  display: grid;
-  gap: 18px;
-  padding-bottom: 28px;
-}
-
 /* =========================================================
    FILTROS
    ========================================================= */
@@ -355,7 +349,7 @@
   right: 0;
   z-index: 71;
   display: flex;
-  width: min(820px, 96vw);
+  width: min(860px, 92vw);
   height: 100vh;
   flex-direction: column;
   border-left: 1px solid #dfe3e8;
@@ -365,13 +359,13 @@
 
 .drawerHeader {
   display: flex;
-  min-height: 82px;
+  min-height: 72px;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   border-bottom: 1px solid #e4e7ec;
   background: #ffffff;
-  padding: 18px 22px;
+  padding: 14px 18px;
 }
 
 .drawerTitle {
@@ -415,9 +409,9 @@
 .drawerBody {
   display: grid;
   flex: 1;
-  gap: 14px;
+  gap: 12px;
   overflow-y: auto;
-  padding: 16px 18px 30px;
+  padding: 14px 16px 24px;
 }
 
 /* =========================================================
@@ -465,11 +459,11 @@
 
 .section {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   border: 1px solid #e4e7ec;
   border-radius: 11px;
   background: #ffffff;
-  padding: 17px;
+  padding: 14px 16px;
 }
 
 .sectionHeader {
@@ -511,8 +505,8 @@
 
 .detailGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 15px 24px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 22px;
 }
 
 .detail {
@@ -719,5 +713,196 @@
 @media (max-width: 640px) {
   .toolbar {
     grid-template-columns: 1fr;
+  }
+}
+
+.drawerBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 6px;
+}
+
+.restrictionReason {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 3px;
+  border-left: 3px solid #f79009;
+  background: #fffaeb;
+  padding: 9px 11px;
+  border-radius: 6px;
+}
+
+.restrictionReason strong {
+  color: #93370d;
+  font-size: 11px;
+}
+
+.restrictionReason span {
+  color: #b54708;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (max-width: 900px) {
+  .drawer {
+    width: min(720px, 96vw);
+  }
+
+  .detailGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .drawer {
+    width: 100vw;
+  }
+
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================================
+   MIPRES DRAWER - STANDARD OPERATIONAL OVERRIDES
+   ========================================================= */
+
+.statusHero {
+  display: none !important;
+}
+
+.drawer {
+  width: min(860px, 92vw) !important;
+}
+
+.drawerHeader {
+  min-height: 0;
+  padding: 14px 18px;
+}
+
+.drawerBody {
+  gap: 12px;
+  padding: 14px 16px 24px;
+}
+
+.section {
+  padding: 14px 16px;
+}
+
+.detailGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 22px;
+}
+
+.drawerBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+@media (max-width: 900px) {
+  .drawer {
+    width: min(720px, 96vw) !important;
+  }
+
+  .detailGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .drawer {
+    width: 100vw !important;
+  }
+
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.futureWindowNotice {
+  display: grid;
+  gap: 3px;
+  border-left: 3px solid #1570ef;
+  border-radius: 6px;
+  background: #eff8ff;
+  padding: 9px 11px;
+}
+
+.futureWindowNotice strong {
+  color: #175cd3;
+  font-size: 11px;
+}
+
+.futureWindowNotice span {
+  color: #344054;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* MIPRES FILTER ROW */
+
+/* MIPRES FILTER ROW
+ *
+ * Consulta de Autorizaciones usa 6 columnas:
+ * 5 filtros + acciones.
+ *
+ * MIPRES usa 5:
+ * 4 filtros + acciones.
+ *
+ * Mantiene las proporciones del patrón estándar pero
+ * distribuye todo el ancho disponible sin comprimir
+ * ni dejar una columna vacía.
+ */
+.mipresQueryWorkspace :global(.filter-bar) {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.08fr)
+    minmax(0, 0.92fr)
+    minmax(0, 1fr)
+    minmax(0, 0.88fr)
+    auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.mipresQueryWorkspace :global(.filter-field) {
+  min-width: 0;
+}
+
+.mipresQueryWorkspace :global(.filter-field .control) {
+  width: 100%;
+  min-width: 0;
+}
+
+.mipresQueryWorkspace :global(.filter-actions) {
+  width: max-content;
+  min-width: max-content;
+  justify-self: end;
+}
+
+/* Solo se rompe la fila cuando realmente no cabe. */
+@media (max-width: 900px) {
+  .mipresQueryWorkspace :global(.filter-bar) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mipresQueryWorkspace :global(.filter-actions) {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 720px) {
+  .mipresQueryWorkspace :global(.filter-bar) {
+    grid-template-columns: 1fr;
+  }
+
+  .mipresQueryWorkspace :global(.filter-actions) {
+    grid-column: auto;
+    justify-self: stretch;
+    width: 100%;
   }
 }

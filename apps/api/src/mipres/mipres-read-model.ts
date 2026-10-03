@@ -17,6 +17,67 @@ export type MipresBlockedReason =
   | 'PENDING_MANUAL_ENABLEMENT'
   | 'MANUALLY_DISABLED';
 
+export type MipresManualUnlockMode =
+  | 'NATURALLY_ENABLED'
+  | 'PENDING_MANUAL_OVERRIDE'
+  | 'NOT_ALLOWED';
+
+export function resolveMipresManualUnlockEligibility(
+  input: Readonly<{
+    authorizationState: MipresAuthorizationState;
+
+    operationalWindow: MipresOperationalWindow;
+
+    enablementStatus: string;
+
+    tariffMembershipStatus: string;
+
+    coverageType: string | null | undefined;
+
+    directionStatus: string | null | undefined;
+  }>,
+): Readonly<{
+  allowed: boolean;
+
+  mode: MipresManualUnlockMode;
+}> {
+  /*
+   * Habilitación AUTO y bloqueo MIPRES son dimensiones
+   * independientes.
+   *
+   * ENABLED:
+   *   puede desbloquear MIPRES.
+   *
+   * PENDING:
+   *   puede desbloquear MIPRES manualmente.
+   *   La AUTO continúa Pendiente hasta que sus condiciones
+   *   naturales permitan pasar a Habilitada.
+   *
+   * DISABLED:
+   *   no puede desbloquear MIPRES porque existe un bloqueo
+   *   duro de la AUTO.
+   */
+
+  if (input.authorizationState === 'DISABLED') {
+    return {
+      allowed: false,
+      mode: 'NOT_ALLOWED',
+    };
+  }
+
+  if (input.authorizationState === 'ENABLED') {
+    return {
+      allowed: true,
+      mode: 'NATURALLY_ENABLED',
+    };
+  }
+
+  return {
+    allowed: true,
+    mode: 'PENDING_MANUAL_OVERRIDE',
+  };
+}
+
 export function normalizeSourceDate(raw: unknown): string | null {
   if (typeof raw !== 'string') {
     return null;

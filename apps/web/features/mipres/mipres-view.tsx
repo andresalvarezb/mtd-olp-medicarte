@@ -11,11 +11,13 @@ import {
 
 import { useRole } from '@/components/layout/role-context';
 
-import { Card } from '@/components/ui/card';
+import { Card, CardBody } from '@/components/ui/card';
 
 import { FilterActions, FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 import { PageHeader } from '@/components/ui/page-header';
+
+import { TableLoadingRow } from '@/components/ui/loading-state';
 
 import {
   getMipresConcepts,
@@ -108,6 +110,34 @@ function directionClass(value: string): string {
   return styles.gray!;
 }
 
+const AUTHORIZATION_REASON_LABELS: Record<string, string> = {
+  SOURCE_BLOCKED: 'El estado fuente de la AUTO no está habilitado.',
+  TARIFF_NOT_LISTED: 'El producto no cumple la validación del anexo tarifario.',
+  INVALID_QUANTITY: 'La cantidad de la autorización es inválida.',
+  BELOW_MINIMUM_QUANTITY: 'La cantidad está por debajo del mínimo permitido.',
+  OPERATIONAL_WINDOW_BLOCKED: 'Pendiente de habilitación automática.',
+};
+
+function authorizationRestrictionReason(detail: MipresListItem | MipresDetail): string {
+  const naturalReasons = detail.blockedReasons
+    .filter((reason) => reason !== 'PENDING_MANUAL_ENABLEMENT' && reason !== 'MANUALLY_DISABLED')
+    .map((reason) => AUTHORIZATION_REASON_LABELS[reason] ?? reason);
+
+  if (naturalReasons.length > 0) {
+    return naturalReasons.join(' ');
+  }
+
+  if (detail.authorizationState === 'PENDING') {
+    if (detail.coverageType === 'NO_PBS' && detail.directionStatus !== 'CONFIRMED') {
+      return 'La AUTO está pendiente de un direccionamiento MIPRES confirmado.';
+    }
+
+    return 'Pendiente de habilitación automática.';
+  }
+
+  return 'Sin bloqueos de habilitación.';
+}
+
 function Badge({ children, tone }: { children: ReactNode; tone: string }) {
   return <span className={`${styles.badge!} ${tone}`}>{children}</span>;
 }
@@ -122,6 +152,18 @@ function DetailField({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+function authorizationStateReason(state: MipresListItem['authorizationState']): string {
+  if (state === 'ENABLED') {
+    return 'Sin bloqueos de habilitación.';
+  }
+
+  if (state === 'PENDING') {
+    return 'Pendiente de habilitación automática.';
+  }
+
+  return 'La AUTO presenta un bloqueo de habilitación.';
+}
+
 function patientSubtitle(item: MipresListItem | MipresDetail): string {
   return [item.patientName, item.patientDocument].filter(Boolean).join(' · ');
 }
@@ -129,25 +171,25 @@ function patientSubtitle(item: MipresListItem | MipresDetail): string {
 export function MipresView() {
   const { organizationId, hasPermission } = useRole();
 
-  const [search, setSearch] = useState('');
+  const [authorizationSearch, setAuthorizationSearch] = useState('');
 
-  const [appliedSearch, setAppliedSearch] = useState('');
+  const [patientSearch, setPatientSearch] = useState('');
+
+  const [appliedAuthorizationSearch, setAppliedAuthorizationSearch] = useState('');
+
+  const [appliedPatientSearch, setAppliedPatientSearch] = useState('');
 
   const [page, setPage] = useState(1);
 
   const [pageSize, setPageSize] = useState(10);
 
-  const [atStatus, setAtStatus] = useState('');
+  const [authorizationStateFilter, setAuthorizationStateFilter] = useState('');
 
-  const [manualDecision, setManualDecision] = useState('');
+  const [mipresStateFilter, setMipresStateFilter] = useState('');
 
-  const [state, setState] = useState('');
+  const [appliedAuthorizationState, setAppliedAuthorizationState] = useState('');
 
-  const [appliedAtStatus, setAppliedAtStatus] = useState('');
-
-  const [appliedManualDecision, setAppliedManualDecision] = useState('');
-
-  const [appliedState, setAppliedState] = useState('');
+  const [appliedMipresState, setAppliedMipresState] = useState('');
 
   const [items, setItems] = useState<MipresListItem[]>([]);
 
@@ -208,27 +250,30 @@ export function MipresView() {
 
             limit: pageSize,
 
-            ...(appliedSearch
+            ...(appliedAuthorizationSearch
               ? {
-                  search: appliedSearch,
+                  authorization: appliedAuthorizationSearch,
                 }
               : {}),
 
-            ...(appliedAtStatus
+            ...(appliedPatientSearch
               ? {
-                  atStatus: appliedAtStatus,
+                  patient: appliedPatientSearch,
                 }
               : {}),
 
-            ...(appliedManualDecision
+            ...(appliedAuthorizationState
               ? {
-                  manualDecision: appliedManualDecision,
+                  authorizationState: appliedAuthorizationState as
+                    | 'ENABLED'
+                    | 'PENDING'
+                    | 'DISABLED',
                 }
               : {}),
 
-            ...(appliedState
+            ...(appliedMipresState
               ? {
-                  state: appliedState,
+                  mipresState: appliedMipresState as 'LOCKED' | 'UNLOCKED',
                 }
               : {}),
           },
@@ -252,10 +297,10 @@ export function MipresView() {
       organizationId,
       page,
       pageSize,
-      appliedSearch,
-      appliedAtStatus,
-      appliedManualDecision,
-      appliedState,
+      appliedAuthorizationSearch,
+      appliedPatientSearch,
+      appliedAuthorizationState,
+      appliedMipresState,
     ],
   );
 
@@ -377,8 +422,10 @@ export function MipresView() {
       return;
     }
 
-    if (decisionAction === 'ENABLE' && detail.authorizationState !== 'ENABLED') {
-      setActionError('Solo una AUTO Habilitada puede desbloquear MIPRES.');
+    if (decisionAction === 'ENABLE' && detail.authorizationState === 'DISABLED') {
+      setActionError(
+        'Las AUTOs Habilitadas o Pendientes pueden desbloquear MIPRES manualmente. Una AUTO Inhabilitada no puede desbloquearse.',
+      );
 
       return;
     }
@@ -414,10 +461,10 @@ export function MipresView() {
 
       const message =
         decisionAction === 'ENABLE'
-          ? 'MIPRES quedó desbloqueada. La AUTO continúa con las reglas operacionales normales.'
+          ? 'MIPRES quedó Desbloqueada. La Habilitación de la AUTO no fue modificada.'
           : decisionAction === 'DISABLE'
-            ? 'La AUTO quedó bloqueada por MIPRES.'
-            : 'La decisión fue restablecida. La AUTO vuelve a quedar bloqueada hasta una nueva habilitación manual.';
+            ? 'MIPRES quedó Bloqueada. La Habilitación de la AUTO no fue modificada.'
+            : 'MIPRES volvió al estado Bloqueada. La Habilitación de la AUTO no fue modificada.';
 
       setDecisionAction(null);
       setConceptCode('');
@@ -464,22 +511,22 @@ export function MipresView() {
   function applySearch() {
     setPage(1);
 
-    setAppliedSearch(search.trim());
-    setAppliedAtStatus(atStatus);
-    setAppliedManualDecision(manualDecision);
-    setAppliedState(state);
+    setAppliedAuthorizationSearch(authorizationSearch.trim());
+    setAppliedPatientSearch(patientSearch.trim());
+    setAppliedAuthorizationState(authorizationStateFilter);
+    setAppliedMipresState(mipresStateFilter);
   }
 
   function clearSearch() {
-    setSearch('');
-    setAtStatus('');
-    setManualDecision('');
-    setState('');
+    setAuthorizationSearch('');
+    setPatientSearch('');
+    setAuthorizationStateFilter('');
+    setMipresStateFilter('');
 
-    setAppliedSearch('');
-    setAppliedAtStatus('');
-    setAppliedManualDecision('');
-    setAppliedState('');
+    setAppliedAuthorizationSearch('');
+    setAppliedPatientSearch('');
+    setAppliedAuthorizationState('');
+    setAppliedMipresState('');
 
     setPage(1);
   }
@@ -493,226 +540,280 @@ export function MipresView() {
   }
 
   return (
-    <div className={styles.page!}>
+    <>
       <PageHeader
         title="MIPRES"
-        description="AUTOs con número MIPRES. Toda AUTO permanece bloqueada hasta ser habilitada manualmente por MTD."
+        description="AUTOs con número MIPRES. MIPRES inicia Bloqueada y puede desbloquearse manualmente por MTD cuando la AUTO está Habilitada o Pendiente."
       />
 
-      <Card className="operational-list-workspace">
-        <FilterBar>
-          <FilterField label="Buscar">
-            <input
-              id="mipres-search"
-              className="control"
-              value={search}
-              placeholder="AUTO, MIPRES, documento, paciente, producto o direccionamiento"
-              onKeyDown={searchKeyDown}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </FilterField>
+      <Card
+        className={`operational-list-workspace authorization-query-workspace ${styles.mipresQueryWorkspace!}`}
+      >
+        <CardBody>
+          <FilterBar>
+            <FilterField label="Autorización / MIPRES">
+              <input
+                id="mipres-authorization-search"
+                className="control"
+                value={authorizationSearch}
+                placeholder="Número de autorización o MIPRES"
+                onKeyDown={searchKeyDown}
+                onChange={(event) => setAuthorizationSearch(event.target.value)}
+              />
+            </FilterField>
 
-          <FilterField label="AT">
-            <select
-              className="control"
-              value={atStatus}
-              onChange={(event) => setAtStatus(event.target.value)}
+            <FilterField label="Paciente">
+              <input
+                id="mipres-patient-search"
+                className="control"
+                value={patientSearch}
+                placeholder="Nombre o documento"
+                onKeyDown={searchKeyDown}
+                onChange={(event) => setPatientSearch(event.target.value)}
+              />
+            </FilterField>
+
+            <FilterField label="Habilitación">
+              <select
+                className="control"
+                value={authorizationStateFilter}
+                onChange={(event) => setAuthorizationStateFilter(event.target.value)}
+              >
+                <option value="">Todas</option>
+                <option value="ENABLED">Habilitada</option>
+                <option value="PENDING">Pendiente</option>
+                <option value="DISABLED">Inhabilitada</option>
+              </select>
+            </FilterField>
+
+            <FilterField label="MIPRES">
+              <select
+                className="control"
+                value={mipresStateFilter}
+                onChange={(event) => setMipresStateFilter(event.target.value)}
+              >
+                <option value="">Todos</option>
+                <option value="LOCKED">Bloqueada</option>
+                <option value="UNLOCKED">Desbloqueada</option>
+              </select>
+            </FilterField>
+
+            <FilterActions>
+              <button type="button" className="btn primary" onClick={applySearch}>
+                Filtrar
+              </button>
+
+              <button type="button" className="btn" onClick={clearSearch}>
+                Limpiar
+              </button>
+            </FilterActions>
+          </FilterBar>
+
+          {listError ? (
+            <div className={styles.error!} role="alert">
+              {listError}
+            </div>
+          ) : null}
+
+          <div className="table-wrap">
+            <table
+              className="authorization-query-table"
+              style={{
+                width: '100%',
+                minWidth: 0,
+                tableLayout: 'fixed',
+              }}
             >
-              <option value="">Todos</option>
-              <option value="LISTED">Incluida</option>
-              <option value="NOT_LISTED">No incluida</option>
-              <option value="NOT_EVALUATED">No evaluada</option>
-            </select>
-          </FilterField>
-
-          <FilterField label="Decisión MTD">
-            <select
-              className="control"
-              value={manualDecision}
-              onChange={(event) => setManualDecision(event.target.value)}
-            >
-              <option value="">Todas</option>
-              <option value="PENDING_MANUAL_ENABLEMENT">Pendiente</option>
-              <option value="MANUALLY_ENABLED">Desbloqueada</option>
-              <option value="MANUALLY_DISABLED">Bloqueada</option>
-            </select>
-          </FilterField>
-
-          <FilterField label="Estado">
-            <select
-              className="control"
-              value={state}
-              onChange={(event) => setState(event.target.value)}
-            >
-              <option value="">Todos</option>
-              <option value="OPERABLE">Operable</option>
-              <option value="BLOCKED">Bloqueada</option>
-            </select>
-          </FilterField>
-
-          <FilterActions>
-            <button type="button" className="btn" onClick={applySearch}>
-              Filtrar
-            </button>
-
-            <button type="button" className="btn" onClick={clearSearch}>
-              Limpiar
-            </button>
-          </FilterActions>
-        </FilterBar>
-
-        {listError ? (
-          <div className={styles.error!} role="alert">
-            {listError}
-          </div>
-        ) : null}
-
-        <div className="operational-list-table-scope">
-          <div className="operational-list-table-wrap">
-            <table className="data-table">
               <colgroup>
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '19%' }} />
+                <col style={{ width: '25%' }} />
                 <col style={{ width: '20%' }} />
-                <col style={{ width: '22%' }} />
-                <col style={{ width: '30%' }} />
-                <col style={{ width: '14%' }} />
-                <col style={{ width: '14%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '7%' }} />
               </colgroup>
 
               <thead>
                 <tr>
                   <th>AUTO / MIPRES</th>
-                  <th>PACIENTE</th>
-                  <th>PRODUCTO</th>
-                  <th>HABILITACIÓN</th>
+                  <th>Paciente</th>
+                  <th>Producto</th>
+                  <th>Habilitación</th>
                   <th>MIPRES</th>
+
+                  <th
+                    style={{
+                      position: 'sticky',
+                      right: 0,
+                      zIndex: 2,
+                      background: 'inherit',
+                      textAlign: 'center',
+                    }}
+                  >
+                    Acción
+                  </th>
                 </tr>
               </thead>
 
               <tbody>
-                {!loading &&
-                  items.map((item) => (
-                    <tr
-                      key={item.id}
-                      tabIndex={0}
-                      role="button"
-                      onClick={() => {
-                        void openDrawer(item.id);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          void openDrawer(item.id);
-                        }
-                      }}
-                    >
-                      <td>
-                        <div>
-                          <strong>{item.authorizationNumber}</strong>
-                        </div>
-                        <div>MIPRES: {display(item.prescriptionNumber)}</div>
-                      </td>
-
-                      <td>
-                        <div>
-                          <strong>{display(item.patientName)}</strong>
-                        </div>
-                        <div>{display(item.patientDocument)}</div>
-                      </td>
-
-                      <td>
-                        <div>
-                          <strong>{display(item.productDescription)}</strong>
-                        </div>
-                        <div>{display(item.commercialCode)}</div>
-                      </td>
-
-                      <td>
-                        <Badge
-                          tone={
-                            item.authorizationState === 'ENABLED'
-                              ? styles.green!
-                              : item.authorizationState === 'PENDING'
-                                ? styles.yellow!
-                                : styles.red!
-                          }
-                        >
-                          {item.authorizationState === 'ENABLED'
-                            ? 'Habilitada'
-                            : item.authorizationState === 'PENDING'
-                              ? 'Pendiente'
-                              : 'Inhabilitada'}
-                        </Badge>
-                      </td>
-
-                      <td>
-                        <Badge tone={item.mipresState === 'UNLOCKED' ? styles.green! : styles.red!}>
-                          {item.mipresState === 'UNLOCKED' ? 'Desbloqueada' : 'Bloqueada'}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-
                 {loading ? (
-                  <tr>
-                    <td colSpan={5}>Cargando AUTOs MIPRES…</td>
-                  </tr>
-                ) : null}
+                  <TableLoadingRow colSpan={6} label="Cargando AUTOs MIPRES" />
+                ) : (
+                  <>
+                    {items.map((item) => (
+                      <tr key={item.id}>
+                        <td>
+                          <div className="authorization-cell-stack">
+                            <strong>{item.authorizationNumber}</strong>
 
-                {!loading && items.length === 0 ? (
-                  <tr>
-                    <td colSpan={5}>No hay AUTOs con MIPRES que coincidan con los filtros.</td>
-                  </tr>
-                ) : null}
+                            <span>MIPRES: {display(item.prescriptionNumber)}</span>
+                          </div>
+                        </td>
+
+                        <td>
+                          <div className="authorization-cell-stack">
+                            <strong>{display(item.patientName)}</strong>
+
+                            <span>{display(item.patientDocument)}</span>
+                          </div>
+                        </td>
+
+                        <td>
+                          <div className="authorization-cell-stack">
+                            <strong>{display(item.productDescription)}</strong>
+
+                            <span>COD: {display(item.productCode)}</span>
+                          </div>
+                        </td>
+
+                        <td
+                          style={{
+                            verticalAlign: 'middle',
+                          }}
+                        >
+                          <div
+                            className="authorization-cell-stack"
+                            style={{
+                              whiteSpace: 'normal',
+                              lineHeight: 1.25,
+                            }}
+                          >
+                            <strong>
+                              {item.authorizationState === 'ENABLED'
+                                ? 'Habilitada'
+                                : item.authorizationState === 'PENDING'
+                                  ? 'Pendiente'
+                                  : 'Inhabilitada'}
+                            </strong>
+
+                            <span title={authorizationRestrictionReason(item)}>
+                              {authorizationRestrictionReason(item)}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td
+                          style={{
+                            verticalAlign: 'middle',
+                          }}
+                        >
+                          <Badge
+                            tone={item.mipresState === 'UNLOCKED' ? styles.green! : styles.red!}
+                          >
+                            {item.mipresState === 'UNLOCKED' ? 'Desbloqueada' : 'Bloqueada'}
+                          </Badge>
+                        </td>
+
+                        <td
+                          style={{
+                            position: 'sticky',
+                            right: 0,
+                            zIndex: 1,
+                            background: 'white',
+                            textAlign: 'center',
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="button"
+                            onClick={() => {
+                              void openDrawer(item.id);
+                            }}
+                          >
+                            Ver
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {items.length === 0 ? (
+                      <tr>
+                        <td colSpan={6}>
+                          <div className="table-empty-state">
+                            <strong>Sin resultados</strong>
+
+                            <span>No existen AUTOs con MIPRES con los filtros seleccionados.</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </>
+                )}
               </tbody>
             </table>
           </div>
-        </div>
 
-        <div className="authorization-imports-pagination list-pagination">
-          <span>
-            Mostrando {firstVisible}–{lastVisible} de {total}
-          </span>
+          <div className="authorization-query-pagination list-pagination">
+            <div className="authorization-query-pagination-summary">
+              <span>
+                {loading ? 'Mostrando —' : `Mostrando ${firstVisible}–${lastVisible} de ${total}`}
+              </span>
 
-          <label>
-            Filas{' '}
-            <select
-              className="control authorization-imports-page-size"
-              value={pageSize}
-              onChange={(event) => {
-                setPageSize(Number(event.target.value));
-                setPage(1);
-              }}
-            >
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-          </label>
+              <label className="authorization-query-page-size-field">
+                <span>Filas</span>
 
-          <button
-            type="button"
-            className="btn"
-            disabled={page <= 1 || loading}
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
-          >
-            Anterior
-          </button>
+                <select
+                  className="control authorization-query-page-size"
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value));
+                    setPage(1);
+                  }}
+                >
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
-          <strong>
-            Página {page} de {totalPages}
-          </strong>
+            <div className="authorization-query-pagination-controls">
+              <button
+                type="button"
+                className="btn"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((current) => Math.max(current - 1, 1))}
+              >
+                Anterior
+              </button>
 
-          <button
-            type="button"
-            className="btn"
-            disabled={page >= totalPages || loading}
-            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-          >
-            Siguiente
-          </button>
-        </div>
+              <strong>
+                Página {page} de {totalPages}
+              </strong>
+
+              <button
+                type="button"
+                className="btn"
+                disabled={page >= totalPages || loading}
+                onClick={() => setPage((current) => Math.min(current + 1, totalPages))}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        </CardBody>
       </Card>
 
       {selectedId ? (
@@ -732,6 +833,30 @@ export function MipresView() {
                 </h2>
 
                 <p>{detail ? patientSubtitle(detail) : 'Cargando información…'}</p>
+
+                {detail ? (
+                  <div className={styles.drawerBadges!}>
+                    <Badge
+                      tone={
+                        detail.authorizationState === 'ENABLED'
+                          ? styles.green!
+                          : detail.authorizationState === 'PENDING'
+                            ? styles.yellow!
+                            : styles.red!
+                      }
+                    >
+                      {detail.authorizationState === 'ENABLED'
+                        ? 'Habilitada'
+                        : detail.authorizationState === 'PENDING'
+                          ? 'Pendiente'
+                          : 'Inhabilitada'}
+                    </Badge>
+
+                    <Badge tone={mipresStateClass(detail.manualDecision)}>
+                      MIPRES {mipresStateLabel(detail.manualDecision)}
+                    </Badge>
+                  </div>
+                ) : null}
               </div>
 
               <button
@@ -760,43 +885,39 @@ export function MipresView() {
                   </div>
                 ) : null}
 
-                <section className={styles.statusHero!}>
-                  <div className={styles.statusHeroText!}>
-                    <small>Estado MIPRES</small>
-
-                    <strong>{mipresStateLabel(detail.manualDecision)}</strong>
-
-                    <span className={styles.subtle!}>
-                      {mipresState(detail.manualDecision) === 'UNLOCKED'
-                        ? 'El bloqueo MIPRES fue levantado. La AUTO continúa con las reglas operacionales normales.'
-                        : detail.authorizationState === 'ENABLED'
-                          ? 'La AUTO está Habilitada. MIPRES permanece bloqueada hasta que MTD la desbloquee manualmente.'
-                          : 'MIPRES permanece bloqueada porque la AUTO no se encuentra Habilitada.'}
-                    </span>
+                {detail.authorizationState === 'DISABLED' ? (
+                  <div className={styles.warningBox!}>
+                    <strong>No se puede desbloquear MIPRES.</strong>{' '}
+                    {authorizationRestrictionReason(detail)}
                   </div>
-
-                  <Badge tone={mipresStateClass(detail.manualDecision)}>
-                    {mipresStateLabel(detail.manualDecision)}
-                  </Badge>
-                </section>
+                ) : null}
 
                 <section className={styles.section!}>
                   <div className={styles.sectionHeader!}>
-                    <h3>Autorización</h3>
+                    <h3>Resumen de la AUTO</h3>
                   </div>
 
                   <div className={styles.detailGrid!}>
                     <DetailField label="Autorización" value={detail.authorizationNumber} />
 
-                    <DetailField label="Documento" value={display(detail.patientDocument)} />
-
                     <DetailField label="Paciente" value={display(detail.patientName)} />
+
+                    <DetailField label="Documento" value={display(detail.patientDocument)} />
 
                     <DetailField label="Producto" value={display(detail.productDescription)} />
 
-                    <DetailField label="Código comercial" value={display(detail.commercialCode)} />
+                    <DetailField label="Código de producto" value={display(detail.productCode)} />
 
                     <DetailField label="Cantidad" value={display(detail.quantity)} />
+
+                    <DetailField label="Cobertura" value={display(detail.coverageType)} />
+
+                    <DetailField
+                      label="Fecha de asignación"
+                      value={formatDate(detail.assignmentDate)}
+                    />
+
+                    <DetailField label="Vigencia" value={formatDate(detail.validityEndDate)} />
 
                     <DetailField
                       label="Habilitación"
@@ -808,6 +929,13 @@ export function MipresView() {
                             : 'Inhabilitada'
                       }
                     />
+
+                    {detail.authorizationState === 'DISABLED' ? (
+                      <div className={styles.restrictionReason!}>
+                        <strong>No se puede desbloquear MIPRES</strong>
+                        <span>{authorizationRestrictionReason(detail)}</span>
+                      </div>
+                    ) : null}
                   </div>
                 </section>
 
@@ -906,6 +1034,18 @@ export function MipresView() {
                     <DetailField label="Fecha" value={formatDate(detail.manualUpdatedAt)} />
                   </div>
 
+                  {detail.authorizationState === 'PENDING' ? (
+                    <div className={styles.futureWindowNotice!}>
+                      <strong>Desbloqueo manual permitido</strong>
+
+                      <span>
+                        La AUTO está Pendiente, pero MTD puede desbloquear MIPRES manualmente. La
+                        autorización continuará Pendiente hasta que sus condiciones naturales
+                        cambien. Desbloquear MIPRES no modifica su habilitación.
+                      </span>
+                    </div>
+                  ) : null}
+
                   {canManageDecision ? (
                     <div className={styles.actions!}>
                       {detail.manualDecision !== 'MANUALLY_ENABLED' ? (
@@ -913,11 +1053,11 @@ export function MipresView() {
                           type="button"
                           className={`${styles.button!} ${styles.primary!}`}
                           disabled={
-                            submitting || rechecking || detail.authorizationState !== 'ENABLED'
+                            submitting || rechecking || detail.authorizationState === 'DISABLED'
                           }
                           title={
-                            detail.authorizationState !== 'ENABLED'
-                              ? 'Solo una AUTO Habilitada puede desbloquear MIPRES.'
+                            detail.authorizationState === 'DISABLED'
+                              ? 'Las AUTOs Habilitadas o Pendientes pueden desbloquear MIPRES manualmente. Una AUTO Inhabilitada no puede desbloquearse.'
                               : undefined
                           }
                           onClick={() => startDecision('ENABLE')}
@@ -933,18 +1073,9 @@ export function MipresView() {
                           disabled={submitting || rechecking}
                           onClick={() => startDecision('DISABLE')}
                         >
-                          Inhabilitar
-                        </button>
-                      ) : null}
-
-                      {detail.manualDecision !== 'PENDING_MANUAL_ENABLEMENT' ? (
-                        <button
-                          type="button"
-                          className={`${styles.button!} ${styles.secondaryDanger!}`}
-                          disabled={submitting || rechecking}
-                          onClick={() => startDecision('RESET')}
-                        >
-                          Restablecer
+                          {detail.manualDecision === 'MANUALLY_ENABLED'
+                            ? 'Bloquear MIPRES'
+                            : 'Registrar bloqueo MIPRES'}
                         </button>
                       ) : null}
                     </div>
@@ -958,15 +1089,16 @@ export function MipresView() {
                     <div className={styles.formPanel!}>
                       <h4 className={styles.formTitle!}>
                         {decisionAction === 'ENABLE'
-                          ? 'Habilitar AUTO'
+                          ? 'Desbloquear MIPRES'
                           : decisionAction === 'DISABLE'
-                            ? 'Inhabilitar AUTO'
+                            ? 'Bloquear MIPRES'
                             : 'Restablecer bloqueo MIPRES'}
                       </h4>
 
                       {decisionAction === 'RESET' ? (
                         <div className={styles.warningBox!}>
-                          La AUTO volverá a quedar bloqueada hasta una nueva habilitación manual.
+                          MIPRES volverá al estado Bloqueada. La Habilitación de la AUTO no será
+                          modificada.
                         </div>
                       ) : (
                         <>
@@ -1044,9 +1176,9 @@ export function MipresView() {
                           {submitting
                             ? 'Guardando…'
                             : decisionAction === 'ENABLE'
-                              ? 'Confirmar habilitación'
+                              ? 'Confirmar desbloqueo'
                               : decisionAction === 'DISABLE'
-                                ? 'Confirmar inhabilitación'
+                                ? 'Confirmar bloqueo'
                                 : 'Confirmar restablecimiento'}
                         </button>
                       </div>
@@ -1092,6 +1224,6 @@ export function MipresView() {
           </aside>
         </>
       ) : null}
-    </div>
+    </>
   );
 }

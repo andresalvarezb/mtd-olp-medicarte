@@ -1,8 +1,33 @@
+import path from 'node:path';
+
 import type { NextConfig } from 'next';
 
 const config: NextConfig = {
   output: 'standalone',
-  transpilePackages: ['@authorization/contracts', '@authorization/ui'],
+
+  transpilePackages: ['@authorization/ui'],
+
+  webpack(config, { dev }) {
+    if (dev) {
+      /*
+       * En desarrollo evitamos resolver @authorization/contracts
+       * contra dist/index.js (CommonJS).
+       *
+       * Webpack/Fast Refresh debe trabajar contra el source TS.
+       * Producción conserva la resolución normal del workspace.
+       */
+      config.resolve.alias = {
+        ...config.resolve.alias,
+
+        '@authorization/contracts$': path.resolve(
+          process.cwd(),
+          '../../packages/contracts/src/index.ts',
+        ),
+      };
+    }
+
+    return config;
+  },
 };
 
 export default config;

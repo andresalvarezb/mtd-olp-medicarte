@@ -37,13 +37,6 @@ INSERT INTO "mipres_manual_decision_concepts"
   ("code", "name", "action", "requires_note", "sort_order")
 VALUES
   (
-    'MIPRES_SUPPORT_VALIDATED',
-    'Soporte MIPRES validado',
-    'ENABLE',
-    false,
-    10
-  ),
-  (
     'EPS_ADMINISTRATIVE_VALIDATION',
     'Validación administrativa EPS',
     'ENABLE',

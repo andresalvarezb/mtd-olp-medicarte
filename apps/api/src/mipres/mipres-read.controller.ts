@@ -28,6 +28,10 @@ const listSchema = z
   .object({
     search: z.string().trim().max(250).optional(),
 
+    authorization: z.string().trim().max(250).optional(),
+
+    patient: z.string().trim().max(250).optional(),
+
     directionStatus: z.enum(['CONFIRMED', 'PENDING', 'QUERY_ERROR']).optional(),
 
     atStatus: z.enum(['LISTED', 'NOT_LISTED', 'NOT_EVALUATED']).optional(),
@@ -37,6 +41,10 @@ const listSchema = z
       .optional(),
 
     state: z.enum(['OPERABLE', 'BLOCKED']).optional(),
+
+    authorizationState: z.enum(['ENABLED', 'PENDING', 'DISABLED']).optional(),
+
+    mipresState: z.enum(['LOCKED', 'UNLOCKED']).optional(),
 
     page: z.coerce.number().int().min(1).default(1),
 
@@ -106,6 +114,18 @@ export class MipresReadController {
 
         limit: parsed.limit,
 
+        ...(parsed.authorization
+          ? {
+              authorization: parsed.authorization,
+            }
+          : {}),
+
+        ...(parsed.patient
+          ? {
+              patient: parsed.patient,
+            }
+          : {}),
+
         ...(parsed.search
           ? {
               search: parsed.search,
@@ -133,6 +153,18 @@ export class MipresReadController {
         ...(parsed.state
           ? {
               state: parsed.state,
+            }
+          : {}),
+
+        ...(parsed.authorizationState
+          ? {
+              authorizationState: parsed.authorizationState,
+            }
+          : {}),
+
+        ...(parsed.mipresState
+          ? {
+              mipresState: parsed.mipresState,
             }
           : {}),
       },

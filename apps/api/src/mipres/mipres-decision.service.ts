@@ -4,6 +4,7 @@ import {
   normalizeSourceDate,
   parsePositiveInteger,
   resolveMipresReadState,
+  resolveMipresManualUnlockEligibility,
   resolveOperationalWindow,
 } from './mipres-read-model';
 
@@ -441,12 +442,29 @@ export class MipresDecisionService {
       const targetDecision = decisionForAction(input.body.action);
 
       /*
-       * MIPRES solo levanta su propio gate.
-       * No puede convertir una AUTO naturalmente
-       * Pendiente/Inhabilitada en Habilitada.
+       * MIPRES y la habilitación natural de la AUTO son
+       * estados independientes.
+       *
+       * Una AUTO Habilitada o Pendiente puede desbloquear
+       * MIPRES manualmente.
+       *
+       * La decisión MIPRES no modifica authorizationState.
+       * Una AUTO Pendiente continúa Pendiente hasta que sus
+       * condiciones naturales cambien.
+       *
+       * Una AUTO Inhabilitada no puede desbloquear MIPRES.
        */
       if (input.body.action === 'ENABLE') {
         const { today, horizon } = authorizationQueryValidityWindow();
+
+        const operationalWindow = resolveOperationalWindow({
+          assignmentDate: normalizeSourceDate(item.assignment_date),
+
+          validityEndDate: normalizeSourceDate(item.validity_end_date),
+
+          today,
+          horizon,
+        });
 
         const naturalState = resolveMipresReadState({
           enablementStatus: item.enablement_status,
@@ -457,33 +475,41 @@ export class MipresDecisionService {
 
           directionStatus: item.direction_status,
 
-          /*
-           * authorizationState es independiente
-           * de manualDecision desde W6A.
-           */
           manualDecision: item.mipres_manual_decision,
 
           quantity: parsePositiveInteger(item.quantity),
 
           minimumQuantity: Number(item.minimum_quantity),
 
-          operationalWindow: resolveOperationalWindow({
-            assignmentDate: normalizeSourceDate(item.assignment_date),
-
-            validityEndDate: normalizeSourceDate(item.validity_end_date),
-
-            today,
-            horizon,
-          }),
+          operationalWindow,
         });
 
-        if (naturalState.authorizationState !== 'ENABLED') {
+        const unlockEligibility = resolveMipresManualUnlockEligibility({
+          authorizationState: naturalState.authorizationState,
+
+          operationalWindow,
+
+          enablementStatus: item.enablement_status,
+
+          tariffMembershipStatus: item.tariff_membership_status,
+
+          coverageType: item.coverage_type,
+
+          directionStatus: item.direction_status,
+        });
+
+        if (!unlockEligibility.allowed) {
           throw new ConflictException({
             code: 'MIPRES_ENABLE_REQUIRES_ELIGIBLE_AUTHORIZATION',
 
-            message: 'Solo una AUTO Habilitada puede desbloquear MIPRES.',
+            message:
+              'MIPRES puede desbloquearse cuando la AUTO está Habilitada o Pendiente. Una AUTO Inhabilitada no puede desbloquear MIPRES.',
 
             authorizationState: naturalState.authorizationState,
+
+            operationalWindow,
+
+            unlockMode: unlockEligibility.mode,
           });
         }
       }
