@@ -23,6 +23,7 @@ export type MipresListFilters = Readonly<{
   search?: string;
 
   directionStatus?: 'CONFIRMED' | 'PENDING' | 'QUERY_ERROR';
+  atStatus?: 'LISTED' | 'NOT_LISTED' | 'NOT_EVALUATED';
 
   manualDecision?: 'PENDING_MANUAL_ENABLEMENT' | 'MANUALLY_ENABLED' | 'MANUALLY_DISABLED';
 
@@ -917,6 +918,37 @@ export class MipresReadRepository {
                   ${search}
               )
           )
+
+          or
+
+          exists (
+            select
+              1
+            from
+              mipres_directions md_search
+            where
+              md_search.authorization_item_id =
+                i.id
+              and
+              (
+                coalesce(
+                  md_search.direction_id,
+                  ''
+                )
+                  ilike
+                    ${search}
+
+                or
+
+                coalesce(
+                  md_search.raw::text,
+                  ''
+                )
+                  ilike
+                    ${search}
+              )
+          )
+
         )
       `);
     }
@@ -925,6 +957,13 @@ export class MipresReadRepository {
       conditions.push(sql`
         i.direction_status =
           ${filters.directionStatus}
+      `);
+    }
+
+    if (filters.atStatus) {
+      conditions.push(sql`
+        i.tariff_membership_status =
+          ${filters.atStatus}
       `);
     }
 

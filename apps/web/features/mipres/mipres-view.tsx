@@ -13,6 +13,8 @@ import { useRole } from '@/components/layout/role-context';
 
 import { Card } from '@/components/ui/card';
 
+import { FilterActions, FilterBar, FilterField } from '@/components/ui/filter-bar';
+
 import { PageHeader } from '@/components/ui/page-header';
 
 import {
@@ -32,7 +34,7 @@ import {
 
 import styles from './mipres-view.module.css';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 
 function display(value: string | null | undefined): string {
   return value?.trim() ? value : '—';
@@ -133,6 +135,20 @@ export function MipresView() {
 
   const [page, setPage] = useState(1);
 
+  const [pageSize, setPageSize] = useState(10);
+
+  const [atStatus, setAtStatus] = useState('');
+
+  const [manualDecision, setManualDecision] = useState('');
+
+  const [state, setState] = useState('');
+
+  const [appliedAtStatus, setAppliedAtStatus] = useState('');
+
+  const [appliedManualDecision, setAppliedManualDecision] = useState('');
+
+  const [appliedState, setAppliedState] = useState('');
+
   const [items, setItems] = useState<MipresListItem[]>([]);
 
   const [total, setTotal] = useState(0);
@@ -169,7 +185,11 @@ export function MipresView() {
 
   const canRecheck = hasPermission('mipres.recheck');
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const firstVisible = total === 0 ? 0 : (page - 1) * pageSize + 1;
+
+  const lastVisible = Math.min(page * pageSize, total);
 
   const loadList = useCallback(
     async (signal?: AbortSignal) => {
@@ -186,11 +206,29 @@ export function MipresView() {
           {
             page,
 
-            limit: PAGE_SIZE,
+            limit: pageSize,
 
             ...(appliedSearch
               ? {
                   search: appliedSearch,
+                }
+              : {}),
+
+            ...(appliedAtStatus
+              ? {
+                  atStatus: appliedAtStatus,
+                }
+              : {}),
+
+            ...(appliedManualDecision
+              ? {
+                  manualDecision: appliedManualDecision,
+                }
+              : {}),
+
+            ...(appliedState
+              ? {
+                  state: appliedState,
                 }
               : {}),
           },
@@ -210,7 +248,15 @@ export function MipresView() {
         setLoading(false);
       }
     },
-    [organizationId, page, appliedSearch],
+    [
+      organizationId,
+      page,
+      pageSize,
+      appliedSearch,
+      appliedAtStatus,
+      appliedManualDecision,
+      appliedState,
+    ],
   );
 
   useEffect(() => {
@@ -419,11 +465,22 @@ export function MipresView() {
     setPage(1);
 
     setAppliedSearch(search.trim());
+    setAppliedAtStatus(atStatus);
+    setAppliedManualDecision(manualDecision);
+    setAppliedState(state);
   }
 
   function clearSearch() {
     setSearch('');
+    setAtStatus('');
+    setManualDecision('');
+    setState('');
+
     setAppliedSearch('');
+    setAppliedAtStatus('');
+    setAppliedManualDecision('');
+    setAppliedState('');
+
     setPage(1);
   }
 
@@ -442,145 +499,219 @@ export function MipresView() {
         description="AUTOs con número MIPRES. Toda AUTO permanece bloqueada hasta ser habilitada manualmente por MTD."
       />
 
-      <Card>
-        <div className={styles.toolbar!}>
-          <div className={styles.field!}>
-            <label htmlFor="mipres-search">Buscar</label>
-
+      <Card className="operational-list-workspace">
+        <FilterBar>
+          <FilterField label="Buscar">
             <input
               id="mipres-search"
-              className={styles.input!}
+              className="control"
               value={search}
-              placeholder="Autorización, documento o paciente"
+              placeholder="AUTO, MIPRES, documento, paciente, producto o direccionamiento"
               onKeyDown={searchKeyDown}
               onChange={(event) => setSearch(event.target.value)}
             />
-          </div>
+          </FilterField>
 
-          <div className={styles.actions!}>
-            <button
-              type="button"
-              className={`${styles.button!} ${styles.primary!}`}
-              onClick={applySearch}
+          <FilterField label="AT">
+            <select
+              className="control"
+              value={atStatus}
+              onChange={(event) => setAtStatus(event.target.value)}
             >
-              Buscar
+              <option value="">Todos</option>
+              <option value="LISTED">Incluida</option>
+              <option value="NOT_LISTED">No incluida</option>
+              <option value="NOT_EVALUATED">No evaluada</option>
+            </select>
+          </FilterField>
+
+          <FilterField label="Decisión MTD">
+            <select
+              className="control"
+              value={manualDecision}
+              onChange={(event) => setManualDecision(event.target.value)}
+            >
+              <option value="">Todas</option>
+              <option value="PENDING_MANUAL_ENABLEMENT">Pendiente</option>
+              <option value="MANUALLY_ENABLED">Desbloqueada</option>
+              <option value="MANUALLY_DISABLED">Bloqueada</option>
+            </select>
+          </FilterField>
+
+          <FilterField label="Estado">
+            <select
+              className="control"
+              value={state}
+              onChange={(event) => setState(event.target.value)}
+            >
+              <option value="">Todos</option>
+              <option value="OPERABLE">Operable</option>
+              <option value="BLOCKED">Bloqueada</option>
+            </select>
+          </FilterField>
+
+          <FilterActions>
+            <button type="button" className="btn" onClick={applySearch}>
+              Filtrar
             </button>
 
-            <button type="button" className={styles.button!} onClick={clearSearch}>
+            <button type="button" className="btn" onClick={clearSearch}>
               Limpiar
             </button>
+          </FilterActions>
+        </FilterBar>
+
+        {listError ? (
+          <div className={styles.error!} role="alert">
+            {listError}
+          </div>
+        ) : null}
+
+        <div className="operational-list-table-scope">
+          <div className="operational-list-table-wrap">
+            <table className="data-table">
+              <colgroup>
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '30%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '14%' }} />
+              </colgroup>
+
+              <thead>
+                <tr>
+                  <th>AUTO / MIPRES</th>
+                  <th>PACIENTE</th>
+                  <th>PRODUCTO</th>
+                  <th>HABILITACIÓN</th>
+                  <th>MIPRES</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {!loading &&
+                  items.map((item) => (
+                    <tr
+                      key={item.id}
+                      tabIndex={0}
+                      role="button"
+                      onClick={() => {
+                        void openDrawer(item.id);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          void openDrawer(item.id);
+                        }
+                      }}
+                    >
+                      <td>
+                        <div>
+                          <strong>{item.authorizationNumber}</strong>
+                        </div>
+                        <div>MIPRES: {display(item.prescriptionNumber)}</div>
+                      </td>
+
+                      <td>
+                        <div>
+                          <strong>{display(item.patientName)}</strong>
+                        </div>
+                        <div>{display(item.patientDocument)}</div>
+                      </td>
+
+                      <td>
+                        <div>
+                          <strong>{display(item.productDescription)}</strong>
+                        </div>
+                        <div>{display(item.commercialCode)}</div>
+                      </td>
+
+                      <td>
+                        <Badge
+                          tone={
+                            item.authorizationState === 'ENABLED'
+                              ? styles.green!
+                              : item.authorizationState === 'PENDING'
+                                ? styles.yellow!
+                                : styles.red!
+                          }
+                        >
+                          {item.authorizationState === 'ENABLED'
+                            ? 'Habilitada'
+                            : item.authorizationState === 'PENDING'
+                              ? 'Pendiente'
+                              : 'Inhabilitada'}
+                        </Badge>
+                      </td>
+
+                      <td>
+                        <Badge tone={item.mipresState === 'UNLOCKED' ? styles.green! : styles.red!}>
+                          {item.mipresState === 'UNLOCKED' ? 'Desbloqueada' : 'Bloqueada'}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+
+                {loading ? (
+                  <tr>
+                    <td colSpan={5}>Cargando AUTOs MIPRES…</td>
+                  </tr>
+                ) : null}
+
+                {!loading && items.length === 0 ? (
+                  <tr>
+                    <td colSpan={5}>No hay AUTOs con MIPRES que coincidan con los filtros.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
         </div>
-      </Card>
 
-      {listError ? (
-        <div className={styles.error!} role="alert">
-          {listError}
-        </div>
-      ) : null}
-
-      <Card className={styles.tableCard!}>
-        <div className={styles.tableScroller!}>
-          <table className={styles.table!}>
-            <thead>
-              <tr>
-                <th>AUTO / MIPRES</th>
-                <th>Paciente / Producto</th>
-                <th>Habilitación</th>
-                <th>MIPRES</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {!loading &&
-                items.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <div>
-                        <strong>{item.authorizationNumber}</strong>
-                      </div>
-                      <div>{item.prescriptionNumber}</div>
-                      <div>
-                        <button
-                          type="button"
-                          className={styles.button!}
-                          onClick={() => {
-                            void openDrawer(item.id);
-                          }}
-                        >
-                          Ver autorización
-                        </button>
-                      </div>
-                    </td>
-
-                    <td>
-                      <div>{item.patientName ?? '—'}</div>
-                      <div>{item.productDescription ?? '—'}</div>
-                    </td>
-
-                    <td>
-                      <strong>
-                        {item.authorizationState === 'ENABLED'
-                          ? 'Habilitada'
-                          : item.authorizationState === 'PENDING'
-                            ? 'Pendiente'
-                            : 'Inhabilitada'}
-                      </strong>
-                    </td>
-
-                    <td>
-                      <strong>
-                        {item.mipresState === 'UNLOCKED' ? 'Desbloqueada' : 'Bloqueada'}
-                      </strong>
-                    </td>
-                  </tr>
-                ))}
-
-              {loading ? (
-                <tr>
-                  <td colSpan={8} className={styles.empty!}>
-                    Cargando AUTOs MIPRES…
-                  </td>
-                </tr>
-              ) : null}
-
-              {!loading && items.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className={styles.empty!}>
-                    No hay AUTOs con MIPRES que coincidan con la búsqueda.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-
-        <div className={styles.pagination!}>
-          <span className={styles.subtle!}>
-            {total === 0
-              ? '0 registros'
-              : `${total} AUTOs MIPRES · Página ${page} de ${totalPages}`}
+        <div className="authorization-imports-pagination list-pagination">
+          <span>
+            Mostrando {firstVisible}–{lastVisible} de {total}
           </span>
 
-          <div className={styles.paginationControls!}>
-            <button
-              type="button"
-              className={styles.button!}
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
+          <label>
+            Filas{' '}
+            <select
+              className="control authorization-imports-page-size"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
             >
-              Anterior
-            </button>
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
 
-            <button
-              type="button"
-              className={styles.button!}
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-            >
-              Siguiente
-            </button>
-          </div>
+          <button
+            type="button"
+            className="btn"
+            disabled={page <= 1 || loading}
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+          >
+            Anterior
+          </button>
+
+          <strong>
+            Página {page} de {totalPages}
+          </strong>
+
+          <button
+            type="button"
+            className="btn"
+            disabled={page >= totalPages || loading}
+            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+          >
+            Siguiente
+          </button>
         </div>
       </Card>
 

@@ -67,7 +67,8 @@ export type NavIcon =
   | 'upload'
   | 'search'
   | 'purchaseOrder'
-  | 'tariff';
+  | 'tariff'
+  | 'mipres';
 
 export type ViewId =
   | 'operationalIndicators'
@@ -223,7 +224,7 @@ export const NAV_SECTIONS: NavSection[] = [
 
             title: 'MIPRES',
 
-            icon: 'inventory',
+            icon: 'mipres',
 
             permission: 'view.mipres',
 

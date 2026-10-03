@@ -30,6 +30,8 @@ const listSchema = z
 
     directionStatus: z.enum(['CONFIRMED', 'PENDING', 'QUERY_ERROR']).optional(),
 
+    atStatus: z.enum(['LISTED', 'NOT_LISTED', 'NOT_EVALUATED']).optional(),
+
     manualDecision: z
       .enum(['PENDING_MANUAL_ENABLEMENT', 'MANUALLY_ENABLED', 'MANUALLY_DISABLED'])
       .optional(),
@@ -113,6 +115,12 @@ export class MipresReadController {
         ...(parsed.directionStatus
           ? {
               directionStatus: parsed.directionStatus,
+            }
+          : {}),
+
+        ...(parsed.atStatus
+          ? {
+              atStatus: parsed.atStatus,
             }
           : {}),
 

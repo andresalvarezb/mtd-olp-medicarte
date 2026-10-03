@@ -63,6 +63,7 @@ const ICONS: Record<
   search: MagnifyingGlassIcon,
   purchaseOrder: FileTextIcon,
   tariff: GearIcon,
+  mipres: ReaderIcon,
 };
 
 function NavigationIcon({
