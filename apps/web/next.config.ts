@@ -5,6 +5,13 @@ import type { NextConfig } from 'next';
 const config: NextConfig = {
   output: 'standalone',
 
+  /*
+   * Next 16 usa Turbopack por defecto en producción.
+   * El bloque webpack de este archivo se conserva exclusivamente
+   * para el flujo local `next dev --webpack`.
+   */
+  turbopack: {},
+
   transpilePackages: ['@authorization/ui'],
 
   webpack(config, { dev }) {
