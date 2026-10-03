@@ -1,7 +1,13 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals"],
+    "baseUrl": "..",
+    "paths": {
+      "@authorization/contracts": ["packages/contracts/src/index.ts"],
+      "@authorization/database": ["packages/database/src/index.ts"],
+      "@authorization/domain": ["packages/domain/src/index.ts"]
+    }
   },
   "include": ["**/*.ts"]
 }

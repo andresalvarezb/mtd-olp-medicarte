@@ -74,8 +74,8 @@ function mipresStateLabel(decision: string): string {
   return mipresState(decision) === 'UNLOCKED' ? 'Desbloqueada' : 'Bloqueada';
 }
 
-function mipresStateClass(decision: string): string {
-  return mipresState(decision) === 'UNLOCKED' ? styles.green! : styles.red!;
+function mipresStateClass(decision: string): string | undefined {
+  return mipresState(decision) === 'UNLOCKED' ? styles.green : styles.red;
 }
 
 function directionLabel(value: string): string {
@@ -94,20 +94,20 @@ function directionLabel(value: string): string {
   return 'Pendiente';
 }
 
-function directionClass(value: string): string {
+function directionClass(value: string): string | undefined {
   if (value === 'CONFIRMED') {
-    return styles.green!;
+    return styles.green;
   }
 
   if (value === 'QUERY_ERROR') {
-    return styles.red!;
+    return styles.red;
   }
 
   if (value === 'PENDING') {
-    return styles.yellow!;
+    return styles.yellow;
   }
 
-  return styles.gray!;
+  return styles.gray;
 }
 
 const AUTHORIZATION_REASON_LABELS: Record<string, string> = {
@@ -138,30 +138,18 @@ function authorizationRestrictionReason(detail: MipresListItem | MipresDetail): 
   return 'Sin bloqueos de habilitación.';
 }
 
-function Badge({ children, tone }: { children: ReactNode; tone: string }) {
-  return <span className={`${styles.badge!} ${tone}`}>{children}</span>;
+function Badge({ children, tone }: { children: ReactNode; tone: string | undefined }) {
+  return <span className={[styles.badge, tone].filter(Boolean).join(' ')}>{children}</span>;
 }
 
 function DetailField({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className={styles.detail!}>
+    <div className={styles.detail}>
       <span>{label}</span>
 
       <strong>{value}</strong>
     </div>
   );
-}
-
-function authorizationStateReason(state: MipresListItem['authorizationState']): string {
-  if (state === 'ENABLED') {
-    return 'Sin bloqueos de habilitación.';
-  }
-
-  if (state === 'PENDING') {
-    return 'Pendiente de habilitación automática.';
-  }
-
-  return 'La AUTO presenta un bloqueo de habilitación.';
 }
 
 function patientSubtitle(item: MipresListItem | MipresDetail): string {
@@ -547,7 +535,7 @@ export function MipresView() {
       />
 
       <Card
-        className={`operational-list-workspace authorization-query-workspace ${styles.mipresQueryWorkspace!}`}
+        className={`operational-list-workspace authorization-query-workspace ${styles.mipresQueryWorkspace}`}
       >
         <CardBody>
           <FilterBar>
@@ -610,7 +598,7 @@ export function MipresView() {
           </FilterBar>
 
           {listError ? (
-            <div className={styles.error!} role="alert">
+            <div className={styles.error} role="alert">
               {listError}
             </div>
           ) : null}
@@ -717,9 +705,7 @@ export function MipresView() {
                             verticalAlign: 'middle',
                           }}
                         >
-                          <Badge
-                            tone={item.mipresState === 'UNLOCKED' ? styles.green! : styles.red!}
-                          >
+                          <Badge tone={item.mipresState === 'UNLOCKED' ? styles.green : styles.red}>
                             {item.mipresState === 'UNLOCKED' ? 'Desbloqueada' : 'Bloqueada'}
                           </Badge>
                         </td>
@@ -818,16 +804,16 @@ export function MipresView() {
 
       {selectedId ? (
         <>
-          <div className={styles.overlay!} aria-hidden="true" onClick={closeDrawer} />
+          <div className={styles.overlay} aria-hidden="true" onClick={closeDrawer} />
 
           <aside
-            className={styles.drawer!}
+            className={styles.drawer}
             role="dialog"
             aria-modal="true"
             aria-label="Detalle de autorización MIPRES"
           >
-            <div className={styles.drawerHeader!}>
-              <div className={styles.drawerTitle!}>
+            <div className={styles.drawerHeader}>
+              <div className={styles.drawerTitle}>
                 <h2>
                   {detail ? `Autorización ${detail.authorizationNumber}` : 'Autorización MIPRES'}
                 </h2>
@@ -835,14 +821,14 @@ export function MipresView() {
                 <p>{detail ? patientSubtitle(detail) : 'Cargando información…'}</p>
 
                 {detail ? (
-                  <div className={styles.drawerBadges!}>
+                  <div className={styles.drawerBadges}>
                     <Badge
                       tone={
                         detail.authorizationState === 'ENABLED'
-                          ? styles.green!
+                          ? styles.green
                           : detail.authorizationState === 'PENDING'
-                            ? styles.yellow!
-                            : styles.red!
+                            ? styles.yellow
+                            : styles.red
                       }
                     >
                       {detail.authorizationState === 'ENABLED'
@@ -861,7 +847,7 @@ export function MipresView() {
 
               <button
                 type="button"
-                className={styles.closeButton!}
+                className={styles.closeButton}
                 aria-label="Cerrar"
                 onClick={closeDrawer}
               >
@@ -870,34 +856,34 @@ export function MipresView() {
             </div>
 
             {drawerLoading && !detail ? (
-              <div className={styles.drawerLoading!}>Cargando autorización…</div>
+              <div className={styles.drawerLoading}>Cargando autorización…</div>
             ) : detail ? (
-              <div className={styles.drawerBody!}>
+              <div className={styles.drawerBody}>
                 {actionError ? (
-                  <div className={styles.error!} role="alert">
+                  <div className={styles.error} role="alert">
                     {actionError}
                   </div>
                 ) : null}
 
                 {actionMessage ? (
-                  <div className={styles.success!} role="status">
+                  <div className={styles.success} role="status">
                     {actionMessage}
                   </div>
                 ) : null}
 
                 {detail.authorizationState === 'DISABLED' ? (
-                  <div className={styles.warningBox!}>
+                  <div className={styles.warningBox}>
                     <strong>No se puede desbloquear MIPRES.</strong>{' '}
                     {authorizationRestrictionReason(detail)}
                   </div>
                 ) : null}
 
-                <section className={styles.section!}>
-                  <div className={styles.sectionHeader!}>
+                <section className={styles.section}>
+                  <div className={styles.sectionHeader}>
                     <h3>Resumen de la AUTO</h3>
                   </div>
 
-                  <div className={styles.detailGrid!}>
+                  <div className={styles.detailGrid}>
                     <DetailField label="Autorización" value={detail.authorizationNumber} />
 
                     <DetailField label="Paciente" value={display(detail.patientName)} />
@@ -931,7 +917,7 @@ export function MipresView() {
                     />
 
                     {detail.authorizationState === 'DISABLED' ? (
-                      <div className={styles.restrictionReason!}>
+                      <div className={styles.restrictionReason}>
                         <strong>No se puede desbloquear MIPRES</strong>
                         <span>{authorizationRestrictionReason(detail)}</span>
                       </div>
@@ -939,14 +925,14 @@ export function MipresView() {
                   </div>
                 </section>
 
-                <section className={`${styles.section!} ${styles.mipresSection!}`}>
-                  <div className={styles.sectionHeader!}>
+                <section className={`${styles.section} ${styles.mipresSection}`}>
+                  <div className={styles.sectionHeader}>
                     <h3>Información MIPRES</h3>
 
                     {canRecheck ? (
                       <button
                         type="button"
-                        className={styles.button!}
+                        className={styles.button}
                         disabled={rechecking || submitting}
                         onClick={() => {
                           void executeRecheck();
@@ -957,7 +943,7 @@ export function MipresView() {
                     ) : null}
                   </div>
 
-                  <div className={styles.detailGrid!}>
+                  <div className={styles.detailGrid}>
                     <DetailField label="No. MIPRES" value={display(detail.prescriptionNumber)} />
 
                     <DetailField
@@ -1007,8 +993,8 @@ export function MipresView() {
                   </div>
                 </section>
 
-                <section className={`${styles.section!} ${styles.decisionSection!}`}>
-                  <div className={styles.sectionHeader!}>
+                <section className={`${styles.section} ${styles.decisionSection}`}>
+                  <div className={styles.sectionHeader}>
                     <h3>Control manual MTD</h3>
 
                     <Badge tone={mipresStateClass(detail.manualDecision)}>
@@ -1016,7 +1002,7 @@ export function MipresView() {
                     </Badge>
                   </div>
 
-                  <div className={styles.detailGrid!}>
+                  <div className={styles.detailGrid}>
                     <DetailField
                       label="Estado MIPRES"
                       value={mipresStateLabel(detail.manualDecision)}
@@ -1035,7 +1021,7 @@ export function MipresView() {
                   </div>
 
                   {detail.authorizationState === 'PENDING' ? (
-                    <div className={styles.futureWindowNotice!}>
+                    <div className={styles.futureWindowNotice}>
                       <strong>Desbloqueo manual permitido</strong>
 
                       <span>
@@ -1047,11 +1033,11 @@ export function MipresView() {
                   ) : null}
 
                   {canManageDecision ? (
-                    <div className={styles.actions!}>
+                    <div className={styles.actions}>
                       {detail.manualDecision !== 'MANUALLY_ENABLED' ? (
                         <button
                           type="button"
-                          className={`${styles.button!} ${styles.primary!}`}
+                          className={`${styles.button} ${styles.primary}`}
                           disabled={
                             submitting || rechecking || detail.authorizationState === 'DISABLED'
                           }
@@ -1069,7 +1055,7 @@ export function MipresView() {
                       {detail.manualDecision !== 'MANUALLY_DISABLED' ? (
                         <button
                           type="button"
-                          className={`${styles.button!} ${styles.danger!}`}
+                          className={`${styles.button} ${styles.danger}`}
                           disabled={submitting || rechecking}
                           onClick={() => startDecision('DISABLE')}
                         >
@@ -1080,14 +1066,14 @@ export function MipresView() {
                       ) : null}
                     </div>
                   ) : (
-                    <div className={styles.warningBox!}>
+                    <div className={styles.warningBox}>
                       Tu perfil puede consultar MIPRES, pero no cambiar el estado manual.
                     </div>
                   )}
 
                   {decisionAction ? (
-                    <div className={styles.formPanel!}>
-                      <h4 className={styles.formTitle!}>
+                    <div className={styles.formPanel}>
+                      <h4 className={styles.formTitle}>
                         {decisionAction === 'ENABLE'
                           ? 'Desbloquear MIPRES'
                           : decisionAction === 'DISABLE'
@@ -1096,18 +1082,18 @@ export function MipresView() {
                       </h4>
 
                       {decisionAction === 'RESET' ? (
-                        <div className={styles.warningBox!}>
+                        <div className={styles.warningBox}>
                           MIPRES volverá al estado Bloqueada. La Habilitación de la AUTO no será
                           modificada.
                         </div>
                       ) : (
                         <>
-                          <div className={styles.field!}>
+                          <div className={styles.field}>
                             <label htmlFor="mipres-concept">Concepto *</label>
 
                             <select
                               id="mipres-concept"
-                              className={styles.select!}
+                              className={styles.select}
                               value={conceptCode}
                               onChange={(event) => setConceptCode(event.target.value)}
                             >
@@ -1121,7 +1107,7 @@ export function MipresView() {
                             </select>
                           </div>
 
-                          <div className={styles.field!}>
+                          <div className={styles.field}>
                             <label htmlFor="mipres-observation">
                               Observación
                               {observationRequired ? ' *' : ''}
@@ -1129,7 +1115,7 @@ export function MipresView() {
 
                             <textarea
                               id="mipres-observation"
-                              className={styles.textarea!}
+                              className={styles.textarea}
                               value={observation}
                               placeholder={
                                 observationRequired
@@ -1142,10 +1128,10 @@ export function MipresView() {
                         </>
                       )}
 
-                      <div className={styles.actions!}>
+                      <div className={styles.actions}>
                         <button
                           type="button"
-                          className={styles.button!}
+                          className={styles.button}
                           disabled={submitting}
                           onClick={() => {
                             setDecisionAction(null);
@@ -1161,8 +1147,8 @@ export function MipresView() {
                           type="button"
                           className={
                             decisionAction === 'DISABLE'
-                              ? `${styles.button!} ${styles.danger!}`
-                              : `${styles.button!} ${styles.primary!}`
+                              ? `${styles.button} ${styles.danger}`
+                              : `${styles.button} ${styles.primary}`
                           }
                           disabled={
                             submitting ||
@@ -1186,21 +1172,21 @@ export function MipresView() {
                   ) : null}
                 </section>
 
-                <section className={styles.section!}>
-                  <div className={styles.sectionHeader!}>
+                <section className={styles.section}>
+                  <div className={styles.sectionHeader}>
                     <h3>Historial</h3>
                   </div>
 
                   {history.length === 0 ? (
-                    <div className={styles.subtle!}>No hay eventos registrados.</div>
+                    <div className={styles.subtle}>No hay eventos registrados.</div>
                   ) : (
-                    <div className={styles.timeline!}>
+                    <div className={styles.timeline}>
                       {history.map((event) => (
-                        <div key={event.id} className={styles.timelineItem!}>
-                          <div className={styles.timelineRail!} />
+                        <div key={event.id} className={styles.timelineItem}>
+                          <div className={styles.timelineRail} />
 
-                          <div className={styles.timelineContent!}>
-                            <Badge tone={event.kind === 'MTD' ? styles.blue! : styles.gray!}>
+                          <div className={styles.timelineContent}>
+                            <Badge tone={event.kind === 'MTD' ? styles.blue : styles.gray}>
                               {event.kind}
                             </Badge>
 
@@ -1219,7 +1205,7 @@ export function MipresView() {
                 </section>
               </div>
             ) : (
-              <div className={styles.drawerLoading!}>No fue posible cargar la autorización.</div>
+              <div className={styles.drawerLoading}>No fue posible cargar la autorización.</div>
             )}
           </aside>
         </>

@@ -27,6 +27,7 @@ describe('operational navigation', () => {
 
     expect(group && isNavGroup(group) ? group.children.map((child) => child.title) : []).toEqual([
       'Disponibilidad',
+      'MIPRES',
       'Orden de compra',
       'Anexo Tarifario',
     ]);

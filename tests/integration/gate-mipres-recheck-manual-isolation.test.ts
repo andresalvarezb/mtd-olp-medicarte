@@ -284,7 +284,7 @@ async function rawRecheck(itemId: string, idempotencyKey = randomUUID()) {
     },
   });
 
-  const body = await response.json();
+  const body: unknown = await response.json();
 
   return {
     response,

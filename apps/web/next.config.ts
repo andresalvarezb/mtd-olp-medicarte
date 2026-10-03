@@ -23,7 +23,10 @@ const config: NextConfig = {
        * Webpack/Fast Refresh debe trabajar contra el source TS.
        * Producción conserva la resolución normal del workspace.
        */
+      // Next.js expone este objeto de configuración Webpack como `any`.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
       config.resolve.alias = {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         ...config.resolve.alias,
 
         '@authorization/contracts$': path.resolve(
@@ -33,6 +36,8 @@ const config: NextConfig = {
       };
     }
 
+    // Next.js tipa el objeto de configuración Webpack como `any`.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return config;
   },
 };

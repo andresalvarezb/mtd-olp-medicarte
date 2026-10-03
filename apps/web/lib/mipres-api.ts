@@ -143,6 +143,10 @@ function isObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
 function objectValue(value: unknown): JsonObject {
   return isObject(value) ? value : {};
 }
@@ -516,9 +520,9 @@ function findCurrentDirection(source: JsonObject): MipresDirection | null {
     return normalized;
   }
 
-  const directions = Array.isArray(source.directions)
+  const directions = isUnknownArray(source.directions)
     ? source.directions
-    : Array.isArray(source.mipresDirections)
+    : isUnknownArray(source.mipresDirections)
       ? source.mipresDirections
       : [];
 
