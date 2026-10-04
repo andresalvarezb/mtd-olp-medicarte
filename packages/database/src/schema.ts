@@ -190,6 +190,34 @@ export const importBatches = pgTable(
   ],
 );
 
+export const mipresManualDecisionConcepts = pgTable(
+  'mipres_manual_decision_concepts',
+  {
+    code: varchar('code', { length: 80 }).primaryKey(),
+    name: varchar('name', { length: 180 }).notNull(),
+    action: varchar('action', { length: 20 }).notNull(),
+    requiresNote: boolean('requires_note').notNull().default(false),
+    active: boolean('active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'mipres_manual_decision_concepts_action_check',
+      sql`${table.action} IN ('ENABLE', 'DISABLE')`,
+    ),
+    check(
+      'mipres_manual_decision_concepts_code_not_blank_check',
+      sql`length(btrim(${table.code})) > 0`,
+    ),
+    check(
+      'mipres_manual_decision_concepts_name_not_blank_check',
+      sql`length(btrim(${table.name})) > 0`,
+    ),
+  ],
+);
+
 export const authorizationItems = pgTable(
   'authorization_items',
   {
@@ -209,6 +237,28 @@ export const authorizationItems = pgTable(
     enablementStatus: varchar('enablement_status', { length: 40 }).notNull(),
     coverageType: varchar('coverage_type', { length: 30 }).notNull(),
     directionStatus: varchar('direction_status', { length: 30 }).notNull(),
+
+    mipresManualDecision: varchar('mipres_manual_decision', {
+      length: 30,
+    })
+      .notNull()
+      .default('PENDING_MANUAL_ENABLEMENT'),
+
+    mipresManualVersion: integer('mipres_manual_version').notNull().default(0),
+    mipresManualConceptCode: varchar('mipres_manual_concept_code', {
+      length: 80,
+    }).references(() => mipresManualDecisionConcepts.code, { onDelete: 'restrict' }),
+
+    mipresManualNote: text('mipres_manual_note'),
+
+    mipresManualUpdatedAt: timestamp('mipres_manual_updated_at', {
+      withTimezone: true,
+    }),
+
+    mipresManualUpdatedBy: uuid('mipres_manual_updated_by').references(() => users.id, {
+      onDelete: 'restrict',
+    }),
+
     operationStatus: varchar('operation_status', { length: 40 }), // HISTORICAL_ONLY — ESP-016
     coverageRuleVersion: varchar('coverage_rule_version', { length: 40 }).notNull(),
     lugarDispensacion: text('lugar_dispensacion'), // HISTORICAL_ONLY — ESP-016
@@ -246,6 +296,12 @@ export const authorizationItems = pgTable(
     unique('authorization_items_id_code_unique').on(table.id, table.codigoMedicamento),
     uniqueIndex('authorization_items_authorization_key_idx').on(table.authorizationKey),
     index('authorization_items_coverage_idx').on(table.coverageType, table.enablementStatus),
+
+    index('authorization_items_mipres_manual_decision_idx').on(
+      table.mipresManualDecision,
+      table.noPrescripcion,
+    ),
+
     index('authorization_items_audit_status_idx').on(table.auditStatus, table.createdAt, table.id),
     index('authorization_items_created_idx').on(table.createdAt, table.id),
     index('authorization_items_tariff_membership_idx').on(
@@ -268,6 +324,33 @@ export const authorizationItems = pgTable(
       'authorization_items_direction_status_check',
       sql`${table.directionStatus} IN ('NOT_APPLICABLE', 'PENDING', 'CONFIRMED', 'QUERY_ERROR')`,
     ),
+    check(
+      'authorization_items_mipres_manual_version_check',
+      sql`${table.mipresManualVersion} >= 0`,
+    ),
+    check(
+      'authorization_items_mipres_manual_decision_check',
+      sql`${table.mipresManualDecision} IN ('PENDING_MANUAL_ENABLEMENT', 'MANUALLY_ENABLED', 'MANUALLY_DISABLED')`,
+    ),
+
+    check(
+      'authorization_items_mipres_manual_decision_concept_check',
+      sql`
+        (
+          ${table.mipresManualDecision} = 'PENDING_MANUAL_ENABLEMENT'
+          AND ${table.mipresManualConceptCode} IS NULL
+        )
+        OR
+        (
+          ${table.mipresManualDecision} IN (
+            'MANUALLY_ENABLED',
+            'MANUALLY_DISABLED'
+          )
+          AND ${table.mipresManualConceptCode} IS NOT NULL
+        )
+      `,
+    ),
+
     check(
       'authorization_items_operation_status_check',
       sql`${table.operationStatus} IS NULL OR ${table.operationStatus} IN ('BLOCKED', 'READY_TO_DISPENSE', 'DISPENSATION_REPORTED', 'DISPENSED', 'EXPIRED')`,
@@ -293,6 +376,83 @@ export const authorizationItems = pgTable(
       sql`${table.operationStatus} <> 'DISPENSED' OR ${table.auditStatus} = 'APPROVED'`,
     ),
     check('authorization_items_version_check', sql`${table.version} > 0`),
+  ],
+);
+
+export const authorizationMipresDecisionHistory = pgTable(
+  'authorization_mipres_decision_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, { onDelete: 'restrict' }),
+
+    previousDecision: varchar('previous_decision', {
+      length: 30,
+    }).notNull(),
+
+    decision: varchar('decision', {
+      length: 30,
+    }).notNull(),
+
+    decisionVersion: integer('decision_version').notNull(),
+    conceptCode: varchar('concept_code', {
+      length: 80,
+    }).references(() => mipresManualDecisionConcepts.code, { onDelete: 'restrict' }),
+
+    note: text('note'),
+
+    actorId: uuid('actor_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+
+    correlationId: uuid('correlation_id').notNull(),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('authorization_mipres_decision_history_item_idx').on(
+      table.authorizationItemId,
+      table.createdAt,
+      table.id,
+    ),
+
+    check(
+      'authorization_mipres_decision_history_previous_check',
+      sql`${table.previousDecision} IN ('PENDING_MANUAL_ENABLEMENT', 'MANUALLY_ENABLED', 'MANUALLY_DISABLED')`,
+    ),
+
+    check(
+      'authorization_mipres_decision_history_decision_check',
+      sql`${table.decision} IN ('PENDING_MANUAL_ENABLEMENT', 'MANUALLY_ENABLED', 'MANUALLY_DISABLED')`,
+    ),
+
+    check(
+      'authorization_mipres_decision_history_concept_check',
+      sql`
+        (
+          ${table.decision} = 'PENDING_MANUAL_ENABLEMENT'
+          AND ${table.conceptCode} IS NULL
+        )
+        OR
+        (
+          ${table.decision} IN (
+            'MANUALLY_ENABLED',
+            'MANUALLY_DISABLED'
+          )
+          AND ${table.conceptCode} IS NOT NULL
+        )
+      `,
+    ),
   ],
 );
 
@@ -1039,8 +1199,7 @@ export const deliveries = pgTable(
     supplierReference: varchar('supplier_reference', { length: 255 }),
     status: varchar('status', { length: 20 }).notNull().default('DRAFT'),
     dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
-    dispatchedBy: uuid('dispatched_by')
-      .references(() => users.id, { onDelete: 'restrict' }),
+    dispatchedBy: uuid('dispatched_by').references(() => users.id, { onDelete: 'restrict' }),
     declaredDispatchDate: date('declared_dispatch_date'),
     version: integer('version').notNull().default(1),
     createdBy: uuid('created_by')
@@ -1133,9 +1292,7 @@ export const receiptLines = pgTable(
 export const purchaseOrderReceipts = pgTable(
   'purchase_order_receipts',
   {
-    id: uuid('id')
-      .primaryKey()
-      .defaultRandom(),
+    id: uuid('id').primaryKey().defaultRandom(),
 
     purchaseOrderId: uuid('purchase_order_id')
       .notNull()
@@ -1170,20 +1327,14 @@ export const purchaseOrderReceipts = pgTable(
       .defaultNow(),
   },
   (table) => [
-    index('purchase_order_receipts_order_idx').on(
-      table.purchaseOrderId,
-      table.confirmedAt,
-    ),
+    index('purchase_order_receipts_order_idx').on(table.purchaseOrderId, table.confirmedAt),
   ],
 );
-
 
 export const purchaseOrderReceiptLines = pgTable(
   'purchase_order_receipt_lines',
   {
-    id: uuid('id')
-      .primaryKey()
-      .defaultRandom(),
+    id: uuid('id').primaryKey().defaultRandom(),
 
     receiptId: uuid('receipt_id')
       .notNull()
@@ -1201,17 +1352,13 @@ export const purchaseOrderReceiptLines = pgTable(
       length: 30,
     }).notNull(),
 
-    receivedQuantity: integer(
-      'received_quantity',
-    ).notNull(),
+    receivedQuantity: integer('received_quantity').notNull(),
 
     lotNumber: varchar('lot_number', {
       length: 255,
     }),
 
-    expirationDate: date(
-      'expiration_date',
-    ),
+    expirationDate: date('expiration_date'),
 
     observation: text('observation'),
 
@@ -1222,18 +1369,12 @@ export const purchaseOrderReceiptLines = pgTable(
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex(
-      'purchase_order_receipt_lines_receipt_line_unique',
-    ).on(
+    uniqueIndex('purchase_order_receipt_lines_receipt_line_unique').on(
       table.receiptId,
       table.purchaseOrderLineId,
     ),
 
-    index(
-      'purchase_order_receipt_lines_po_line_idx',
-    ).on(
-      table.purchaseOrderLineId,
-    ),
+    index('purchase_order_receipt_lines_po_line_idx').on(table.purchaseOrderLineId),
 
     check(
       'purchase_order_receipt_lines_outcome_check',
@@ -1244,10 +1385,7 @@ export const purchaseOrderReceiptLines = pgTable(
       )`,
     ),
 
-    check(
-      'purchase_order_receipt_lines_quantity_check',
-      sql`${table.receivedQuantity} >= 0`,
-    ),
+    check('purchase_order_receipt_lines_quantity_check', sql`${table.receivedQuantity} >= 0`),
 
     check(
       'purchase_order_receipt_lines_evidence_check',
@@ -1268,7 +1406,6 @@ export const purchaseOrderReceiptLines = pgTable(
     ),
   ],
 );
-
 
 export const inventoryLots = pgTable(
   'inventory_lots',
@@ -2301,10 +2438,7 @@ export const tariffAnnexProducts = pgTable(
     index('tariff_annex_products_active_idx').on(table.active, table.codigoProducto),
     check('tariff_annex_products_version_check', sql`${table.version} > 0`),
     check('tariff_annex_products_code_length_check', sql`length(${table.codigoProducto}) > 0`),
-    check(
-      'tariff_annex_products_minimum_quantity_check',
-      sql`${table.minimumQuantity} > 0`,
-    ),
+    check('tariff_annex_products_minimum_quantity_check', sql`${table.minimumQuantity} > 0`),
   ],
 );
 
@@ -2551,10 +2685,7 @@ export const tariffProductRevisions = pgTable(
   (table) => [
     unique('tariff_product_revisions_product_revision_unique').on(table.productId, table.revision),
     index('tariff_product_revisions_code_idx').on(table.codigoProducto, table.validFrom),
-    check(
-      'tariff_product_revisions_minimum_quantity_check',
-      sql`${table.minimumQuantity} > 0`,
-    ),
+    check('tariff_product_revisions_minimum_quantity_check', sql`${table.minimumQuantity} > 0`),
   ],
 );
 
@@ -3469,14 +3600,10 @@ export const inventoryAuthorizationAllocations = pgTable(
   ],
 );
 
-
-
 export const authorizationDispensations = pgTable(
   'authorization_dispensations',
   {
-    id: uuid('id')
-      .primaryKey()
-      .defaultRandom(),
+    id: uuid('id').primaryKey().defaultRandom(),
 
     organizationId: uuid('organization_id')
       .notNull()
@@ -3490,8 +3617,7 @@ export const authorizationDispensations = pgTable(
         onDelete: 'restrict',
       }),
 
-    dispensationDate: date('dispensation_date')
-      .notNull(),
+    dispensationDate: date('dispensation_date').notNull(),
 
     source: varchar('source', {
       length: 10,
@@ -3524,33 +3650,19 @@ export const authorizationDispensations = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique(
-      'authorization_dispensations_authorization_unique',
-    ).on(
-      table.authorizationItemId,
-    ),
+    unique('authorization_dispensations_authorization_unique').on(table.authorizationItemId),
 
-    index(
-      'authorization_dispensations_org_date_idx',
-    ).on(
+    index('authorization_dispensations_org_date_idx').on(
       table.organizationId,
       table.dispensationDate,
       table.authorizationItemId,
     ),
 
-    index(
-      'authorization_dispensations_authorization_idx',
-    ).on(
-      table.authorizationItemId,
-    ),
+    index('authorization_dispensations_authorization_idx').on(table.authorizationItemId),
 
-    check(
-      'authorization_dispensations_source_check',
-      sql`${table.source} IN ('UI','XLSX')`,
-    ),
+    check('authorization_dispensations_source_check', sql`${table.source} IN ('UI','XLSX')`),
   ],
 );
-
 
 export const authorizationFulfillments = pgTable(
   'authorization_fulfillments',
@@ -3618,15 +3730,9 @@ export const authorizationFulfillments = pgTable(
       sql`${table.fulfillmentType} IN ('APPLICATION','DELIVERY')`,
     ),
 
-    check(
-      'authorization_fulfillments_quantity_check',
-      sql`${table.quantity} > 0`,
-    ),
+    check('authorization_fulfillments_quantity_check', sql`${table.quantity} > 0`),
 
-    check(
-      'authorization_fulfillments_source_check',
-      sql`${table.source} IN ('UI','XLSX')`,
-    ),
+    check('authorization_fulfillments_source_check', sql`${table.source} IN ('UI','XLSX')`),
   ],
 );
 
@@ -3641,9 +3747,7 @@ export const authorizationFulfillmentLines = pgTable(
         onDelete: 'restrict',
       }),
 
-    inventoryAuthorizationAllocationId: uuid(
-      'inventory_authorization_allocation_id',
-    )
+    inventoryAuthorizationAllocationId: uuid('inventory_authorization_allocation_id')
       .notNull()
       .references(() => inventoryAuthorizationAllocations.id, {
         onDelete: 'restrict',
@@ -3655,10 +3759,9 @@ export const authorizationFulfillmentLines = pgTable(
         onDelete: 'restrict',
       }),
 
-    inventoryLotId: uuid('inventory_lot_id')
-      .references(() => inventoryLots.id, {
-        onDelete: 'restrict',
-      }),
+    inventoryLotId: uuid('inventory_lot_id').references(() => inventoryLots.id, {
+      onDelete: 'restrict',
+    }),
 
     commercialCode: varchar('commercial_code', {
       length: 255,
@@ -3679,41 +3782,21 @@ export const authorizationFulfillmentLines = pgTable(
     quantity: integer('quantity').notNull(),
   },
   (table) => [
-    index('authorization_fulfillment_lines_fulfillment_idx').on(
-      table.fulfillmentId,
-    ),
+    index('authorization_fulfillment_lines_fulfillment_idx').on(table.fulfillmentId),
 
     index('authorization_fulfillment_lines_allocation_idx').on(
       table.inventoryAuthorizationAllocationId,
     ),
 
-    uniqueIndex(
-      'authorization_fulfillment_lines_lot_unique',
-    )
-      .on(
-        table.fulfillmentId,
-        table.inventoryAuthorizationAllocationId,
-        table.inventoryLotId,
-      )
-      .where(
-        sql`${table.inventoryLotId} IS NOT NULL`,
-      ),
+    uniqueIndex('authorization_fulfillment_lines_lot_unique')
+      .on(table.fulfillmentId, table.inventoryAuthorizationAllocationId, table.inventoryLotId)
+      .where(sql`${table.inventoryLotId} IS NOT NULL`),
 
-    uniqueIndex(
-      'authorization_fulfillment_lines_direct_unique',
-    )
-      .on(
-        table.fulfillmentId,
-        table.inventoryAuthorizationAllocationId,
-      )
-      .where(
-        sql`${table.inventoryLotId} IS NULL`,
-      ),
+    uniqueIndex('authorization_fulfillment_lines_direct_unique')
+      .on(table.fulfillmentId, table.inventoryAuthorizationAllocationId)
+      .where(sql`${table.inventoryLotId} IS NULL`),
 
-    check(
-      'authorization_fulfillment_lines_quantity_check',
-      sql`${table.quantity} > 0`,
-    ),
+    check('authorization_fulfillment_lines_quantity_check', sql`${table.quantity} > 0`),
 
     check(
       'authorization_fulfillment_lines_evidence_check',

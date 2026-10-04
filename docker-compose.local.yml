@@ -1,0 +1,382 @@
+name: ${COMPOSE_PROJECT_NAME:-mtd-olp-medicarte-local}
+
+x-api-image: &api-image
+  image: ${LOCAL_IMAGE_PREFIX:-mtd-olp-medicarte}-api:local
+  build:
+    context: .
+    dockerfile: infra/docker/api.Dockerfile
+
+services:
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-authorization_local}
+      POSTGRES_USER: ${POSTGRES_USER:-authorization}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-authorization}
+
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${POSTGRES_HOST_PORT:-15432}:5432"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes"
+      ]
+
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${REDIS_HOST_PORT:-16379}:6379"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+    volumes:
+      - redis-data:/data
+
+
+  mipres-mock:
+    image: node:22-alpine
+    restart: unless-stopped
+
+    working_dir: /mock
+
+    command:
+      [
+        "node",
+        "server.mjs"
+      ]
+
+    environment:
+      PORT: 8090
+      MIPRES_MOCK_INITIAL_TOKEN: initial-secret
+      MIPRES_MOCK_OPERATIVE_TOKEN: operative-token
+
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${MIPRES_MOCK_HOST_PORT:-18090}:8090"
+
+    volumes:
+      - ./infra/mipres-mock:/mock:ro
+
+
+  migrate:
+    profiles: ["release"]
+    <<: *api-image
+
+    restart: "no"
+
+    command:
+      [
+        "node",
+        "packages/database/dist/migrate.js"
+      ]
+
+    environment:
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER:-authorization}:${POSTGRES_PASSWORD:-authorization}@postgres:5432/${POSTGRES_DB:-authorization_local}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+  api:
+    profiles: ["release"]
+    <<: *api-image
+
+    restart: unless-stopped
+
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER:-authorization}:${POSTGRES_PASSWORD:-authorization}@postgres:5432/${POSTGRES_DB:-authorization_local}
+
+      REDIS_URL: redis://redis:6379
+
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET}
+      AUTH_JWT_TTL_SECONDS: ${AUTH_JWT_TTL_SECONDS:-28800}
+
+      AUTH_BOOTSTRAP_ADMIN_USERNAME: ${AUTH_BOOTSTRAP_ADMIN_USERNAME:-foundation-admin}
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:-foundation-admin}
+
+      API_PUBLIC_URL: >-
+        http://${PUBLIC_HOST:-localhost}:${API_HOST_PORT:-3001}
+
+      WEB_ORIGIN: >-
+        http://${PUBLIC_HOST:-localhost}:${WEB_HOST_PORT:-3002}
+
+      API_PORT: 3001
+
+      IMPORT_MAX_FILE_BYTES: ${IMPORT_MAX_FILE_BYTES:-20971520}
+      IMPORT_PROCESSOR_VERSION: ${IMPORT_PROCESSOR_VERSION:-2}
+
+      MIPRES_BASE_URL: http://mipres-mock:8090
+      MIPRES_NIT: ${MIPRES_NIT:-900123456}
+      MIPRES_INITIAL_TOKEN: ${MIPRES_INITIAL_TOKEN:-initial-secret}
+      MIPRES_MANUAL_RECHECK_DAILY_LIMIT: ${MIPRES_MANUAL_RECHECK_DAILY_LIMIT:-3}
+
+      THROTTLE_GLOBAL_LIMIT: 1000
+      AUTH_LOGIN_THROTTLE_LIMIT: 1000
+
+      RECONCILIATION_SCHEDULER_ENABLED: "false"
+
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${API_HOST_PORT:-3001}:3001"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3001/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+      redis:
+        condition: service_healthy
+
+      mipres-mock:
+        condition: service_started
+
+
+  worker:
+    profiles: ["release"]
+    image: ${LOCAL_IMAGE_PREFIX:-mtd-olp-medicarte}-worker:local
+
+    build:
+      context: .
+      dockerfile: infra/docker/worker.Dockerfile
+
+    restart: unless-stopped
+
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER:-authorization}:${POSTGRES_PASSWORD:-authorization}@postgres:5432/${POSTGRES_DB:-authorization_local}
+
+      REDIS_URL: redis://redis:6379
+
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
+      RECONCILIATION_SCHEDULER_ENABLED: ${RECONCILIATION_SCHEDULER_ENABLED:-false}
+
+      IMPORT_MAX_FILE_BYTES: ${IMPORT_MAX_FILE_BYTES:-20971520}
+      IMPORT_PROCESSOR_VERSION: ${IMPORT_PROCESSOR_VERSION:-2}
+      IMPORT_QUEUE_CONCURRENCY: ${IMPORT_QUEUE_CONCURRENCY:-3}
+      BULK_QUEUE_CONCURRENCY: ${BULK_QUEUE_CONCURRENCY:-3}
+
+      MIPRES_BASE_URL: http://mipres-mock:8090
+      MIPRES_NIT: ${MIPRES_NIT:-900123456}
+      MIPRES_INITIAL_TOKEN: ${MIPRES_INITIAL_TOKEN:-initial-secret}
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+      redis:
+        condition: service_healthy
+
+      mipres-mock:
+        condition: service_started
+
+
+  web:
+    profiles: ["release"]
+    image: ${LOCAL_IMAGE_PREFIX:-mtd-olp-medicarte}-web:local
+
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+
+      args:
+        NEXT_PUBLIC_API_URL: >-
+          http://${PUBLIC_HOST:-localhost}:${API_HOST_PORT:-3001}/api/v1
+
+    restart: unless-stopped
+
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+
+      NEXT_PUBLIC_API_URL: >-
+        http://${PUBLIC_HOST:-localhost}:${API_HOST_PORT:-3001}/api/v1
+
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${WEB_HOST_PORT:-3002}:3000"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+    depends_on:
+      api:
+        condition: service_healthy
+
+
+
+  dev:
+    image: ${LOCAL_IMAGE_PREFIX:-mtd-olp-medicarte}-dev:local
+
+    build:
+      context: .
+      dockerfile: infra/docker/dev.Dockerfile
+
+    restart: unless-stopped
+
+    working_dir: /workspace
+
+    command:
+      - bash
+      - -lc
+      - |
+        pnpm config set store-dir /pnpm/store
+        pnpm install --frozen-lockfile
+        pnpm --filter @authorization/database db:migrate
+        export WATCHPACK_POLLING=true
+        export WATCHPACK_POLLING_INTERVAL=500
+        export CHOKIDAR_USEPOLLING=true
+        exec pnpm exec turbo dev --env-mode=loose
+
+    environment:
+      NODE_ENV: development
+
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER:-authorization}:${POSTGRES_PASSWORD:-authorization}@postgres:5432/${POSTGRES_DB:-authorization_local}
+
+      REDIS_URL: redis://redis:6379
+
+      API_PORT: 3001
+
+      API_PUBLIC_URL: >-
+        http://${PUBLIC_HOST:-localhost}:${API_HOST_PORT:-3001}
+
+      WEB_ORIGIN: >-
+        http://${PUBLIC_HOST:-localhost}:${WEB_HOST_PORT:-3002}
+
+      NEXT_PUBLIC_API_URL: >-
+        http://${PUBLIC_HOST:-localhost}:${API_HOST_PORT:-3001}/api/v1
+
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET}
+      AUTH_JWT_TTL_SECONDS: ${AUTH_JWT_TTL_SECONDS:-28800}
+
+      AUTH_BOOTSTRAP_ADMIN_USERNAME: ${AUTH_BOOTSTRAP_ADMIN_USERNAME:-foundation-admin}
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:-foundation-admin}
+
+      IMPORT_MAX_FILE_BYTES: ${IMPORT_MAX_FILE_BYTES:-20971520}
+      IMPORT_PROCESSOR_VERSION: ${IMPORT_PROCESSOR_VERSION:-2}
+      IMPORT_QUEUE_CONCURRENCY: ${IMPORT_QUEUE_CONCURRENCY:-3}
+      BULK_QUEUE_CONCURRENCY: ${BULK_QUEUE_CONCURRENCY:-3}
+
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
+      RECONCILIATION_SCHEDULER_ENABLED: "false"
+
+      MIPRES_BASE_URL: http://mipres-mock:8090
+      MIPRES_NIT: ${MIPRES_NIT:-900123456}
+      MIPRES_INITIAL_TOKEN: ${MIPRES_INITIAL_TOKEN:-initial-secret}
+      MIPRES_MANUAL_RECHECK_DAILY_LIMIT: ${MIPRES_MANUAL_RECHECK_DAILY_LIMIT:-3}
+
+      THROTTLE_GLOBAL_LIMIT: 1000
+      AUTH_LOGIN_THROTTLE_LIMIT: 1000
+
+      # Polling importante para Docker Desktop / Windows / WSL.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+      TURBO_UI: "false"
+
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${API_HOST_PORT:-3001}:3001"
+      - "${BIND_HOST:-127.0.0.1}:${WEB_HOST_PORT:-3002}:3002"
+
+    volumes:
+      - .:/workspace
+      - dev-node-modules:/workspace/node_modules
+      - dev-pnpm-store:/pnpm/store
+      - dev-next:/workspace/apps/web/.next
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+      mipres-mock:
+        condition: service_started
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          Promise.all([
+            fetch('http://localhost:3001/api/v1/health').then(r=>{if(!r.ok)throw new Error('api')}),
+            fetch('http://localhost:3002').then(r=>{if(!r.ok)throw new Error('web')})
+          ]).catch(()=>process.exit(1))
+      interval: 3s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+
+volumes:
+
+  postgres-data:
+
+  redis-data:
+
+  dev-node-modules:
+
+  dev-pnpm-store:
+
+  dev-next:

@@ -132,8 +132,12 @@ interface AuthorizationQueryRow
   direction_status:
     string;
 
+  mipres_manual_decision:
+    string;
+
   coverage_type:
     string;
+
 
   logistics_status:
     string | null;
@@ -661,10 +665,16 @@ export class AuthorizationQueryRepository {
         then
           case
             when
-              i.direction_status =
-              'CONFIRMED'
+              i.mipres_manual_decision =
+              'MANUALLY_ENABLED'
             then
               'PASSED'
+
+            when
+              i.mipres_manual_decision =
+              'MANUALLY_DISABLED'
+            then
+              'FAILED'
 
             else
               'PENDING'
@@ -4022,8 +4032,13 @@ export class AuthorizationQueryRepository {
           then
             case
               when
-                i.direction_status =
-                'CONFIRMED'
+                i.mipres_manual_decision =
+                'MANUALLY_DISABLED'
+              then 2
+
+              when
+                i.mipres_manual_decision =
+                'MANUALLY_ENABLED'
               then 0
 
               else 1
@@ -4223,6 +4238,8 @@ export class AuthorizationQueryRepository {
         i.tariff_membership_status,
 
         i.direction_status,
+
+        i.mipres_manual_decision,
 
         i.coverage_type,
 
@@ -4958,6 +4975,9 @@ export class AuthorizationQueryRepository {
         directionStatus:
           row.direction_status,
 
+        mipresManualDecision:
+          row.mipres_manual_decision,
+
         quantity:
           row.quantity,
 
@@ -4988,6 +5008,9 @@ export class AuthorizationQueryRepository {
 
         directionStatus:
           row.direction_status,
+
+        mipresManualDecision:
+          row.mipres_manual_decision,
 
         quantity:
           row.quantity,
@@ -5090,6 +5113,9 @@ export class AuthorizationQueryRepository {
 
       coverageType:
         row.coverage_type,
+
+      mipresManualDecision:
+        row.mipres_manual_decision,
 
       logisticsStatus:
         row.logistics_status,

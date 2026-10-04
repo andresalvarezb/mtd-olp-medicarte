@@ -9,6 +9,7 @@ import type { createDatabase } from '@authorization/database';
 import {
   currentBogotaDate,
   evaluateAuthorizationOperationalWindow,
+  evaluateEffectiveMipresEligibility,
 } from '@authorization/domain';
 
 import * as XLSX from 'xlsx';
@@ -42,6 +43,12 @@ type ExistingAuthorizationRow =
     enablement_status: string;
 
     source_status_normalized: string;
+
+    coverage_type: string;
+
+    direction_status: string;
+
+    mipres_manual_decision: string;
 
     assignment_raw:
       string | null;
@@ -1519,6 +1526,26 @@ export class PurchaseOrderImportService {
                   'PLANNING_CLOSED',
                   'PURCHASING'
                 )
+
+                and (
+                  (
+                    ai.coverage_type =
+                      'PBS'
+
+                    and ai.direction_status =
+                      'NOT_APPLICABLE'
+                  )
+
+                  or
+
+                  (
+                    ai.coverage_type =
+                      'NO_PBS'
+
+                    and ai.mipres_manual_decision =
+                      'MANUALLY_ENABLED'
+                  )
+                )
             )
 
             select
@@ -2567,6 +2594,12 @@ export class PurchaseOrderImportService {
 
             ai.source_status_normalized,
 
+            ai.coverage_type,
+
+            ai.direction_status,
+
+            ai.mipres_manual_decision,
+
             ai.source_data
               ->> 'FECHA_ASIGNACION'
               as assignment_raw,
@@ -2688,6 +2721,33 @@ export class PurchaseOrderImportService {
 
 
     return result.rows[0]!;
+  }
+
+
+  private assertDestinationMipresEligibility(
+    destination:
+      ExistingAuthorizationRow,
+  ): void {
+    const mipres =
+      evaluateEffectiveMipresEligibility({
+        coverageType:
+          destination.coverage_type,
+
+        directionStatus:
+          destination.direction_status,
+
+        manualDecision:
+          destination.mipres_manual_decision,
+      });
+
+    if (
+      !mipres.eligible
+    ) {
+      this.existingOrderError(
+        'PURCHASE_ORDER_DESTINATION_NOT_ENABLED',
+        `AUTO_DESTINO ${destination.authorization_key} no tiene habilitado el criterio operacional MIPRES.`,
+      );
+    }
   }
 
 
@@ -3691,6 +3751,10 @@ export class PurchaseOrderImportService {
         }
 
 
+        this.assertDestinationMipresEligibility(
+          destination,
+        );
+
         this.assertDestinationOperationalWindow(
           destination,
         );
@@ -4094,6 +4158,10 @@ export class PurchaseOrderImportService {
           );
         }
 
+
+        this.assertDestinationMipresEligibility(
+          destination,
+        );
 
         this.assertDestinationOperationalWindow(
           destination,

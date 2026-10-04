@@ -5,6 +5,18 @@ export type ActorContext = Readonly<{
 }>;
 
 export { MIPRES_VIGENCIA_RULE_VERSION, currentBogotaDate, evaluateMipresVigencia } from './mipres';
+
+export {
+  MIPRES_MANUAL_DECISIONS,
+  evaluateEffectiveMipresEligibility,
+  normalizeMipresManualDecision,
+} from './mipres-manual-decision';
+
+export type {
+  MipresEffectiveEligibility,
+  MipresEffectiveEligibilitySource,
+  MipresManualDecision,
+} from './mipres-manual-decision';
 export type {
   MipresDirection,
   MipresPort,

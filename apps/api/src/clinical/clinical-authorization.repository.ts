@@ -1,5 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { ClinicalAuthorization, ClinicalAuthorizationReference } from '@authorization/domain';
+import type {
+  ClinicalAuthorization,
+  ClinicalAuthorizationReference,
+  MipresManualDecision,
+} from '@authorization/domain';
 import { parseAuthorizationExpiration } from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
 import { DATABASE } from '../tokens';
@@ -45,6 +49,7 @@ export type SchedulingAuthorization = Readonly<{
   enablementStatus: string;
   coverageType: string;
   directionStatus: string;
+  mipresManualDecision: MipresManualDecision;
   patientDocument: string | null;
   patientName: string | null;
   authorizedQuantity: number | null;
@@ -73,6 +78,7 @@ type SchedulingAuthorizationRow = {
   enablement_status: string;
   coverage_type: string;
   direction_status: string;
+  mipres_manual_decision: MipresManualDecision;
   patient_document: string | null;
   patient_name: string | null;
   authorized_quantity: string | null;
@@ -80,7 +86,7 @@ type SchedulingAuthorizationRow = {
 };
 
 const SCHEDULING_COLUMNS = `i.id, i.numero_autorizacion, i.authorization_key, i.codigo_medicamento,
-        i.enablement_status, i.coverage_type, i.direction_status,
+        i.enablement_status, i.coverage_type, i.direction_status, i.mipres_manual_decision,
         coalesce(i.source_data->>'IDENTIFICACION_PACIENTE', i.source_data->>'NUM_DOCUMENTO') as patient_document,
         i.source_data->>'NOMBRE_PACIENTE' as patient_name,
         case when (i.source_data->>'CANTIDAD') ~ '^[0-9]+$'
@@ -229,6 +235,7 @@ function toSchedulingAuthorization(row: SchedulingAuthorizationRow): SchedulingA
     enablementStatus: row.enablement_status,
     coverageType: row.coverage_type,
     directionStatus: row.direction_status,
+    mipresManualDecision: row.mipres_manual_decision,
     patientDocument: row.patient_document,
     patientName: row.patient_name,
     authorizedQuantity:

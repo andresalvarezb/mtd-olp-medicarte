@@ -67,7 +67,8 @@ export type NavIcon =
   | 'upload'
   | 'search'
   | 'purchaseOrder'
-  | 'tariff';
+  | 'tariff'
+  | 'mipres';
 
 export type ViewId =
   | 'operationalIndicators'
@@ -94,7 +95,8 @@ export type ViewId =
   | 'operationalIntegrity'
   | 'operationalScopes'
   | 'admin'
-  | 'roles';
+  | 'roles'
+  | 'mipres';
 
 export interface NavItem {
   kind?: 'item';
@@ -152,10 +154,7 @@ export const NAV_SECTIONS: NavSection[] = [
 
         permission: 'analytics.read',
 
-        roles: [
-          ...MTD_ROLES,
-          'COMPENSAR',
-        ],
+        roles: [...MTD_ROLES, 'COMPENSAR'],
       },
 
       {
@@ -191,11 +190,7 @@ export const NAV_SECTIONS: NavSection[] = [
 
             permission: 'authorizations.read',
 
-            roles: [
-              ...MTD_ROLES,
-              'MEDICARTE',
-              'COMPENSAR',
-            ],
+            roles: [...MTD_ROLES, 'MEDICARTE', 'COMPENSAR'],
           },
         ],
       },
@@ -219,11 +214,21 @@ export const NAV_SECTIONS: NavSection[] = [
 
             permission: 'inventory.read',
 
-            roles: [
-              ...MTD_ROLES,
-              'MEDICARTE',
-              'COMPENSAR',
-            ],
+            roles: [...MTD_ROLES, 'MEDICARTE', 'COMPENSAR'],
+          },
+
+          {
+            view: 'mipres',
+
+            href: '/mipres',
+
+            title: 'MIPRES',
+
+            icon: 'mipres',
+
+            permission: 'view.mipres',
+
+            roles: MTD_ROLES,
           },
 
           {
@@ -237,12 +242,7 @@ export const NAV_SECTIONS: NavSection[] = [
 
             permission: 'purchase_orders.read',
 
-            roles: [
-              ...MTD_ROLES,
-              'OLP',
-              'MEDICARTE',
-              'COMPENSAR',
-            ],
+            roles: [...MTD_ROLES, 'OLP', 'MEDICARTE', 'COMPENSAR'],
           },
 
           {

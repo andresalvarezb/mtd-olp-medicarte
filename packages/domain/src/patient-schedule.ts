@@ -7,6 +7,10 @@ import {
   type ScheduleTiming,
 } from '@authorization/contracts';
 import { currentBogotaDate } from './mipres';
+import {
+  evaluateEffectiveMipresEligibility,
+  type MipresManualDecision,
+} from './mipres-manual-decision';
 
 /**
  * ESP-003: reglas puras de programación de pacientes. La programación solo
@@ -24,6 +28,7 @@ export type ScheduleAuthorizationEligibilityInput = Readonly<{
   enablementStatus: string;
   coverageType: string;
   directionStatus: string;
+  mipresManualDecision?: MipresManualDecision | null;
   expirationDate: string | null;
   todayBogota: string;
 }>;
@@ -138,12 +143,39 @@ export function evaluateScheduleAuthorizationEligibility(
       message: 'PBS authorizations must not require MIPRES direction',
     };
   }
-  if (input.coverageType === 'NO_PBS' && input.directionStatus !== 'CONFIRMED') {
-    return {
-      eligible: false,
-      code: 'AUTHORIZATION_NOT_SCHEDULABLE',
-      message: 'NO_PBS authorizations require a confirmed MIPRES direction',
-    };
+  if (
+    input.coverageType ===
+      'NO_PBS'
+  ) {
+    const mipres =
+      evaluateEffectiveMipresEligibility({
+        coverageType:
+          input.coverageType,
+
+        directionStatus:
+          input.directionStatus,
+
+        ...(input.mipresManualDecision !== undefined
+          ? {
+              manualDecision:
+                input.mipresManualDecision,
+            }
+          : {}),
+      });
+
+    if (
+      !mipres.eligible
+    ) {
+      return {
+        eligible: false,
+        code: 'AUTHORIZATION_NOT_SCHEDULABLE',
+        message:
+          mipres.source ===
+            'MANUAL_DISABLE'
+            ? 'The authorization is manually disabled by MIPRES operational control'
+            : 'NO_PBS authorizations require explicit manual MTD enablement for the MIPRES criterion',
+      };
+    }
   }
   return { eligible: true, code: null, message: null };
 }

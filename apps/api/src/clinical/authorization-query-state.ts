@@ -1,5 +1,7 @@
 import {
   evaluateAuthorizationOperationalWindow,
+  evaluateEffectiveMipresEligibility,
+  normalizeMipresManualDecision,
   type AuthorizationOperationalWindowStatus,
 } from '@authorization/domain';
 
@@ -71,6 +73,8 @@ export type AuthorizationQueryLifecycleReasonCode =
   | 'EXPIRED'
   | 'TARIFF_VALIDATION_PENDING'
   | 'DIRECTION_PENDING'
+  | 'MIPRES_MANUAL_ENABLEMENT_PENDING'
+  | 'MIPRES_MANUALLY_DISABLED'
   | 'COVERAGE_PENDING'
   | 'OUTSIDE_HORIZON';
 
@@ -101,6 +105,9 @@ export function resolveAuthorizationLifecycleReasons(
 
     directionStatus:
       string | null | undefined;
+
+    mipresManualDecision?:
+      string | null;
 
     quantity?:
       string | number | null;
@@ -238,6 +245,29 @@ export function resolveAuthorizationLifecycleReasons(
   }
 
 
+  const mipresManualDecision =
+    normalizeMipresManualDecision(
+      input.mipresManualDecision,
+    );
+
+
+  if (
+    input.coverageType ===
+      'NO_PBS'
+    &&
+    mipresManualDecision ===
+      'MANUALLY_DISABLED'
+  ) {
+    definitive.push({
+      code:
+        'MIPRES_MANUALLY_DISABLED',
+
+      message:
+        'Control operacional MIPRES inhabilitado manualmente por MTD',
+    });
+  }
+
+
   if (
     input.validityStatus ===
       'INVALID_DATE'
@@ -300,15 +330,15 @@ export function resolveAuthorizationLifecycleReasons(
     input.coverageType ===
       'NO_PBS'
     &&
-    input.directionStatus !==
-      'CONFIRMED'
+    mipresManualDecision ===
+      'PENDING_MANUAL_ENABLEMENT'
   ) {
     pending.push({
       code:
-        'DIRECTION_PENDING',
+        'MIPRES_MANUAL_ENABLEMENT_PENDING',
 
       message:
-        'Direccionamiento NO PBS pendiente',
+        'Pendiente por habilitar manualmente',
     });
   }
 
@@ -389,6 +419,7 @@ export function resolveAuthorizationInitialValidationStatus(
     tariffMembershipStatus: string | null | undefined;
     coverageType: string | null | undefined;
     directionStatus: string | null | undefined;
+    mipresManualDecision?: string | null;
     quantity?: string | number | null;
     minimumQuantity?: number | null;
   }>,
@@ -445,7 +476,27 @@ export function resolveAuthorizationInitialValidationStatus(
   }
 
   if (input.coverageType === 'NO_PBS') {
-    return input.directionStatus === 'CONFIRMED'
+    const manualDecision =
+      normalizeMipresManualDecision(
+        input.mipresManualDecision,
+      );
+
+    if (
+      manualDecision ===
+        'MANUALLY_DISABLED'
+    ) {
+      return 'FAILED';
+    }
+
+    return evaluateEffectiveMipresEligibility({
+      coverageType:
+        input.coverageType,
+
+      directionStatus:
+        input.directionStatus,
+
+      manualDecision,
+    }).eligible
       ? 'PASSED'
       : 'PENDING';
   }

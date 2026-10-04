@@ -113,6 +113,13 @@ import { DispensationImportController } from './dispensation-import/dispensation
 import { DispensationImportService } from './dispensation-import/dispensation-import.service';
 import { RealtimeController } from './realtime/realtime.controller';
 import { RealtimeService } from './realtime/realtime.service';
+import { MipresReadController } from './mipres/mipres-read.controller';
+import { MipresDecisionController } from './mipres/mipres-decision.controller';
+import { MipresDecisionService } from './mipres/mipres-decision.service';
+import { MipresReadRepository } from './mipres/mipres-read.repository';
+
+import { MipresRecheckController } from './mipres/mipres-recheck.controller';
+import { MipresRecheckService } from './mipres/mipres-recheck.service';
 
 const config = parseApiConfig(process.env);
 const database = createDatabase(config.DATABASE_URL);
@@ -139,7 +146,7 @@ new Gauge({
 
 @Module({
   imports: [
-ClinicalModule.register(database),
+    ClinicalModule.register(database),
     LoggerModule.forRoot({
       pinoHttp: {
         level: config.LOG_LEVEL,
@@ -158,6 +165,7 @@ ClinicalModule.register(database),
     ]),
   ],
   controllers: [
+    MipresRecheckController,
     DispensationImportController,
     AuthController,
     MeController,
@@ -195,9 +203,12 @@ ClinicalModule.register(database),
     AccessScopeController,
     ReconciliationController,
     RealtimeController,
+    MipresReadController,
+    MipresDecisionController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
+    MipresRecheckService,
     DispensationImportService,
     AuthGuard,
     AccessService,
@@ -262,6 +273,8 @@ ClinicalModule.register(database),
     ReconciliationSchedulerWorker,
     ReconciliationMetricsProvider,
     RealtimeService,
+    MipresReadRepository,
+    MipresDecisionService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

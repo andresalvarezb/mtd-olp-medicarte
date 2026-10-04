@@ -652,6 +652,20 @@
       "when": 1790546879664,
       "tag": "0093_authorization_partial_fulfillments",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1790546879665,
+      "tag": "0094_mipres_manual_decision",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1790546879666,
+      "tag": "0095_mipres_manual_decision_write",
+      "breakpoints": true
     }
   ]
 }

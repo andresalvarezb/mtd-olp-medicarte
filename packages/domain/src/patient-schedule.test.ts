@@ -122,54 +122,116 @@ describe('authorization eligibility for scheduling', () => {
     todayBogota: TODAY,
   };
 
-  it('accepts an enabled, vigente PBS authorization', () => {
-    expect(evaluateScheduleAuthorizationEligibility(base)).toEqual({
+  it('accepts an enabled PBS authorization', () => {
+    expect(
+      evaluateScheduleAuthorizationEligibility(
+        base,
+      ),
+    ).toEqual({
       eligible: true,
       code: null,
       message: null,
     });
   });
 
-  it('accepts an enabled NO_PBS authorization with confirmed direction', () => {
+  it('keeps NO_PBS blocked even when official MIPRES is confirmed while MTD decision is pending', () => {
     expect(
       evaluateScheduleAuthorizationEligibility({
         ...base,
         coverageType: 'NO_PBS',
         directionStatus: 'CONFIRMED',
-      }).eligible,
-    ).toBe(true);
-  });
-
-  it('rejects blocked and wrong-direction authorizations', () => {
-    expect(
-      evaluateScheduleAuthorizationEligibility({
-        ...base,
-        enablementStatus: 'BLOCKED_SOURCE_STATUS',
-      }),
-    ).toMatchObject({ eligible: false, code: 'AUTHORIZATION_NOT_SCHEDULABLE' });
-    expect(
-      evaluateScheduleAuthorizationEligibility({
-        ...base,
-        expirationDate: '2031-03-01',
+        mipresManualDecision:
+          'PENDING_MANUAL_ENABLEMENT',
       }),
     ).toMatchObject({
-      eligible: true,
-      code: null,
+      eligible: false,
+      code:
+        'AUTHORIZATION_NOT_SCHEDULABLE',
     });
+  });
+
+  it('keeps NO_PBS blocked by default when no manual decision has been persisted', () => {
+    expect(
+      evaluateScheduleAuthorizationEligibility({
+        ...base,
+        coverageType: 'NO_PBS',
+        directionStatus: 'CONFIRMED',
+      }),
+    ).toMatchObject({
+      eligible: false,
+      code:
+        'AUTHORIZATION_NOT_SCHEDULABLE',
+    });
+  });
+
+  it('allows NO_PBS scheduling after explicit MTD manual enablement', () => {
     expect(
       evaluateScheduleAuthorizationEligibility({
         ...base,
         coverageType: 'NO_PBS',
         directionStatus: 'PENDING',
+        mipresManualDecision:
+          'MANUALLY_ENABLED',
       }),
-    ).toMatchObject({ eligible: false, code: 'AUTHORIZATION_NOT_SCHEDULABLE' });
-    expect(
-      evaluateScheduleAuthorizationEligibility({ ...base, directionStatus: 'CONFIRMED' }),
-    ).toMatchObject({ eligible: false, code: 'AUTHORIZATION_NOT_SCHEDULABLE' });
+    ).toEqual({
+      eligible: true,
+      code: null,
+      message: null,
+    });
   });
 
-  it('does not block an enabled authorization without expiration data', () => {
-    expect(evaluateScheduleAuthorizationEligibility({ ...base, expirationDate: null }).eligible).toBe(
+  it('manual disable blocks NO_PBS even with confirmed official MIPRES', () => {
+    expect(
+      evaluateScheduleAuthorizationEligibility({
+        ...base,
+        coverageType: 'NO_PBS',
+        directionStatus: 'CONFIRMED',
+        mipresManualDecision:
+          'MANUALLY_DISABLED',
+      }),
+    ).toMatchObject({
+      eligible: false,
+      code:
+        'AUTHORIZATION_NOT_SCHEDULABLE',
+    });
+  });
+
+  it('still rejects source-disabled authorizations', () => {
+    expect(
+      evaluateScheduleAuthorizationEligibility({
+        ...base,
+        enablementStatus:
+          'BLOCKED_SOURCE_STATUS',
+      }),
+    ).toMatchObject({
+      eligible: false,
+      code:
+        'AUTHORIZATION_NOT_SCHEDULABLE',
+    });
+  });
+
+  it('still rejects invalid PBS MIPRES direction semantics', () => {
+    expect(
+      evaluateScheduleAuthorizationEligibility({
+        ...base,
+        directionStatus:
+          'CONFIRMED',
+      }),
+    ).toMatchObject({
+      eligible: false,
+      code:
+        'AUTHORIZATION_NOT_SCHEDULABLE',
+    });
+  });
+
+  it('does not block an enabled PBS authorization without expiration data', () => {
+    expect(
+      evaluateScheduleAuthorizationEligibility({
+        ...base,
+        expirationDate:
+          null,
+      }).eligible,
+    ).toBe(
       true,
     );
   });

@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import {
   authorizationOperationalHorizonEnd,
   currentBogotaDate,
+  evaluateEffectiveMipresEligibility,
   derivePurchaseOrderMacroStatus,
   isAuthorizationSourceEnabled,
 } from '@authorization/domain';
@@ -3689,6 +3690,8 @@ export class PurchaseOrderRepository {
       source_status_normalized: string;
       enablement_status: string;
       coverage_type: string;
+      direction_status: string;
+      mipres_manual_decision: string;
       source_quantity: string | null;
       assignment_date: string | null;
       expiration_date: string | null;
@@ -3700,6 +3703,8 @@ export class PurchaseOrderRepository {
           source_status_normalized,
           enablement_status,
           coverage_type,
+          direction_status,
+          mipres_manual_decision,
           source_data->>'CANTIDAD'
             as source_quantity,
           source_data->>'FECHA_ASIGNACION'
@@ -3762,11 +3767,23 @@ export class PurchaseOrderRepository {
 
       const expirationDate = authorization.expiration_date;
 
+      const mipresEligible =
+        evaluateEffectiveMipresEligibility({
+          coverageType:
+            authorization.coverage_type,
+
+          directionStatus:
+            authorization.direction_status,
+
+          manualDecision:
+            authorization.mipres_manual_decision,
+        }).eligible;
+
       const eligible =
         authorization.commercial_code === demand.commercialCode &&
         isAuthorizationSourceEnabled(authorization.source_status_normalized) &&
         authorization.enablement_status === 'ENABLED' &&
-        authorization.coverage_type === 'PBS' &&
+        mipresEligible &&
         Number.isSafeInteger(sourceQuantity) &&
         sourceQuantity > 0 &&
         sourceQuantity === source.quantity &&

@@ -1979,6 +1979,26 @@ export class InventoryAvailabilityRepository {
           AND ai.enablement_status =
               'ENABLED'
 
+          AND (
+            (
+              ai.coverage_type =
+                'PBS'
+
+              AND ai.direction_status =
+                'NOT_APPLICABLE'
+            )
+
+            OR
+
+            (
+              ai.coverage_type =
+                'NO_PBS'
+
+              AND ai.mipres_manual_decision =
+                'MANUALLY_ENABLED'
+            )
+          )
+
           AND EXISTS (
             SELECT
               1

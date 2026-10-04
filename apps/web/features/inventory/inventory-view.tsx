@@ -1,4 +1,6 @@
 'use client';
+
+import Link from 'next/link';
 import { useState } from 'react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardBody } from '@/components/ui/card';
@@ -11,7 +13,11 @@ import { FilterBar, FilterField } from '@/components/ui/filter-bar';
 
 export function InventoryView() {
   const { organizationId } = useRole();
-  const inventory = useApiData(() => listInventory(organizationId), [organizationId], ['INVENTORY']);
+  const inventory = useApiData(
+    () => listInventory(organizationId),
+    [organizationId],
+    ['INVENTORY'],
+  );
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState({ commercialCode: '', lotNumber: '', status: '' });
   const movements = useApiData(
@@ -27,10 +33,43 @@ export function InventoryView() {
         <PageHeader
           title="Inventario operacional"
           description="Existencias físicas derivadas de recepciones Medicarte confirmadas. El saldo no es editable."
+          actions={
+            <Link href="/mipres" className="btn">
+              MIPRES
+            </Link>
+          }
         />
         <Card>
           <CardBody>
-            <FilterBar><FilterField label="Código comercial"><input className="control" value={filter.commercialCode} onChange={(e) => setFilter({ ...filter, commercialCode: e.target.value })} placeholder="Producto" /></FilterField><FilterField label="Lote"><input className="control" value={filter.lotNumber} onChange={(e) => setFilter({ ...filter, lotNumber: e.target.value })} placeholder="Lote" /></FilterField><FilterField label="Estado"><select className="control" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}><option value="">Todos</option><option value="CURRENT">Vigente</option><option value="EXPIRED">Vencido</option></select></FilterField></FilterBar>
+            <FilterBar>
+              <FilterField label="Código comercial">
+                <input
+                  className="control"
+                  value={filter.commercialCode}
+                  onChange={(e) => setFilter({ ...filter, commercialCode: e.target.value })}
+                  placeholder="Producto"
+                />
+              </FilterField>
+              <FilterField label="Lote">
+                <input
+                  className="control"
+                  value={filter.lotNumber}
+                  onChange={(e) => setFilter({ ...filter, lotNumber: e.target.value })}
+                  placeholder="Lote"
+                />
+              </FilterField>
+              <FilterField label="Estado">
+                <select
+                  className="control"
+                  value={filter.status}
+                  onChange={(e) => setFilter({ ...filter, status: e.target.value })}
+                >
+                  <option value="">Todos</option>
+                  <option value="CURRENT">Vigente</option>
+                  <option value="EXPIRED">Vencido</option>
+                </select>
+              </FilterField>
+            </FilterBar>
             <DataTable
               aria-label="Inventario operacional"
               columns={[
@@ -42,17 +81,28 @@ export function InventoryView() {
                 { label: 'Utilizable' },
                 { label: 'Estado' },
               ]}
-               rows={lots.filter((lot) => (!filter.commercialCode || lot.commercialCode.toLowerCase().includes(filter.commercialCode.toLowerCase())) && (!filter.lotNumber || lot.lotNumber.toLowerCase().includes(filter.lotNumber.toLowerCase())) && (!filter.status || (filter.status === 'EXPIRED' ? lot.expired : !lot.expired))).map((lot) => [
-                <button className="button" onClick={() => setSelected(lot.id)}>
-                  {lot.commercialCode}
-                </button>,
-                lot.dispensingPointName,
-                lot.lotNumber,
-                lot.expirationDate,
-                lot.physicalBalance,
-                lot.usableBalance,
-                lot.expired ? 'Vencido' : 'Vigente',
-              ])}
+              rows={lots
+                .filter(
+                  (lot) =>
+                    (!filter.commercialCode ||
+                      lot.commercialCode
+                        .toLowerCase()
+                        .includes(filter.commercialCode.toLowerCase())) &&
+                    (!filter.lotNumber ||
+                      lot.lotNumber.toLowerCase().includes(filter.lotNumber.toLowerCase())) &&
+                    (!filter.status || (filter.status === 'EXPIRED' ? lot.expired : !lot.expired)),
+                )
+                .map((lot) => [
+                  <button className="button" onClick={() => setSelected(lot.id)}>
+                    {lot.commercialCode}
+                  </button>,
+                  lot.dispensingPointName,
+                  lot.lotNumber,
+                  lot.expirationDate,
+                  lot.physicalBalance,
+                  lot.usableBalance,
+                  lot.expired ? 'Vencido' : 'Vigente',
+                ])}
               emptyIcon="INV"
               emptyTitle="Sin existencias"
               emptyDescription="Las recepciones confirmadas aparecerán aquí."

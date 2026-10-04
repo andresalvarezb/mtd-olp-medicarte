@@ -1,0 +1,908 @@
+/* =========================================================
+   FILTROS
+   ========================================================= */
+
+.toolbar {
+  display: grid;
+  grid-template-columns:
+    minmax(320px, 2fr)
+    repeat(4, minmax(145px, 1fr))
+    auto;
+  gap: 12px;
+  align-items: end;
+  padding: 18px;
+  background: #ffffff;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.field label {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #101828;
+  font: inherit;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.input,
+.select {
+  height: 42px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.textarea {
+  min-height: 96px;
+  padding: 11px 12px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: #98a2b3;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: #84adff;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(21, 112, 239, 0.1);
+}
+
+/* =========================================================
+   BOTONES
+   ========================================================= */
+
+.button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+  padding: 0 13px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.button:hover:not(:disabled) {
+  border-color: #b9c0ca;
+  background: #f9fafb;
+}
+
+.button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(21, 112, 239, 0.15);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.primary {
+  border-color: #1570ef;
+  background: #1570ef;
+  color: #ffffff;
+}
+
+.primary:hover:not(:disabled) {
+  border-color: #175cd3;
+  background: #175cd3;
+}
+
+.danger {
+  border-color: #d92d20;
+  background: #d92d20;
+  color: #ffffff;
+}
+
+.danger:hover:not(:disabled) {
+  border-color: #b42318;
+  background: #b42318;
+}
+
+.secondaryDanger {
+  border-color: #fda29b;
+  background: #ffffff;
+  color: #b42318;
+}
+
+.secondaryDanger:hover:not(:disabled) {
+  border-color: #f97066;
+  background: #fef3f2;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* =========================================================
+   TABLA PRINCIPAL
+   ========================================================= */
+
+.tableCard {
+  overflow: hidden;
+  border: 1px solid #eaecf0;
+}
+
+.tableScroller {
+  overflow-x: auto;
+  background: #ffffff;
+}
+
+.table {
+  width: 100%;
+  min-width: 1320px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 42px;
+  border-bottom: 1px solid #dfe3e8;
+  background: #f8fafc;
+  color: #475467;
+  padding: 0 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.table td {
+  height: 58px;
+  border-bottom: 1px solid #f0f1f3;
+  background: #ffffff;
+  color: #344054;
+  padding: 8px 12px;
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.table tbody tr {
+  transition:
+    background 100ms ease,
+    box-shadow 100ms ease;
+}
+
+.table tbody tr:hover td {
+  background: #f9fbfd;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.mainCell {
+  display: grid;
+  gap: 3px;
+  min-width: 118px;
+}
+
+.mainCell strong {
+  color: #101828;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.subtle {
+  color: #667085;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* =========================================================
+   BADGES
+   ========================================================= */
+
+.badge {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 24px;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.green {
+  border-color: #abefc6;
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.red {
+  border-color: #fecdca;
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.yellow {
+  border-color: #fedf89;
+  background: #fffaeb;
+  color: #b54708;
+}
+
+.gray {
+  border-color: #eaecf0;
+  background: #f2f4f7;
+  color: #475467;
+}
+
+.blue {
+  border-color: #b2ddff;
+  background: #eff8ff;
+  color: #175cd3;
+}
+
+/* =========================================================
+   ESTADOS
+   ========================================================= */
+
+.error {
+  border: 1px solid #fecdca;
+  border-radius: 9px;
+  background: #fef3f2;
+  color: #b42318;
+  padding: 11px 13px;
+  font-size: 12px;
+}
+
+.success {
+  border: 1px solid #abefc6;
+  border-radius: 9px;
+  background: #ecfdf3;
+  color: #067647;
+  padding: 11px 13px;
+  font-size: 12px;
+}
+
+.warningBox {
+  border: 1px solid #fedf89;
+  border-radius: 8px;
+  background: #fffaeb;
+  color: #93370d;
+  padding: 11px 13px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.empty {
+  padding: 54px 20px !important;
+  color: #667085 !important;
+  text-align: center;
+}
+
+/* =========================================================
+   PAGINACIÓN
+   ========================================================= */
+
+.pagination {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #eaecf0;
+  background: #ffffff;
+  padding: 10px 16px;
+}
+
+.paginationControls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* =========================================================
+   DRAWER
+   ========================================================= */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(16, 24, 40, 0.42);
+  backdrop-filter: blur(2px);
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 71;
+  display: flex;
+  width: min(860px, 92vw);
+  height: 100vh;
+  flex-direction: column;
+  border-left: 1px solid #dfe3e8;
+  background: #f8fafc;
+  box-shadow: -24px 0 56px rgba(16, 24, 40, 0.2);
+}
+
+.drawerHeader {
+  display: flex;
+  min-height: 72px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #e4e7ec;
+  background: #ffffff;
+  padding: 14px 18px;
+}
+
+.drawerTitle {
+  display: grid;
+  gap: 4px;
+}
+
+.drawerTitle h2 {
+  margin: 0;
+  color: #101828;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.drawerTitle p {
+  margin: 0;
+  color: #667085;
+  font-size: 12px;
+}
+
+.closeButton {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #eaecf0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #475467;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.closeButton:hover {
+  background: #f9fafb;
+}
+
+.drawerBody {
+  display: grid;
+  flex: 1;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 14px 16px 24px;
+}
+
+/* =========================================================
+   HERO ESTADO
+   ========================================================= */
+
+.statusHero {
+  display: flex;
+  min-height: 90px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid #dfe3e8;
+  border-radius: 11px;
+  background: #ffffff;
+  padding: 16px 18px;
+}
+
+.statusHeroText {
+  display: grid;
+  gap: 4px;
+}
+
+.statusHeroText small {
+  color: #667085;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.statusHeroText strong {
+  color: #101828;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.statusHeroText .subtle {
+  font-size: 12px;
+}
+
+/* =========================================================
+   SECCIONES DEL DRAWER
+   ========================================================= */
+
+.section {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 11px;
+  background: #ffffff;
+  padding: 14px 16px;
+}
+
+.sectionHeader {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sectionHeader h3 {
+  margin: 0;
+  color: #101828;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+/* MIPRES = evidencia externa */
+.mipresSection {
+  border-color: #b2ddff;
+  background: #fafdff;
+}
+
+.mipresSection .sectionHeader {
+  border-bottom: 1px solid #d1e9ff;
+  padding-bottom: 11px;
+}
+
+/* MTD = decisión interna */
+.decisionSection {
+  border-color: #d6bbfb;
+  background: #fdfcff;
+}
+
+.decisionSection .sectionHeader {
+  border-bottom: 1px solid #e9d7fe;
+  padding-bottom: 11px;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 22px;
+}
+
+.detail {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.detail span {
+  color: #667085;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.detail strong {
+  color: #101828;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* =========================================================
+   FORMULARIO DECISIÓN
+   ========================================================= */
+
+.formPanel {
+  display: grid;
+  gap: 14px;
+  margin-top: 2px;
+  border-top: 1px solid #e9d7fe;
+  padding-top: 16px;
+}
+
+.formTitle {
+  margin: 0;
+  color: #101828;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* =========================================================
+   TIMELINE
+   ========================================================= */
+
+.timeline {
+  display: grid;
+  gap: 0;
+}
+
+.timelineItem {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  padding-bottom: 18px;
+}
+
+.timelineItem:last-child {
+  padding-bottom: 0;
+}
+
+.timelineRail {
+  position: relative;
+}
+
+.timelineRail::before {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #667085;
+  box-shadow: 0 0 0 1px #98a2b3;
+  content: '';
+}
+
+.timelineItem:not(:last-child) .timelineRail::after {
+  position: absolute;
+  top: 17px;
+  bottom: -4px;
+  left: 9px;
+  width: 1px;
+  background: #d0d5dd;
+  content: '';
+}
+
+.timelineContent {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.timelineContent strong {
+  color: #101828;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.timelineContent p {
+  margin: 0;
+  color: #475467;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.timelineContent time {
+  color: #98a2b3;
+  font-size: 10px;
+}
+
+/* =========================================================
+   LOADING
+   ========================================================= */
+
+.drawerLoading {
+  padding: 64px 20px;
+  color: #667085;
+  text-align: center;
+  font-size: 13px;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 1280px) {
+  .toolbar {
+    grid-template-columns:
+      minmax(280px, 2fr)
+      repeat(2, minmax(160px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .drawer {
+    width: min(760px, 98vw);
+  }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .drawer {
+    width: 100vw;
+  }
+
+  .drawerHeader {
+    padding: 16px;
+  }
+
+  .drawerBody {
+    padding: 12px;
+  }
+
+  .statusHero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+/* =========================================================
+   MIPRES SIMPLE GATE
+   ========================================================= */
+
+.toolbar {
+  grid-template-columns:
+    minmax(360px, 760px)
+    auto;
+  justify-content: start;
+}
+
+.table {
+  min-width: 1080px;
+}
+
+@media (max-width: 900px) {
+  .toolbar {
+    grid-template-columns:
+      minmax(0, 1fr)
+      auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.drawerBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 6px;
+}
+
+.restrictionReason {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 3px;
+  border-left: 3px solid #f79009;
+  background: #fffaeb;
+  padding: 9px 11px;
+  border-radius: 6px;
+}
+
+.restrictionReason strong {
+  color: #93370d;
+  font-size: 11px;
+}
+
+.restrictionReason span {
+  color: #b54708;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (max-width: 900px) {
+  .drawer {
+    width: min(720px, 96vw);
+  }
+
+  .detailGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .drawer {
+    width: 100vw;
+  }
+
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================================
+   MIPRES DRAWER - STANDARD OPERATIONAL OVERRIDES
+   ========================================================= */
+
+.statusHero {
+  display: none !important;
+}
+
+.drawer {
+  width: min(860px, 92vw) !important;
+}
+
+.drawerHeader {
+  min-height: 0;
+  padding: 14px 18px;
+}
+
+.drawerBody {
+  gap: 12px;
+  padding: 14px 16px 24px;
+}
+
+.section {
+  padding: 14px 16px;
+}
+
+.detailGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 22px;
+}
+
+.drawerBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+@media (max-width: 900px) {
+  .drawer {
+    width: min(720px, 96vw) !important;
+  }
+
+  .detailGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .drawer {
+    width: 100vw !important;
+  }
+
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.futureWindowNotice {
+  display: grid;
+  gap: 3px;
+  border-left: 3px solid #1570ef;
+  border-radius: 6px;
+  background: #eff8ff;
+  padding: 9px 11px;
+}
+
+.futureWindowNotice strong {
+  color: #175cd3;
+  font-size: 11px;
+}
+
+.futureWindowNotice span {
+  color: #344054;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* MIPRES FILTER ROW */
+
+/* MIPRES FILTER ROW
+ *
+ * Consulta de Autorizaciones usa 6 columnas:
+ * 5 filtros + acciones.
+ *
+ * MIPRES usa 5:
+ * 4 filtros + acciones.
+ *
+ * Mantiene las proporciones del patrón estándar pero
+ * distribuye todo el ancho disponible sin comprimir
+ * ni dejar una columna vacía.
+ */
+.mipresQueryWorkspace :global(.filter-bar) {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.08fr)
+    minmax(0, 0.92fr)
+    minmax(0, 1fr)
+    minmax(0, 0.88fr)
+    auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.mipresQueryWorkspace :global(.filter-field) {
+  min-width: 0;
+}
+
+.mipresQueryWorkspace :global(.filter-field .control) {
+  width: 100%;
+  min-width: 0;
+}
+
+.mipresQueryWorkspace :global(.filter-actions) {
+  width: max-content;
+  min-width: max-content;
+  justify-self: end;
+}
+
+/* Solo se rompe la fila cuando realmente no cabe. */
+@media (max-width: 900px) {
+  .mipresQueryWorkspace :global(.filter-bar) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mipresQueryWorkspace :global(.filter-actions) {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 720px) {
+  .mipresQueryWorkspace :global(.filter-bar) {
+    grid-template-columns: 1fr;
+  }
+
+  .mipresQueryWorkspace :global(.filter-actions) {
+    grid-column: auto;
+    justify-self: stretch;
+    width: 100%;
+  }
+}
