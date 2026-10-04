@@ -404,7 +404,7 @@ beforeAll(async () => {
 
   disabledId = await insertAuthorization(disabledNumber);
 
-  await setDecision(enabledId, 'MANUALLY_ENABLED', 'MIPRES_SUPPORT_VALIDATED');
+  await setDecision(enabledId, 'MANUALLY_ENABLED', 'EPS_ADMINISTRATIVE_VALIDATION');
 
   await setDecision(disabledId, 'MANUALLY_DISABLED', 'DIRECTION_DOES_NOT_MATCH');
 }, 30_000);

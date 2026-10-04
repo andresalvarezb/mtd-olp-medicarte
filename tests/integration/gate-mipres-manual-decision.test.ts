@@ -244,7 +244,7 @@ describe('MIPRES manual decision WAVE 3', () => {
 
         expectedVersion: 0,
 
-        conceptCode: 'MIPRES_SUPPORT_VALIDATED',
+        conceptCode: 'EPS_ADMINISTRATIVE_VALIDATION',
       },
     });
 
@@ -259,7 +259,7 @@ describe('MIPRES manual decision WAVE 3', () => {
 
       version: 1,
 
-      conceptCode: 'MIPRES_SUPPORT_VALIDATED',
+      conceptCode: 'EPS_ADMINISTRATIVE_VALIDATION',
     });
 
     /*
@@ -276,7 +276,7 @@ describe('MIPRES manual decision WAVE 3', () => {
 
         expectedVersion: 0,
 
-        conceptCode: 'MIPRES_SUPPORT_VALIDATED',
+        conceptCode: 'EPS_ADMINISTRATIVE_VALIDATION',
       },
     });
 
@@ -611,7 +611,7 @@ describe('MIPRES manual decision WAVE 3', () => {
 
         expectedVersion: 0,
 
-        conceptCode: 'MIPRES_SUPPORT_VALIDATED',
+        conceptCode: 'EPS_ADMINISTRATIVE_VALIDATION',
       },
     });
 
@@ -627,7 +627,7 @@ describe('MIPRES manual decision WAVE 3', () => {
 
         expectedVersion: 1,
 
-        conceptCode: 'MIPRES_SUPPORT_VALIDATED',
+        conceptCode: 'EPS_ADMINISTRATIVE_VALIDATION',
       },
     });
 
@@ -675,7 +675,7 @@ describe('MIPRES manual decision WAVE 3', () => {
 
         expectedVersion: 0,
 
-        conceptCode: 'MIPRES_SUPPORT_VALIDATED',
+        conceptCode: 'EPS_ADMINISTRATIVE_VALIDATION',
       },
     });
 
@@ -700,7 +700,7 @@ describe('MIPRES manual decision WAVE 3', () => {
 
           expectedVersion: 0,
 
-          conceptCode: 'MIPRES_SUPPORT_VALIDATED',
+          conceptCode: 'EPS_ADMINISTRATIVE_VALIDATION',
         },
       }),
 
@@ -789,7 +789,7 @@ describe('MIPRES manual decision WAVE 3', () => {
 
         expectedVersion: 0,
 
-        conceptCode: 'MIPRES_SUPPORT_VALIDATED',
+        conceptCode: 'EPS_ADMINISTRATIVE_VALIDATION',
       },
     });
 

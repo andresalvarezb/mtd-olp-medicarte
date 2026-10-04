@@ -512,7 +512,7 @@ describe('W5 MIPRES recheck isolation', () => {
       label: 'ENABLED-PENDING',
       prescriptionSuffix: '1',
       decision: 'MANUALLY_ENABLED',
-      conceptCode: 'MIPRES_SUPPORT_VALIDATED',
+      conceptCode: 'EPS_ADMINISTRATIVE_VALIDATION',
     });
 
     await assertIsolation({
@@ -542,7 +542,7 @@ describe('W5 MIPRES recheck isolation', () => {
       label: 'ENABLED-ERROR',
       prescriptionSuffix: '5',
       decision: 'MANUALLY_ENABLED',
-      conceptCode: 'MIPRES_SUPPORT_VALIDATED',
+      conceptCode: 'EPS_ADMINISTRATIVE_VALIDATION',
     });
 
     await assertIsolation({
