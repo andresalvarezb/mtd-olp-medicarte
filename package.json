@@ -9,7 +9,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev --parallel",
-    "lint": "eslint apps packages tests --max-warnings=0",
+    "lint": "eslint apps --max-warnings=0 && eslint packages --max-warnings=0 && eslint tests --max-warnings=0",
     "typecheck": "turbo typecheck",
     "test": "turbo test && node scripts/check-legacy-operational-usage.mjs",
     "test:legacy-scan": "node scripts/check-legacy-operational-usage.mjs",
