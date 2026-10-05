@@ -190,6 +190,18 @@ interface AuthorizationQueryRow
   review_status:
     string | null;
 
+  billing_audit_status:
+    'PENDING'
+    | 'REVIEWED';
+
+  billing_audit_result:
+    'COMPLIES'
+    | 'DOES_NOT_COMPLY'
+    | null;
+
+  billing_audit_evidence_count:
+    number;
+
   created_at:
     Date | string;
 
@@ -1698,6 +1710,207 @@ export class AuthorizationQueryRepository {
      * allocation/source, porque esas FKs sí cambian durante
      * una reasignación.
      */
+
+    /*
+     * ======================================================
+     * AUDITORÍA DE FACTURACIÓN
+     * ======================================================
+     *
+     * Fuente histórica autoritativa:
+     * audit_events de authorization_billing_audit.
+     */
+    if (
+      scope.organizationCode ===
+        'MTD'
+    ) {
+      const billingAuditHistoryEvents =
+        await this.database.db.execute<{
+          id: string;
+
+          action: string;
+
+          occurred_at:
+            Date | string;
+
+          actor_name:
+            string | null;
+
+          organization_code:
+            string | null;
+
+          audit_result:
+            string | null;
+
+          observation:
+            string | null;
+        }>(sql`
+          select
+            ae.id,
+
+            ae.action,
+
+            ae.occurred_at,
+
+            actor.display_name
+              as actor_name,
+
+            actor_org.code
+              as organization_code,
+
+            ae.after
+              ->>
+              'result'
+              as audit_result,
+
+            ae.after
+              ->>
+              'observation'
+              as observation
+
+          from
+            audit_events ae
+
+          left join
+            users actor
+              on actor.id =
+                 ae.actor_id
+
+          left join
+            organizations actor_org
+              on actor_org.id =
+                 ae.organization_id
+
+          where
+            ae.resource_type =
+              'authorization_billing_audit'
+
+            and ae.action in (
+              'AUTHORIZATION_BILLING_AUDIT_STARTED',
+              'AUTHORIZATION_BILLING_AUDIT_REVIEWED'
+            )
+
+            and ae.result =
+              'SUCCESS'
+
+            and ae.after
+              ->>
+              'authorizationItemId'
+              =
+              ${authorization.id}
+
+          order by
+            ae.occurred_at,
+            ae.id
+        `);
+
+
+      for (
+        const row of
+        billingAuditHistoryEvents.rows
+      ) {
+        const reviewed =
+          row.action ===
+            'AUTHORIZATION_BILLING_AUDIT_REVIEWED';
+
+        const resultLabel =
+          row.audit_result ===
+            'COMPLIES'
+            ? 'Cumple'
+            : row.audit_result ===
+                'DOES_NOT_COMPLY'
+              ? 'No cumple'
+              : null;
+
+
+        events.push({
+          id:
+            `billing-audit:${row.id}`,
+
+          type:
+            row.action,
+
+          occurredAt:
+            toIsoTimestamp(
+              row.occurred_at,
+            ),
+
+          title:
+            reviewed
+              ? 'Auditoría de facturación revisada'
+              : 'Auditoría de facturación iniciada',
+
+          description:
+            reviewed
+              ? resultLabel
+                ? `La auditoría de facturación de la autorización ${authorization.authorization_number} fue revisada con resultado: ${resultLabel}.`
+                : `La auditoría de facturación de la autorización ${authorization.authorization_number} fue revisada.`
+              : `Se inició la auditoría de facturación de la autorización ${authorization.authorization_number}.`,
+
+          actorName:
+            row.actor_name,
+
+          organizationCode:
+            row.organization_code,
+
+          details: [
+            {
+              label:
+                'Estado',
+
+              value:
+                reviewed
+                  ? 'Revisada'
+                  : 'Pendiente',
+            },
+
+            ...(
+              resultLabel
+                ? [
+                    {
+                      label:
+                        'Resultado',
+
+                      value:
+                        resultLabel,
+                    },
+                  ]
+                : []
+            ),
+
+            ...(
+              reviewed &&
+              row.actor_name
+                ? [
+                    {
+                      label:
+                        'Auditor',
+
+                      value:
+                        row.actor_name,
+                    },
+                  ]
+                : []
+            ),
+
+            ...(
+              row.observation
+                ? [
+                    {
+                      label:
+                        'Observación',
+
+                      value:
+                        row.observation,
+                    },
+                  ]
+                : []
+            ),
+          ],
+        });
+      }
+    }
+
+
     const reassignments =
       await this.database.db.execute<{
         id: string;
@@ -4443,6 +4656,63 @@ export class AuthorizationQueryRepository {
         end
           as review_status,
 
+        coalesce(
+          (
+            select
+              aba.status
+
+            from
+              authorization_billing_audits aba
+
+            where
+              aba.authorization_item_id =
+                i.id
+
+            limit 1
+          ),
+          'PENDING'
+        )
+          as billing_audit_status,
+
+        (
+          select
+            aba.result
+
+          from
+            authorization_billing_audits aba
+
+          where
+            aba.authorization_item_id =
+              i.id
+
+          limit 1
+        )
+          as billing_audit_result,
+
+        coalesce(
+          (
+            select
+              count(*)::int
+
+            from
+              authorization_billing_audit_evidence
+                abae_status
+
+            join
+              authorization_billing_audits
+                aba_status
+                  on aba_status.id =
+                     abae_status.billing_audit_id
+
+            where
+              aba_status.authorization_item_id =
+                i.id
+          ),
+          0
+        )
+          as billing_audit_evidence_count,
+
+
         i.created_at,
 
         i.updated_at
@@ -5110,6 +5380,72 @@ export class AuthorizationQueryRepository {
       fulfillmentStatus,
 
       auditStatus,
+
+      billingAuditStatus:
+        row.billing_audit_status,
+
+      billingAuditResult:
+        row.billing_audit_result,
+
+      billingAuditEvidenceCount:
+        Number(
+          row.billing_audit_evidence_count
+          ??
+          0,
+        ),
+
+      billingAuditDisplayStatus:
+        (() => {
+          const evidenceCount =
+            Number(
+              row.billing_audit_evidence_count
+              ??
+              0,
+            );
+
+          if (
+            row.operational_status !==
+              'CLOSED'
+          ) {
+            return 'NOT_AVAILABLE';
+          }
+
+          if (
+            row.billing_audit_status ===
+              'PENDING'
+          ) {
+            return evidenceCount > 0
+              ? 'PENDING_WITH_EVIDENCE'
+              : 'PENDING_WITHOUT_EVIDENCE';
+          }
+
+          if (
+            row.billing_audit_status ===
+              'REVIEWED'
+            &&
+            row.billing_audit_result ===
+              'COMPLIES'
+          ) {
+            return evidenceCount > 0
+              ? 'COMPLIES_WITH_EVIDENCE'
+              : 'COMPLIES_WITHOUT_EVIDENCE';
+          }
+
+          if (
+            row.billing_audit_status ===
+              'REVIEWED'
+            &&
+            row.billing_audit_result ===
+              'DOES_NOT_COMPLY'
+          ) {
+            return evidenceCount > 0
+              ? 'DOES_NOT_COMPLY_WITH_EVIDENCE'
+              : 'DOES_NOT_COMPLY_WITHOUT_EVIDENCE';
+          }
+
+          return 'INCONSISTENT';
+        })(),
+
 
       coverageType:
         row.coverage_type,

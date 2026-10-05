@@ -53,6 +53,11 @@ const authConfigSchema = {
   AUTH_BOOTSTRAP_MTD_AUDITORIA_PASSWORD: z.string().min(12).max(128).optional(),
 };
 
+const driveAuditConfigSchema = {
+  GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_ID: z.string().min(1).optional().or(z.literal('')),
+  GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: z.string().min(1).optional().or(z.literal('')),
+};
+
 const bulkConfigSchema = {
   BULK_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
 };
@@ -71,6 +76,7 @@ export const apiConfigSchema = commonSchema.extend({
   ...importConfigSchema,
   ...mipresConfigSchema,
   ...authConfigSchema,
+  ...driveAuditConfigSchema,
   ...reconciliationOperationsConfigSchema,
   PORT: z.coerce.number().int().positive().optional(),
   API_PORT: z.coerce.number().int().positive().default(3001),
