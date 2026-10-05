@@ -2592,3 +2592,97 @@ export const mipresManualDecisionResponseSchema = z.object({
 });
 
 export type MipresManualDecisionResponse = z.infer<typeof mipresManualDecisionResponseSchema>;
+
+// AUTHORIZATION BILLING AUDIT CONTRACTS - BEGIN
+
+export const authorizationBillingAuditStatusSchema = z.enum(['PENDING', 'REVIEWED']);
+
+export type AuthorizationBillingAuditStatus = z.infer<typeof authorizationBillingAuditStatusSchema>;
+
+export const authorizationBillingAuditResultSchema = z.enum(['COMPLIES', 'DOES_NOT_COMPLY']);
+
+export type AuthorizationBillingAuditResult = z.infer<typeof authorizationBillingAuditResultSchema>;
+
+export const authorizationBillingAuditDecisionRequestSchema = z
+  .object({
+    result: authorizationBillingAuditResultSchema,
+
+    observation: z.string().trim().min(1).max(4000).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.result === 'DOES_NOT_COMPLY' && !value.observation) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['observation'],
+        message: 'Observation is required when result is DOES_NOT_COMPLY',
+      });
+    }
+  });
+
+export type AuthorizationBillingAuditDecisionRequest = z.infer<
+  typeof authorizationBillingAuditDecisionRequestSchema
+>;
+
+export const authorizationBillingAuditEvidenceSchema = z.object({
+  id: z.string().uuid(),
+
+  billingAuditId: z.string().uuid(),
+
+  driveFileId: z.string().min(1),
+
+  fileName: z.string().min(1),
+
+  mimeType: z.string().nullable(),
+
+  webViewLink: z.string().nullable(),
+
+  sizeBytes: z.number().int().nonnegative().nullable(),
+
+  md5Checksum: z.string().nullable(),
+
+  driveModifiedAt: isoDateTimeSchema.nullable(),
+
+  discoveredAt: isoDateTimeSchema,
+
+  createdAt: isoDateTimeSchema,
+});
+
+export type AuthorizationBillingAuditEvidence = z.infer<
+  typeof authorizationBillingAuditEvidenceSchema
+>;
+
+export const authorizationBillingAuditResponseSchema = z.object({
+  id: z.string().uuid(),
+
+  authorizationItemId: z.string().uuid(),
+
+  authorizationNumber: z.string(),
+
+  status: authorizationBillingAuditStatusSchema,
+
+  result: authorizationBillingAuditResultSchema.nullable(),
+
+  observation: z.string().nullable(),
+
+  createdBy: z.string().uuid(),
+
+  createdAt: isoDateTimeSchema,
+
+  auditedBy: z.string().uuid().nullable(),
+
+  auditedByName: z.string().nullable(),
+
+  auditedAt: isoDateTimeSchema.nullable(),
+
+  correlationId: z.string().uuid(),
+
+  updatedAt: isoDateTimeSchema,
+
+  evidence: z.array(authorizationBillingAuditEvidenceSchema),
+});
+
+export type AuthorizationBillingAuditResponse = z.infer<
+  typeof authorizationBillingAuditResponseSchema
+>;
+
+// AUTHORIZATION BILLING AUDIT CONTRACTS - END

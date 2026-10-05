@@ -64,6 +64,24 @@ export type AuthorizationQueryAuditStatus =
   | 'APPROVED'
   | 'REJECTED';
 
+export type AuthorizationBillingAuditStatus =
+  | 'PENDING'
+  | 'REVIEWED';
+
+export type AuthorizationBillingAuditResult =
+  | 'COMPLIES'
+  | 'DOES_NOT_COMPLY';
+
+export type AuthorizationBillingAuditDisplayStatus =
+  | 'NOT_AVAILABLE'
+  | 'PENDING_WITHOUT_EVIDENCE'
+  | 'PENDING_WITH_EVIDENCE'
+  | 'COMPLIES_WITHOUT_EVIDENCE'
+  | 'COMPLIES_WITH_EVIDENCE'
+  | 'DOES_NOT_COMPLY_WITHOUT_EVIDENCE'
+  | 'DOES_NOT_COMPLY_WITH_EVIDENCE'
+  | 'INCONSISTENT';
+
 export type AuthorizationLinkedPurchaseOrder =
   Readonly<{
     id: string;
@@ -175,6 +193,18 @@ export type AuthorizationQueryItem = {
 
   auditStatus:
     AuthorizationQueryAuditStatus;
+
+  billingAuditStatus:
+    AuthorizationBillingAuditStatus;
+
+  billingAuditResult:
+    AuthorizationBillingAuditResult | null;
+
+  billingAuditEvidenceCount:
+    number;
+
+  billingAuditDisplayStatus:
+    AuthorizationBillingAuditDisplayStatus;
 
   coverageType:
     string;

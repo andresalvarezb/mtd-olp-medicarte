@@ -21,6 +21,8 @@ const OPERATIONAL_TABLES = [
   'bulk_import_row_attempts',
   'bulk_import_rows',
   'bulk_import_jobs',
+  'authorization_billing_audit_evidence',
+  'authorization_billing_audits',
   'patient_application_audits',
   'patient_application_lines',
   'patient_applications',

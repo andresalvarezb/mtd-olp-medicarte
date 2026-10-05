@@ -3816,3 +3816,186 @@ export const authorizationFulfillmentLines = pgTable(
     ),
   ],
 );
+
+// AUTHORIZATION BILLING AUDIT - BEGIN
+
+export const authorizationBillingAudits = pgTable(
+  'authorization_billing_audits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, {
+        onDelete: 'restrict',
+      }),
+
+    status: varchar('status', {
+      length: 20,
+    })
+      .notNull()
+      .default('PENDING'),
+
+    result: varchar('result', {
+      length: 30,
+    }),
+
+    observation: text('observation'),
+
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, {
+        onDelete: 'restrict',
+      }),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    auditedBy: uuid('audited_by').references(() => users.id, {
+      onDelete: 'restrict',
+    }),
+
+    auditedAt: timestamp('audited_at', {
+      withTimezone: true,
+    }),
+
+    correlationId: uuid('correlation_id').notNull(),
+
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('authorization_billing_audits_authorization_unique').on(table.authorizationItemId),
+
+    index('authorization_billing_audits_status_created_idx').on(
+      table.status,
+      table.createdAt,
+      table.id,
+    ),
+
+    check(
+      'authorization_billing_audits_status_check',
+      sql`${table.status} IN ('PENDING', 'REVIEWED')`,
+    ),
+
+    check(
+      'authorization_billing_audits_result_check',
+      sql`${table.result} IS NULL OR ${table.result} IN ('COMPLIES', 'DOES_NOT_COMPLY')`,
+    ),
+
+    check(
+      'authorization_billing_audits_state_check',
+      sql`
+        (
+          ${table.status} = 'PENDING'
+          AND ${table.result} IS NULL
+          AND ${table.auditedBy} IS NULL
+          AND ${table.auditedAt} IS NULL
+        )
+        OR
+        (
+          ${table.status} = 'REVIEWED'
+          AND ${table.result} IS NOT NULL
+          AND ${table.auditedBy} IS NOT NULL
+          AND ${table.auditedAt} IS NOT NULL
+        )
+      `,
+    ),
+
+    check(
+      'authorization_billing_audits_non_compliance_observation_check',
+      sql`
+        ${table.result} IS DISTINCT FROM 'DOES_NOT_COMPLY'
+        OR (
+          ${table.observation} IS NOT NULL
+          AND length(btrim(${table.observation})) > 0
+        )
+      `,
+    ),
+  ],
+);
+
+export const authorizationBillingAuditEvidence = pgTable(
+  'authorization_billing_audit_evidence',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    billingAuditId: uuid('billing_audit_id')
+      .notNull()
+      .references(() => authorizationBillingAudits.id, {
+        onDelete: 'restrict',
+      }),
+
+    driveFileId: varchar('drive_file_id', {
+      length: 255,
+    }).notNull(),
+
+    fileName: text('file_name').notNull(),
+
+    mimeType: varchar('mime_type', {
+      length: 255,
+    }),
+
+    webViewLink: text('web_view_link'),
+
+    sizeBytes: numeric('size_bytes', {
+      precision: 20,
+      scale: 0,
+    }),
+
+    md5Checksum: varchar('md5_checksum', {
+      length: 64,
+    }),
+
+    driveModifiedAt: timestamp('drive_modified_at', {
+      withTimezone: true,
+    }),
+
+    discoveredAt: timestamp('discovered_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('authorization_billing_audit_evidence_audit_drive_unique').on(
+      table.billingAuditId,
+      table.driveFileId,
+    ),
+
+    index('authorization_billing_audit_evidence_audit_idx').on(
+      table.billingAuditId,
+      table.discoveredAt,
+      table.id,
+    ),
+
+    check(
+      'authorization_billing_audit_evidence_drive_file_not_blank_check',
+      sql`length(btrim(${table.driveFileId})) > 0`,
+    ),
+
+    check(
+      'authorization_billing_audit_evidence_file_name_not_blank_check',
+      sql`length(btrim(${table.fileName})) > 0`,
+    ),
+
+    check(
+      'authorization_billing_audit_evidence_size_check',
+      sql`${table.sizeBytes} IS NULL OR ${table.sizeBytes} >= 0`,
+    ),
+  ],
+);
+
+// AUTHORIZATION BILLING AUDIT - END

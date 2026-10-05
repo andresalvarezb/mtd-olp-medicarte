@@ -29,10 +29,18 @@ import {
   listAuthorizationQuery,
   type AuthorizationFulfillmentType,
   type AuthorizationHistoryEvent,
-  type AuthorizationQueryAuditStatus,
   type AuthorizationQueryFilters,
   type AuthorizationQueryItem,
 } from '@/lib/authorization-query-api';
+
+import {
+  decideAuthorizationBillingAudit,
+  getAuthorizationBillingAudit,
+  searchAuthorizationBillingAuditDriveEvidence,
+  startAuthorizationBillingAudit,
+  type AuthorizationBillingAuditDecisionRequest,
+  type AuthorizationBillingAuditResponse,
+} from '@/lib/authorization-billing-audits-api';
 
 import {
   downloadExportable,
@@ -159,24 +167,39 @@ function fulfillmentStatusLabel(
 }
 
 
-function auditStatusLabel(
+
+
+
+function billingAuditDisplayStatusLabel(
   status:
-    AuthorizationQueryAuditStatus,
+    AuthorizationQueryItem['billingAuditDisplayStatus'],
 ) {
   const labels = {
-    PENDING:
-      'Pendiente',
+    NOT_AVAILABLE:
+      'No disponible',
 
-    IN_REVIEW:
-      'En auditoría',
+    PENDING_WITHOUT_EVIDENCE:
+      'Pendiente sin soportes',
 
-    APPROVED:
-      'Se puede facturar',
+    PENDING_WITH_EVIDENCE:
+      'Pendiente con soportes',
 
-    REJECTED:
-      'No se puede facturar',
+    COMPLIES_WITHOUT_EVIDENCE:
+      'Cumple sin soportes',
+
+    COMPLIES_WITH_EVIDENCE:
+      'Cumple',
+
+    DOES_NOT_COMPLY_WITHOUT_EVIDENCE:
+      'No cumple sin soportes',
+
+    DOES_NOT_COMPLY_WITH_EVIDENCE:
+      'No cumple',
+
+    INCONSISTENT:
+      'Inconsistente',
   } satisfies Record<
-    AuthorizationQueryAuditStatus,
+    AuthorizationQueryItem['billingAuditDisplayStatus'],
     string
   >;
 
@@ -184,36 +207,117 @@ function auditStatusLabel(
 }
 
 
-function authorizationAuditStatus(
+function billingAuditVisibleStatusLabel(
   item:
     AuthorizationQueryItem,
-): AuthorizationQueryAuditStatus {
-  const {
-    auditStatus,
-  } =
-    item;
 
-  return auditStatus;
-}
+  audit:
+    | {
+        authorizationItemId:
+          string;
 
+        status:
+          AuthorizationQueryItem['billingAuditStatus'];
 
-function authorizationAuditLabel(
-  item:
-    AuthorizationQueryItem,
+        result:
+          AuthorizationQueryItem['billingAuditResult'];
+
+        evidence?:
+          readonly unknown[];
+      }
+    | null
+    | undefined,
 ) {
+  /*
+   * Si no existe auditoría persistida todavía,
+   * el read-model de la AUTO es la fuente canónica.
+   *
+   * También evita contaminar una AUTO con un
+   * billingAudit que hubiese quedado temporalmente
+   * en estado local desde otra autorización.
+   */
   if (
-    item.fulfillmentStatus ===
-      'PENDING'
+    !audit
+    ||
+    audit.authorizationItemId !==
+      item.id
   ) {
-    return 'No aplica';
+    return billingAuditDisplayStatusLabel(
+      item.billingAuditDisplayStatus,
+    );
   }
 
-  return auditStatusLabel(
-    authorizationAuditStatus(
-      item,
-    ),
+  const evidenceCount =
+    (
+      audit.evidence
+      ??
+      []
+    ).length;
+
+  if (
+    item.operationalStatus !==
+      'CLOSED'
+  ) {
+    return 'No disponible';
+  }
+
+  if (
+    audit.status ===
+      'PENDING'
+  ) {
+    return evidenceCount >
+      0
+      ? 'Pendiente con soportes'
+      : 'Pendiente sin soportes';
+  }
+
+  if (
+    audit.status ===
+      'REVIEWED'
+    &&
+    audit.result ===
+      'COMPLIES'
+  ) {
+    return evidenceCount >
+      0
+      ? 'Cumple'
+      : 'Cumple sin soportes';
+  }
+
+  if (
+    audit.status ===
+      'REVIEWED'
+    &&
+    audit.result ===
+      'DOES_NOT_COMPLY'
+  ) {
+    return evidenceCount >
+      0
+      ? 'No cumple'
+      : 'No cumple sin soportes';
+  }
+
+  /*
+   * Ante cualquier objeto parcial/anómalo,
+   * volvemos al read-model canónico.
+   */
+  return billingAuditDisplayStatusLabel(
+    item.billingAuditDisplayStatus,
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 function operationalLabel(
@@ -960,6 +1064,100 @@ export function ConsultaAutorizacionesView() {
     useState(false);
 
   const [
+    viewingBillingAudit,
+    setViewingBillingAudit,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    billingAudit,
+    setBillingAudit,
+  ] =
+    useState<
+      AuthorizationBillingAuditResponse |
+      null
+    >(
+      null,
+    );
+
+  const [
+    billingAuditLoading,
+    setBillingAuditLoading,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    billingAuditStarting,
+    setBillingAuditStarting,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    billingAuditError,
+    setBillingAuditError,
+  ] =
+    useState<
+      string |
+      null
+    >(
+      null,
+    );
+
+  const [
+    billingAuditDriveSearching,
+    setBillingAuditDriveSearching,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    billingAuditDecisionSaving,
+    setBillingAuditDecisionSaving,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    billingAuditDecisionResult,
+    setBillingAuditDecisionResult,
+  ] =
+    useState<
+      AuthorizationBillingAuditDecisionRequest['result'] |
+      ''
+    >(
+      '',
+    );
+
+  const [
+    billingAuditObservation,
+    setBillingAuditObservation,
+  ] =
+    useState(
+      '',
+    );
+
+  const [
+    billingAuditActionError,
+    setBillingAuditActionError,
+  ] =
+    useState<
+      string |
+      null
+    >(
+      null,
+    );
+
+
+
+  const [
     authorizationHistory,
     setAuthorizationHistory,
   ] =
@@ -1069,6 +1267,19 @@ export function ConsultaAutorizacionesView() {
     hasPermission(
       'authorizations.manual_edit',
     );
+
+  const canReadBillingAudit =
+    hasPermission(
+      'application_audits.read',
+    );
+
+
+  const canManageBillingAudit =
+    hasPermission(
+      'application_audits.manage',
+    );
+
+
 const [
   filterQueryRevision,
   setFilterQueryRevision,
@@ -1295,6 +1506,30 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
             false,
           );
 
+          setViewingBillingAudit(
+            false,
+          );
+
+          setBillingAudit(
+            null,
+          );
+
+          setBillingAuditError(
+            null,
+          );
+
+          setBillingAuditActionError(
+            null,
+          );
+
+          setBillingAuditDecisionResult(
+            '',
+          );
+
+          setBillingAuditObservation(
+            '',
+          );
+
           setEditingAuthorization(
             false,
           );
@@ -1394,6 +1629,30 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
     setViewingHistory(
       false,
+    );
+
+    setViewingBillingAudit(
+      false,
+    );
+
+    setBillingAudit(
+      null,
+    );
+
+    setBillingAuditError(
+      null,
+    );
+
+    setBillingAuditActionError(
+      null,
+    );
+
+    setBillingAuditDecisionResult(
+      '',
+    );
+
+    setBillingAuditObservation(
+      '',
     );
 
     setEditingAuthorization(
@@ -1909,6 +2168,333 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
         todayBogota,
     );
 
+  async function loadBillingAudit(
+    authorizationItemId:
+      string,
+  ) {
+    if (
+      !organizationId
+    ) {
+      return;
+    }
+
+    setBillingAuditLoading(
+      true,
+    );
+
+    setBillingAuditError(
+      null,
+    );
+
+    try {
+      const audit =
+        await getAuthorizationBillingAudit(
+          organizationId,
+          authorizationItemId,
+        );
+
+      setBillingAudit(
+        audit,
+      );
+    } catch (
+      cause
+    ) {
+      if (
+        cause instanceof ApiError
+        &&
+        cause.status === 404
+        &&
+        cause.code ===
+          'AUTHORIZATION_BILLING_AUDIT_NOT_FOUND'
+      ) {
+        setBillingAudit(
+          null,
+        );
+
+        return;
+      }
+
+      setBillingAuditError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible consultar la auditoría de facturación.',
+      );
+    } finally {
+      setBillingAuditLoading(
+        false,
+      );
+    }
+  }
+
+
+  async function startBillingAudit() {
+    if (
+      !selected
+      ||
+      !organizationId
+      ||
+      !canManageBillingAudit
+      ||
+      billingAuditStarting
+    ) {
+      return;
+    }
+
+    setBillingAuditStarting(
+      true,
+    );
+
+    setBillingAuditError(
+      null,
+    );
+
+    try {
+      const audit =
+        await startAuthorizationBillingAudit(
+          organizationId,
+          selected.id,
+        );
+
+      setBillingAudit(
+        audit,
+      );
+    } catch (
+      cause
+    ) {
+      setBillingAuditError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible iniciar la auditoría de facturación.',
+      );
+    } finally {
+      setBillingAuditStarting(
+        false,
+      );
+    }
+  }
+
+  async function searchBillingAuditDriveEvidence() {
+    if (
+      !billingAudit
+      ||
+      !organizationId
+      ||
+      !canManageBillingAudit
+      ||
+      billingAudit.status !==
+        'PENDING'
+      ||
+      billingAuditDriveSearching
+    ) {
+      return;
+    }
+
+    const auditId =
+      billingAudit.id;
+
+    setBillingAuditDriveSearching(
+      true,
+    );
+
+    setBillingAuditActionError(
+      null,
+    );
+
+    try {
+      const refreshedAudit =
+        await searchAuthorizationBillingAuditDriveEvidence(
+          organizationId,
+          auditId,
+        );
+
+      setBillingAudit(
+        (current) =>
+          current?.id === auditId
+            ? refreshedAudit
+            : current,
+      );
+    } catch (
+      cause
+    ) {
+      setBillingAuditActionError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible buscar el soporte en Google Drive.',
+      );
+    } finally {
+      setBillingAuditDriveSearching(
+        false,
+      );
+    }
+  }
+
+
+  async function decideBillingAudit() {
+    if (
+      !selected
+      ||
+      !billingAuditDecisionResult
+    ) {
+      return;
+    }
+
+    if (
+      selected.operationalStatus !==
+        'CLOSED'
+    ) {
+      setBillingAuditActionError(
+        'La auditoría solo puede registrarse cuando la AUTO está cerrada.',
+      );
+
+      return;
+    }
+
+    const observation =
+      billingAuditObservation.trim();
+
+    const evidenceCount =
+      billingAudit?.evidence?.length
+      ??
+      selected.billingAuditEvidenceCount
+      ??
+      0;
+
+    if (
+      (
+        billingAuditDecisionResult ===
+          'DOES_NOT_COMPLY'
+        ||
+        evidenceCount ===
+          0
+      )
+      &&
+      observation.length ===
+        0
+    ) {
+      setBillingAuditActionError(
+        evidenceCount ===
+          0
+          ? 'La observación es obligatoria cuando la auditoría no tiene soportes.'
+          : 'La observación es obligatoria cuando la AUTO no cumple.',
+      );
+
+      return;
+    }
+
+    setBillingAuditActionError(
+      null,
+    );
+
+    setBillingAuditDecisionSaving(
+      true,
+    );
+
+    try {
+      /*
+       * El estado visual PENDING puede existir en el read-model
+       * aunque aún no exista authorization_billing_audits.
+       *
+       * /start es idempotente y materializa/recupera la
+       * auditoría técnica necesaria antes de decidir.
+       */
+      const persistedAudit =
+        await startAuthorizationBillingAudit(
+          organizationId,
+          selected.id,
+        );
+
+      if (
+        persistedAudit.status ===
+          'REVIEWED'
+      ) {
+        setBillingAudit(
+          persistedAudit,
+        );
+
+        const refreshed =
+          await getAuthorizationQueryItem(
+            organizationId,
+            selected.id,
+          );
+
+        setSelected(
+          refreshed,
+        );
+
+        query.reload();
+
+        setBillingAuditActionError(
+          'La auditoría ya había sido revisada.',
+        );
+
+        return;
+      }
+
+      const decidedAudit =
+        await decideAuthorizationBillingAudit(
+          organizationId,
+          persistedAudit.id,
+          {
+            result:
+              billingAuditDecisionResult,
+
+            observation:
+              observation.length >
+                0
+                ? observation
+                : null,
+          },
+        );
+
+      setBillingAudit(
+        decidedAudit,
+      );
+
+      /*
+       * Refrescamos el read-model canónico para que:
+       *
+       * - tabla principal
+       * - resumen
+       * - pestaña Auditoría
+       *
+       * reflejen exactamente el mismo estado.
+       */
+      const refreshed =
+        await getAuthorizationQueryItem(
+          organizationId,
+          selected.id,
+        );
+
+      setSelected(
+        refreshed,
+      );
+
+      setBillingAuditDecisionResult(
+        '',
+      );
+
+      setBillingAuditObservation(
+        '',
+      );
+
+      query.reload();
+    } catch (
+      cause
+    ) {
+      setBillingAuditActionError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible guardar la decisión de auditoría.',
+      );
+    } finally {
+      setBillingAuditDecisionSaving(
+        false,
+      );
+    }
+  }
+
+
+
   async function loadAuthorizationHistory(
     authorizationItemId:
       string,
@@ -2361,9 +2947,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
                     <td>
                       <strong>
-                        {authorizationAuditLabel(
-                          item,
-                        )}
+                        {billingAuditDisplayStatusLabel(item.billingAuditDisplayStatus)}
                       </strong>
                     </td>
 
@@ -2614,11 +3198,13 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                 role="tab"
                 aria-selected={
                   !managingAuthorization &&
-                  !viewingHistory
+                  !viewingHistory &&
+                  !viewingBillingAudit
                 }
                 className={
                   !managingAuthorization &&
-                  !viewingHistory
+                  !viewingHistory &&
+                  !viewingBillingAudit
                     ? 'active'
                     : ''
                 }
@@ -2628,6 +3214,10 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   );
 
                   setViewingHistory(
+                    false,
+                  );
+
+                  setViewingBillingAudit(
                     false,
                   );
 
@@ -2653,11 +3243,13 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   role="tab"
                   aria-selected={
                     managingAuthorization &&
-                    !viewingHistory
+                    !viewingHistory &&
+                    !viewingBillingAudit
                   }
                   className={
                     managingAuthorization &&
-                    !viewingHistory
+                    !viewingHistory &&
+                    !viewingBillingAudit
                       ? 'active'
                       : ''
                   }
@@ -2681,8 +3273,12 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                     );
 
                     setViewingHistory(
-                      false,
-                    );
+                    false,
+                  );
+
+                  setViewingBillingAudit(
+                    false,
+                  );
 
                     setFulfillmentType(
                       'APPLICATION',
@@ -2706,6 +3302,58 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   Gestionar entrega / aplicación
                 </button>
               ) : null}
+              {canReadBillingAudit ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={
+                    viewingBillingAudit
+                  }
+                  className={
+                    viewingBillingAudit
+                      ? 'active'
+                      : ''
+                  }
+                  disabled={
+                    editingAuthorization
+                  }
+                  title={
+                    editingAuthorization
+                      ? 'Guarda o cancela la edición antes de cambiar de vista.'
+                      : undefined
+                  }
+                  onClick={() => {
+                    if (
+                      editingAuthorization
+                    ) {
+                      return;
+                    }
+
+                    setManagingAuthorization(
+                      false,
+                    );
+
+                    setViewingHistory(
+                      false,
+                    );
+
+                    setViewingBillingAudit(
+                      true,
+                    );
+
+                    setBillingAuditError(
+                      null,
+                    );
+
+                    void loadBillingAudit(
+                      selected.id,
+                    );
+                  }}
+                >
+                  Auditoría
+                </button>
+              ) : null}
+
 
               <button
                 type="button"
@@ -2741,6 +3389,10 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                     true,
                   );
 
+                  setViewingBillingAudit(
+                    false,
+                  );
+
                   void loadAuthorizationHistory(
                     selected.id,
                   );
@@ -2755,7 +3407,840 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
             </div>
 
 
-            {viewingHistory ? (
+            {viewingBillingAudit ? (
+              <>
+                {billingAuditLoading ? (
+                  <div className="authorization-history-empty">
+                    Cargando auditoría…
+                  </div>
+                ) : billingAuditError ? (
+                  <div
+                    className="authorization-fulfillment-error"
+                    role="alert"
+                  >
+                    {billingAuditError}
+                  </div>
+                ) : billingAudit ? (
+                  <>
+                    <div
+                      style={{
+                        display:
+                          'grid',
+
+                        gridTemplateColumns:
+                          billingAudit.status ===
+                            'REVIEWED'
+                            ? 'repeat(3, minmax(0, 1fr))'
+                            : 'repeat(2, minmax(0, 1fr))',
+
+                        gap:
+                          '20px',
+
+                        padding:
+                          '8px 0 16px',
+
+                        marginBottom:
+                          '16px',
+
+                        borderBottom:
+                          '1px solid var(--border-color, #e2e7ef)',
+                      }}
+                    >
+                      <div>
+                        <span
+                          style={{
+                            display:
+                              'block',
+
+                            fontSize:
+                              '12px',
+
+                            opacity:
+                              0.65,
+
+                            marginBottom:
+                              '2px',
+                          }}
+                        >
+                          Estado
+                        </span>
+
+                        <strong>
+                          {billingAuditVisibleStatusLabel(
+                            selected,
+                            billingAudit,
+                          )}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span
+                          style={{
+                            display:
+                              'block',
+
+                            fontSize:
+                              '12px',
+
+                            opacity:
+                              0.65,
+
+                            marginBottom:
+                              '2px',
+                          }}
+                        >
+                          Fecha de auditoría
+                        </span>
+
+                        <strong>
+                          {dateTimeLabel(
+                            billingAudit.auditedAt
+                              ??
+                              billingAudit.createdAt,
+                          )}
+                        </strong>
+                      </div>
+
+                      {billingAudit.status ===
+                      'REVIEWED' ? (
+                        <div>
+                          <span
+                            style={{
+                              display:
+                                'block',
+
+                              fontSize:
+                                '12px',
+
+                              opacity:
+                                0.65,
+
+                              marginBottom:
+                                '2px',
+                            }}
+                          >
+                            Auditor
+                          </span>
+
+                          <strong>
+                            {billingAudit.auditedByName
+                              ??
+                              billingAudit.auditedBy
+                              ??
+                              '—'}
+                          </strong>
+                        </div>
+                      ) : null}
+                    </div>
+
+
+                    {billingAuditActionError ? (
+                      <div
+                        className="authorization-fulfillment-error"
+                        role="alert"
+                        style={{
+                          marginBottom:
+                            '16px',
+                        }}
+                      >
+                        {billingAuditActionError}
+                      </div>
+                    ) : null}
+
+
+                    <div
+                      style={{
+                        display:
+                          'grid',
+
+                        gridTemplateColumns:
+                          'minmax(0, 1.05fr) minmax(300px, 0.95fr)',
+
+                        gap:
+                          '14px',
+
+                        alignItems:
+                          'stretch',
+                      }}
+                    >
+                      <section
+                        style={{
+                          border:
+                            '1px solid var(--border-color, #dfe4ec)',
+
+                          borderRadius:
+                            '12px',
+
+                          padding:
+                            '14px',
+
+                          minWidth:
+                            0,
+
+
+                            order:
+                              2,
+}}
+                      >
+                        <div
+                          style={{
+                            display:
+                              'flex',
+
+                            alignItems:
+                              'center',
+
+                            justifyContent:
+                              'space-between',
+
+                            gap:
+                              '12px',
+
+                            marginBottom:
+                              '14px',
+                          }}
+                        >
+                          <div>
+                            <strong>
+                              Soportes
+                            </strong>
+
+                            <div
+                              style={{
+                                marginTop:
+                                  '2px',
+
+                                fontSize:
+                                  '12px',
+
+                                opacity:
+                                  0.65,
+                              }}
+                            >
+                              PDF asociados a la auditoría.
+                            </div>
+                          </div>
+
+                          {billingAudit.status ===
+                            'PENDING'
+                          &&
+                          canManageBillingAudit ? (
+                            <button
+                              type="button"
+                              className="btn"
+                              disabled={
+                                billingAuditDriveSearching
+                                ||
+                                billingAuditDecisionSaving
+                              }
+                              onClick={() => {
+                                void searchBillingAuditDriveEvidence();
+                              }}
+                            >
+                              {billingAuditDriveSearching
+                                ? 'Buscando…'
+                                : 'Buscar en Drive'}
+                            </button>
+                          ) : null}
+                        </div>
+
+
+                        {(billingAudit.evidence ?? []).length ===
+                        0 ? (
+                          <div
+                            style={{
+                              padding:
+                                '18px 0',
+
+                              opacity:
+                                0.68,
+                            }}
+                          >
+                            Sin soportes asociados a esta autorización.
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              display:
+                                'grid',
+
+                              gap:
+                                '10px',
+                            }}
+                          >
+                            {(billingAudit.evidence ?? []).map(
+                              (
+                                evidence,
+                              ) => (
+                                <div
+                                  key={
+                                    evidence.id
+                                  }
+                                  style={{
+                                    display:
+                                      'flex',
+
+                                    alignItems:
+                                      'center',
+
+                                    justifyContent:
+                                      'space-between',
+
+                                    gap:
+                                      '12px',
+
+                                    padding:
+                                      '10px 12px',
+
+                                    border:
+                                      '1px solid var(--border-color, #e3e7ee)',
+
+                                    borderRadius:
+                                      '10px',
+
+                                    minWidth:
+                                      0,
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      minWidth:
+                                        0,
+                                    }}
+                                  >
+                                    <strong
+                                      style={{
+                                        display:
+                                          'block',
+
+                                        overflow:
+                                          'hidden',
+
+                                        textOverflow:
+                                          'ellipsis',
+
+                                        whiteSpace:
+                                          'nowrap',
+                                      }}
+                                    >
+                                      {evidence.fileName}
+                                    </strong>
+
+                                    <span
+                                      style={{
+                                        display:
+                                          'block',
+
+                                        marginTop:
+                                          '3px',
+
+                                        fontSize:
+                                          '12px',
+
+                                        opacity:
+                                          0.65,
+                                      }}
+                                    >
+                                      PDF · Google Drive
+                                    </span>
+                                  </div>
+
+                                  {evidence.webViewLink ? (
+                                    <a
+                                      className="btn"
+                                      href={
+                                        evidence.webViewLink
+                                      }
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      Ver PDF
+                                    </a>
+                                  ) : null}
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        )}
+                      </section>
+
+
+                      {billingAudit.status ===
+                      'REVIEWED' ? (
+                        <section
+                          style={{
+                            border:
+                              '1px solid var(--border-color, #dfe4ec)',
+
+                            borderRadius:
+                              '12px',
+
+                            padding:
+                              '16px',
+
+                            height:
+                              '100%',
+
+
+                            order:
+                              1,
+}}
+                        >
+                          <div
+                            style={{
+                              marginBottom:
+                                '16px',
+                            }}
+                          >
+                            <strong>
+                              Resultado final
+                            </strong>
+
+                            <div
+                              style={{
+                                marginTop:
+                                  '2px',
+
+                                fontSize:
+                                  '12px',
+
+                                opacity:
+                                  0.65,
+                              }}
+                            >
+                              La auditoría está cerrada y no puede modificarse.
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              fontSize:
+                                '20px',
+
+                              fontWeight:
+                                700,
+
+                              marginBottom:
+                                '18px',
+                            }}
+                          >
+                            {billingAudit.result ===
+                            'COMPLIES'
+                              ? '✓ Cumple'
+                              : billingAudit.result ===
+                                  'DOES_NOT_COMPLY'
+                                ? '✕ No cumple'
+                                : '—'}
+                          </div>
+
+                          <div>
+                            <span
+                              style={{
+                                display:
+                                  'block',
+
+                                fontSize:
+                                  '12px',
+
+                                opacity:
+                                  0.65,
+
+                                marginBottom:
+                                  '4px',
+                              }}
+                            >
+                              Observación
+                            </span>
+
+                            <div
+                              style={{
+                                lineHeight:
+                                  1.5,
+
+                                whiteSpace:
+                                  'pre-wrap',
+                              }}
+                            >
+                              {billingAudit.observation
+                                ??
+                                'Sin observación.'}
+                            </div>
+                          </div>
+                        </section>
+                      ) : canManageBillingAudit ? (
+                        <section
+                          style={{
+                            border:
+                              '1px solid var(--border-color, #dfe4ec)',
+
+                            borderRadius:
+                              '12px',
+
+                            padding:
+                              '16px',
+
+
+                            order:
+                              1,
+}}
+                        >
+                          <div
+                            style={{
+                              marginBottom:
+                                '16px',
+                            }}
+                          >
+                            <strong>
+                              Registrar decisión
+                            </strong>
+
+                            <div
+                              style={{
+                                marginTop:
+                                  '2px',
+
+                                fontSize:
+                                  '12px',
+
+                                opacity:
+                                  0.65,
+                              }}
+                            >
+                              Define el resultado de la auditoría.
+                            </div>
+                          </div>
+
+
+                          <div
+                            style={{
+                              marginBottom:
+                                '16px',
+                            }}
+                          >
+                            <span
+                              style={{
+                                display:
+                                  'block',
+
+                                fontSize:
+                                  '12px',
+
+                                fontWeight:
+                                  600,
+
+                                marginBottom:
+                                  '8px',
+                              }}
+                            >
+                              Resultado
+                            </span>
+
+                            <div
+                              style={{
+                                display:
+                                  'grid',
+
+                                gridTemplateColumns:
+                                  '1fr 1fr',
+
+                                gap:
+                                  '8px',
+                              }}
+                            >
+                              <button
+                                type="button"
+                                className={
+                                  billingAuditDecisionResult ===
+                                    'COMPLIES'
+                                    ? 'btn primary'
+                                    : 'btn'
+                                }
+                                aria-pressed={
+                                  billingAuditDecisionResult ===
+                                  'COMPLIES'
+                                }
+                                disabled={
+                                  billingAuditDecisionSaving
+                                }
+                                onClick={() => {
+                                  setBillingAuditDecisionResult(
+                                    'COMPLIES',
+                                  );
+
+                                  setBillingAuditActionError(
+                                    null,
+                                  );
+                                }}
+                              >
+                                ✓ Cumple
+                              </button>
+
+                              <button
+                                type="button"
+                                className={
+                                  billingAuditDecisionResult ===
+                                    'DOES_NOT_COMPLY'
+                                    ? 'btn primary'
+                                    : 'btn'
+                                }
+                                aria-pressed={
+                                  billingAuditDecisionResult ===
+                                  'DOES_NOT_COMPLY'
+                                }
+                                disabled={
+                                  billingAuditDecisionSaving
+                                }
+                                onClick={() => {
+                                  setBillingAuditDecisionResult(
+                                    'DOES_NOT_COMPLY',
+                                  );
+
+                                  setBillingAuditActionError(
+                                    null,
+                                  );
+                                }}
+                              >
+                                ✕ No cumple
+                              </button>
+                            </div>
+                          </div>
+
+
+                          <label
+                            style={{
+                              display:
+                                'grid',
+
+                              gap:
+                                '6px',
+
+                              marginBottom:
+                                '16px',
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize:
+                                  '12px',
+
+                                fontWeight:
+                                  600,
+                              }}
+                            >
+                              Observación
+                              {billingAuditDecisionResult ===
+                              'DOES_NOT_COMPLY'
+                                ? ' *'
+                                : ''}
+                            </span>
+
+                            <textarea
+                              className="control"
+                              rows={4}
+                              maxLength={4000}
+                              value={
+                                billingAuditObservation
+                              }
+                              disabled={
+                                billingAuditDecisionSaving
+                              }
+                              placeholder={
+                                (billingAudit.evidence ?? []).length ===
+                                0
+                                  ? 'Observación obligatoria: justifica la decisión sin soportes.'
+                                  : billingAuditDecisionResult ===
+                                      'DOES_NOT_COMPLY'
+                                    ? 'Describe por qué la AUTO no cumple.'
+                                    : 'Observación opcional.'
+                              }
+                              onChange={(event) => {
+                                setBillingAuditObservation(
+                                  event.target.value,
+                                );
+
+                                setBillingAuditActionError(
+                                  null,
+                                );
+                              }}
+                            />
+
+                            {(billingAudit.evidence ?? []).length ===
+                            0 ? (
+                              <span
+                                style={{
+                                  display:
+                                    'block',
+
+                                  marginTop:
+                                    '8px',
+
+                                  fontSize:
+                                    '12px',
+
+                                  opacity:
+                                    0.72,
+                                }}
+                              >
+                                Esta auditoría no tiene soportes; la observación es obligatoria.
+                              </span>
+                            ) : null}
+
+                            {billingAuditDecisionResult ===
+                            'DOES_NOT_COMPLY' ? (
+                              <span
+                                style={{
+                                  fontSize:
+                                    '12px',
+
+                                  opacity:
+                                    0.7,
+                                }}
+                              >
+                                Obligatoria para No cumple o cuando la auditoría no tiene soportes.
+                              </span>
+                            ) : null}
+                          </label>
+
+
+                          <div
+                            style={{
+                              display:
+                                'flex',
+
+                              justifyContent:
+                                'flex-end',
+                            }}
+                          >
+                            <button
+                              type="button"
+                              className="btn primary"
+                              disabled={
+                                billingAuditDecisionSaving
+                                ||
+                                !billingAuditDecisionResult
+                                ||
+                                (
+                                  (
+                                    billingAuditDecisionResult ===
+                                      'DOES_NOT_COMPLY'
+                                    ||
+                                    (billingAudit.evidence ?? []).length ===
+                                      0
+                                  )
+                                  &&
+                                  !billingAuditObservation.trim()
+                                )
+                              }
+                              onClick={() => {
+                                void decideBillingAudit();
+                              }}
+                            >
+                              {billingAuditDecisionSaving
+                                ? 'Guardando…'
+                                : 'Confirmar decisión'}
+                            </button>
+                          </div>
+                        </section>
+                      ) : (
+                        <section
+                          style={{
+                            border:
+                              '1px solid var(--border-color, #dfe4ec)',
+
+                            borderRadius:
+                              '12px',
+
+                            padding:
+                              '16px',
+                          }}
+                        >
+                          <strong>
+                        {selected.operationalStatus ===
+                        'CLOSED'
+                          ? 'Pendiente sin soportes'
+                          : 'No disponible'}
+                      </strong>
+
+                          <p
+                            style={{
+                              margin:
+                                '6px 0 0',
+
+                              opacity:
+                                0.7,
+                            }}
+                          >
+                            No tienes permisos para registrar la decisión.
+                          </p>
+                        </section>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <section
+                    style={{
+                      border:
+                        '1px solid var(--border-color, #dfe4ec)',
+
+                      borderRadius:
+                        '12px',
+
+                      padding:
+                        '20px',
+
+                      display:
+                        'flex',
+
+                      alignItems:
+                        'center',
+
+                      justifyContent:
+                        'space-between',
+
+                      gap:
+                        '16px',
+                    }}
+                  >
+                    <div>
+                      <strong>
+                        Auditoría pendiente
+                      </strong>
+
+                      <p
+                        style={{
+                          margin:
+                            '4px 0 0',
+
+                          opacity:
+                            0.7,
+                        }}
+                      >
+                        {selected.operationalStatus ===
+                        'CLOSED'
+                          ? 'La AUTO está pendiente de auditoría y no tiene soportes registrados.'
+                          : 'La AUTO debe estar cerrada antes de realizar la auditoría de facturación.'}
+                      </p>
+                    </div>
+
+                    {canManageBillingAudit && selected.operationalStatus === 'CLOSED' ? (
+                      <button
+                        type="button"
+                        className="btn primary"
+                        disabled={
+                          billingAuditStarting
+                        }
+                        onClick={() => {
+                          void startBillingAudit();
+                        }}
+                      >
+                        {billingAuditStarting
+                          ? 'Iniciando…'
+                          : 'Iniciar auditoría'}
+                      </button>
+                    ) : null}
+                  </section>
+                )}
+              </>) : viewingHistory ? (
               <>
                 <div className="authorization-summary-section-heading">
                   <strong>
@@ -3364,10 +4849,10 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                     </span>
 
                     <strong>
-                      {authorizationAuditLabel(
-                        selected,
-                      )}
-                    </strong>
+                        {billingAuditDisplayStatusLabel(
+                          selected.billingAuditDisplayStatus,
+                        )}
+                      </strong>
                   </div>
                 </div>
 
