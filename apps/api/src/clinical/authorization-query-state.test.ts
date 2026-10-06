@@ -78,38 +78,33 @@ describe('authorization query derived state', () => {
   });
 
   describe('initial validation', () => {
-    it('marks authorization as passed only when source, tariff and coverage validation are complete', () => {
+    it('passes PBS natural validation independently from MIPRES evidence', () => {
       expect(
         resolveAuthorizationInitialValidationStatus({
           enablementStatus: 'ENABLED',
           tariffMembershipStatus: 'LISTED',
           coverageType: 'PBS',
-          directionStatus: 'NOT_APPLICABLE',
-        }),
-      ).toBe('PASSED');
-
-      expect(
-        resolveAuthorizationInitialValidationStatus({
-          enablementStatus: 'ENABLED',
-          tariffMembershipStatus: 'LISTED',
-          coverageType: 'NO_PBS',
-          directionStatus: 'CONFIRMED',
+          directionStatus: 'QUERY_ERROR',
           mipresManualDecision:
-            'MANUALLY_ENABLED',
+            'MANUALLY_DISABLED',
         }),
       ).toBe('PASSED');
+    });
 
+    it('keeps NO_PBS Habilitacion passed while manual MIPRES enablement is pending', () => {
       expect(
         resolveAuthorizationInitialValidationStatus({
           enablementStatus: 'ENABLED',
           tariffMembershipStatus: 'LISTED',
           coverageType: 'NO_PBS',
-          directionStatus: 'CONFIRMED',
+          directionStatus: 'PENDING',
           mipresManualDecision:
             'PENDING_MANUAL_ENABLEMENT',
         }),
-      ).toBe('PENDING');
+      ).toBe('PASSED');
+    });
 
+    it('keeps NO_PBS Habilitacion passed when MIPRES is manually disabled', () => {
       expect(
         resolveAuthorizationInitialValidationStatus({
           enablementStatus: 'ENABLED',
@@ -119,16 +114,29 @@ describe('authorization query derived state', () => {
           mipresManualDecision:
             'MANUALLY_DISABLED',
         }),
-      ).toBe('FAILED');
+      ).toBe('PASSED');
     });
 
-    it('marks terminal initial failures', () => {
+    it('keeps NO_PBS Habilitacion passed when MIPRES is manually enabled', () => {
+      expect(
+        resolveAuthorizationInitialValidationStatus({
+          enablementStatus: 'ENABLED',
+          tariffMembershipStatus: 'LISTED',
+          coverageType: 'NO_PBS',
+          directionStatus: 'QUERY_ERROR',
+          mipresManualDecision:
+            'MANUALLY_ENABLED',
+        }),
+      ).toBe('PASSED');
+    });
+
+    it('marks terminal natural validation failures', () => {
       expect(
         resolveAuthorizationInitialValidationStatus({
           enablementStatus: 'BLOCKED_SOURCE_STATUS',
           tariffMembershipStatus: 'LISTED',
           coverageType: 'PBS',
-          directionStatus: 'NOT_APPLICABLE',
+          directionStatus: 'QUERY_ERROR',
         }),
       ).toBe('FAILED');
 
@@ -137,29 +145,18 @@ describe('authorization query derived state', () => {
           enablementStatus: 'ENABLED',
           tariffMembershipStatus: 'NOT_LISTED',
           coverageType: 'PBS',
-          directionStatus: 'NOT_APPLICABLE',
+          directionStatus: 'QUERY_ERROR',
         }),
       ).toBe('FAILED');
     });
 
-    it('keeps unfinished tariff or MIPRES checks pending', () => {
+    it('keeps unfinished tariff validation pending', () => {
       expect(
         resolveAuthorizationInitialValidationStatus({
           enablementStatus: 'ENABLED',
           tariffMembershipStatus: 'NOT_EVALUATED',
           coverageType: 'PBS',
-          directionStatus: 'NOT_APPLICABLE',
-        }),
-      ).toBe('PENDING');
-
-      expect(
-        resolveAuthorizationInitialValidationStatus({
-          enablementStatus: 'ENABLED',
-          tariffMembershipStatus: 'LISTED',
-          coverageType: 'NO_PBS',
-          directionStatus: 'CONFIRMED',
-          mipresManualDecision:
-            'PENDING_MANUAL_ENABLEMENT',
+          directionStatus: 'QUERY_ERROR',
         }),
       ).toBe('PENDING');
     });

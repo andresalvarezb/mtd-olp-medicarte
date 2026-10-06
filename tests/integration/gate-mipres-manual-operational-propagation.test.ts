@@ -466,7 +466,9 @@ describe('W4 MIPRES manual operational propagation', () => {
     expect(item).toMatchObject({
       mipresManualDecision: 'PENDING_MANUAL_ENABLEMENT',
 
-      initialValidationStatus: 'PENDING',
+      initialValidationStatus: 'PASSED',
+
+      lifecycleEnablement: 'ENABLED',
     });
   });
 
@@ -485,6 +487,8 @@ describe('W4 MIPRES manual operational propagation', () => {
       mipresManualDecision: 'MANUALLY_ENABLED',
 
       initialValidationStatus: 'PASSED',
+
+      lifecycleEnablement: 'ENABLED',
     });
   });
 
@@ -502,7 +506,9 @@ describe('W4 MIPRES manual operational propagation', () => {
     expect(item).toMatchObject({
       mipresManualDecision: 'MANUALLY_DISABLED',
 
-      initialValidationStatus: 'FAILED',
+      initialValidationStatus: 'PASSED',
+
+      lifecycleEnablement: 'ENABLED',
     });
   });
 
@@ -613,4 +619,222 @@ describe('W4 MIPRES manual operational propagation', () => {
       message: 'La autorización no tiene inventario asignado pendiente de consumo.',
     });
   });
+
+  it('MANUALLY_ENABLED remains operational when direction evidence is PENDING', async () => {
+    await database.pool.query(
+      `
+        update
+          authorization_items
+        set
+          direction_status =
+            'PENDING'
+        where
+          id = $1
+      `,
+      [enabledId],
+    );
+
+    try {
+      const state =
+        await persistedState(
+          enabledId,
+        );
+
+      expect(state).toEqual({
+        direction_status:
+          'PENDING',
+
+        mipres_manual_decision:
+          'MANUALLY_ENABLED',
+      });
+
+      const item =
+        await readAuthorization(
+          enabledNumber,
+        );
+
+      expect(item).toMatchObject({
+        mipresManualDecision:
+          'MANUALLY_ENABLED',
+
+        initialValidationStatus:
+          'PASSED',
+
+        lifecycleEnablement:
+          'ENABLED',
+      });
+
+      const result =
+        await purchase(
+          enabledNumber,
+          `${poPrefix}-DIR-PENDING`,
+        );
+
+      expect(
+        result.results[0]?.errorCode,
+      ).not.toBe(
+        'PURCHASE_ORDER_DESTINATION_NOT_ENABLED',
+      );
+    } finally {
+      await database.pool.query(
+        `
+          update
+            authorization_items
+          set
+            direction_status =
+              'CONFIRMED'
+          where
+            id = $1
+        `,
+        [enabledId],
+      );
+    }
+  });
+
+  it('MANUALLY_ENABLED remains operational when direction query failed', async () => {
+    await database.pool.query(
+      `
+        update
+          authorization_items
+        set
+          direction_status =
+            'QUERY_ERROR'
+        where
+          id = $1
+      `,
+      [enabledId],
+    );
+
+    try {
+      const state =
+        await persistedState(
+          enabledId,
+        );
+
+      expect(state).toEqual({
+        direction_status:
+          'QUERY_ERROR',
+
+        mipres_manual_decision:
+          'MANUALLY_ENABLED',
+      });
+
+      const item =
+        await readAuthorization(
+          enabledNumber,
+        );
+
+      expect(item).toMatchObject({
+        mipresManualDecision:
+          'MANUALLY_ENABLED',
+
+        initialValidationStatus:
+          'PASSED',
+
+        lifecycleEnablement:
+          'ENABLED',
+      });
+
+      const result =
+        await purchase(
+          enabledNumber,
+          `${poPrefix}-DIR-ERROR`,
+        );
+
+      expect(
+        result.results[0]?.errorCode,
+      ).not.toBe(
+        'PURCHASE_ORDER_DESTINATION_NOT_ENABLED',
+      );
+    } finally {
+      await database.pool.query(
+        `
+          update
+            authorization_items
+          set
+            direction_status =
+              'CONFIRMED'
+          where
+            id = $1
+        `,
+        [enabledId],
+      );
+    }
+  });
+
+  it('PBS ignores historical manual MIPRES blocking and direction query errors', async () => {
+    await database.pool.query(
+      `
+        update
+          authorization_items
+        set
+          coverage_type =
+            'PBS',
+          direction_status =
+            'QUERY_ERROR'
+        where
+          id = $1
+      `,
+      [disabledId],
+    );
+
+    try {
+      const state =
+        await persistedState(
+          disabledId,
+        );
+
+      expect(state).toEqual({
+        direction_status:
+          'QUERY_ERROR',
+
+        mipres_manual_decision:
+          'MANUALLY_DISABLED',
+      });
+
+      const item =
+        await readAuthorization(
+          disabledNumber,
+        );
+
+      expect(item).toMatchObject({
+        mipresManualDecision:
+          'MANUALLY_DISABLED',
+
+        initialValidationStatus:
+          'PASSED',
+
+        lifecycleEnablement:
+          'ENABLED',
+      });
+
+      const result =
+        await purchase(
+          disabledNumber,
+          `${poPrefix}-PBS-HIST`,
+        );
+
+      expect(
+        result.results[0]?.errorCode,
+      ).not.toBe(
+        'PURCHASE_ORDER_DESTINATION_NOT_ENABLED',
+      );
+    } finally {
+      await database.pool.query(
+        `
+          update
+            authorization_items
+          set
+            coverage_type =
+              'NO_PBS',
+            direction_status =
+              'CONFIRMED'
+          where
+            id = $1
+        `,
+        [disabledId],
+      );
+    }
+  });
+
 });

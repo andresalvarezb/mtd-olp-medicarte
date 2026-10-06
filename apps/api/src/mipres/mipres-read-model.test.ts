@@ -149,7 +149,7 @@ describe('MIPRES read model', () => {
     ).toBe('BLOCKED');
   });
 
-  it('keeps Habilitacion pending when NO_PBS direction is not confirmed', () => {
+  it('keeps Habilitacion enabled when NO_PBS is manually unlocked even if direction is pending', () => {
     const result = resolveMipresReadState({
       enablementStatus: 'ENABLED',
 
@@ -168,11 +168,97 @@ describe('MIPRES read model', () => {
       operationalWindow: 'IN_WINDOW',
     });
 
-    expect(result.authorizationState).toBe('PENDING');
+    expect(result.authorizationState).toBe('ENABLED');
 
     expect(result.mipresState).toBe('UNLOCKED');
 
-    expect(result.state).toBe('BLOCKED');
+    expect(result.state).toBe('OPERABLE');
+
+    expect(result.blockedReasons).toEqual([]);
+  });
+
+  it('keeps Habilitacion enabled when NO_PBS is manually unlocked even if direction query failed', () => {
+    const result = resolveMipresReadState({
+      enablementStatus: 'ENABLED',
+
+      tariffMembershipStatus: 'LISTED',
+
+      coverageType: 'NO_PBS',
+
+      directionStatus: 'QUERY_ERROR',
+
+      manualDecision: 'MANUALLY_ENABLED',
+
+      quantity: 4,
+
+      minimumQuantity: 1,
+
+      operationalWindow: 'IN_WINDOW',
+    });
+
+    expect(result.authorizationState).toBe('ENABLED');
+
+    expect(result.mipresState).toBe('UNLOCKED');
+
+    expect(result.state).toBe('OPERABLE');
+
+    expect(result.blockedReasons).toEqual([]);
+  });
+
+  it('automatically unlocks PBS listed in tariff without manual MIPRES validation', () => {
+    const result = resolveMipresReadState({
+      enablementStatus: 'ENABLED',
+
+      tariffMembershipStatus: 'LISTED',
+
+      coverageType: 'PBS',
+
+      directionStatus: 'NOT_APPLICABLE',
+
+      manualDecision: 'PENDING_MANUAL_ENABLEMENT',
+
+      quantity: 4,
+
+      minimumQuantity: 1,
+
+      operationalWindow: 'IN_WINDOW',
+    });
+
+    expect(result.authorizationState).toBe('ENABLED');
+
+    expect(result.mipresState).toBe('UNLOCKED');
+
+    expect(result.state).toBe('OPERABLE');
+
+    expect(result.blockedReasons).toEqual([]);
+  });
+
+  it('ignores historical manual MIPRES blocking data when coverage is PBS', () => {
+    const result = resolveMipresReadState({
+      enablementStatus: 'ENABLED',
+
+      tariffMembershipStatus: 'LISTED',
+
+      coverageType: 'PBS',
+
+      directionStatus: 'QUERY_ERROR',
+
+      manualDecision: 'MANUALLY_DISABLED',
+
+      quantity: 4,
+
+      minimumQuantity: 1,
+
+      operationalWindow: 'IN_WINDOW',
+    });
+
+    expect(result.authorizationState).toBe('ENABLED');
+
+    expect(result.mipresState).toBe('UNLOCKED');
+
+    expect(result.state).toBe('OPERABLE');
+
+    expect(result.blockedReasons).toEqual([]);
   });
 
   it('allows manual unlock when pending only because of future window', () => {
@@ -217,7 +303,7 @@ describe('MIPRES read model', () => {
     });
   });
 
-  it('allows manual unlock while authorization remains pending', () => {
+  it('keeps Habilitacion independent from pending MIPRES direction evidence', () => {
     const state = resolveMipresReadState({
       enablementStatus: 'ENABLED',
 
@@ -236,7 +322,7 @@ describe('MIPRES read model', () => {
       operationalWindow: 'IN_WINDOW',
     });
 
-    expect(state.authorizationState).toBe('PENDING');
+    expect(state.authorizationState).toBe('ENABLED');
 
     expect(
       resolveMipresManualUnlockEligibility({
@@ -255,7 +341,7 @@ describe('MIPRES read model', () => {
     ).toEqual({
       allowed: true,
 
-      mode: 'PENDING_MANUAL_OVERRIDE',
+      mode: 'NATURALLY_ENABLED',
     });
   });
 

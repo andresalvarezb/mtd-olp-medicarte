@@ -131,8 +131,8 @@ export function evaluateEffectiveMipresEligibility(
   /*
    * PBS no utiliza el control operacional MIPRES.
    *
-   * Se conserva la regla histórica:
-   * PBS debe estar marcado como NOT_APPLICABLE.
+   * directionStatus conserva la evidencia disponible,
+   * pero no participa en la elegibilidad operacional de PBS.
    */
   if (
     input.coverageType ===
@@ -140,8 +140,7 @@ export function evaluateEffectiveMipresEligibility(
   ) {
     return {
       eligible:
-        input.directionStatus ===
-        'NOT_APPLICABLE',
+        true,
 
       source:
         'NOT_APPLICABLE',

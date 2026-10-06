@@ -210,17 +210,17 @@ describe('authorization eligibility for scheduling', () => {
     });
   });
 
-  it('still rejects invalid PBS MIPRES direction semantics', () => {
+  it('does not require MIPRES direction validation for PBS', () => {
     expect(
       evaluateScheduleAuthorizationEligibility({
         ...base,
         directionStatus:
-          'CONFIRMED',
+          'QUERY_ERROR',
       }),
-    ).toMatchObject({
-      eligible: false,
-      code:
-        'AUTHORIZATION_NOT_SCHEDULABLE',
+    ).toEqual({
+      eligible: true,
+      code: null,
+      message: null,
     });
   });
 

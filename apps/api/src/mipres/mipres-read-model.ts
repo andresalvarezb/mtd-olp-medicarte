@@ -15,7 +15,8 @@ export type MipresBlockedReason =
   | 'BELOW_MINIMUM_QUANTITY'
   | 'OPERATIONAL_WINDOW_BLOCKED'
   | 'PENDING_MANUAL_ENABLEMENT'
-  | 'MANUALLY_DISABLED';
+  | 'MANUALLY_DISABLED'
+  | 'MIPRES_COVERAGE_UNRESOLVED';
 
 export type MipresManualUnlockMode =
   | 'NATURALLY_ENABLED'
@@ -120,16 +121,34 @@ export function normalizeSourceDate(raw: unknown): string | null {
   return iso;
 }
 
-export function parsePositiveInteger(raw: unknown): number | null {
-  const value = typeof raw === 'number' || typeof raw === 'string' ? String(raw).trim() : '';
+export function parsePositiveInteger(
+  raw: unknown,
+): number | null {
+  const value =
+    typeof raw === 'number'
+    ||
+    typeof raw === 'string'
+      ? String(raw).trim()
+      : '';
 
-  if (!/^[1-9][0-9]*$/.test(value)) {
+  if (
+    !/^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$/.test(
+      value,
+    )
+  ) {
     return null;
   }
 
-  const number = Number(value);
+  const number =
+    Number(value);
 
-  return Number.isSafeInteger(number) ? number : null;
+  return (
+    Number.isSafeInteger(number)
+    &&
+    number > 0
+  )
+    ? number
+    : null;
 }
 
 export function resolveOperationalWindow(
@@ -160,6 +179,9 @@ export function resolveOperationalWindow(
 
 export function resolveMipresReadState(
   input: Readonly<{
+    authorizationState?:
+      MipresAuthorizationState;
+
     enablementStatus: string;
 
     tariffMembershipStatus: string;
@@ -185,7 +207,9 @@ export function resolveMipresReadState(
    * puede ser levantado.
    */
   const invalidMinimumQuantity =
-    !Number.isSafeInteger(input.minimumQuantity) || input.minimumQuantity <= 0;
+    !Number.isFinite(input.minimumQuantity)
+    ||
+    input.minimumQuantity <= 0;
 
   /*
    * Habilitación natural de la AUTO.
@@ -208,22 +232,35 @@ export function resolveMipresReadState(
     input.operationalWindow === 'EXPIRED' ||
     input.operationalWindow === 'INVALID_DATE';
 
-  const authorizationCoveragePending =
-    (input.coverageType === 'NO_PBS' && input.directionStatus !== 'CONFIRMED') ||
-    (input.coverageType === 'PBS' && input.directionStatus !== 'NOT_APPLICABLE') ||
-    (input.coverageType !== 'PBS' && input.coverageType !== 'NO_PBS');
-
+  /*
+   * Habilitación y MIPRES son dimensiones independientes.
+   *
+   * directionStatus es evidencia MIPRES y no participa
+   * en el cálculo de Habilitación de la AUTO.
+   */
   const authorizationPending =
     !authorizationDisabled &&
     (input.tariffMembershipStatus !== 'LISTED' ||
-      input.operationalWindow === 'OUTSIDE_HORIZON' ||
-      authorizationCoveragePending);
+      input.operationalWindow === 'OUTSIDE_HORIZON');
 
-  const authorizationState: MipresAuthorizationState = authorizationDisabled
-    ? 'DISABLED'
-    : authorizationPending
-      ? 'PENDING'
-      : 'ENABLED';
+  const derivedAuthorizationState:
+    MipresAuthorizationState =
+      authorizationDisabled
+        ? 'DISABLED'
+        : authorizationPending
+          ? 'PENDING'
+          : 'ENABLED';
+
+  /*
+   * La Habilitación proveniente de Autorizaciones
+   * es autoritativa.
+   *
+   * MIPRES no debe reinterpretarla.
+   */
+  const authorizationState =
+    input.authorizationState
+    ??
+    derivedAuthorizationState;
 
   const blockedReasons: MipresBlockedReason[] = [];
 
@@ -248,17 +285,40 @@ export function resolveMipresReadState(
   const decision = normalizeMipresManualDecision(input.manualDecision);
 
   /*
-   * Estado exclusivamente del bloqueo manual MIPRES.
+   * Gate MIPRES.
+   *
+   * PBS:
+   *   no requiere validación manual MIPRES.
+   *
+   * NO_PBS:
+   *   inicia bloqueada y únicamente una decisión manual
+   *   MANUALLY_ENABLED permite continuar.
+   *
+   * directionStatus queda como evidencia/trazabilidad.
    */
-  const mipresState: MipresManualGateState =
-    decision === 'MANUALLY_ENABLED' ? 'UNLOCKED' : 'LOCKED';
+  const isPbs = input.coverageType === 'PBS';
+  const isNoPbs = input.coverageType === 'NO_PBS';
 
-  if (decision === 'PENDING_MANUAL_ENABLEMENT') {
+  const mipresState: MipresManualGateState =
+    isPbs || (isNoPbs && decision === 'MANUALLY_ENABLED')
+      ? 'UNLOCKED'
+      : 'LOCKED';
+
+  if (isNoPbs && decision === 'PENDING_MANUAL_ENABLEMENT') {
     blockedReasons.push('PENDING_MANUAL_ENABLEMENT');
   }
 
-  if (decision === 'MANUALLY_DISABLED') {
+  if (isNoPbs && decision === 'MANUALLY_DISABLED') {
     blockedReasons.push('MANUALLY_DISABLED');
+  }
+
+  /*
+   * Si todavía no sabemos si la AUTO es PBS o NO PBS,
+   * no permitimos continuar. Esto es un diagnóstico interno,
+   * no un tercer estado de MIPRES.
+   */
+  if (!isPbs && !isNoPbs) {
+    blockedReasons.push('MIPRES_COVERAGE_UNRESOLVED');
   }
 
   return {
