@@ -321,6 +321,22 @@ describe(
                 ]);
               }
 
+        // DESTINATION_POINT_SCHEDULE_FALLBACK_MOCK
+        if (
+          normalized.includes(
+            'from patient_schedules ps',
+          ) &&
+          normalized.includes(
+            'join dispensing_points dp',
+          )
+        ) {
+          return {
+            rows: [],
+            rowCount: 0,
+          };
+        }
+
+
               if (
                 normalized.includes(
                   'from tariff_annex_products tap',
@@ -837,6 +853,26 @@ describe(
                   },
                 ]);
               }
+
+              if (
+                normalized.includes(
+                  'from patient_schedules ps',
+                ) &&
+                normalized.includes(
+                  'join dispensing_points dp',
+                )
+              ) {
+                return queryResult([
+                  {
+                    dispensing_point_id:
+                      POINT_ID,
+
+                    active:
+                      true,
+                  },
+                ]);
+              }
+
 
               if (
                 normalized.includes(

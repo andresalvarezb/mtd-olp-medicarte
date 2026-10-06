@@ -325,6 +325,22 @@ describe(
                 ]);
               }
 
+        // DESTINATION_POINT_SCHEDULE_FALLBACK_MOCK
+        if (
+          normalized.includes(
+            'from patient_schedules ps',
+          ) &&
+          normalized.includes(
+            'join dispensing_points dp',
+          )
+        ) {
+          return {
+            rows: [],
+            rowCount: 0,
+          };
+        }
+
+
 
               if (
                 normalized.includes(
@@ -520,7 +536,7 @@ describe(
 
         expect(
           allQueries,
-        ).not.toContain(
+        ).toContain(
           'patient_schedules',
         );
 
