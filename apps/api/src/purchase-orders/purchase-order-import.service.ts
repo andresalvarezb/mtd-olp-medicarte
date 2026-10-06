@@ -3108,23 +3108,108 @@ export class PurchaseOrderImportService {
 
   private async destinationPoint(
     client: PoolClient,
+    authorizationItemId: string,
     commercialCode: string,
   ): Promise<string> {
     /*
      * FUENTE AUTORITATIVA DEL PUNTO
      * =============================
      *
-     * La plantilla de OC NO recibe punto.
-     * La agenda del paciente NO determina el punto.
-     * La OC NO determina el punto.
+     * Prioridad:
      *
-     * La relación logística autoritativa es:
+     * 1. Programación activa de AUTO_DESTINO.
+     * 2. Si no existe programación activa:
+     *    CODIGO_PRODUCTO
+     *      -> Anexo Tarifario
+     *      -> expediente INVIMA + presentación
+     *      -> product_delivery_point_mappings
+     *      -> punto MEDICARTE
      *
-     * CODIGO_PRODUCTO
-     *   -> Anexo Tarifario
-     *   -> expediente INVIMA + presentación
-     *   -> product_delivery_point_mappings
-     *   -> punto MEDICARTE
+     * La OC conserva dispensing_point_id como snapshot
+     * histórico del punto resuelto al momento de crearla.
+     */
+    const scheduledPoint =
+      await client.query<{
+        dispensing_point_id:
+          string;
+
+        active:
+          boolean;
+      }>(
+        `
+          select distinct
+            dp.id
+              as dispensing_point_id,
+
+            dp.active
+
+          from
+            patient_schedules ps
+
+          join
+            dispensing_points dp
+              on dp.id =
+                 ps.dispensing_point_id
+
+          where
+            ps.authorization_item_id =
+              $1
+
+            and ps.status in (
+              'SCHEDULED',
+              'RESCHEDULED'
+            )
+
+          order by
+            dp.id
+
+          limit 2
+        `,
+        [
+          authorizationItemId,
+        ],
+      );
+
+
+    if (
+      scheduledPoint.rows.length >
+      1
+    ) {
+      this.existingOrderError(
+        'PURCHASE_ORDER_SCHEDULE_POINT_AMBIGUOUS',
+        'La AUTO_DESTINO tiene programaciones activas en más de un punto de dispensación.',
+      );
+    }
+
+
+    if (
+      scheduledPoint.rows.length ===
+      1
+    ) {
+      const point =
+        scheduledPoint.rows[0]!;
+
+
+      if (
+        !point.active
+      ) {
+        this.existingOrderError(
+          'PURCHASE_ORDER_SCHEDULE_POINT_INACTIVE',
+          'El punto de dispensación programado para AUTO_DESTINO está inactivo.',
+        );
+      }
+
+
+      return point
+        .dispensing_point_id;
+    }
+
+
+    /*
+     * FALLBACK HISTORICO
+     * ==================
+     *
+     * Se conserva la resolución actual por producto.
      */
     const result =
       await client.query<{
@@ -3807,6 +3892,7 @@ export class PurchaseOrderImportService {
         const dispensingPointId =
           await this.destinationPoint(
             client,
+            destination.id,
             destination.commercial_code,
           );
 
@@ -4226,6 +4312,7 @@ export class PurchaseOrderImportService {
         const dispensingPointId =
           await this.destinationPoint(
             client,
+            destination.id,
             destination.commercial_code,
           );
 

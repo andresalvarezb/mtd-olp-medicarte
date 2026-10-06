@@ -374,3 +374,31 @@ reasignación.
 Estos GAPs no se presentan como funcionalidades implementadas. La
 reconciliación existente detecta inconsistencias, pero no auto-repara ni crea la
 reasignación de negocio definida aquí.
+
+## Precedencia del punto programado
+
+### DECISIÓN VIGENTE
+
+Para crear o ampliar una relación AUTO -> OC, el punto operacional de
+`AUTO_DESTINO` se resuelve con la siguiente precedencia:
+
+1. Programación activa en `patient_schedules`.
+2. Si no existe programación activa, se conserva el resolver vigente por
+   `tariff_annex_products` y `product_delivery_point_mappings`.
+
+Una programación activa corresponde a `SCHEDULED` o `RESCHEDULED`.
+
+Si una misma AUTO tiene programaciones activas en más de un punto distinto,
+la operación se rechaza por ambigüedad. No se selecciona un punto
+arbitrariamente.
+
+`purchase_order_lines.dispensing_point_id` continúa siendo el snapshot
+operacional e histórico de la OC. Los cambios posteriores en la programación
+del paciente no modifican órdenes de compra ya creadas.
+
+Un punto como BUCARAMANGA puede recibir cualquier producto cuando la
+AUTO_DESTINO tenga una programación activa en ese punto. No se crean mappings
+producto por producto para BUCARAMANGA.
+
+`product_delivery_point_mappings` permanece como fallback para autorizaciones
+sin programación activa.
