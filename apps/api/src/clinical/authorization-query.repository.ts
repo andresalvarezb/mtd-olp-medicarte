@@ -163,6 +163,9 @@ interface AuthorizationQueryRow
   purchase_order:
     string | null;
 
+  has_linked_purchase_order:
+    boolean;
+
   dispensing_point_code:
     string | null;
 
@@ -1483,6 +1486,14 @@ export class AuthorizationQueryRepository {
 
     return {
       ...response,
+
+      /*
+       * En detalle, linkedPurchaseOrders() es la fuente
+       * definitiva para la existencia de OC relacionada.
+       */
+      hasLinkedPurchaseOrder:
+        purchaseOrders.length >
+        0,
 
       /*
        * El contrato público de purchaseOrders
@@ -4568,6 +4579,44 @@ export class AuthorizationQueryRepository {
         )
           as purchase_order,
 
+        /*
+         * Relación durable AUTO -> OC.
+         *
+         * No depende de recepción ni de allocation.
+         * Canceladas y rechazadas conservan histórico,
+         * pero no cuentan como OC activa relacionada.
+         */
+        exists (
+          select
+            1
+
+          from
+            purchase_order_authorization_sources
+              poas_linked_status
+
+          join
+            purchase_order_lines
+              pol_linked_status
+                on pol_linked_status.id =
+                   poas_linked_status.purchase_order_line_id
+
+          join
+            purchase_orders
+              po_linked_status
+                on po_linked_status.id =
+                   pol_linked_status.purchase_order_id
+
+          where
+            poas_linked_status.authorization_item_id =
+              i.id
+
+            and po_linked_status.status not in (
+              'CANCELLED',
+              'REJECTED'
+            )
+        )
+          as has_linked_purchase_order,
+
         coalesce(
           allocation.dispensing_point_code,
           eligibility.dispensing_point_code
@@ -5483,6 +5532,16 @@ export class AuthorizationQueryRepository {
 
       purchaseOrder:
         row.purchase_order,
+
+      /*
+       * Relación durable AUTO -> OC.
+       *
+       * No implica recepción ni inventario asignado.
+       */
+      hasLinkedPurchaseOrder:
+        Boolean(
+          row.has_linked_purchase_order,
+        ),
 
       /*
        * Se completa únicamente en detail().
