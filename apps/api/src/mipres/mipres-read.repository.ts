@@ -8,6 +8,13 @@ import type { Scope } from '../common/request-scope';
 
 import { authorizationQueryValidityWindow } from '../clinical/authorization-query-validity';
 
+import {
+  resolveAuthorizationInitialValidationStatus,
+  resolveAuthorizationLifecycleReasons,
+  resolveAuthorizationLifecycleStatus,
+  resolveAuthorizationValidityStatus,
+} from '../clinical/authorization-query-state';
+
 import { DATABASE } from '../tokens';
 
 import {
@@ -69,6 +76,11 @@ type BaseRow = Readonly<{
   enablement_status: string;
 
   tariff_membership_status: string;
+
+  authorization_state:
+    | 'ENABLED'
+    | 'PENDING'
+    | 'DISABLED';
 
   manual_decision: string;
   manual_version: number;
@@ -331,7 +343,8 @@ export class MipresReadRepository {
   }
 
   private quantitySql(): SQL {
-    const quantity = sql`
+    const quantityText =
+      sql`
         btrim(
           coalesce(
             i.source_data
@@ -345,11 +358,11 @@ export class MipresReadRepository {
     return sql`
       case
         when
-          ${quantity}
+          ${quantityText}
           ~
-          '^[1-9][0-9]*$'
+          '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
         then
-          (${quantity})::numeric
+          (${quantityText})::numeric
 
         else
           null
@@ -357,7 +370,7 @@ export class MipresReadRepository {
     `;
   }
 
-  private minimumQuantitySql(scope: Scope): SQL {
+  private minimumQuantitySql(): SQL {
     return sql`
       coalesce(
         (
@@ -368,15 +381,10 @@ export class MipresReadRepository {
             tariff_annex_products tap
 
           where
-            tap.organization_id =
-              ${scope.organizationId}::uuid
-
-            and
             tap.codigo_producto =
               i.codigo_medicamento
 
-            and
-            tap.active =
+            and tap.active =
               true
 
           order by
@@ -390,122 +398,116 @@ export class MipresReadRepository {
     `;
   }
 
-  private authorizationStateSql(scope: Scope): SQL {
-    const quantity = this.quantitySql();
+  private authorizationStateSql(): SQL {
+    const quantity =
+      this.quantitySql();
 
-    const minimumQuantity = this.minimumQuantitySql(scope);
+    const minimumQuantity =
+      this.minimumQuantitySql();
 
-    const operationalWindow = this.operationalWindowStatusSql();
+    const operationalWindow =
+      this.operationalWindowStatusSql();
 
-    const disabled = sql`
-      (
-        i.enablement_status
-          is distinct from
-          'ENABLED'
+    const initialValidationStatus =
+      sql`
+        case
+          when
+            coalesce(
+              i.enablement_status,
+              ''
+            )
+            <>
+            'ENABLED'
+          then
+            'FAILED'
 
-        or
+          when
+            i.tariff_membership_status =
+            'NOT_LISTED'
+          then
+            'FAILED'
 
-        i.tariff_membership_status =
-          'NOT_LISTED'
+          when
+            coalesce(
+              i.tariff_membership_status,
+              ''
+            )
+            <>
+            'LISTED'
+          then
+            'PENDING'
 
-        or
+          when
+            ${quantity}
+              is null
 
-        ${quantity}
-          is null
+            or
 
-        or
+            ${quantity}
+              <= 0
 
-        ${minimumQuantity}
-          < 1
+            or
 
-        or
+            trunc(
+              ${quantity}
+            )
+            <>
+            ${quantity}
 
-        (
-          ${quantity}
-            is not null
+            or
 
-          and
+            ${minimumQuantity}
+              <= 0
 
-          ${quantity}
-            <
-          ${minimumQuantity}
-        )
+            or
 
-        or
+            ${quantity}
+              <
+            ${minimumQuantity}
+          then
+            'FAILED'
 
-        (
-          ${operationalWindow}
-        )
-          in (
-            'EXPIRED',
-            'INVALID_DATE'
-          )
-      )
-    `;
+          when
+            i.coverage_type
+            in (
+              'PBS',
+              'NO_PBS'
+            )
+          then
+            'PASSED'
 
-    const coveragePending = sql`
-      (
-        (
-          i.coverage_type =
-            'NO_PBS'
-
-          and
-
-          i.direction_status
-            is distinct from
-            'CONFIRMED'
-        )
-
-        or
-
-        (
-          i.coverage_type =
-            'PBS'
-
-          and
-
-          i.direction_status
-            is distinct from
-            'NOT_APPLICABLE'
-        )
-
-        or
-
-        i.coverage_type
-          is null
-
-        or
-
-        i.coverage_type
-          not in (
-            'PBS',
-            'NO_PBS'
-          )
-      )
-    `;
+          else
+            'PENDING'
+        end
+      `;
 
     return sql`
       case
         when
-          ${disabled}
+          ${initialValidationStatus}
+          =
+          'FAILED'
+
+          or
+
+          ${operationalWindow}
+          in (
+            'INVALID_DATE',
+            'EXPIRED'
+          )
         then
           'DISABLED'
 
         when
-          i.tariff_membership_status
-            is distinct from
-            'LISTED'
+          ${initialValidationStatus}
+          =
+          'PENDING'
 
           or
 
-          (
-            ${operationalWindow}
-          ) =
-            'OUTSIDE_HORIZON'
-
-          or
-
-          ${coveragePending}
+          ${operationalWindow}
+          =
+          'OUTSIDE_HORIZON'
         then
           'PENDING'
 
@@ -515,10 +517,10 @@ export class MipresReadRepository {
     `;
   }
 
-  private operableSql(scope: Scope): SQL {
+  private operableSql(): SQL {
     const quantity = this.quantitySql();
 
-    const minimumQuantity = this.minimumQuantitySql(scope);
+    const minimumQuantity = this.minimumQuantitySql();
 
     return sql`
       (
@@ -666,7 +668,7 @@ export class MipresReadRepository {
         )
           as quantity,
 
-        ${this.minimumQuantitySql(scope)}::int
+        ${this.minimumQuantitySql()}::int
           as minimum_quantity,
 
         i.no_prescripcion
@@ -679,6 +681,9 @@ export class MipresReadRepository {
         i.enablement_status,
 
         i.tariff_membership_status,
+
+        ${this.authorizationStateSql()}
+          as authorization_state,
 
         i.mipres_manual_decision
           as manual_decision,
@@ -814,7 +819,85 @@ export class MipresReadRepository {
       horizon,
     });
 
+    /*
+     * Fuente única de verdad de Habilitación.
+     *
+     * MIPRES no calcula si una AUTO está Habilitada,
+     * Pendiente o Inhabilitada. Usa exactamente los
+     * resolvers del módulo Autorizaciones.
+     */
+    const validityStatus =
+      resolveAuthorizationValidityStatus({
+        assignmentDate,
+        validityEndDate,
+        today,
+      });
+
+    const initialValidationStatus =
+      resolveAuthorizationInitialValidationStatus({
+        enablementStatus:
+          row.enablement_status,
+
+        tariffMembershipStatus:
+          row.tariff_membership_status,
+
+        coverageType:
+          row.coverage_type,
+
+        directionStatus:
+          row.direction_status,
+
+        mipresManualDecision:
+          row.manual_decision,
+
+        quantity,
+
+        minimumQuantity:
+          Number(
+            row.minimum_quantity,
+          ),
+      });
+
+    const lifecycleEnablement =
+      resolveAuthorizationLifecycleStatus({
+        initialValidationStatus,
+        validityStatus,
+      });
+
+    const lifecycleReasons =
+      resolveAuthorizationLifecycleReasons({
+        lifecycleStatus:
+          lifecycleEnablement,
+
+        enablementStatus:
+          row.enablement_status,
+
+        tariffMembershipStatus:
+          row.tariff_membership_status,
+
+        coverageType:
+          row.coverage_type,
+
+        directionStatus:
+          row.direction_status,
+
+        mipresManualDecision:
+          row.manual_decision,
+
+        quantity,
+
+        minimumQuantity:
+          Number(
+            row.minimum_quantity,
+          ),
+
+        validityStatus,
+      });
+
     const operational = resolveMipresReadState({
+      authorizationState:
+        lifecycleEnablement,
+
       enablementStatus: row.enablement_status,
 
       tariffMembershipStatus: row.tariff_membership_status,
@@ -869,9 +952,17 @@ export class MipresReadRepository {
 
       manualDecision: row.manual_decision,
 
-      authorizationState: operational.authorizationState,
+      authorizationState:
+        lifecycleEnablement,
 
-      mipresState: operational.mipresState,
+      initialValidationStatus,
+
+      validityStatus,
+
+      lifecycleReasons,
+
+      mipresState:
+        operational.mipresState,
 
       manualUnlockAllowed: unlockEligibility.allowed,
 
@@ -1180,7 +1271,7 @@ export class MipresReadRepository {
     if (filters.authorizationState) {
       conditions.push(sql`
         (
-          ${this.authorizationStateSql(scope)}
+          ${this.authorizationStateSql()}
         ) =
           ${filters.authorizationState}
       `);
@@ -1202,13 +1293,13 @@ export class MipresReadRepository {
     }
 
     if (filters.state === 'OPERABLE') {
-      conditions.push(this.operableSql(scope));
+      conditions.push(this.operableSql());
     }
 
     if (filters.state === 'BLOCKED') {
       conditions.push(sql`
         not (
-          ${this.operableSql(scope)}
+          ${this.operableSql()}
         )
       `);
     }
@@ -1253,11 +1344,6 @@ export class MipresReadRepository {
       sql`
           i.id =
             ${authorizationItemId}
-
-          and
-
-          i.coverage_type =
-            'NO_PBS'
 
           and
 
@@ -1478,11 +1564,6 @@ export class MipresReadRepository {
           where
             i.id =
               ${authorizationItemId}
-
-            and
-
-            i.coverage_type =
-              'NO_PBS'
 
             and
 

@@ -38,6 +38,11 @@ export interface MipresDirection {
   current: boolean | null;
 }
 
+export interface MipresLifecycleReason {
+  code: string;
+  message: string;
+}
+
 export interface MipresListItem {
   id: string;
 
@@ -65,6 +70,20 @@ export interface MipresListItem {
 
   manualDecision: MipresManualDecision;
   authorizationState: 'ENABLED' | 'PENDING' | 'DISABLED';
+
+  initialValidationStatus:
+    | 'PASSED'
+    | 'PENDING'
+    | 'FAILED';
+
+  validityStatus:
+    | 'IN_WINDOW'
+    | 'EXPIRED'
+    | 'OUTSIDE_HORIZON'
+    | 'INVALID_DATE';
+
+  lifecycleReasons:
+    MipresLifecycleReason[];
 
   mipresState: 'LOCKED' | 'UNLOCKED';
 
@@ -206,6 +225,33 @@ function stringArray(value: unknown): string[] {
     const normalized = stringValue(item);
 
     return normalized ? [normalized] : [];
+  });
+}
+
+function lifecycleReasonArray(
+  value: unknown,
+): MipresLifecycleReason[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const source =
+      objectValue(item);
+
+    const code =
+      stringValue(
+        source.code,
+      );
+
+    const message =
+      stringValue(
+        source.message,
+      );
+
+    return code && message
+      ? [{ code, message }]
+      : [];
   });
 }
 
@@ -377,12 +423,64 @@ function normalizeListItem(value: unknown): MipresListItem {
     'authorization_state',
   ]);
 
-  const authorizationState: MipresListItem['authorizationState'] =
-    authorizationStateValue === 'ENABLED'
-      ? 'ENABLED'
-      : authorizationStateValue === 'PENDING'
-        ? 'PENDING'
-        : 'DISABLED';
+  if (
+    authorizationStateValue !== 'ENABLED'
+    &&
+    authorizationStateValue !== 'PENDING'
+    &&
+    authorizationStateValue !== 'DISABLED'
+  ) {
+    throw new Error(
+      `Invalid MIPRES authorizationState: ${String(
+        authorizationStateValue,
+      )}`,
+    );
+  }
+
+  const authorizationState:
+    MipresListItem['authorizationState'] =
+      authorizationStateValue;
+
+  const initialValidationStatusValue =
+    firstString(
+      source,
+      [
+        'initialValidationStatus',
+        'initial_validation_status',
+      ],
+    );
+
+  const initialValidationStatus:
+    MipresListItem['initialValidationStatus'] =
+      initialValidationStatusValue ===
+        'PASSED'
+        ? 'PASSED'
+        : initialValidationStatusValue ===
+            'FAILED'
+          ? 'FAILED'
+          : 'PENDING';
+
+  const validityStatusValue =
+    firstString(
+      source,
+      [
+        'validityStatus',
+        'validity_status',
+      ],
+    );
+
+  const validityStatus:
+    MipresListItem['validityStatus'] =
+      validityStatusValue ===
+        'IN_WINDOW'
+        ? 'IN_WINDOW'
+        : validityStatusValue ===
+            'EXPIRED'
+          ? 'EXPIRED'
+          : validityStatusValue ===
+              'OUTSIDE_HORIZON'
+            ? 'OUTSIDE_HORIZON'
+            : 'INVALID_DATE';
 
   const mipresStateValue = firstString(source, ['mipresState', 'mipres_state']);
 
@@ -409,6 +507,17 @@ function normalizeListItem(value: unknown): MipresListItem {
     prescriptionNumber,
 
     authorizationState,
+
+    initialValidationStatus,
+
+    validityStatus,
+
+    lifecycleReasons:
+      lifecycleReasonArray(
+        source.lifecycleReasons
+        ??
+        source.lifecycle_reasons,
+      ),
 
     mipresState,
 

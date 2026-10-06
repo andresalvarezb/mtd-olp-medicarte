@@ -1,7 +1,5 @@
 import {
   evaluateAuthorizationOperationalWindow,
-  evaluateEffectiveMipresEligibility,
-  normalizeMipresManualDecision,
   type AuthorizationOperationalWindowStatus,
 } from '@authorization/domain';
 
@@ -120,8 +118,12 @@ export function resolveAuthorizationLifecycleReasons(
   }>,
 ): AuthorizationQueryLifecycleReason[] {
   /*
-   * HABILITADA no requiere explicación operativa.
+   * Esta función explica exclusivamente
+   * la dimensión Habilitación AUTO.
+   *
+   * MIPRES es un gate operacional separado.
    */
+
   if (
     input.lifecycleStatus ===
       'ENABLED'
@@ -129,11 +131,9 @@ export function resolveAuthorizationLifecycleReasons(
     return [];
   }
 
-
   const definitive:
     AuthorizationQueryLifecycleReason[] =
       [];
-
 
   if (
     input.enablementStatus !==
@@ -148,7 +148,6 @@ export function resolveAuthorizationLifecycleReasons(
     });
   }
 
-
   if (
     input.tariffMembershipStatus ===
       'NOT_LISTED'
@@ -162,13 +161,10 @@ export function resolveAuthorizationLifecycleReasons(
     });
   }
 
-
   if (
-    input.quantity !==
-      undefined
+    input.quantity !== undefined
     ||
-    input.minimumQuantity !==
-      undefined
+    input.minimumQuantity !== undefined
   ) {
     const quantity =
       Number(
@@ -182,23 +178,19 @@ export function resolveAuthorizationLifecycleReasons(
         1,
       );
 
-
     const validQuantity =
       Number.isInteger(
         quantity,
       )
       &&
-      quantity >
-        0;
+      quantity > 0;
 
     const validMinimum =
       Number.isInteger(
         minimumQuantity,
       )
       &&
-      minimumQuantity >
-        0;
-
+      minimumQuantity > 0;
 
     if (
       !validQuantity
@@ -212,7 +204,6 @@ export function resolveAuthorizationLifecycleReasons(
       });
     }
 
-
     if (
       !validMinimum
     ) {
@@ -224,7 +215,6 @@ export function resolveAuthorizationLifecycleReasons(
           'Cantidad mínima del Anexo Tarifario inválida',
       });
     }
-
 
     if (
       validQuantity
@@ -244,30 +234,6 @@ export function resolveAuthorizationLifecycleReasons(
     }
   }
 
-
-  const mipresManualDecision =
-    normalizeMipresManualDecision(
-      input.mipresManualDecision,
-    );
-
-
-  if (
-    input.coverageType ===
-      'NO_PBS'
-    &&
-    mipresManualDecision ===
-      'MANUALLY_DISABLED'
-  ) {
-    definitive.push({
-      code:
-        'MIPRES_MANUALLY_DISABLED',
-
-      message:
-        'Control operacional MIPRES inhabilitado manualmente por MTD',
-    });
-  }
-
-
   if (
     input.validityStatus ===
       'INVALID_DATE'
@@ -281,21 +247,6 @@ export function resolveAuthorizationLifecycleReasons(
     });
   }
 
-
-  /*
-   * EXPIRED pertenece exclusivamente a la dimensión
-   * de vigencia y no constituye por sí mismo una
-   * causa de inhabilitación.
-   */
-
-
-  /*
-   * Si la Habilitación consolidada es INHABILITADA,
-   * solamente se exponen bloqueos definitivos.
-   *
-   * No mezclamos advertencias pendientes con causas
-   * definitivas porque confundiría el reporte.
-   */
   if (
     input.lifecycleStatus ===
       'DISABLED'
@@ -303,11 +254,9 @@ export function resolveAuthorizationLifecycleReasons(
     return definitive;
   }
 
-
   const pending:
     AuthorizationQueryLifecycleReason[] =
       [];
-
 
   if (
     input.tariffMembershipStatus !==
@@ -325,41 +274,6 @@ export function resolveAuthorizationLifecycleReasons(
     });
   }
 
-
-  if (
-    input.coverageType ===
-      'NO_PBS'
-    &&
-    mipresManualDecision ===
-      'PENDING_MANUAL_ENABLEMENT'
-  ) {
-    pending.push({
-      code:
-        'MIPRES_MANUAL_ENABLEMENT_PENDING',
-
-      message:
-        'Pendiente por habilitar manualmente',
-    });
-  }
-
-
-  if (
-    input.coverageType ===
-      'PBS'
-    &&
-    input.directionStatus !==
-      'NOT_APPLICABLE'
-  ) {
-    pending.push({
-      code:
-        'DIRECTION_PENDING',
-
-      message:
-        'Validación de direccionamiento pendiente',
-    });
-  }
-
-
   if (
     input.coverageType !==
       'PBS'
@@ -376,7 +290,6 @@ export function resolveAuthorizationLifecycleReasons(
     });
   }
 
-
   if (
     input.validityStatus ===
       'OUTSIDE_HORIZON'
@@ -390,10 +303,8 @@ export function resolveAuthorizationLifecycleReasons(
     });
   }
 
-
   return pending;
 }
-
 
 export function resolveAuthorizationValidityStatus(
   input: Readonly<{
@@ -415,29 +326,57 @@ export function resolveAuthorizationValidityStatus(
 
 export function resolveAuthorizationInitialValidationStatus(
   input: Readonly<{
-    enablementStatus: string | null | undefined;
-    tariffMembershipStatus: string | null | undefined;
-    coverageType: string | null | undefined;
-    directionStatus: string | null | undefined;
-    mipresManualDecision?: string | null;
-    quantity?: string | number | null;
-    minimumQuantity?: number | null;
+    enablementStatus:
+      string | null | undefined;
+
+    tariffMembershipStatus:
+      string | null | undefined;
+
+    coverageType:
+      string | null | undefined;
+
+    directionStatus:
+      string | null | undefined;
+
+    mipresManualDecision?:
+      string | null;
+
+    quantity?:
+      string | number | null;
+
+    minimumQuantity?:
+      number | null;
   }>,
 ): AuthorizationQueryInitialValidationStatus {
-  if (input.enablementStatus !== 'ENABLED') {
+  /*
+   * Habilitación AUTO y MIPRES son dimensiones
+   * independientes.
+   */
+
+  if (
+    input.enablementStatus !==
+      'ENABLED'
+  ) {
     return 'FAILED';
   }
 
-  if (input.tariffMembershipStatus === 'NOT_LISTED') {
+  if (
+    input.tariffMembershipStatus ===
+      'NOT_LISTED'
+  ) {
     return 'FAILED';
   }
 
-  if (input.tariffMembershipStatus !== 'LISTED') {
+  if (
+    input.tariffMembershipStatus !==
+      'LISTED'
+  ) {
     return 'PENDING';
   }
 
   if (
-    input.quantity !== undefined ||
+    input.quantity !== undefined
+    ||
     input.minimumQuantity !== undefined
   ) {
     const quantity =
@@ -447,21 +386,24 @@ export function resolveAuthorizationInitialValidationStatus(
 
     const minimumQuantity =
       Number(
-        input.minimumQuantity ??
+        input.minimumQuantity
+        ??
         1,
       );
 
     if (
       !Number.isInteger(
         quantity,
-      ) ||
-      quantity <=
-        0 ||
+      )
+      ||
+      quantity <= 0
+      ||
       !Number.isInteger(
         minimumQuantity,
-      ) ||
-      minimumQuantity <=
-        0 ||
+      )
+      ||
+      minimumQuantity <= 0
+      ||
       quantity <
         minimumQuantity
     ) {
@@ -469,36 +411,18 @@ export function resolveAuthorizationInitialValidationStatus(
     }
   }
 
-  if (input.coverageType === 'PBS') {
-    return input.directionStatus === 'NOT_APPLICABLE'
-      ? 'PASSED'
-      : 'PENDING';
-  }
-
-  if (input.coverageType === 'NO_PBS') {
-    const manualDecision =
-      normalizeMipresManualDecision(
-        input.mipresManualDecision,
-      );
-
-    if (
-      manualDecision ===
-        'MANUALLY_DISABLED'
-    ) {
-      return 'FAILED';
-    }
-
-    return evaluateEffectiveMipresEligibility({
-      coverageType:
-        input.coverageType,
-
-      directionStatus:
-        input.directionStatus,
-
-      manualDecision,
-    }).eligible
-      ? 'PASSED'
-      : 'PENDING';
+  /*
+   * Una cobertura ya clasificada no depende
+   * del estado MIPRES para su Habilitación.
+   */
+  if (
+    input.coverageType ===
+      'PBS'
+    ||
+    input.coverageType ===
+      'NO_PBS'
+  ) {
+    return 'PASSED';
   }
 
   return 'PENDING';

@@ -66,18 +66,21 @@ function formatDate(value: string | null | undefined): string {
   }).format(parsed);
 }
 
-function mipresState(decision: string): 'UNLOCKED' | 'LOCKED' {
-  return decision === 'MANUALLY_ENABLED' ? 'UNLOCKED' : 'LOCKED';
+function mipresStateLabel(
+  value: MipresListItem['mipresState'],
+): string {
+  return value === 'UNLOCKED'
+    ? 'Desbloqueada'
+    : 'Bloqueada';
 }
 
-function mipresStateLabel(decision: string): string {
-  return mipresState(decision) === 'UNLOCKED' ? 'Desbloqueada' : 'Bloqueada';
+function mipresStateClass(
+  value: MipresListItem['mipresState'],
+): string {
+  return value === 'UNLOCKED'
+    ? styles.green!
+    : styles.red!;
 }
-
-function mipresStateClass(decision: string): string | undefined {
-  return mipresState(decision) === 'UNLOCKED' ? styles.green : styles.red;
-}
-
 function directionLabel(value: string): string {
   if (value === 'CONFIRMED') {
     return 'Confirmado';
@@ -110,32 +113,41 @@ function directionClass(value: string): string | undefined {
   return styles.gray;
 }
 
-const AUTHORIZATION_REASON_LABELS: Record<string, string> = {
-  SOURCE_BLOCKED: 'El estado fuente de la AUTO no está habilitado.',
-  TARIFF_NOT_LISTED: 'El producto no cumple la validación del anexo tarifario.',
-  INVALID_QUANTITY: 'La cantidad de la autorización es inválida.',
-  BELOW_MINIMUM_QUANTITY: 'La cantidad está por debajo del mínimo permitido.',
-  OPERATIONAL_WINDOW_BLOCKED: 'Pendiente de habilitación automática.',
-};
+function authorizationRestrictionReason(
+  detail: MipresListItem | MipresDetail,
+): string {
+  /*
+   * La explicación de Habilitación viene de
+   * Autorizaciones. MIPRES no interpreta
+   * blockedReasons para esta columna.
+   */
+  const reasons =
+    detail.lifecycleReasons
+      .map(
+        (reason) =>
+          reason.message.trim(),
+      )
+      .filter(Boolean);
 
-function authorizationRestrictionReason(detail: MipresListItem | MipresDetail): string {
-  const naturalReasons = detail.blockedReasons
-    .filter((reason) => reason !== 'PENDING_MANUAL_ENABLEMENT' && reason !== 'MANUALLY_DISABLED')
-    .map((reason) => AUTHORIZATION_REASON_LABELS[reason] ?? reason);
-
-  if (naturalReasons.length > 0) {
-    return naturalReasons.join(' ');
+  if (reasons.length > 0) {
+    return reasons.join(' ');
   }
 
-  if (detail.authorizationState === 'PENDING') {
-    if (detail.coverageType === 'NO_PBS' && detail.directionStatus !== 'CONFIRMED') {
-      return 'La AUTO está pendiente de un direccionamiento MIPRES confirmado.';
-    }
-
-    return 'Pendiente de habilitación automática.';
+  if (
+    detail.authorizationState ===
+      'ENABLED'
+  ) {
+    return 'Sin bloqueos de habilitación.';
   }
 
-  return 'Sin bloqueos de habilitación.';
+  if (
+    detail.authorizationState ===
+      'PENDING'
+  ) {
+    return 'Pendiente de habilitación.';
+  }
+
+  return 'La AUTO no cumple las condiciones de habilitación.';
 }
 
 function Badge({ children, tone }: { children: ReactNode; tone: string | undefined }) {
@@ -321,7 +333,9 @@ export function MipresView() {
     [organizationId],
   );
 
-  async function openDrawer(id: string) {
+  async function openDrawer(
+    id: string,
+  ) {
     if (!organizationId) {
       return;
     }
@@ -337,23 +351,83 @@ export function MipresView() {
     setActionMessage(null);
 
     try {
-      const [nextDetail, nextHistory, nextConcepts] = await Promise.all([
-        getMipresDetail(id, organizationId),
+      /*
+       * El detalle es el recurso principal.
+       * Si carga, el drawer debe mostrarse.
+       */
+      const nextDetail =
+        await getMipresDetail(
+          id,
+          organizationId,
+        );
 
-        getMipresHistory(id, organizationId),
+      setDetail(
+        nextDetail,
+      );
 
-        getMipresConcepts(organizationId),
-      ]);
+      /*
+       * Historial y conceptos son recursos auxiliares.
+       * Un fallo en cualquiera de ellos no debe ocultar
+       * la autorización que ya cargó correctamente.
+       */
+      const [
+        historyResult,
+        conceptsResult,
+      ] =
+        await Promise.allSettled([
+          getMipresHistory(
+            id,
+            organizationId,
+          ),
 
-      setDetail(nextDetail);
+          getMipresConcepts(
+            organizationId,
+          ),
+        ]);
 
-      setHistory(nextHistory);
+      if (
+        historyResult.status ===
+          'fulfilled'
+      ) {
+        setHistory(
+          historyResult.value,
+        );
+      } else {
+        setHistory([]);
+      }
 
-      setConcepts(nextConcepts);
+      if (
+        conceptsResult.status ===
+          'fulfilled'
+      ) {
+        setConcepts(
+          conceptsResult.value,
+        );
+      } else {
+        setConcepts([]);
+      }
+
+      if (
+        historyResult.status ===
+          'rejected'
+        ||
+        conceptsResult.status ===
+          'rejected'
+      ) {
+        setActionError(
+          'La autorización cargó, pero no fue posible cargar toda la información auxiliar.',
+        );
+      }
     } catch (error) {
-      setActionError(mipresErrorMessage(error));
+      setActionError(
+        mipresErrorMessage(
+          error,
+        ),
+      );
     } finally {
-      setDrawerLoading(false);
+      setDrawerLoading(
+        false,
+      );
     }
   }
 
@@ -838,8 +912,8 @@ export function MipresView() {
                           : 'Inhabilitada'}
                     </Badge>
 
-                    <Badge tone={mipresStateClass(detail.manualDecision)}>
-                      MIPRES {mipresStateLabel(detail.manualDecision)}
+                    <Badge tone={mipresStateClass(detail.mipresState)}>
+                      MIPRES {mipresStateLabel(detail.mipresState)}
                     </Badge>
                   </div>
                 ) : null}
@@ -997,15 +1071,15 @@ export function MipresView() {
                   <div className={styles.sectionHeader}>
                     <h3>Control manual MTD</h3>
 
-                    <Badge tone={mipresStateClass(detail.manualDecision)}>
-                      {mipresStateLabel(detail.manualDecision)}
+                    <Badge tone={mipresStateClass(detail.mipresState)}>
+                      {mipresStateLabel(detail.mipresState)}
                     </Badge>
                   </div>
 
                   <div className={styles.detailGrid}>
                     <DetailField
                       label="Estado MIPRES"
-                      value={mipresStateLabel(detail.manualDecision)}
+                      value={mipresStateLabel(detail.mipresState)}
                     />
 
                     <DetailField

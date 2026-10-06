@@ -136,14 +136,7 @@ export function evaluateScheduleAuthorizationEligibility(
       message: 'The authorization is not enabled for scheduling',
     };
   }
-  if (input.coverageType === 'PBS' && input.directionStatus !== 'NOT_APPLICABLE') {
-    return {
-      eligible: false,
-      code: 'AUTHORIZATION_NOT_SCHEDULABLE',
-      message: 'PBS authorizations must not require MIPRES direction',
-    };
-  }
-  if (
+if (
     input.coverageType ===
       'NO_PBS'
   ) {

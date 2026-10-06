@@ -23,50 +23,113 @@ function windowAfter(
 }
 
 describe('MIPRES WAVE 4 operational propagation', () => {
-  it('clinical initial validation uses MTD decision instead of CONFIRMED evidence', () => {
-    const value = source('src/clinical/authorization-query.repository.ts');
+  it('keeps clinical AUTO initial validation independent from the MIPRES gate', () => {
+    const value = source(
+      'src/clinical/authorization-query.repository.ts',
+    );
 
-    const block = windowAfter(value, 'private initialValidationStatusSql(): SQL {', 4500);
+    const start = value.indexOf(
+      'private initialValidationStatusSql(): SQL {',
+    );
 
-    expect(block).toContain('i.mipres_manual_decision');
+    expect(start).toBeGreaterThanOrEqual(0);
 
-    expect(block).toContain("'MANUALLY_ENABLED'");
+    const end = value.indexOf(
+      '\n  private ',
+      start + 1,
+    );
 
-    expect(block).toContain("'MANUALLY_DISABLED'");
+    expect(end).toBeGreaterThan(start);
 
-    expect(block).not.toMatch(
-      /i\.coverage_type\s*=\s*'NO_PBS'[\s\S]{0,500}i\.direction_status\s*=\s*'CONFIRMED'/,
+    const block = value.slice(
+      start,
+      end,
+    );
+
+    expect(block).toContain(
+      'i.enablement_status',
+    );
+
+    expect(block).toContain(
+      'i.tariff_membership_status',
+    );
+
+    expect(block).toContain(
+      'i.coverage_type',
+    );
+
+    expect(block).toContain(
+      "'PBS'",
+    );
+
+    expect(block).toContain(
+      "'NO_PBS'",
+    );
+
+    expect(block).not.toContain(
+      'i.mipres_manual_decision',
+    );
+
+    expect(block).not.toContain(
+      'i.direction_status',
     );
   });
+  it('keeps clinical validation ordering independent from the MIPRES gate', () => {
+    const value = source(
+      'src/clinical/authorization-query.repository.ts',
+    );
 
-  it('clinical ordering priority mirrors manual decision', () => {
-    const value = source('src/clinical/authorization-query.repository.ts');
+    const block = windowAfter(
+      value,
+      'const validationPriority =',
+      4500,
+    );
 
-    const block = windowAfter(value, 'const validationPriority =', 4500);
+    expect(block).toContain(
+      'i.enablement_status',
+    );
 
-    expect(block).toContain('i.mipres_manual_decision');
+    expect(block).toContain(
+      'i.tariff_membership_status',
+    );
 
-    expect(block).toContain("'MANUALLY_ENABLED'");
+    expect(block).toContain(
+      'i.coverage_type',
+    );
 
-    expect(block).toContain("'MANUALLY_DISABLED'");
+    expect(block).not.toContain(
+      'i.mipres_manual_decision',
+    );
 
-    expect(block).not.toMatch(
-      /i\.coverage_type\s*=\s*'NO_PBS'[\s\S]{0,500}i\.direction_status\s*=\s*'CONFIRMED'/,
+    expect(block).not.toContain(
+      'i.direction_status',
     );
   });
+  it('keeps clinical lifecycle state independent from the MIPRES operational gate', () => {
+    const value = source(
+      'src/clinical/authorization-query-state.ts',
+    );
 
-  it('clinical TypeScript uses canonical effective MIPRES evaluator', () => {
-    const value = source('src/clinical/authorization-query-state.ts');
+    expect(value).toContain(
+      'resolveAuthorizationLifecycleStatus',
+    );
 
-    expect(value).toContain('evaluateEffectiveMipresEligibility');
+    expect(value).toContain(
+      'resolveAuthorizationInitialValidationStatus',
+    );
 
-    expect(value).toContain('normalizeMipresManualDecision');
+    expect(value).toContain(
+      'Habilitación AUTO y MIPRES son dimensiones',
+    );
 
-    expect(value).toContain("'MIPRES_MANUAL_ENABLEMENT_PENDING'");
+    expect(value).not.toContain(
+      'evaluateEffectiveMipresEligibility',
+    );
 
-    expect(value).toContain("'MIPRES_MANUALLY_DISABLED'");
+    expect(value).not.toContain(
+      'normalizeMipresManualDecision',
+    );
   });
-
   it('clinical response propagates MTD decision into validation and lifecycle', () => {
     const value = source('src/clinical/authorization-query.repository.ts');
 

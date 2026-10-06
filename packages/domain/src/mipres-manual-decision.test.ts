@@ -136,7 +136,7 @@ describe(
 
 
     it(
-      'keeps PBS independent from manual MIPRES decisions',
+      'keeps PBS independent from MIPRES evidence and manual decisions',
       () => {
         expect(
           evaluateEffectiveMipresEligibility({
@@ -144,7 +144,7 @@ describe(
               'PBS',
 
             directionStatus:
-              'NOT_APPLICABLE',
+              'QUERY_ERROR',
 
             manualDecision:
               'MANUALLY_DISABLED',

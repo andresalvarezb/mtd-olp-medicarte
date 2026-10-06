@@ -139,7 +139,7 @@ describe(
 
 
     it(
-      'explica habilitacion manual MIPRES pendiente',
+      'tarifa pendiente no mezcla bloqueo MIPRES en motivos de Habilitacion',
       () => {
         expect(
           resolveAuthorizationLifecycleReasons({
@@ -150,13 +150,13 @@ describe(
               'ENABLED',
 
             tariffMembershipStatus:
-              'LISTED',
+              'NOT_EVALUATED',
 
             coverageType:
               'NO_PBS',
 
             directionStatus:
-              'CONFIRMED',
+              'PENDING',
 
             mipresManualDecision:
               'PENDING_MANUAL_ENABLEMENT',
@@ -173,10 +173,10 @@ describe(
         ).toEqual([
           {
             code:
-              'MIPRES_MANUAL_ENABLEMENT_PENDING',
+              'TARIFF_VALIDATION_PENDING',
 
             message:
-              'Pendiente por habilitar manualmente',
+              'Validación del producto en Anexo Tarifario pendiente',
           },
         ]);
       },
@@ -184,7 +184,7 @@ describe(
 
 
     it(
-      'explica inhabilitacion manual MIPRES como bloqueo definitivo',
+      'fecha invalida no mezcla bloqueo MIPRES en motivos de Habilitacion',
       () => {
         expect(
           resolveAuthorizationLifecycleReasons({
@@ -213,15 +213,15 @@ describe(
               1,
 
             validityStatus:
-              'IN_WINDOW',
+              'INVALID_DATE',
           }),
         ).toEqual([
           {
             code:
-              'MIPRES_MANUALLY_DISABLED',
+              'INVALID_DATE',
 
             message:
-              'Control operacional MIPRES inhabilitado manualmente por MTD',
+              'Fecha de asignación o vigencia inválida',
           },
         ]);
       },
@@ -229,7 +229,7 @@ describe(
 
 
     it(
-      'explica fuera de horizonte de 30 días',
+      'fuera de horizonte no mezcla bloqueo MIPRES en motivos de Habilitacion',
       () => {
         expect(
           resolveAuthorizationLifecycleReasons({
@@ -243,10 +243,13 @@ describe(
               'LISTED',
 
             coverageType:
-              'PBS',
+              'NO_PBS',
 
             directionStatus:
-              'NOT_APPLICABLE',
+              'QUERY_ERROR',
+
+            mipresManualDecision:
+              'PENDING_MANUAL_ENABLEMENT',
 
             quantity:
               '1',

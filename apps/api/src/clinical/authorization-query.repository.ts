@@ -657,40 +657,13 @@ export class AuthorizationQueryRepository {
           'FAILED'
 
         when
-          i.coverage_type =
-          'PBS'
+          i.coverage_type
+          in (
+            'PBS',
+            'NO_PBS'
+          )
         then
-          case
-            when
-              i.direction_status =
-              'NOT_APPLICABLE'
-            then
-              'PASSED'
-
-            else
-              'PENDING'
-          end
-
-        when
-          i.coverage_type =
-          'NO_PBS'
-        then
-          case
-            when
-              i.mipres_manual_decision =
-              'MANUALLY_ENABLED'
-            then
-              'PASSED'
-
-            when
-              i.mipres_manual_decision =
-              'MANUALLY_DISABLED'
-            then
-              'FAILED'
-
-            else
-              'PENDING'
-          end
+          'PASSED'
 
         else
           'PENDING'
@@ -763,10 +736,50 @@ export class AuthorizationQueryRepository {
   }
 
 
+  /*
+   * Gate operacional MIPRES independiente de la
+   * Habilitación natural de la AUTO.
+   *
+   * PBS:
+   *   MIPRES NO APLICA.
+   *
+   * NO_PBS:
+   *   solamente MANUALLY_ENABLED satisface el gate.
+   *
+   * direction_status conserva evidencia únicamente.
+   */
+  private mipresOperationalEligibility(): SQL {
+    return sql`
+      (
+        i.coverage_type =
+          'PBS'
+
+        or
+
+        (
+          i.coverage_type =
+            'NO_PBS'
+
+          and
+
+          i.mipres_manual_decision =
+            'MANUALLY_ENABLED'
+        )
+      )
+    `;
+  }
+
+
   private operationalEligibility(): SQL {
     return sql`
       (
         ${this.initialValidationPassed()}
+      )
+
+      and
+
+      (
+        ${this.mipresOperationalEligibility()}
       )
 
       and
@@ -777,11 +790,16 @@ export class AuthorizationQueryRepository {
     `;
   }
 
-
   private retainedExpiredAssignmentEligibility(): SQL {
     return sql`
       (
         ${this.initialValidationPassed()}
+      )
+
+      and
+
+      (
+        ${this.mipresOperationalEligibility()}
       )
 
       and
@@ -4227,35 +4245,12 @@ export class AuthorizationQueryRepository {
           then 2
 
           when
-            i.coverage_type =
-            'PBS'
-          then
-            case
-              when
-                i.direction_status =
-                'NOT_APPLICABLE'
-              then 0
-
-              else 1
-            end
-
-          when
-            i.coverage_type =
-            'NO_PBS'
-          then
-            case
-              when
-                i.mipres_manual_decision =
-                'MANUALLY_DISABLED'
-              then 2
-
-              when
-                i.mipres_manual_decision =
-                'MANUALLY_ENABLED'
-              then 0
-
-              else 1
-            end
+            i.coverage_type
+            in (
+              'PBS',
+              'NO_PBS'
+            )
+          then 0
 
           else 1
         end
