@@ -34,6 +34,10 @@ import {
 } from '@/lib/authorization-query-api';
 
 import {
+  authorizationOperationalLabel,
+} from '@/lib/authorization-operational-display';
+
+import {
   decideAuthorizationBillingAudit,
   getAuthorizationBillingAudit,
   searchAuthorizationBillingAuditDriveEvidence,
@@ -318,54 +322,6 @@ function billingAuditVisibleStatusLabel(
 
 
 
-
-
-function operationalLabel(
-  status:
-    AuthorizationQueryItem['operationalStatus'],
-) {
-  const labels = {
-    UNASSIGNED:
-      'Pendiente de recepción/asignación',
-
-    PARTIALLY_ASSIGNED:
-      'Asignación parcial',
-
-    ASSIGNED:
-      'Lista para entrega/aplicación',
-
-    OUT_OF_OPERATION:
-      'Fuera de operación',
-
-    CLOSED:
-      'Cerrada',
-  };
-
-  return labels[status];
-}
-
-function authorizationOperationalLabel(
-  item:
-    AuthorizationQueryItem,
-) {
-  if (
-    item.operationalStatus ===
-      'CLOSED'
-  ) {
-    return 'Cerrada';
-  }
-
-  if (
-    item.fulfillmentProgressStatus ===
-      'PARTIAL'
-  ) {
-    return 'Con aplicación pendiente';
-  }
-
-  return operationalLabel(
-    item.operationalStatus,
-  );
-}
 
 
 type AuthorizationUnifiedStatus =

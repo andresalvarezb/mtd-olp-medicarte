@@ -225,6 +225,15 @@ export type AuthorizationQueryItem = {
     string | null;
 
   /*
+   * Indica si existe una relación durable activa
+   * AUTO -> OC.
+   *
+   * No implica recepción ni inventario asignado.
+   */
+  hasLinkedPurchaseOrder:
+    boolean;
+
+  /*
    * Relación durable de la AUTO con las OCs
    * que utilizaron su Clave autorización.
    *
