@@ -38,6 +38,11 @@ import {
 } from '@/lib/authorization-operational-display';
 
 import {
+  billingAuditColumnLabel,
+  billingAuditStatusLabel,
+} from '@/lib/authorization-billing-audit-display';
+
+import {
   decideAuthorizationBillingAudit,
   getAuthorizationBillingAudit,
   searchAuthorizationBillingAuditDriveEvidence,
@@ -169,156 +174,6 @@ function fulfillmentStatusLabel(
     item.fulfillmentProgressStatus
   ];
 }
-
-
-
-
-
-function billingAuditDisplayStatusLabel(
-  status:
-    AuthorizationQueryItem['billingAuditDisplayStatus'],
-) {
-  const labels = {
-    NOT_AVAILABLE:
-      'No disponible',
-
-    PENDING_WITHOUT_EVIDENCE:
-      'Pendiente sin soportes',
-
-    PENDING_WITH_EVIDENCE:
-      'Pendiente con soportes',
-
-    COMPLIES_WITHOUT_EVIDENCE:
-      'Cumple sin soportes',
-
-    COMPLIES_WITH_EVIDENCE:
-      'Cumple',
-
-    DOES_NOT_COMPLY_WITHOUT_EVIDENCE:
-      'No cumple sin soportes',
-
-    DOES_NOT_COMPLY_WITH_EVIDENCE:
-      'No cumple',
-
-    INCONSISTENT:
-      'Inconsistente',
-  } satisfies Record<
-    AuthorizationQueryItem['billingAuditDisplayStatus'],
-    string
-  >;
-
-  return labels[status];
-}
-
-
-function billingAuditVisibleStatusLabel(
-  item:
-    AuthorizationQueryItem,
-
-  audit:
-    | {
-        authorizationItemId:
-          string;
-
-        status:
-          AuthorizationQueryItem['billingAuditStatus'];
-
-        result:
-          AuthorizationQueryItem['billingAuditResult'];
-
-        evidence?:
-          readonly unknown[];
-      }
-    | null
-    | undefined,
-) {
-  /*
-   * Si no existe auditoría persistida todavía,
-   * el read-model de la AUTO es la fuente canónica.
-   *
-   * También evita contaminar una AUTO con un
-   * billingAudit que hubiese quedado temporalmente
-   * en estado local desde otra autorización.
-   */
-  if (
-    !audit
-    ||
-    audit.authorizationItemId !==
-      item.id
-  ) {
-    return billingAuditDisplayStatusLabel(
-      item.billingAuditDisplayStatus,
-    );
-  }
-
-  const evidenceCount =
-    (
-      audit.evidence
-      ??
-      []
-    ).length;
-
-  if (
-    item.operationalStatus !==
-      'CLOSED'
-  ) {
-    return 'No disponible';
-  }
-
-  if (
-    audit.status ===
-      'PENDING'
-  ) {
-    return evidenceCount >
-      0
-      ? 'Pendiente con soportes'
-      : 'Pendiente sin soportes';
-  }
-
-  if (
-    audit.status ===
-      'REVIEWED'
-    &&
-    audit.result ===
-      'COMPLIES'
-  ) {
-    return evidenceCount >
-      0
-      ? 'Cumple'
-      : 'Cumple sin soportes';
-  }
-
-  if (
-    audit.status ===
-      'REVIEWED'
-    &&
-    audit.result ===
-      'DOES_NOT_COMPLY'
-  ) {
-    return evidenceCount >
-      0
-      ? 'No cumple'
-      : 'No cumple sin soportes';
-  }
-
-  /*
-   * Ante cualquier objeto parcial/anómalo,
-   * volvemos al read-model canónico.
-   */
-  return billingAuditDisplayStatusLabel(
-    item.billingAuditDisplayStatus,
-  );
-}
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -2903,7 +2758,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
                     <td>
                       <strong>
-                        {billingAuditDisplayStatusLabel(item.billingAuditDisplayStatus)}
+                        {billingAuditColumnLabel(item)}
                       </strong>
                     </td>
 
@@ -3422,10 +3277,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                         </span>
 
                         <strong>
-                          {billingAuditVisibleStatusLabel(
-                            selected,
-                            billingAudit,
-                          )}
+                          {billingAuditStatusLabel(billingAudit.status)}
                         </strong>
                       </div>
 
@@ -4111,10 +3963,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                           }}
                         >
                           <strong>
-                        {selected.operationalStatus ===
-                        'CLOSED'
-                          ? 'Pendiente sin soportes'
-                          : 'No disponible'}
+                        {billingAuditColumnLabel(selected)}
                       </strong>
 
                           <p
@@ -4805,9 +4654,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                     </span>
 
                     <strong>
-                        {billingAuditDisplayStatusLabel(
-                          selected.billingAuditDisplayStatus,
-                        )}
+                        {billingAuditColumnLabel(selected)}
                       </strong>
                   </div>
                 </div>
