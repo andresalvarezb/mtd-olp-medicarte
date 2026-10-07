@@ -233,6 +233,9 @@ describe(
               if (
                 normalized.includes(
                   'from authorization_items ai',
+                ) &&
+                !normalized.includes(
+                  'patient_default_dispensing_points pdp',
                 )
               ) {
                 return queryResult([
@@ -328,6 +331,19 @@ describe(
           ) &&
           normalized.includes(
             'join dispensing_points dp',
+          )
+        ) {
+          return {
+            rows: [],
+            rowCount: 0,
+          };
+        }
+
+
+        // DESTINATION_POINT_PATIENT_DEFAULT_FALLBACK_MOCK
+        if (
+          normalized.includes(
+            'patient_default_dispensing_points pdp',
           )
         ) {
           return {
@@ -796,6 +812,9 @@ describe(
               if (
                 normalized.includes(
                   'from authorization_items ai',
+                ) &&
+                !normalized.includes(
+                  'patient_default_dispensing_points pdp',
                 )
               ) {
                 const keyValue =

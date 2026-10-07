@@ -479,6 +479,77 @@ export const dispensingPoints = pgTable(
   ],
 );
 
+/**
+ * Punto operacional habitual del paciente.
+ *
+ * Solución transitoria previa al maestro normalizado de pacientes.
+ * La programación explícita en patient_schedules tiene precedencia.
+ */
+export const patientDefaultDispensingPoints = pgTable(
+  'patient_default_dispensing_points',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    patientDocument: varchar('patient_document', {
+      length: 80,
+    }).notNull(),
+
+    dispensingPointId: uuid('dispensing_point_id')
+      .notNull()
+      .references(() => dispensingPoints.id, {
+        onDelete: 'restrict',
+      }),
+
+    active: boolean('active')
+      .notNull()
+      .default(true),
+
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, {
+        onDelete: 'restrict',
+      }),
+
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id, {
+        onDelete: 'restrict',
+      }),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex(
+      'patient_default_dispensing_points_document_unique',
+    ).on(
+      table.patientDocument,
+    ),
+
+    index(
+      'patient_default_dispensing_points_active_idx',
+    ).on(
+      table.active,
+      table.patientDocument,
+    ),
+
+    check(
+      'patient_default_dispensing_points_document_not_blank',
+      sql`length(btrim(${table.patientDocument})) > 0`,
+    ),
+  ],
+);
+
+
 export const inventoryLocations = pgTable(
   'inventory_locations',
   {
