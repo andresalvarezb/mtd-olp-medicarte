@@ -6,15 +6,77 @@ import {
 
 import {
   billingAuditColumnLabel,
+  billingAuditDisplayStatusLabel,
+  billingAuditEvidenceLabel,
+  billingAuditResultLabel,
   billingAuditStatusLabel,
 } from './authorization-billing-audit-display';
+
+
+describe(
+  'billingAuditDisplayStatusLabel',
+  () => {
+    const cases = [
+      [
+        'NOT_AVAILABLE',
+        'No disponible',
+      ],
+      [
+        'PENDING_WITHOUT_EVIDENCE',
+        'Pendiente · Sin soportes',
+      ],
+      [
+        'PENDING_WITH_EVIDENCE',
+        'Pendiente · Con soportes',
+      ],
+      [
+        'COMPLIES_WITHOUT_EVIDENCE',
+        'Revisada · Cumple · Sin soportes',
+      ],
+      [
+        'COMPLIES_WITH_EVIDENCE',
+        'Revisada · Cumple · Con soportes',
+      ],
+      [
+        'DOES_NOT_COMPLY_WITHOUT_EVIDENCE',
+        'Revisada · No cumple · Sin soportes',
+      ],
+      [
+        'DOES_NOT_COMPLY_WITH_EVIDENCE',
+        'Revisada · No cumple · Con soportes',
+      ],
+      [
+        'INCONSISTENT',
+        'Inconsistente',
+      ],
+    ] as const;
+
+    it.each(
+      cases,
+    )(
+      '%s -> %s',
+      (
+        status,
+        expected,
+      ) => {
+        expect(
+          billingAuditDisplayStatusLabel(
+            status,
+          ),
+        ).toBe(
+          expected,
+        );
+      },
+    );
+  },
+);
 
 
 describe(
   'billingAuditStatusLabel',
   () => {
     it(
-      'muestra PENDING como Pendiente',
+      'mantiene separado el estado canónico',
       () => {
         expect(
           billingAuditStatusLabel(
@@ -23,13 +85,7 @@ describe(
         ).toBe(
           'Pendiente',
         );
-      },
-    );
 
-
-    it(
-      'muestra REVIEWED como Revisada',
-      () => {
         expect(
           billingAuditStatusLabel(
             'REVIEWED',
@@ -44,57 +100,80 @@ describe(
 
 
 describe(
+  'billingAuditResultLabel',
+  () => {
+    it(
+      'representa el resultado por separado',
+      () => {
+        expect(
+          billingAuditResultLabel(
+            null,
+          ),
+        ).toBe(
+          'Pendiente de decisión',
+        );
+
+        expect(
+          billingAuditResultLabel(
+            'COMPLIES',
+          ),
+        ).toBe(
+          'Cumple',
+        );
+
+        expect(
+          billingAuditResultLabel(
+            'DOES_NOT_COMPLY',
+          ),
+        ).toBe(
+          'No cumple',
+        );
+      },
+    );
+  },
+);
+
+
+describe(
+  'billingAuditEvidenceLabel',
+  () => {
+    it(
+      'representa presencia de soportes por separado',
+      () => {
+        expect(
+          billingAuditEvidenceLabel(
+            0,
+          ),
+        ).toBe(
+          'Sin soportes',
+        );
+
+        expect(
+          billingAuditEvidenceLabel(
+            1,
+          ),
+        ).toBe(
+          'Con soportes',
+        );
+      },
+    );
+  },
+);
+
+
+describe(
   'billingAuditColumnLabel',
   () => {
     it(
-      'muestra Pendiente para AUTO cerrada pendiente de auditoría',
+      'usa la situación derivada del read-model',
       () => {
         expect(
           billingAuditColumnLabel({
-            operationalStatus:
-              'CLOSED',
-
-            billingAuditStatus:
-              'PENDING',
+            billingAuditDisplayStatus:
+              'COMPLIES_WITH_EVIDENCE',
           }),
         ).toBe(
-          'Pendiente',
-        );
-      },
-    );
-
-
-    it(
-      'muestra Revisada para AUTO cerrada con auditoría finalizada',
-      () => {
-        expect(
-          billingAuditColumnLabel({
-            operationalStatus:
-              'CLOSED',
-
-            billingAuditStatus:
-              'REVIEWED',
-          }),
-        ).toBe(
-          'Revisada',
-        );
-      },
-    );
-
-
-    it(
-      'conserva No disponible mientras la AUTO no esté cerrada',
-      () => {
-        expect(
-          billingAuditColumnLabel({
-            operationalStatus:
-              'ASSIGNED',
-
-            billingAuditStatus:
-              'PENDING',
-          }),
-        ).toBe(
-          'No disponible',
+          'Revisada · Cumple · Con soportes',
         );
       },
     );
