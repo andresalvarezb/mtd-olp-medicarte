@@ -383,7 +383,9 @@ Para crear o ampliar una relación AUTO -> OC, el punto operacional de
 `AUTO_DESTINO` se resuelve con la siguiente precedencia:
 
 1. Programación activa en `patient_schedules`.
-2. Si no existe programación activa, se conserva el resolver vigente por
+2. Si no existe programación activa, punto habitual activo del paciente en
+   `patient_default_dispensing_points`.
+3. Si tampoco existe punto habitual, se conserva el resolver por
    `tariff_annex_products` y `product_delivery_point_mappings`.
 
 Una programación activa corresponde a `SCHEDULED` o `RESCHEDULED`.

@@ -3118,7 +3118,8 @@ export class PurchaseOrderImportService {
      * Prioridad:
      *
      * 1. Programación activa de AUTO_DESTINO.
-     * 2. Si no existe programación activa:
+     * 2. Punto habitual configurado para el paciente.
+     * 3. Si no existe ninguna de las anteriores:
      *    CODIGO_PRODUCTO
      *      -> Anexo Tarifario
      *      -> expediente INVIMA + presentación
@@ -3196,6 +3197,97 @@ export class PurchaseOrderImportService {
         this.existingOrderError(
           'PURCHASE_ORDER_SCHEDULE_POINT_INACTIVE',
           'El punto de dispensación programado para AUTO_DESTINO está inactivo.',
+        );
+      }
+
+
+      return point
+        .dispensing_point_id;
+    }
+
+
+    /*
+     * PUNTO HABITUAL DEL PACIENTE
+     * ===========================
+     *
+     * Si AUTO_DESTINO no tiene programación activa,
+     * se consulta la configuración persistente del
+     * paciente por documento.
+     */
+    const patientDefaultPoint =
+      await client.query<{
+        dispensing_point_id:
+          string;
+
+        active:
+          boolean;
+      }>(
+        `
+          select
+            dp.id
+              as dispensing_point_id,
+
+            dp.active
+
+          from
+            authorization_items ai
+
+          join
+            patient_default_dispensing_points pdp
+              on pdp.patient_document =
+                 coalesce(
+                   nullif(
+                     btrim(
+                       ai.source_data
+                         ->>'IDENTIFICACION_PACIENTE'
+                     ),
+                     ''
+                   ),
+                   nullif(
+                     btrim(
+                       ai.source_data
+                         ->>'NUM_DOCUMENTO'
+                     ),
+                     ''
+                   )
+                 )
+
+             and pdp.active =
+                 true
+
+          join
+            dispensing_points dp
+              on dp.id =
+                 pdp.dispensing_point_id
+
+          where
+            ai.id =
+              $1
+
+          limit 1
+        `,
+        [
+          authorizationItemId,
+        ],
+      );
+
+
+    if (
+      patientDefaultPoint
+        .rows.length ===
+      1
+    ) {
+      const point =
+        patientDefaultPoint
+          .rows[0]!;
+
+
+      if (
+        !point.active
+      ) {
+        this.existingOrderError(
+          'PURCHASE_ORDER_PATIENT_DEFAULT_POINT_INACTIVE',
+          'El punto habitual configurado para el paciente está inactivo.',
         );
       }
 

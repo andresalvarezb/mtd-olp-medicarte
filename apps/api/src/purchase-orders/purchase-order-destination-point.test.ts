@@ -139,7 +139,7 @@ describe(
 
 
     it(
-      'conserva product_delivery_point_mappings como fallback cuando la AUTO no tiene programación',
+      'prioriza el punto habitual del paciente cuando AUTO_DESTINO no tiene programación',
       async () => {
         const query =
           vi.fn(
@@ -161,6 +161,125 @@ describe(
               if (
                 normalized.includes(
                   'from patient_schedules ps',
+                )
+              ) {
+                return {
+                  rows:
+                    [],
+
+                  rowCount:
+                    0,
+                };
+              }
+
+
+              if (
+                normalized.includes(
+                  'patient_default_dispensing_points pdp',
+                )
+              ) {
+                return {
+                  rows: [
+                    {
+                      dispensing_point_id:
+                        BUCARAMANGA_ID,
+
+                      active:
+                        true,
+                    },
+                  ],
+
+                  rowCount:
+                    1,
+                };
+              }
+
+
+              if (
+                normalized.includes(
+                  'product_delivery_point_mappings',
+                )
+              ) {
+                throw new Error(
+                  'PRODUCT_MAPPING_MUST_NOT_BE_QUERIED',
+                );
+              }
+
+
+              throw new Error(
+                `UNEXPECTED_QUERY: ${normalized}`,
+              );
+            },
+          );
+
+
+        const point =
+          await resolver(
+            service(),
+          ).destinationPoint(
+            {
+              query,
+            } as never,
+
+            AUTHORIZATION_ID,
+            '10517',
+          );
+
+
+        expect(
+          point,
+        ).toBe(
+          BUCARAMANGA_ID,
+        );
+
+
+        expect(
+          query,
+        ).toHaveBeenCalledTimes(
+          2,
+        );
+      },
+    );
+
+
+    it(
+      'conserva product_delivery_point_mappings como fallback cuando la AUTO no tiene programación ni punto habitual',
+      async () => {
+        const query =
+          vi.fn(
+            (
+              sql:
+                string,
+            ) => {
+              const normalized =
+                String(
+                  sql,
+                )
+                  .replace(
+                    /\s+/g,
+                    ' ',
+                  )
+                  .toLowerCase();
+
+
+              if (
+                normalized.includes(
+                  'from patient_schedules ps',
+                )
+              ) {
+                return {
+                  rows:
+                    [],
+
+                  rowCount:
+                    0,
+                };
+              }
+
+
+              if (
+                normalized.includes(
+                  'patient_default_dispensing_points pdp',
                 )
               ) {
                 return {
@@ -222,7 +341,7 @@ describe(
         expect(
           query,
         ).toHaveBeenCalledTimes(
-          2,
+          3,
         );
       },
     );
