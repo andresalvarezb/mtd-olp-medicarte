@@ -328,6 +328,59 @@ export class AuthorizationBillingAuditRepository {
     };
   }
 
+  async findEvidenceForContent(
+    auditId: string,
+    evidenceId: string,
+  ) {
+    const row = (
+      await this.database.db.execute<{
+        drive_file_id: string;
+        file_name: string;
+        mime_type: string | null;
+      }>(sql`
+        select
+          evidence.drive_file_id,
+          evidence.file_name,
+          evidence.mime_type
+
+        from
+          authorization_billing_audit_evidence
+            evidence
+
+        join
+          authorization_billing_audits
+            audit
+              on audit.id =
+                 evidence.billing_audit_id
+
+        where
+          audit.id =
+            ${auditId}
+
+          and evidence.id =
+            ${evidenceId}
+
+        limit 1
+      `)
+    ).rows[0];
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      driveFileId:
+        row.drive_file_id,
+
+      fileName:
+        row.file_name,
+
+      mimeType:
+        row.mime_type,
+    };
+  }
+
+
   async upsertDriveEvidence(
     auditId: string,
     authorizationItemId: string,

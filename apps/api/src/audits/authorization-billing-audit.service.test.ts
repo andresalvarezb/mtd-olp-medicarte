@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { Readable } from 'node:stream';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Scope } from '../common/request-scope';
@@ -46,11 +48,18 @@ function createSubject() {
 
     findDriveSearchContext: vi.fn(),
 
+    findEvidenceForContent:
+      vi.fn(),
+
     upsertDriveEvidence: vi.fn(),
   };
 
   const drive = {
-    findEvidence: vi.fn(),
+    findEvidence:
+      vi.fn(),
+
+    downloadEvidence:
+      vi.fn(),
   };
 
   const service = new AuthorizationBillingAuditService(
@@ -208,6 +217,93 @@ describe('AuthorizationBillingAuditService', () => {
 
     expect(drive.findEvidence).toHaveBeenCalledWith('262315766304477');
   });
+
+  it(
+    'sirve el PDF usando el drive_file_id persistido',
+    async () => {
+      const {
+        repository,
+        drive,
+        service,
+      } =
+        createSubject();
+
+      const stream =
+        Readable.from(
+          Buffer.from(
+            '%PDF-1.4',
+          ),
+        );
+
+      repository.findEvidenceForContent.mockResolvedValue({
+        driveFileId:
+          'drive-file-secure-1',
+
+        fileName:
+          '262315766304477.pdf',
+
+        mimeType:
+          'application/pdf',
+      });
+
+      drive.downloadEvidence.mockResolvedValue(
+        stream,
+      );
+
+      await expect(
+        service.evidenceContent(
+          '90000000-0000-4000-8000-000000000001',
+          '90000000-0000-4000-8000-000000000002',
+          MTD_SCOPE,
+        ),
+      ).resolves.toMatchObject({
+        stream,
+
+        fileName:
+          '262315766304477.pdf',
+
+        mimeType:
+          'application/pdf',
+      });
+
+      expect(
+        drive.downloadEvidence,
+      ).toHaveBeenCalledWith(
+        'drive-file-secure-1',
+      );
+    },
+  );
+
+  it(
+    'no permite consultar una evidencia que no pertenece a la auditoría',
+    async () => {
+      const {
+        repository,
+        drive,
+        service,
+      } =
+        createSubject();
+
+      repository.findEvidenceForContent.mockResolvedValue(
+        null,
+      );
+
+      await expect(
+        service.evidenceContent(
+          '91000000-0000-4000-8000-000000000001',
+          '91000000-0000-4000-8000-000000000002',
+          MTD_SCOPE,
+        ),
+      ).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+
+      expect(
+        drive.downloadEvidence,
+      ).not.toHaveBeenCalled();
+    },
+  );
+
 
   it('no consulta Drive después de REVIEWED', async () => {
     const { repository, drive, service } = createSubject();

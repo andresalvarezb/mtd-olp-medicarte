@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { ApiConfig } from '@authorization/config';
 import { existsSync } from 'node:fs';
+import type { Readable } from 'node:stream';
 import { google, type drive_v3 } from 'googleapis';
 
 import { API_CONFIG } from '../tokens';
@@ -121,6 +122,86 @@ export class AuthorizationBillingAuditDriveService {
       });
     }
   }
+
+  async downloadEvidence(
+    fileId: string,
+  ): Promise<Readable> {
+    const credentialFile =
+      this.config.GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE;
+
+    if (
+      !credentialFile
+      ||
+      !existsSync(
+        credentialFile,
+      )
+    ) {
+      throw new InternalServerErrorException({
+        code:
+          'AUTHORIZATION_BILLING_AUDIT_DRIVE_NOT_CONFIGURED',
+
+        message:
+          'Google Drive no está configurado para auditoría de facturación.',
+      });
+    }
+
+    try {
+      const auth =
+        new google.auth.GoogleAuth({
+          keyFile:
+            credentialFile,
+
+          scopes: [
+            'https://www.googleapis.com/auth/drive.readonly',
+          ],
+        });
+
+      const drive =
+        google.drive({
+          version:
+            'v3',
+
+          auth,
+        });
+
+      const response =
+        await drive.files.get(
+          {
+            fileId,
+
+            alt:
+              'media',
+
+            supportsAllDrives:
+              true,
+          },
+          {
+            responseType:
+              'stream',
+          },
+        );
+
+      return response.data as unknown as Readable;
+    } catch (
+      error
+    ) {
+      if (
+        error instanceof
+          InternalServerErrorException
+      ) {
+        throw error;
+      }
+
+      throw new BadGatewayException({
+        code:
+          'AUTHORIZATION_BILLING_AUDIT_DRIVE_ERROR',
+
+        message:
+          'No fue posible descargar el soporte desde Google Drive.',
+      });
+    }
+  }
+
 
   private async belongsToRoot(
     drive: drive_v3.Drive,
