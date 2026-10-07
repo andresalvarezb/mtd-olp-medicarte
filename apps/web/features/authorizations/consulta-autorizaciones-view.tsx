@@ -39,6 +39,8 @@ import {
 
 import {
   billingAuditColumnLabel,
+  billingAuditEvidenceLabel,
+  billingAuditResultLabel,
   billingAuditStatusLabel,
 } from '@/lib/authorization-billing-audit-display';
 
@@ -3278,6 +3280,62 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
                         <strong>
                           {billingAuditStatusLabel(billingAudit.status)}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span
+                          style={{
+                            display:
+                              'block',
+
+                            fontSize:
+                              '12px',
+
+                            opacity:
+                              0.65,
+
+                            marginBottom:
+                              '2px',
+                          }}
+                        >
+                          Resultado
+                        </span>
+
+                        <strong>
+                          {billingAuditResultLabel(
+                            billingAudit.result,
+                          )}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span
+                          style={{
+                            display:
+                              'block',
+
+                            fontSize:
+                              '12px',
+
+                            opacity:
+                              0.65,
+
+                            marginBottom:
+                              '2px',
+                          }}
+                        >
+                          Soportes
+                        </span>
+
+                        <strong>
+                          {billingAuditEvidenceLabel(
+                            (
+                              billingAudit.evidence
+                              ??
+                              []
+                            ).length,
+                          )}
                         </strong>
                       </div>
 
