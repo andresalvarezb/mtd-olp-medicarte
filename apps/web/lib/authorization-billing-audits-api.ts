@@ -98,3 +98,19 @@ export function searchAuthorizationBillingAuditDriveEvidence(
     },
   );
 }
+
+export function getAuthorizationBillingAuditEvidenceContent(
+  organizationId:
+    string,
+  auditId:
+    string,
+  evidenceId:
+    string,
+) {
+  return apiRequest<Blob>(
+    `/authorization-billing-audits/${auditId}/evidence/${evidenceId}/content`,
+    {
+      organizationId,
+    },
+  );
+}

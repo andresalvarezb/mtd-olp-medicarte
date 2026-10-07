@@ -94,6 +94,49 @@ export class AuthorizationBillingAuditService {
     return result.audit;
   }
 
+  async evidenceContent(
+    auditId: string,
+    evidenceId: string,
+    scope: Scope,
+  ) {
+    this.assertMtd(
+      scope,
+    );
+
+    const evidence =
+      await this.run(
+        () =>
+          this.repository.findEvidenceForContent(
+            auditId,
+            evidenceId,
+          ),
+      );
+
+    if (
+      !evidence
+    ) {
+      throw this.evidenceNotFound();
+    }
+
+    const stream =
+      await this.drive.downloadEvidence(
+        evidence.driveFileId,
+      );
+
+    return {
+      stream,
+
+      fileName:
+        evidence.fileName,
+
+      mimeType:
+        evidence.mimeType
+        ??
+        'application/pdf',
+    };
+  }
+
+
   async searchDriveEvidence(auditId: string, scope: Scope) {
     this.assertMtd(scope);
 
@@ -145,6 +188,17 @@ export class AuthorizationBillingAuditService {
       message: 'No se encontró la AUTO o la auditoría de facturación.',
     });
   }
+
+  private evidenceNotFound() {
+    return new NotFoundException({
+      code:
+        'AUTHORIZATION_BILLING_AUDIT_EVIDENCE_NOT_FOUND',
+
+      message:
+        'No se encontró el soporte de auditoría solicitado.',
+    });
+  }
+
 
   private alreadyReviewed() {
     return new ConflictException({

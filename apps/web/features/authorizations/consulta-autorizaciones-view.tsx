@@ -47,6 +47,7 @@ import {
 import {
   decideAuthorizationBillingAudit,
   getAuthorizationBillingAudit,
+  getAuthorizationBillingAuditEvidenceContent,
   searchAuthorizationBillingAuditDriveEvidence,
   startAuthorizationBillingAudit,
   type AuthorizationBillingAuditDecisionRequest,
@@ -931,6 +932,40 @@ export function ConsultaAutorizacionesView() {
     );
 
   const [
+    billingAuditEvidenceOpeningId,
+    setBillingAuditEvidenceOpeningId,
+  ] =
+    useState<
+      string |
+      null
+    >(
+      null,
+    );
+
+  const [
+    billingAuditEvidencePreview,
+    setBillingAuditEvidencePreview,
+  ] =
+    useState<{
+      evidenceId:
+        string;
+
+      fileName:
+        string;
+
+      url:
+        string;
+    } | null>(
+      null,
+    );
+
+  const billingAuditEvidencePreviewUrl =
+    useRef<string | null>(
+      null,
+    );
+
+
+  const [
     billingAuditDecisionSaving,
     setBillingAuditDecisionSaving,
   ] =
@@ -1025,6 +1060,18 @@ export function ConsultaAutorizacionesView() {
           window.cancelAnimationFrame(
             authorizationDrawerOpenFrame.current,
           );
+        }
+
+
+        if (
+          billingAuditEvidencePreviewUrl.current
+        ) {
+          URL.revokeObjectURL(
+            billingAuditEvidencePreviewUrl.current,
+          );
+
+          billingAuditEvidencePreviewUrl.current =
+            null;
         }
       };
     },
@@ -1457,6 +1504,12 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
     );
 
     setBillingAuditActionError(
+      null,
+    );
+
+    closeBillingAuditEvidencePreview();
+
+    setBillingAuditEvidenceOpeningId(
       null,
     );
 
@@ -2085,6 +2138,91 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
       );
     }
   }
+
+  function closeBillingAuditEvidencePreview() {
+    if (
+      billingAuditEvidencePreviewUrl.current
+    ) {
+      URL.revokeObjectURL(
+        billingAuditEvidencePreviewUrl.current,
+      );
+
+      billingAuditEvidencePreviewUrl.current =
+        null;
+    }
+
+    setBillingAuditEvidencePreview(
+      null,
+    );
+  }
+
+
+  async function openBillingAuditEvidence(
+    evidenceId: string,
+    fileName: string,
+  ) {
+    if (
+      !billingAudit
+      ||
+      !organizationId
+      ||
+      billingAuditEvidenceOpeningId
+    ) {
+      return;
+    }
+
+    setBillingAuditEvidenceOpeningId(
+      evidenceId,
+    );
+
+    setBillingAuditActionError(
+      null,
+    );
+
+    try {
+      const blob =
+        await getAuthorizationBillingAuditEvidenceContent(
+          organizationId,
+          billingAudit.id,
+          evidenceId,
+        );
+
+      if (
+        billingAuditEvidencePreviewUrl.current
+      ) {
+        URL.revokeObjectURL(
+          billingAuditEvidencePreviewUrl.current,
+        );
+      }
+
+      const url =
+        URL.createObjectURL(
+          blob,
+        );
+
+      billingAuditEvidencePreviewUrl.current =
+        url;
+
+      setBillingAuditEvidencePreview({
+        evidenceId,
+        fileName,
+        url,
+      });
+    } catch (
+      cause
+    ) {
+      setBillingAuditActionError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible abrir el soporte PDF.',
+      );
+    } finally {
+      setBillingAuditEvidenceOpeningId(
+        null,
+      );
+    }
+  }
+
 
   async function searchBillingAuditDriveEvidence() {
     if (
@@ -3611,23 +3749,106 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                                     </span>
                                   </div>
 
-                                  {evidence.webViewLink ? (
-                                    <a
-                                      className="btn"
-                                      href={
-                                        evidence.webViewLink
-                                      }
-                                      target="_blank"
-                                      rel="noreferrer"
-                                    >
-                                      Ver PDF
-                                    </a>
-                                  ) : null}
+                                  <button
+                                    type="button"
+                                    className="btn"
+                                    disabled={
+                                      billingAuditEvidenceOpeningId ===
+                                        evidence.id
+                                    }
+                                    onClick={() => {
+                                      void openBillingAuditEvidence(
+                                        evidence.id,
+                                        evidence.fileName,
+                                      );
+                                    }}
+                                  >
+                                    {billingAuditEvidenceOpeningId ===
+                                    evidence.id
+                                      ? 'Abriendo…'
+                                      : 'Ver PDF'}
+                                  </button>
                                 </div>
                               ),
                             )}
                           </div>
                         )}
+
+                        {billingAuditEvidencePreview ? (
+                          <div
+                            style={{
+                              marginTop:
+                                '14px',
+
+                              border:
+                                '1px solid var(--border-color, #dfe4ec)',
+
+                              borderRadius:
+                                '10px',
+
+                              overflow:
+                                'hidden',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display:
+                                  'flex',
+
+                                alignItems:
+                                  'center',
+
+                                justifyContent:
+                                  'space-between',
+
+                                gap:
+                                  '12px',
+
+                                padding:
+                                  '10px 12px',
+
+                                borderBottom:
+                                  '1px solid var(--border-color, #dfe4ec)',
+                              }}
+                            >
+                              <strong>
+                                {billingAuditEvidencePreview.fileName}
+                              </strong>
+
+                              <button
+                                type="button"
+                                className="btn"
+                                onClick={
+                                  closeBillingAuditEvidencePreview
+                                }
+                              >
+                                Cerrar
+                              </button>
+                            </div>
+
+                            <iframe
+                              src={
+                                billingAuditEvidencePreview.url
+                              }
+                              title={
+                                `Soporte ${billingAuditEvidencePreview.fileName}`
+                              }
+                              style={{
+                                display:
+                                  'block',
+
+                                width:
+                                  '100%',
+
+                                height:
+                                  '70vh',
+
+                                border:
+                                  0,
+                              }}
+                            />
+                          </div>
+                        ) : null}
                       </section>
 
 

@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  Headers,
+  Param,
+  Post,
+  Req,
+  StreamableFile,
+  UseGuards,
+} from '@nestjs/common';
 
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
@@ -96,6 +107,58 @@ export class AuthorizationBillingAuditController {
       await this.scope(organizationId, request, 'application_audits.manage'),
     );
   }
+
+  @Get(
+    'authorization-billing-audits/:auditId/evidence/:evidenceId/content',
+  )
+  @Header(
+    'Cache-Control',
+    'private, no-store',
+  )
+  async evidenceContent(
+    @Param('auditId')
+    rawAuditId: string,
+
+    @Param('evidenceId')
+    rawEvidenceId: string,
+
+    @Headers('x-organization-id')
+    organizationId: string | undefined,
+
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    const content =
+      await this.audits.evidenceContent(
+        z.string().uuid().parse(
+          rawAuditId,
+        ),
+
+        z.string().uuid().parse(
+          rawEvidenceId,
+        ),
+
+        await this.scope(
+          organizationId,
+          request,
+          'application_audits.read',
+        ),
+      );
+
+    return new StreamableFile(
+      content.stream,
+      {
+        type:
+          content.mimeType,
+
+        disposition:
+          `inline; filename*=UTF-8''${encodeURIComponent(
+            content.fileName,
+          )}`,
+      },
+    );
+  }
+
 
   @Post('authorization-billing-audits/:auditId/decision')
   async decide(
