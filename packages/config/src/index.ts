@@ -54,8 +54,24 @@ const authConfigSchema = {
 };
 
 const driveAuditConfigSchema = {
-  GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_ID: z.string().min(1).optional().or(z.literal('')),
-  GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: z.string().min(1).optional().or(z.literal('')),
+  /*
+   * Compatibilidad con la configuración histórica
+   * de una única raíz.
+   */
+  GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_ID:
+    z.string().min(1).optional().or(z.literal('')),
+
+  /*
+   * Lista CSV de raíces autorizadas.
+   *
+   * Ejemplo:
+   * root-medicarte,root-facturas
+   */
+  GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_IDS:
+    z.string().min(1).optional().or(z.literal('')),
+
+  GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE:
+    z.string().min(1).optional().or(z.literal('')),
 };
 
 const bulkConfigSchema = {
