@@ -2240,6 +2240,29 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
     const auditId =
       billingAudit.id;
 
+
+    /*
+     * Defensa de contrato.
+     *
+     * Nunca debemos producir:
+     *
+     * /authorization-billing-audits/undefined/...
+     */
+    if (
+      typeof auditId !==
+        'string'
+      ||
+      auditId.length ===
+        0
+    ) {
+      setBillingAuditActionError(
+        'La auditoría aún no está inicializada. Inicia la auditoría antes de buscar soportes.',
+      );
+
+      return;
+    }
+
+
     setBillingAuditDriveSearching(
       true,
     );
