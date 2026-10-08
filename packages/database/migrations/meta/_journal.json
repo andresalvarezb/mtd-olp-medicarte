@@ -687,6 +687,13 @@
       "when": 1790546879669,
       "tag": "0098_patient_default_dispensing_points",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1790546879670,
+      "tag": "0099_authorization_drive_support_sync",
+      "breakpoints": true
     }
   ]
 }

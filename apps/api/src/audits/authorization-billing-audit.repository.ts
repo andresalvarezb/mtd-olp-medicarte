@@ -32,6 +32,12 @@ type AuditReadRow = {
   audited_at: string | null;
   correlation_id: string;
   updated_at: string;
+  drive_support_status:
+    'UNKNOWN'
+    | 'WITH_SUPPORT'
+    | 'WITHOUT_SUPPORT';
+  drive_support_last_checked_at:
+    string | null;
 };
 
 type EvidenceRow = {
@@ -216,11 +222,14 @@ export class AuthorizationBillingAuditRepository {
                   as count
 
               from
-                authorization_billing_audit_evidence
+                authorization_drive_supports
 
               where
-                billing_audit_id =
-                  ${auditId}
+                authorization_item_id =
+                  ${audit.authorization_item_id}
+
+                and is_present =
+                  true
             `)
           ).rows[0]?.count
           ??
@@ -344,14 +353,14 @@ export class AuthorizationBillingAuditRepository {
           evidence.mime_type
 
         from
-          authorization_billing_audit_evidence
+          authorization_drive_supports
             evidence
 
         join
           authorization_billing_audits
             audit
-              on audit.id =
-                 evidence.billing_audit_id
+              on audit.authorization_item_id =
+                 evidence.authorization_item_id
 
         where
           audit.id =
@@ -359,6 +368,9 @@ export class AuthorizationBillingAuditRepository {
 
           and evidence.id =
             ${evidenceId}
+
+          and evidence.is_present =
+            true
 
         limit 1
       `)
@@ -395,55 +407,241 @@ export class AuthorizationBillingAuditRepository {
     }[],
   ) {
     return this.database.db.transaction(async (tx) => {
+      /*
+       * authorization_drive_supports es la fuente
+       * documental actual por AUTO.
+       *
+       * Una búsqueda manual debe producir exactamente
+       * el mismo estado que la sincronización del worker.
+       */
+      await tx.execute(sql`
+        update
+          authorization_drive_supports
+
+        set
+          is_present =
+            false,
+
+          missing_since =
+            coalesce(
+              missing_since,
+              now()
+            ),
+
+          updated_at =
+            now()
+
+        where
+          authorization_item_id =
+            ${authorizationItemId}
+      `);
+
+
       for (const file of files) {
         await tx.execute(sql`
-            insert into
-              authorization_billing_audit_evidence (
-                billing_audit_id,
-                drive_file_id,
-                file_name,
-                mime_type,
-                web_view_link,
-                size_bytes,
-                md5_checksum,
-                drive_modified_at,
-                discovered_at
-              )
-            values (
-              ${auditId},
-              ${file.driveFileId},
-              ${file.fileName},
-              ${file.mimeType},
-              ${file.webViewLink},
-              ${file.sizeBytes},
-              ${file.md5Checksum},
-              ${file.driveModifiedAt},
+          insert into
+            authorization_drive_supports (
+              authorization_item_id,
+              drive_file_id,
+              file_name,
+              mime_type,
+              web_view_link,
+              size_bytes,
+              md5_checksum,
+              drive_modified_at,
+              first_seen_at,
+              last_seen_at,
+              missing_since,
+              is_present,
+              created_at,
+              updated_at
+            )
+
+          values (
+            ${authorizationItemId},
+            ${file.driveFileId},
+            ${file.fileName},
+            ${file.mimeType},
+            ${file.webViewLink},
+            ${file.sizeBytes},
+            ${file.md5Checksum},
+            ${file.driveModifiedAt},
+            now(),
+            now(),
+            null,
+            true,
+            now(),
+            now()
+          )
+
+          on conflict (
+            authorization_item_id,
+            drive_file_id
+          )
+
+          do update set
+            file_name =
+              excluded.file_name,
+
+            mime_type =
+              excluded.mime_type,
+
+            web_view_link =
+              excluded.web_view_link,
+
+            size_bytes =
+              excluded.size_bytes,
+
+            md5_checksum =
+              excluded.md5_checksum,
+
+            drive_modified_at =
+              excluded.drive_modified_at,
+
+            last_seen_at =
+              now(),
+
+            missing_since =
+              null,
+
+            is_present =
+              true,
+
+            updated_at =
               now()
-            )
-            on conflict (
+        `);
+
+
+        /*
+         * Compatibilidad histórica.
+         *
+         * Conservamos la relación antigua auditoría-evidencia
+         * mientras termina la transición al índice global.
+         */
+        await tx.execute(sql`
+          insert into
+            authorization_billing_audit_evidence (
               billing_audit_id,
-              drive_file_id
+              drive_file_id,
+              file_name,
+              mime_type,
+              web_view_link,
+              size_bytes,
+              md5_checksum,
+              drive_modified_at,
+              discovered_at
             )
-            do update set
-              file_name =
-                excluded.file_name,
-              mime_type =
-                excluded.mime_type,
-              web_view_link =
-                excluded.web_view_link,
-              size_bytes =
-                excluded.size_bytes,
-              md5_checksum =
-                excluded.md5_checksum,
-              drive_modified_at =
-                excluded.drive_modified_at,
-              discovered_at = now()
-          `);
+
+          values (
+            ${auditId},
+            ${file.driveFileId},
+            ${file.fileName},
+            ${file.mimeType},
+            ${file.webViewLink},
+            ${file.sizeBytes},
+            ${file.md5Checksum},
+            ${file.driveModifiedAt},
+            now()
+          )
+
+          on conflict (
+            billing_audit_id,
+            drive_file_id
+          )
+
+          do update set
+            file_name =
+              excluded.file_name,
+
+            mime_type =
+              excluded.mime_type,
+
+            web_view_link =
+              excluded.web_view_link,
+
+            size_bytes =
+              excluded.size_bytes,
+
+            md5_checksum =
+              excluded.md5_checksum,
+
+            drive_modified_at =
+              excluded.drive_modified_at,
+
+            discovered_at =
+              now()
+        `);
       }
 
-      return this.readbackOrThrow(tx, authorizationItemId);
+
+      await tx.execute(sql`
+        insert into
+          authorization_drive_support_sync (
+            authorization_item_id,
+            support_status,
+            evidence_count,
+            last_checked_at,
+            last_success_at,
+            next_check_at,
+            consecutive_failures,
+            last_error,
+            created_at,
+            updated_at
+          )
+
+        values (
+          ${authorizationItemId},
+          ${files.length > 0
+            ? 'WITH_SUPPORT'
+            : 'WITHOUT_SUPPORT'},
+          ${files.length},
+          now(),
+          now(),
+          now() + interval '30 minutes',
+          0,
+          null,
+          now(),
+          now()
+        )
+
+        on conflict (
+          authorization_item_id
+        )
+
+        do update set
+          support_status =
+            excluded.support_status,
+
+          evidence_count =
+            excluded.evidence_count,
+
+          last_checked_at =
+            now(),
+
+          last_success_at =
+            now(),
+
+          next_check_at =
+            excluded.next_check_at,
+
+          consecutive_failures =
+            0,
+
+          last_error =
+            null,
+
+          updated_at =
+            now()
+      `);
+
+
+      return this.readbackOrThrow(
+        tx,
+        authorizationItemId,
+      );
     });
   }
+
 
   private async readbackOrThrow(conn: Conn, authorizationItemId: string) {
     const audit = await this.readByAuthorizationItemId(conn, authorizationItemId);
@@ -491,7 +689,29 @@ export class AuthorizationBillingAuditRepository {
           to_char(
             aba.updated_at at time zone 'UTC',
             'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
-          ) as updated_at
+          ) as updated_at,
+
+          coalesce(
+            support_sync.support_status,
+            'UNKNOWN'
+          )
+            as drive_support_status,
+
+          case
+            when
+              support_sync.last_checked_at
+                is null
+            then
+              null
+
+            else
+              to_char(
+                support_sync.last_checked_at
+                  at time zone 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+              )
+          end
+            as drive_support_last_checked_at
 
         from authorization_billing_audits aba
 
@@ -502,6 +722,12 @@ export class AuthorizationBillingAuditRepository {
         left join users auditor
           on auditor.id =
             aba.audited_by
+
+        left join
+          authorization_drive_support_sync
+            support_sync
+              on support_sync.authorization_item_id =
+                 aba.authorization_item_id
 
         where aba.authorization_item_id =
           ${authorizationItemId}
@@ -516,46 +742,70 @@ export class AuthorizationBillingAuditRepository {
 
     const evidence = await conn.execute<EvidenceRow>(sql`
         select
-          id,
-          billing_audit_id,
-          drive_file_id,
-          file_name,
-          mime_type,
-          web_view_link,
+          support.id,
 
-          size_bytes::text
+          ${audit.id}::uuid
+            as billing_audit_id,
+
+          support.drive_file_id,
+
+          support.file_name,
+
+          support.mime_type,
+
+          support.web_view_link,
+
+          support.size_bytes::text
             as size_bytes,
 
-          md5_checksum,
+          support.md5_checksum,
 
           case
-            when drive_modified_at is null
-              then null
-            else to_char(
-              drive_modified_at at time zone 'UTC',
-              'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
-            )
-          end as drive_modified_at,
+            when
+              support.drive_modified_at
+                is null
+            then
+              null
+
+            else
+              to_char(
+                support.drive_modified_at
+                  at time zone 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+              )
+          end
+            as drive_modified_at,
 
           to_char(
-            discovered_at at time zone 'UTC',
+            support.first_seen_at
+              at time zone 'UTC',
             'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
-          ) as discovered_at,
+          )
+            as discovered_at,
 
           to_char(
-            created_at at time zone 'UTC',
+            support.created_at
+              at time zone 'UTC',
             'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
-          ) as created_at
+          )
+            as created_at
 
-        from authorization_billing_audit_evidence
+        from
+          authorization_drive_supports
+            support
 
-        where billing_audit_id =
-          ${audit.id}
+        where
+          support.authorization_item_id =
+            ${authorizationItemId}
+
+          and support.is_present =
+            true
 
         order by
-          file_name asc,
-          id asc
+          support.file_name asc,
+          support.id asc
       `);
+
 
     return {
       id: audit.id,
@@ -583,6 +833,12 @@ export class AuthorizationBillingAuditRepository {
       correlationId: audit.correlation_id,
 
       updatedAt: audit.updated_at,
+
+      driveSupportStatus:
+        audit.drive_support_status,
+
+      driveSupportLastCheckedAt:
+        audit.drive_support_last_checked_at,
 
       evidence: evidence.rows.map((item) => ({
         id: item.id,

@@ -74,6 +74,56 @@ const driveAuditConfigSchema = {
     z.string().min(1).optional().or(z.literal('')),
 };
 
+const driveAuditSyncConfigSchema = {
+  GOOGLE_DRIVE_AUDIT_SYNC_ENABLED:
+    z.enum(['true', 'false'])
+      .transform(
+        (value) =>
+          value === 'true',
+      )
+      .default('false'),
+
+  GOOGLE_DRIVE_AUDIT_SYNC_SCOPE:
+    z.enum([
+      'ALL',
+      'CLOSED_ONLY',
+    ])
+      .default('ALL'),
+
+  GOOGLE_DRIVE_AUDIT_SYNC_POLL_INTERVAL_MS:
+    z.coerce.number()
+      .int()
+      .min(10_000)
+      .default(60_000),
+
+  GOOGLE_DRIVE_AUDIT_SYNC_BATCH_SIZE:
+    z.coerce.number()
+      .int()
+      .min(1)
+      .max(50)
+      .default(10),
+
+  GOOGLE_DRIVE_AUDIT_SYNC_CONCURRENCY:
+    z.coerce.number()
+      .int()
+      .min(1)
+      .max(5)
+      .default(2),
+
+  GOOGLE_DRIVE_AUDIT_SYNC_RECHECK_MS:
+    z.coerce.number()
+      .int()
+      .min(300_000)
+      .default(1_800_000),
+
+  GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MS:
+    z.coerce.number()
+      .int()
+      .min(60_000)
+      .default(300_000),
+};
+
+
 const bulkConfigSchema = {
   BULK_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
 };
@@ -104,6 +154,8 @@ export const workerConfigSchema = commonSchema.extend({
   ...importConfigSchema,
   ...mipresConfigSchema,
   ...bulkConfigSchema,
+  ...driveAuditConfigSchema,
+  ...driveAuditSyncConfigSchema,
   ...reconciliationOperationsConfigSchema,
   IMPORT_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
   SCHEDULER_ENABLED: z

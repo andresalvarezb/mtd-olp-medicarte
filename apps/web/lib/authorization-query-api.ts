@@ -72,6 +72,11 @@ export type AuthorizationBillingAuditResult =
   | 'COMPLIES'
   | 'DOES_NOT_COMPLY';
 
+export type AuthorizationDriveSupportStatus =
+  | 'UNKNOWN'
+  | 'WITH_SUPPORT'
+  | 'WITHOUT_SUPPORT';
+
 export type AuthorizationBillingAuditDisplayStatus =
   | 'NOT_AVAILABLE'
   | 'PENDING_WITHOUT_EVIDENCE'
@@ -202,6 +207,15 @@ export type AuthorizationQueryItem = {
 
   billingAuditEvidenceCount:
     number;
+
+  driveSupportStatus:
+    AuthorizationDriveSupportStatus;
+
+  driveSupportEvidenceCount:
+    number;
+
+  driveSupportLastCheckedAt:
+    string | null;
 
   billingAuditDisplayStatus:
     AuthorizationBillingAuditDisplayStatus;

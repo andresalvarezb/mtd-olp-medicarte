@@ -25,6 +25,10 @@ import {
   runInventoryExpirationReleaseSweep,
 } from './inventory-expiration-release';
 
+import {
+  AuthorizationDriveSupportSync,
+} from './authorization-drive-support-sync';
+
 type Database = ReturnType<typeof createDatabase>;
 type OutboxRow = {
   id: string;
@@ -98,6 +102,15 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private expirationSweepTimer?:
     NodeJS.Timeout;
 
+  private driveSupportSyncTimer?:
+    NodeJS.Timeout;
+
+  private readonly driveSupportSync:
+    AuthorizationDriveSupportSync;
+
+  private driveSupportSyncRunning =
+    false;
+
   private expirationSweeping =
     false;
 
@@ -118,6 +131,13 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       connection: this.connection,
       concurrency: 5,
     });
+
+    this.driveSupportSync =
+      new AuthorizationDriveSupportSync(
+        config,
+        database,
+        this.logger,
+      );
   }
 
   onModuleInit(): void {
@@ -152,8 +172,70 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         );
 
       void this.runExpirationSweep();
+
+
+      if (
+        this.config
+          .GOOGLE_DRIVE_AUDIT_SYNC_ENABLED
+      ) {
+        this.driveSupportSyncTimer =
+          setInterval(
+            () =>
+              void this.runDriveSupportSync(),
+
+            this.config
+              .GOOGLE_DRIVE_AUDIT_SYNC_POLL_INTERVAL_MS,
+          );
+
+
+        /*
+         * Ejecutamos inmediatamente para que el
+         * backfill comience después del deploy.
+         *
+         * El procesamiento permanece limitado por
+         * batch + concurrencia.
+         */
+        void this.runDriveSupportSync();
+      }
     }
   }
+
+
+  private async runDriveSupportSync():
+    Promise<void> {
+    if (
+      this.driveSupportSyncRunning
+    ) {
+      return;
+    }
+
+
+    this.driveSupportSyncRunning =
+      true;
+
+
+    try {
+      await this.driveSupportSync.run();
+    } catch (
+      error
+    ) {
+      this.logger.error(
+        {
+          error,
+        },
+        'authorization drive support sync failed',
+      );
+
+
+      Sentry.captureException(
+        error,
+      );
+    } finally {
+      this.driveSupportSyncRunning =
+        false;
+    }
+  }
+
 
   private async runExpirationSweep(): Promise<void> {
     if (
@@ -419,6 +501,16 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         this.expirationSweepTimer,
       );
     }
+
+
+    if (
+      this.driveSupportSyncTimer
+    ) {
+      clearInterval(
+        this.driveSupportSyncTimer,
+      );
+    }
+
 
     await this.worker.close();
     await this.queueEvents.close();
