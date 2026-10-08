@@ -4,6 +4,7 @@ import {
   resolveAuthorizationAuditStatus,
   resolveAuthorizationFulfillmentStatus,
   resolveAuthorizationInitialValidationStatus,
+  resolveAuthorizationLifecycleStatus,
   resolveAuthorizationValidityStatus,
 } from './authorization-query-state';
 
@@ -75,6 +76,59 @@ describe('authorization query derived state', () => {
         }),
       ).toBe('INVALID_DATE');
     });
+  });
+
+  describe('lifecycle enablement', () => {
+    it(
+      'mantiene Habilitada una AUTO vencida cuando la validación inicial pasó',
+      () => {
+        expect(
+          resolveAuthorizationLifecycleStatus({
+            initialValidationStatus:
+              'PASSED',
+
+            validityStatus:
+              'EXPIRED',
+          }),
+        ).toBe(
+          'ENABLED',
+        );
+      },
+    );
+
+    it(
+      'mantiene Pendiente una AUTO fuera del horizonte',
+      () => {
+        expect(
+          resolveAuthorizationLifecycleStatus({
+            initialValidationStatus:
+              'PASSED',
+
+            validityStatus:
+              'OUTSIDE_HORIZON',
+          }),
+        ).toBe(
+          'PENDING',
+        );
+      },
+    );
+
+    it(
+      'inhabilita una AUTO con fecha inválida',
+      () => {
+        expect(
+          resolveAuthorizationLifecycleStatus({
+            initialValidationStatus:
+              'PASSED',
+
+            validityStatus:
+              'INVALID_DATE',
+          }),
+        ).toBe(
+          'DISABLED',
+        );
+      },
+    );
   });
 
   describe('initial validation', () => {

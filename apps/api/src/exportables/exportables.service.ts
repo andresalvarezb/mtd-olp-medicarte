@@ -458,7 +458,9 @@ export class ExportablesService {
               ai.enablement_status,
               ai.tariff_membership_status,
               ai.coverage_type,
+              ai.no_prescripcion,
               ai.direction_status,
+              ai.mipres_manual_decision,
 
               case
 
@@ -657,25 +659,58 @@ export class ExportablesService {
                   minimum_quantity
                 then 'FAILED'
 
+                /*
+                 * La Habilitación y MIPRES son dimensiones
+                 * independientes.
+                 *
+                 * Aquí únicamente validamos que la cobertura
+                 * esté clasificada. El gate MIPRES se evalúa
+                 * posteriormente.
+                 */
                 when
-                  coverage_type =
-                    'PBS'
-                  and
-                  direction_status =
-                    'NOT_APPLICABLE'
-                then 'PASSED'
-
-                when
-                  coverage_type =
+                  coverage_type in (
+                    'PBS',
                     'NO_PBS'
-                  and
-                  direction_status =
-                    'CONFIRMED'
+                  )
                 then 'PASSED'
 
                 else 'PENDING'
               end
                 as initial_validation,
+
+              case
+                when
+                  btrim(
+                    coalesce(
+                      no_prescripcion,
+                      ''
+                    )
+                  ) =
+                  ''
+                then
+                  'NOT_APPLICABLE'
+
+                when
+                  coverage_type =
+                    'PBS'
+                then
+                  'UNLOCKED'
+
+                when
+                  coverage_type =
+                    'NO_PBS'
+
+                  and
+
+                  mipres_manual_decision =
+                    'MANUALLY_ENABLED'
+                then
+                  'UNLOCKED'
+
+                else
+                  'LOCKED'
+              end
+                as mipres_state,
 
               case
                 when
@@ -847,9 +882,63 @@ export class ExportablesService {
               'PASSED'
 
             and
-            e.validity_status in (
-              'IN_WINDOW',
-              'EXPIRED'
+
+            (
+              /*
+               * AUTO sin MIPRES:
+               * conserva la elegibilidad temporal histórica
+               * para compra.
+               */
+              (
+                btrim(
+                  coalesce(
+                    e.no_prescripcion,
+                    ''
+                  )
+                ) =
+                ''
+
+                and
+
+                e.validity_status in (
+                  'IN_WINDOW',
+                  'EXPIRED'
+                )
+              )
+
+              or
+
+              /*
+               * AUTO con MIPRES:
+               *
+               * debe estar HABILITADA
+               * y MIPRES debe estar DESBLOQUEADA.
+               *
+               * IN_WINDOW + initial_validation PASSED
+               * representan la Habilitación natural.
+               */
+              (
+                btrim(
+                  coalesce(
+                    e.no_prescripcion,
+                    ''
+                  )
+                )
+                <>
+                ''
+
+                and
+
+                e.validity_status in (
+                  'IN_WINDOW',
+                  'EXPIRED'
+                )
+
+                and
+
+                e.mipres_state =
+                  'UNLOCKED'
+              )
             )
 
             and
