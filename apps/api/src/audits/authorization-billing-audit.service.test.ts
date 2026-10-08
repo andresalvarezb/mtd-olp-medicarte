@@ -305,20 +305,117 @@ describe('AuthorizationBillingAuditService', () => {
   );
 
 
-  it('no consulta Drive después de REVIEWED', async () => {
-    const { repository, drive, service } = createSubject();
+  it(
+    'permite consultar Drive después de REVIEWED sin reabrir la decisión',
+    async () => {
+      const {
+        repository,
+        drive,
+        service,
+      } =
+        createSubject();
 
-    repository.findDriveSearchContext.mockResolvedValue({
-      id: '80000000-0000-4000-8000-000000000001',
-      authorizationItemId: '80000000-0000-4000-8000-000000000002',
-      authorizationNumber: '262315766304477',
-      status: 'REVIEWED',
-    });
+      repository.findDriveSearchContext.mockResolvedValue({
+        id:
+          '80000000-0000-4000-8000-000000000001',
 
-    await expect(
-      service.searchDriveEvidence('80000000-0000-4000-8000-000000000001', MTD_SCOPE),
-    ).rejects.toBeInstanceOf(ConflictException);
+        authorizationItemId:
+          '80000000-0000-4000-8000-000000000002',
 
-    expect(drive.findEvidence).not.toHaveBeenCalled();
-  });
+        authorizationNumber:
+          '262315766304477',
+
+        status:
+          'REVIEWED',
+      });
+
+      drive.findEvidence.mockResolvedValue([
+        {
+          driveFileId:
+            'drive-file-reviewed-1',
+
+          fileName:
+            '262315766304477.pdf',
+
+          mimeType:
+            'application/pdf',
+
+          webViewLink:
+            'https://drive.google.com/file/d/drive-file-reviewed-1/view',
+
+          sizeBytes:
+            123,
+
+          md5Checksum:
+            null,
+
+          driveModifiedAt:
+            '2026-10-02T18:24:07.545Z',
+        },
+      ]);
+
+      /*
+       * La persistencia de evidencia conserva
+       * la decisión final existente.
+       */
+      repository.upsertDriveEvidence.mockResolvedValue({
+        status:
+          'REVIEWED',
+
+        result:
+          'COMPLIES',
+
+        evidence: [
+          {
+            fileName:
+              '262315766304477.pdf',
+          },
+        ],
+      });
+
+      await expect(
+        service.searchDriveEvidence(
+          '80000000-0000-4000-8000-000000000001',
+          MTD_SCOPE,
+        ),
+      ).resolves.toMatchObject({
+        status:
+          'REVIEWED',
+
+        result:
+          'COMPLIES',
+
+        evidence: [
+          {
+            fileName:
+              '262315766304477.pdf',
+          },
+        ],
+      });
+
+      expect(
+        drive.findEvidence,
+      ).toHaveBeenCalledWith(
+        '262315766304477',
+      );
+
+      expect(
+        repository.upsertDriveEvidence,
+      ).toHaveBeenCalledWith(
+        '80000000-0000-4000-8000-000000000001',
+
+        '80000000-0000-4000-8000-000000000002',
+
+        expect.arrayContaining([
+          expect.objectContaining({
+            driveFileId:
+              'drive-file-reviewed-1',
+
+            fileName:
+              '262315766304477.pdf',
+          }),
+        ]),
+      );
+    },
+  );
 });

@@ -146,11 +146,23 @@ export class AuthorizationBillingAuditService {
       throw this.notFound();
     }
 
-    if (context.status === 'REVIEWED') {
-      throw this.alreadyReviewed();
-    }
-
-    const files = await this.drive.findEvidence(context.authorizationNumber);
+    /*
+     * REVIEWED hace inmutable la decisión de auditoría,
+     * no la consulta documental.
+     *
+     * Los soportes pueden existir o incorporarse en Drive
+     * después de que la decisión haya sido registrada.
+     *
+     * Buscar evidencia no modifica:
+     * - status;
+     * - result;
+     * - auditor;
+     * - reviewedAt;
+     * - observation.
+     */
+    const files = await this.drive.findEvidence(
+      context.authorizationNumber,
+    );
 
     return this.repository.upsertDriveEvidence(auditId, context.authorizationItemId, files);
   }
