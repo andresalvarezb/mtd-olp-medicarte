@@ -217,6 +217,9 @@ importers:
       drizzle-orm:
         specifier: 0.44.5
         version: 0.44.5(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(pg@8.16.3)
+      googleapis:
+        specifier: ^182.0.0
+        version: 182.0.0(supports-color@8.1.1)
       ioredis:
         specifier: 5.7.0
         version: 5.7.0(supports-color@8.1.1)

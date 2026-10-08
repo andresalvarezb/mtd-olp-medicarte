@@ -165,15 +165,96 @@ describe(
   'billingAuditColumnLabel',
   () => {
     it(
-      'usa la situación derivada del read-model',
+      'mantiene el resultado de auditoría para una AUTO cerrada',
       () => {
         expect(
           billingAuditColumnLabel({
+            operationalStatus:
+              'CLOSED',
+
+            driveSupportStatus:
+              'WITH_SUPPORT',
+
+            driveSupportEvidenceCount:
+              1,
+
             billingAuditDisplayStatus:
               'COMPLIES_WITH_EVIDENCE',
           }),
         ).toBe(
           'Revisada · Cumple · Con soportes',
+        );
+      },
+    );
+
+
+    it(
+      'muestra soportes aunque la AUTO todavía no esté cerrada',
+      () => {
+        expect(
+          billingAuditColumnLabel({
+            operationalStatus:
+              'ASSIGNED',
+
+            driveSupportStatus:
+              'WITH_SUPPORT',
+
+            driveSupportEvidenceCount:
+              2,
+
+            billingAuditDisplayStatus:
+              'NOT_AVAILABLE',
+          }),
+        ).toBe(
+          'Con soportes · 2',
+        );
+      },
+    );
+
+
+    it(
+      'no afirma ausencia antes del primer barrido de Drive',
+      () => {
+        expect(
+          billingAuditColumnLabel({
+            operationalStatus:
+              'UNASSIGNED',
+
+            driveSupportStatus:
+              'UNKNOWN',
+
+            driveSupportEvidenceCount:
+              0,
+
+            billingAuditDisplayStatus:
+              'NOT_AVAILABLE',
+          }),
+        ).toBe(
+          'Soportes · Pendiente de consulta',
+        );
+      },
+    );
+
+
+    it(
+      'muestra sin soportes después de una consulta exitosa',
+      () => {
+        expect(
+          billingAuditColumnLabel({
+            operationalStatus:
+              'PARTIALLY_ASSIGNED',
+
+            driveSupportStatus:
+              'WITHOUT_SUPPORT',
+
+            driveSupportEvidenceCount:
+              0,
+
+            billingAuditDisplayStatus:
+              'NOT_AVAILABLE',
+          }),
+        ).toBe(
+          'Sin soportes',
         );
       },
     );

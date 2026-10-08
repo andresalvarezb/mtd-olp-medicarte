@@ -2174,7 +2174,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
       setBillingAuditActionError(
         cause instanceof Error
           ? cause.message
-          : 'No fue posible buscar el soporte en Google Drive.',
+          : 'No fue posible actualizar los soportes en Google Drive.',
       );
     } finally {
       setBillingAuditDriveSearching(
@@ -2639,7 +2639,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
                   <th>Validación</th>
 
-                  <th>Auditoría</th>
+                  <th>Soportes / auditoría</th>
 
                   <th
                     style={{
@@ -3525,7 +3525,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                                   0.65,
                               }}
                             >
-                              PDF asociados a la auditoría.
+                              PDF asociados a la autorización.
                             </div>
                           </div>
 
@@ -3543,8 +3543,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                               }}
                             >
                               {billingAuditDriveSearching
-                                ? 'Buscando…'
-                                : 'Buscar en Drive'}
+                                ? 'Actualizando…'
+                                : 'Actualizar soportes'}
                             </button>
                           ) : null}
                         </div>
@@ -3561,7 +3561,10 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                                 0.68,
                             }}
                           >
-                            Sin soportes asociados a esta autorización.
+                            {billingAudit.driveSupportStatus ===
+                            'UNKNOWN'
+                              ? 'Soportes pendientes de verificación.'
+                              : 'Sin soportes asociados a esta autorización.'}
                           </div>
                         ) : (
                           <div

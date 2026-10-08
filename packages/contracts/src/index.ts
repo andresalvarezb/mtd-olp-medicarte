@@ -2651,6 +2651,17 @@ export type AuthorizationBillingAuditEvidence = z.infer<
   typeof authorizationBillingAuditEvidenceSchema
 >;
 
+export const authorizationDriveSupportStatusSchema = z.enum([
+  'UNKNOWN',
+  'WITH_SUPPORT',
+  'WITHOUT_SUPPORT',
+]);
+
+export type AuthorizationDriveSupportStatus = z.infer<
+  typeof authorizationDriveSupportStatusSchema
+>;
+
+
 export const authorizationBillingAuditResponseSchema = z.object({
   id: z.string().uuid(),
 
@@ -2677,6 +2688,12 @@ export const authorizationBillingAuditResponseSchema = z.object({
   correlationId: z.string().uuid(),
 
   updatedAt: isoDateTimeSchema,
+
+  driveSupportStatus:
+    authorizationDriveSupportStatusSchema,
+
+  driveSupportLastCheckedAt:
+    isoDateTimeSchema.nullable(),
 
   evidence: z.array(authorizationBillingAuditEvidenceSchema),
 });

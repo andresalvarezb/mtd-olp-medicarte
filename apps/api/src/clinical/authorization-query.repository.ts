@@ -205,6 +205,14 @@ interface AuthorizationQueryRow
   billing_audit_evidence_count:
     number;
 
+  drive_support_status:
+    'UNKNOWN'
+    | 'WITH_SUPPORT'
+    | 'WITHOUT_SUPPORT';
+
+  drive_support_last_checked_at:
+    Date | string | null;
+
   created_at:
     Date | string;
 
@@ -4736,25 +4744,56 @@ export class AuthorizationQueryRepository {
         coalesce(
           (
             select
-              count(*)::int
+              sync_status.evidence_count
 
             from
-              authorization_billing_audit_evidence
-                abae_status
-
-            join
-              authorization_billing_audits
-                aba_status
-                  on aba_status.id =
-                     abae_status.billing_audit_id
+              authorization_drive_support_sync
+                sync_status
 
             where
-              aba_status.authorization_item_id =
+              sync_status.authorization_item_id =
                 i.id
+
+            limit 1
           ),
           0
         )
           as billing_audit_evidence_count,
+
+        coalesce(
+          (
+            select
+              sync_status.support_status
+
+            from
+              authorization_drive_support_sync
+                sync_status
+
+            where
+              sync_status.authorization_item_id =
+                i.id
+
+            limit 1
+          ),
+          'UNKNOWN'
+        )
+          as drive_support_status,
+
+        (
+          select
+            sync_status.last_checked_at
+
+          from
+            authorization_drive_support_sync
+              sync_status
+
+          where
+            sync_status.authorization_item_id =
+              i.id
+
+          limit 1
+        )
+          as drive_support_last_checked_at,
 
 
         i.created_at,
@@ -5437,6 +5476,23 @@ export class AuthorizationQueryRepository {
           ??
           0,
         ),
+
+      driveSupportStatus:
+        row.drive_support_status,
+
+      driveSupportEvidenceCount:
+        Number(
+          row.billing_audit_evidence_count
+          ??
+          0,
+        ),
+
+      driveSupportLastCheckedAt:
+        row.drive_support_last_checked_at
+          ? toIsoTimestamp(
+              row.drive_support_last_checked_at,
+            )
+          : null,
 
       billingAuditDisplayStatus:
         (() => {

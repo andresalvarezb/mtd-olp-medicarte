@@ -7,7 +7,10 @@ export type AuthorizationBillingAuditDisplayInput =
   Readonly<
     Pick<
       AuthorizationQueryItem,
-      'billingAuditDisplayStatus'
+      | 'billingAuditDisplayStatus'
+      | 'operationalStatus'
+      | 'driveSupportStatus'
+      | 'driveSupportEvidenceCount'
     >
   >;
 
@@ -98,6 +101,35 @@ export function billingAuditColumnLabel(
   item:
     AuthorizationBillingAuditDisplayInput,
 ) {
+  /*
+   * La presencia documental es independiente del
+   * estado operacional de la AUTO.
+   *
+   * Antes del primer barrido no afirmamos que una
+   * AUTO carezca de soportes.
+   */
+  if (
+    item.driveSupportStatus ===
+      'UNKNOWN'
+  ) {
+    return item.operationalStatus ===
+      'CLOSED'
+      ? 'Pendiente · Soportes por verificar'
+      : 'Soportes · Pendiente de consulta';
+  }
+
+
+  if (
+    item.operationalStatus !==
+      'CLOSED'
+  ) {
+    return item.driveSupportEvidenceCount >
+      0
+      ? `Con soportes · ${item.driveSupportEvidenceCount}`
+      : 'Sin soportes';
+  }
+
+
   return billingAuditDisplayStatusLabel(
     item.billingAuditDisplayStatus,
   );
