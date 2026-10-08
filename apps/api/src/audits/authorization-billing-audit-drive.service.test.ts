@@ -109,8 +109,12 @@ describe(
 
 
     it(
-      'prioriza el archivo exacto <AUTO>.pdf',
+      'combina soportes exactos y fullText sin duplicar archivos',
       async () => {
+        /*
+         * Primera consulta:
+         * coincidencia exacta <AUTO>.pdf.
+         */
         mocks.list.mockResolvedValueOnce({
           data: {
             nextPageToken:
@@ -142,6 +146,63 @@ describe(
         });
 
 
+        /*
+         * Segunda consulta:
+         * fullText puede devolver el mismo archivo
+         * y otros soportes relacionados con la AUTO.
+         */
+        mocks.list.mockResolvedValueOnce({
+          data: {
+            nextPageToken:
+              null,
+
+            files: [
+              {
+                id:
+                  'exact-file',
+
+                name:
+                  '261036840431888.pdf',
+
+                mimeType:
+                  'application/pdf',
+
+                parents: [
+                  'root-medicarte',
+                ],
+
+                size:
+                  '100',
+
+                modifiedTime:
+                  '2026-10-01T00:00:00.000Z',
+              },
+
+              {
+                id:
+                  'invoice-file',
+
+                name:
+                  'MT356152.pdf',
+
+                mimeType:
+                  'application/pdf',
+
+                parents: [
+                  'root-facturas',
+                ],
+
+                size:
+                  '993018',
+
+                modifiedTime:
+                  '2026-10-01T14:10:52.465Z',
+              },
+            ],
+          },
+        });
+
+
         const service =
           createService();
 
@@ -150,6 +211,20 @@ describe(
           await service.findEvidence(
             '261036840431888',
           );
+
+
+        expect(
+          mocks.list,
+        ).toHaveBeenCalledTimes(
+          2,
+        );
+
+
+        expect(
+          result,
+        ).toHaveLength(
+          2,
+        );
 
 
         expect(
@@ -162,17 +237,18 @@ describe(
             fileName:
               '261036840431888.pdf',
           }),
+
+          expect.objectContaining({
+            driveFileId:
+              'invoice-file',
+
+            fileName:
+              'MT356152.pdf',
+          }),
         ]);
 
 
-        expect(
-          mocks.list,
-        ).toHaveBeenCalledTimes(
-          1,
-        );
-
-
-        const exactSearchParams =
+        const exactSearch =
           mocks.list.mock.calls[
             0
           ]?.[
@@ -185,10 +261,30 @@ describe(
             | undefined;
 
 
+        const fullTextSearch =
+          mocks.list.mock.calls[
+            1
+          ]?.[
+            0
+          ] as
+            | {
+                q?:
+                  string;
+              }
+            | undefined;
+
+
         expect(
-          exactSearchParams?.q,
+          exactSearch?.q,
         ).toContain(
           "name = '261036840431888.pdf'",
+        );
+
+
+        expect(
+          fullTextSearch?.q,
+        ).toContain(
+          "fullText contains '261036840431888'",
         );
       },
     );

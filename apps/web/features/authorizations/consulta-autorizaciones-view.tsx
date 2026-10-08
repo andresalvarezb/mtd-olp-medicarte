@@ -47,7 +47,6 @@ import {
 import {
   decideAuthorizationBillingAudit,
   getAuthorizationBillingAudit,
-  getAuthorizationBillingAuditEvidenceContent,
   searchAuthorizationBillingAuditDriveEvidence,
   startAuthorizationBillingAudit,
   type AuthorizationBillingAuditDecisionRequest,
@@ -923,31 +922,6 @@ export function ConsultaAutorizacionesView() {
       false,
     );
 
-  const [
-    billingAuditEvidenceOpeningId,
-    setBillingAuditEvidenceOpeningId,
-  ] =
-    useState<
-      string |
-      null
-    >(
-      null,
-    );
-
-  /*
-   * URLs Blob creadas para abrir soportes protegidos
-   * en pestañas independientes.
-   *
-   * Se conservan mientras la vista permanezca montada
-   * para no invalidar un PDF que el usuario está viendo.
-   */
-  const billingAuditEvidenceObjectUrls =
-    useRef<
-      Set<string>
-    >(
-      new Set(),
-    );
-
 
   const [
     billingAuditDecisionSaving,
@@ -1047,16 +1021,6 @@ export function ConsultaAutorizacionesView() {
         }
 
 
-        for (
-          const url
-          of billingAuditEvidenceObjectUrls.current
-        ) {
-          URL.revokeObjectURL(
-            url,
-          );
-        }
-
-        billingAuditEvidenceObjectUrls.current.clear();
       };
     },
     [],
@@ -1488,10 +1452,6 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
     );
 
     setBillingAuditActionError(
-      null,
-    );
-
-    setBillingAuditEvidenceOpeningId(
       null,
     );
 
@@ -2120,154 +2080,31 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
 
 
-  async function openBillingAuditEvidence(
-    evidenceId: string,
-    fileName: string,
+  function openBillingAuditEvidence(
+    webViewLink: string | null,
+    driveFileId: string,
   ) {
-    if (
-      !billingAudit
-      ||
-      !organizationId
-      ||
-      billingAuditEvidenceOpeningId
-    ) {
-      return;
-    }
-
-
     /*
-     * Se abre la ventana inmediatamente durante
-     * el evento de click.
+     * El soporte ya está identificado y validado
+     * por el backend dentro de una raíz autorizada.
      *
-     * Si esperáramos primero el fetch autenticado,
-     * el navegador podría tratar window.open()
-     * como un popup no solicitado y bloquearlo.
+     * Para visualización no descargamos el PDF ni
+     * generamos Blob URLs: abrimos directamente
+     * la vista del archivo en Google Drive.
      */
-    const viewerWindow =
-      window.open(
-        'about:blank',
-        '_blank',
-      );
+    const url =
+      webViewLink
+      ??
+      `https://drive.google.com/file/d/${encodeURIComponent(
+        driveFileId,
+      )}/view`;
 
 
-    if (
-      !viewerWindow
-    ) {
-      setBillingAuditActionError(
-        'El navegador bloqueó la nueva ventana. Habilita las ventanas emergentes para visualizar el soporte.',
-      );
-
-      return;
-    }
-
-
-    /*
-     * La nueva ventana no necesita acceso al
-     * contexto de la aplicación.
-     */
-    viewerWindow.opener =
-      null;
-
-
-    viewerWindow.document.title =
-      fileName;
-
-
-    viewerWindow.document.body.textContent =
-      `Cargando ${fileName}…`;
-
-
-    setBillingAuditEvidenceOpeningId(
-      evidenceId,
+    window.open(
+      url,
+      '_blank',
+      'noopener,noreferrer',
     );
-
-
-    setBillingAuditActionError(
-      null,
-    );
-
-
-    try {
-      /*
-       * El PDF continúa descargándose mediante
-       * nuestra API autenticada.
-       *
-       * Nunca exponemos directamente Google Drive.
-       */
-      const blob =
-        await getAuthorizationBillingAuditEvidenceContent(
-          organizationId,
-          billingAudit.id,
-          evidenceId,
-        );
-
-
-      const url =
-        URL.createObjectURL(
-          blob,
-        );
-
-
-      billingAuditEvidenceObjectUrls.current.add(
-        url,
-      );
-
-
-      /*
-       * El navegador utilizará su visor PDF nativo.
-       */
-      viewerWindow.location.replace(
-        url,
-      );
-
-
-      /*
-       * Liberamos la URL cuando el usuario cierre
-       * la pestaña/ventana.
-       */
-      const cleanupTimer =
-        window.setInterval(
-          () => {
-            if (
-              !viewerWindow.closed
-            ) {
-              return;
-            }
-
-
-            window.clearInterval(
-              cleanupTimer,
-            );
-
-
-            if (
-              billingAuditEvidenceObjectUrls.current.delete(
-                url,
-              )
-            ) {
-              URL.revokeObjectURL(
-                url,
-              );
-            }
-          },
-          1000,
-        );
-    } catch (
-      cause
-    ) {
-      viewerWindow.close();
-
-
-      setBillingAuditActionError(
-        cause instanceof Error
-          ? cause.message
-          : 'No fue posible abrir el soporte PDF.',
-      );
-    } finally {
-      setBillingAuditEvidenceOpeningId(
-        null,
-      );
-    }
   }
 
 
@@ -3816,21 +3653,14 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                                   <button
                                     type="button"
                                     className="btn"
-                                    disabled={
-                                      billingAuditEvidenceOpeningId ===
-                                        evidence.id
-                                    }
                                     onClick={() => {
-                                      void openBillingAuditEvidence(
-                                        evidence.id,
-                                        evidence.fileName,
+                                      openBillingAuditEvidence(
+                                        evidence.webViewLink,
+                                        evidence.driveFileId,
                                       );
                                     }}
                                   >
-                                    {billingAuditEvidenceOpeningId ===
-                                    evidence.id
-                                      ? 'Abriendo…'
-                                      : 'Ver PDF'}
+                                    Ver PDF
                                   </button>
                                 </div>
                               ),
