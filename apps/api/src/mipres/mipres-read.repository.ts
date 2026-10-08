@@ -517,6 +517,48 @@ export class MipresReadRepository {
     `;
   }
 
+  private mipresStateSql(): SQL {
+    /*
+     * Fuente de verdad SQL del estado visible MIPRES.
+     *
+     * Debe conservar la misma semántica que
+     * resolveMipresReadState():
+     *
+     * PBS
+     *   -> UNLOCKED
+     *
+     * NO_PBS + MANUALLY_ENABLED
+     *   -> UNLOCKED
+     *
+     * cualquier otro caso
+     *   -> LOCKED
+     */
+    return sql`
+      case
+        when
+          i.coverage_type =
+            'PBS'
+        then
+          'UNLOCKED'
+
+        when
+          i.coverage_type =
+            'NO_PBS'
+
+          and
+
+          i.mipres_manual_decision =
+            'MANUALLY_ENABLED'
+        then
+          'UNLOCKED'
+
+        else
+          'LOCKED'
+      end
+    `;
+  }
+
+
   private operableSql(): SQL {
     const quantity = this.quantitySql();
 
@@ -1277,18 +1319,12 @@ export class MipresReadRepository {
       `);
     }
 
-    if (filters.mipresState === 'UNLOCKED') {
+    if (filters.mipresState) {
       conditions.push(sql`
-        i.mipres_manual_decision =
-          'MANUALLY_ENABLED'
-      `);
-    }
-
-    if (filters.mipresState === 'LOCKED') {
-      conditions.push(sql`
-        i.mipres_manual_decision
-          is distinct from
-          'MANUALLY_ENABLED'
+        (
+          ${this.mipresStateSql()}
+        ) =
+          ${filters.mipresState}
       `);
     }
 

@@ -324,3 +324,106 @@ describe(
     );
   },
 );
+
+
+describe(
+  'ExportablesService purchaseOrderCandidates MIPRES eligibility',
+  () => {
+    it(
+      'exige Habilitada y Desbloqueada cuando la AUTO tiene MIPRES',
+      async () => {
+        const query =
+          vi.fn()
+            .mockResolvedValue({
+              rows: [],
+            });
+
+
+        const service =
+          new ExportablesService(
+            {
+              pool: {
+                query,
+              },
+            } as never,
+          );
+
+
+        await service.purchaseOrderCandidates(
+          scope,
+        );
+
+
+        const normalized =
+          String(
+            query.mock.calls[
+              0
+            ]?.[
+              0
+            ],
+          )
+            .replace(
+              /\s+/g,
+              ' ',
+            )
+            .trim();
+
+
+        /*
+         * La existencia de MIPRES se determina
+         * por no_prescripcion.
+         */
+        expect(
+          normalized,
+        ).toContain(
+          'no_prescripcion',
+        );
+
+
+        /*
+         * El estado MIPRES efectivo se calcula
+         * independientemente de Habilitación.
+         */
+        expect(
+          normalized,
+        ).toContain(
+          "coverage_type = 'PBS' then 'UNLOCKED'",
+        );
+
+        expect(
+          normalized,
+        ).toContain(
+          "coverage_type = 'NO_PBS' and mipres_manual_decision = 'MANUALLY_ENABLED' then 'UNLOCKED'",
+        );
+
+
+        /*
+         * Para una AUTO que sí tiene MIPRES:
+         *
+         * Habilitada:
+         * validity_status = IN_WINDOW
+         * + initial_validation = PASSED.
+         *
+         * Desbloqueada:
+         * mipres_state = UNLOCKED.
+         */
+        expect(
+          normalized,
+        ).toContain(
+          "e.validity_status = 'IN_WINDOW' and e.mipres_state = 'UNLOCKED'",
+        );
+
+
+        /*
+         * direction_status no puede volver a ser
+         * el gate para generar OC.
+         */
+        expect(
+          normalized,
+        ).not.toContain(
+          "coverage_type = 'NO_PBS' and direction_status = 'CONFIRMED'",
+        );
+      },
+    );
+  },
+);

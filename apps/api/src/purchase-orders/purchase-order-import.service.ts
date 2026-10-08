@@ -1531,9 +1531,6 @@ export class PurchaseOrderImportService {
                   (
                     ai.coverage_type =
                       'PBS'
-
-                    and ai.direction_status =
-                      'NOT_APPLICABLE'
                   )
 
                   or
