@@ -491,10 +491,8 @@ export class MipresReadRepository {
           or
 
           ${operationalWindow}
-          in (
-            'INVALID_DATE',
-            'EXPIRED'
-          )
+          =
+          'INVALID_DATE'
         then
           'DISABLED'
 

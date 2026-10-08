@@ -929,8 +929,10 @@ export class ExportablesService {
 
                 and
 
-                e.validity_status =
-                  'IN_WINDOW'
+                e.validity_status in (
+                  'IN_WINDOW',
+                  'EXPIRED'
+                )
 
                 and
 

@@ -410,7 +410,7 @@ describe(
         expect(
           normalized,
         ).toContain(
-          "e.validity_status = 'IN_WINDOW' and e.mipres_state = 'UNLOCKED'",
+          "e.validity_status in ( 'IN_WINDOW', 'EXPIRED' ) and e.mipres_state = 'UNLOCKED'",
         );
 
 
