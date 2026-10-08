@@ -161,6 +161,37 @@ describe('AuthorizationBillingAuditService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it(
+    'AUTO existente sin auditoría persistida produce 404',
+    async () => {
+      const {
+        repository,
+        service,
+      } =
+        createSubject();
+
+      repository
+        .detailByAuthorizationItemId
+        .mockResolvedValue({
+          outcome:
+            'found',
+
+          audit:
+            null,
+        });
+
+      await expect(
+        service.detail(
+          '61000000-0000-4000-8000-000000000001',
+          MTD_SCOPE,
+        ),
+      ).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    },
+  );
+
+
   it('AUTO inexistente produce 404', async () => {
     const { repository, service } = createSubject();
 

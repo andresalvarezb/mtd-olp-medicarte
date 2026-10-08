@@ -30,7 +30,21 @@ export class AuthorizationBillingAuditService {
       this.repository.detailByAuthorizationItemId(authorizationItemId),
     );
 
-    if (result.outcome === 'not_found') {
+    if (
+      result.outcome ===
+        'not_found'
+      ||
+      !result.audit
+    ) {
+      /*
+       * El contrato HTTP exige una auditoría persistida.
+       *
+       * Si la AUTO existe pero todavía no existe
+       * authorization_billing_audits, respondemos 404.
+       *
+       * El frontend ya interpreta este código como:
+       * "auditoría todavía no iniciada".
+       */
       throw this.notFound();
     }
 
