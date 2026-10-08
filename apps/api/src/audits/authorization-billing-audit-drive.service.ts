@@ -167,14 +167,6 @@ export class AuthorizationBillingAuditDriveService {
         );
 
 
-      if (
-        exactEvidence.length >
-          0
-      ) {
-        return exactEvidence;
-      }
-
-
       const contentCandidates =
         await this.searchCandidates(
           drive,
@@ -193,11 +185,49 @@ export class AuthorizationBillingAuditDriveService {
         );
 
 
-      return this.acceptCandidates(
-        drive,
-        contentCandidates,
-        rootIds,
-      );
+      const contentEvidence =
+        await this.acceptCandidates(
+          drive,
+          contentCandidates,
+          rootIds,
+        );
+
+
+      /*
+       * Una misma AUTO puede tener varios soportes.
+       *
+       * No debemos detenernos al encontrar
+       * <numero_autorizacion>.pdf, porque también
+       * pueden existir PDFs con otros nombres cuyo
+       * contenido referencia la misma autorización.
+       *
+       * Unimos ambas fuentes y deduplicamos por el
+       * identificador canónico del archivo en Drive.
+       */
+      const evidenceByDriveFileId =
+        new Map<
+          string,
+          BillingAuditDriveEvidence
+        >();
+
+
+      for (
+        const evidence
+        of [
+          ...exactEvidence,
+          ...contentEvidence,
+        ]
+      ) {
+        evidenceByDriveFileId.set(
+          evidence.driveFileId,
+          evidence,
+        );
+      }
+
+
+      return [
+        ...evidenceByDriveFileId.values(),
+      ];
     } catch (
       error
     ) {
