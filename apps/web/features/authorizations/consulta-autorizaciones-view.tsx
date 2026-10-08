@@ -905,14 +905,6 @@ export function ConsultaAutorizacionesView() {
     );
 
   const [
-    billingAuditStarting,
-    setBillingAuditStarting,
-  ] =
-    useState(
-      false,
-    );
-
-  const [
     billingAuditError,
     setBillingAuditError,
   ] =
@@ -2063,6 +2055,50 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
         cause.code ===
           'AUTHORIZATION_BILLING_AUDIT_NOT_FOUND'
       ) {
+        /*
+         * La creación del registro de auditoría es
+         * un detalle técnico, no una acción de negocio
+         * que deba ejecutar manualmente el usuario.
+         *
+         * Para una AUTO cerrada y con permiso de gestión,
+         * materializamos automáticamente la auditoría.
+         */
+        if (
+          canManageBillingAudit
+          &&
+          selected?.id ===
+            authorizationItemId
+          &&
+          selected.operationalStatus ===
+            'CLOSED'
+        ) {
+          try {
+            const audit =
+              await startAuthorizationBillingAudit(
+                organizationId,
+                authorizationItemId,
+              );
+
+            setBillingAudit(
+              audit,
+            );
+          } catch (
+            startCause
+          ) {
+            setBillingAudit(
+              null,
+            );
+
+            setBillingAuditError(
+              startCause instanceof Error
+                ? startCause.message
+                : 'No fue posible preparar la auditoría de facturación.',
+            );
+          }
+
+          return;
+        }
+
         setBillingAudit(
           null,
         );
@@ -2083,51 +2119,6 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
   }
 
 
-  async function startBillingAudit() {
-    if (
-      !selected
-      ||
-      !organizationId
-      ||
-      !canManageBillingAudit
-      ||
-      billingAuditStarting
-    ) {
-      return;
-    }
-
-    setBillingAuditStarting(
-      true,
-    );
-
-    setBillingAuditError(
-      null,
-    );
-
-    try {
-      const audit =
-        await startAuthorizationBillingAudit(
-          organizationId,
-          selected.id,
-        );
-
-      setBillingAudit(
-        audit,
-      );
-    } catch (
-      cause
-    ) {
-      setBillingAuditError(
-        cause instanceof Error
-          ? cause.message
-          : 'No fue posible iniciar la auditoría de facturación.',
-      );
-    } finally {
-      setBillingAuditStarting(
-        false,
-      );
-    }
-  }
 
   async function openBillingAuditEvidence(
     evidenceId: string,
@@ -4304,22 +4295,6 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                       </p>
                     </div>
 
-                    {canManageBillingAudit && selected.operationalStatus === 'CLOSED' ? (
-                      <button
-                        type="button"
-                        className="btn primary"
-                        disabled={
-                          billingAuditStarting
-                        }
-                        onClick={() => {
-                          void startBillingAudit();
-                        }}
-                      >
-                        {billingAuditStarting
-                          ? 'Iniciando…'
-                          : 'Iniciar auditoría'}
-                      </button>
-                    ) : null}
                   </section>
                 )}
               </>) : viewingHistory ? (
