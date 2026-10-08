@@ -2232,9 +2232,6 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
       ||
       !canManageBillingAudit
       ||
-      billingAudit.status !==
-        'PENDING'
-      ||
       billingAuditDriveSearching
     ) {
       return;
@@ -3625,10 +3622,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                             </div>
                           </div>
 
-                          {billingAudit.status ===
-                            'PENDING'
-                          &&
-                          canManageBillingAudit ? (
+                          {canManageBillingAudit ? (
                             <button
                               type="button"
                               className="btn"
