@@ -4348,11 +4348,12 @@ export class AuthorizationQueryRepository {
     const authorizedQuantity =
       this.authorizedQuantitySql();
 
+    // Reutilizar el progreso calculado para esta AUTO.
     const fulfilledQuantity =
-      this.fulfilledQuantitySql();
+      sql`fulfillment_progress.fulfilled_quantity`;
 
     const remainingAuthorizedQuantity =
-      this.remainingAuthorizedQuantitySql();
+      sql`greatest(${authorizedQuantity} - ${fulfilledQuantity}, 0)`;
 
 
     /*
@@ -4401,9 +4402,107 @@ export class AuthorizationQueryRepository {
         end
       `;
 
+
+    const selectPageQuery = sql`
+      select
+        i.id as authorization_id,
+        ${closedPriority} as sort_closed,
+        ${validationPriority} as sort_validation,
+        ${validityPriority} as sort_validity,
+        ${operationalPriority} as sort_operational,
+
+        case
+          when ${validityPriority} = 0
+          then ${validityEndDateKey}
+          else null
+        end as sort_validity_end,
+
+        case
+          when ${validityPriority} = 1
+          then ${assignmentDateKey}
+          else null
+        end as sort_assignment_date,
+
+        i.created_at as sort_created_at
+
+      from authorization_items i
+
+      left join lateral (
+        select
+          ${this.fulfilledQuantitySql()}::int
+            as fulfilled_quantity
+      ) fulfillment_progress
+        on true
+
+      left join lateral (
+        select
+          tap.minimum_quantity
+
+        from tariff_annex_products tap
+
+        where tap.codigo_producto = i.codigo_medicamento
+          and tap.active = true
+
+        order by tap.updated_at desc, tap.id desc
+        limit 1
+      ) product
+        on true
+
+      left join lateral (
+        select
+          coalesce(
+            sum(
+              greatest(
+                iaa.allocated_quantity
+                - iaa.consumed_quantity
+                - iaa.released_quantity,
+                0
+              )
+            ),
+            0
+          )::int as remaining_quantity
+
+        from inventory_authorization_allocations iaa
+
+        join purchase_orders po
+          on po.id = iaa.purchase_order_id
+
+        join dispensing_points dp
+          on dp.id = iaa.dispensing_point_id
+
+        where iaa.authorization_item_id = i.id
+
+          and iaa.status in (
+            'ALLOCATED',
+            'PARTIALLY_CONSUMED',
+            'CONSUMED'
+          )
+      ) allocation
+        on true
+
+      where ${where}
+
+      order by
+        sort_closed asc,
+        sort_validation asc,
+        sort_validity asc,
+        sort_operational asc,
+        sort_validity_end asc nulls last,
+        sort_assignment_date asc nulls last,
+        sort_created_at desc,
+        authorization_id desc
+
+      limit ${limit}
+      offset ${offset}
+    `;
+
     return this.database.db.execute<
       AuthorizationQueryRow
     >(sql`
+      with page_selection as materialized (
+        ${selectPageQuery}
+      )
+
       select
         i.id,
 
@@ -4801,7 +4900,17 @@ export class AuthorizationQueryRepository {
         i.updated_at
 
       from
-        authorization_items i
+        page_selection page
+
+      join authorization_items i
+        on i.id = page.authorization_id
+
+      left join lateral (
+        select
+          ${this.fulfilledQuantitySql()}::int
+            as fulfilled_quantity
+      ) fulfillment_progress
+        on true
 
       left join lateral (
         select
@@ -5160,75 +5269,16 @@ export class AuthorizationQueryRepository {
       ) application_audit
         on true
 
-      where
-        ${where}
-
 
       order by
-        /*
-         * 1. Cerradas siempre al final.
-         */
-        ${closedPriority} asc,
-
-        /*
-         * 2. Validación:
-         *    Cumple -> Pendiente -> No cumple.
-         */
-        ${validationPriority} asc,
-
-        /*
-         * 3. Vigencia:
-         *    Dentro de rango
-         *    -> Fuera de rango +30
-         *    -> Vencida
-         *    -> Fecha inválida.
-         */
-        ${validityPriority} asc,
-
-        /*
-         * 4. Estado operativo:
-         *    Lista para entrega/aplicación
-         *    -> Pendiente de recepción/asignación.
-         */
-        ${operationalPriority} asc,
-
-        /*
-         * Dentro de rango:
-         * primero la AUTO que vence antes.
-         */
-        case
-          when
-            ${validityPriority} = 0
-          then
-            ${validityEndDateKey}
-
-          else null
-        end asc nulls last,
-
-        /*
-         * Fuera +30:
-         * primero la que entrará antes a la ventana.
-         */
-        case
-          when
-            ${validityPriority} = 1
-          then
-            ${assignmentDateKey}
-
-          else null
-        end asc nulls last,
-
-        /*
-         * Desempate determinístico.
-         */
-        i.created_at desc,
-        i.id desc
-
-      limit
-        ${limit}
-
-      offset
-        ${offset}
+        page.sort_closed asc,
+        page.sort_validation asc,
+        page.sort_validity asc,
+        page.sort_operational asc,
+        page.sort_validity_end asc nulls last,
+        page.sort_assignment_date asc nulls last,
+        page.sort_created_at desc,
+        page.authorization_id desc
     `);
   }
 
