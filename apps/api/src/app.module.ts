@@ -81,6 +81,8 @@ import { AuthorizationBillingAuditController } from './audits/authorization-bill
 import { AuthorizationBillingAuditRepository } from './audits/authorization-billing-audit.repository';
 import { AuthorizationBillingAuditService } from './audits/authorization-billing-audit.service';
 import { AuthorizationBillingAuditDriveService } from './audits/authorization-billing-audit-drive.service';
+import { AuthorizationBillingAuditBulkController } from './audits/authorization-billing-audit-bulk.controller';
+import { AuthorizationBillingAuditBulkService } from './audits/authorization-billing-audit-bulk.service';
 import { AnalyticsController } from './analytics/analytics.controller';
 import { AnalyticsRepository } from './analytics/analytics.repository';
 import { AnalyticsService } from './analytics/analytics.service';
@@ -198,6 +200,7 @@ new Gauge({
     PatientApplicationAuditController,
     AuthorizationFulfillmentAuditController,
     AuthorizationBillingAuditController,
+    AuthorizationBillingAuditBulkController,
     AnalyticsController,
     BulkImportController,
     AuthorizationQueryController,
@@ -257,6 +260,7 @@ new Gauge({
     AuthorizationBillingAuditRepository,
     AuthorizationBillingAuditService,
     AuthorizationBillingAuditDriveService,
+    AuthorizationBillingAuditBulkService,
     LegacyAuthorizationHistoryRepository,
     LegacyCompatibilityProjectionService,
     HistoricalPurchaseOrderSourceRecoveryService,
