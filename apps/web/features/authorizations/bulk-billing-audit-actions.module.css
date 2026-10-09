@@ -1,0 +1,274 @@
+.headerError {
+  max-width: 230px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.steps {
+  display: grid;
+  gap: 16px;
+}
+
+.section {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.section h3,
+.preview h3 {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.section p,
+.previewHeading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.section > button {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.stepNumber {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.sectionContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.fileInput {
+  min-width: 0;
+  max-width: 100%;
+  font-size: 12px;
+}
+
+.filename {
+  margin-top: 10px !important;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.preview {
+  margin-top: 22px;
+}
+
+.previewHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.metrics > div {
+  min-width: 0;
+  padding: 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.metrics span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.metrics strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 20px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.info {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 9px;
+  background: var(--primary-soft);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.table {
+  width: 100%;
+  min-width: 690px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th {
+  padding: 12px;
+  background: var(--surface-2);
+  color: var(--muted);
+  text-align: left;
+  font-weight: 700;
+}
+
+.table td {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.key {
+  max-width: 190px;
+  font-weight: 600;
+}
+
+.statusSuccess,
+.statusPending,
+.statusError {
+  display: inline-block;
+  padding: 5px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.statusSuccess {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.statusPending {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.statusError {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.pagination,
+.paginationButtons,
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pagination {
+  justify-content: space-between;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.footer {
+  position: sticky;
+  bottom: -26px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 24px;
+  padding: 16px 0 4px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.error,
+.warning {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.warning p {
+  margin: 6px 0 0;
+}
+
+.busy {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+@media (max-width: 680px) {
+  .section {
+    flex-wrap: wrap;
+  }
+
+  .section > button {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .footer > button {
+    flex: 1;
+  }
+}

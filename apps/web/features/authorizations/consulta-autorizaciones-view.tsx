@@ -7,6 +7,7 @@ import { TableLoadingRow } from '@/components/ui/loading-state';
 import { useEffect, useRef, useState } from 'react';
 
 import { PageHeader } from '@/components/ui/page-header';
+import { BulkBillingAuditActions } from './bulk-billing-audit-actions';
 
 import { Card, CardBody } from '@/components/ui/card';
 
@@ -2448,6 +2449,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
               </button>
             ) : null}
 
+            <BulkBillingAuditActions onUpdated={() => { query.reload(); }} />
           </>
         }
       />
