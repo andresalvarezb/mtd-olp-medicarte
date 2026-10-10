@@ -79,6 +79,8 @@ const JOB_COLUMNS = sql`
   confirmed_at, completed_at, cancelled_at
 `;
 
+const BULK_IMPORT_ROW_STAGING_BATCH_SIZE = 200;
+
 function asIso(value: Date | string | null): string | null {
   if (value == null) return null;
   return value instanceof Date ? value.toISOString() : value;
@@ -404,17 +406,19 @@ export class BulkImportRepository {
         ) returning ${JOB_COLUMNS}
       `);
       const job = inserted.rows[0]!;
-      for (const row of input.rows) {
+      for (let offset = 0; offset < input.rows.length; offset += BULK_IMPORT_ROW_STAGING_BATCH_SIZE) {
+        const batch = input.rows.slice(offset, offset + BULK_IMPORT_ROW_STAGING_BATCH_SIZE);
+        const values = batch.map((row) => sql`(
+          ${job.id}, ${row.rowNumber}, ${JSON.stringify(row.rawPayload)}::jsonb,
+          ${row.normalizedPayload == null ? null : JSON.stringify(row.normalizedPayload)}::jsonb,
+          ${row.validationStatus}, ${row.errorCode}, ${row.errorMessage}, ${row.errorColumn},
+          ${row.executionStatus}, ${rowIdempotencyKey(job.id, row.rowNumber)}
+        )`);
         await tx.execute(sql`
           insert into bulk_import_rows (
             job_id, row_number, raw_payload, normalized_payload, validation_status, error_code,
             error_message, error_column, execution_status, idempotency_key
-          ) values (
-            ${job.id}, ${row.rowNumber}, ${JSON.stringify(row.rawPayload)}::jsonb,
-            ${row.normalizedPayload == null ? null : JSON.stringify(row.normalizedPayload)}::jsonb,
-            ${row.validationStatus}, ${row.errorCode}, ${row.errorMessage}, ${row.errorColumn},
-            ${row.executionStatus}, ${rowIdempotencyKey(job.id, row.rowNumber)}
-          )
+          ) values ${sql.join(values, sql`, `)}
         `);
       }
       await this.audit(tx, input.actor, 'BULK_IMPORT_UPLOADED', job.id, {
