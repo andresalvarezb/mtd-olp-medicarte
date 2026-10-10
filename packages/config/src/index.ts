@@ -140,6 +140,8 @@ const reconciliationOperationsConfigSchema = {
 
 export const apiConfigSchema = commonSchema.extend({
   ...importConfigSchema,
+  AUTHORIZATION_IMPORT_MAX_FILE_BYTES: z.coerce.number().int().positive()
+    .max(50 * 1024 * 1024).default(50 * 1024 * 1024),
   ...mipresConfigSchema,
   ...authConfigSchema,
   ...driveAuditConfigSchema,

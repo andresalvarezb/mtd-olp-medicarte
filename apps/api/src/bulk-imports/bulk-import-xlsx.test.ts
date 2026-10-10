@@ -185,14 +185,10 @@ describe('ESP-014 authorization workbook parser', () => {
     expect(result.rows[19_999]?.rowNumber).toBe(20_001);
   });
 
-  it('rejects 20001 authorization data rows with TOO_MANY_ROWS', () => {
-    const oversized = manyAuthorizationRows(20_001);
-    try {
-      parseAuthorizationWorkbook(oversized);
-      throw new Error('expected TOO_MANY_ROWS');
-    } catch (error) {
-      expect((error as BulkImportFileError).code).toBe('TOO_MANY_ROWS');
-    }
+  it('accepts 20001 authorization rows: only the file size limits upload', () => {
+    const parsed = parseAuthorizationWorkbook(manyAuthorizationRows(20_001));
+    expect(parsed.rows).toHaveLength(20_001);
+    expect(parsed.rows[20_000]?.rowNumber).toBe(20_002);
   });
 
   it('emits the official authorization template', () => {

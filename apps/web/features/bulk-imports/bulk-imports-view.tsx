@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { BULK_AUTHORIZATION_IMPORT_MAX_FILE_BYTES } from '@authorization/contracts';
 import type { BulkImportJobResponse, BulkImportRowResponse } from '@authorization/contracts';
 
 import { Card, CardBody, CardHead } from '@/components/ui/card';
@@ -134,6 +135,10 @@ export function BulkImportsView() {
     }
 
     setError(null);
+    if (file.size > BULK_AUTHORIZATION_IMPORT_MAX_FILE_BYTES) {
+      setError('El archivo supera el tamaño máximo de 50 MiB para autorizaciones.');
+      return;
+    }
 
     try {
       const job = await uploadAuthorizationImport(organizationId, file);
@@ -195,7 +200,7 @@ export function BulkImportsView() {
         <Card>
           <CardHead
             title="Cargar archivo AUTO"
-            subtitle="Selecciona el XLSX. El archivo se valida antes de aplicar cambios."
+            subtitle="Archivo XLSX de hasta 50 MiB, sin límite por número de filas. Se validan sus datos antes de aplicar cambios."
           />
 
           <CardBody>

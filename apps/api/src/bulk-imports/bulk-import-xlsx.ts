@@ -2,7 +2,6 @@ import * as XLSX from 'xlsx';
 import {
   BULK_IMPORT_MAX_COLUMNS,
   BULK_IMPORT_MAX_ROWS,
-  BULK_AUTHORIZATION_IMPORT_MAX_ROWS,
   BULK_IMPORT_MAX_SHEETS,
   AUTHORIZATION_IMPORT_COLUMNS,
   ESP014_AUTHORIZATIONS_TEMPLATE_VERSION,
@@ -219,9 +218,6 @@ export function parseAuthorizationWorkbook(content: Buffer): {
       }
     }
     rows.push({ rowNumber: index + 1, rawData, values });
-  }
-  if (rows.length > BULK_AUTHORIZATION_IMPORT_MAX_ROWS) {
-    throw new BulkImportFileError('TOO_MANY_ROWS', `The file exceeds ${BULK_AUTHORIZATION_IMPORT_MAX_ROWS} data rows`);
   }
   return { templateVersion, rows };
 }

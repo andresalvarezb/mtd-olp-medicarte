@@ -17,6 +17,18 @@ describe('parseApiConfig', () => {
     expect(parseApiConfig(base).IMPORT_MAX_FILE_BYTES).toBe(20 * 1024 * 1024);
   });
 
+  it('permite 50 MiB exclusivamente para carga de autorizaciones', () => {
+    const config = parseApiConfig(base);
+    expect(config.IMPORT_MAX_FILE_BYTES).toBe(20 * 1024 * 1024);
+    expect(config.AUTHORIZATION_IMPORT_MAX_FILE_BYTES).toBe(50 * 1024 * 1024);
+    expect(parseApiConfig({
+      ...base, AUTHORIZATION_IMPORT_MAX_FILE_BYTES: String(50 * 1024 * 1024),
+    }).AUTHORIZATION_IMPORT_MAX_FILE_BYTES).toBe(50 * 1024 * 1024);
+    expect(() => parseApiConfig({
+      ...base, AUTHORIZATION_IMPORT_MAX_FILE_BYTES: String(50 * 1024 * 1024 + 1),
+    })).toThrow();
+  });
+
   it('rejects insecure public production URLs', () => {
     expect(() => parseApiConfig({ ...base, API_PUBLIC_URL: 'http://api.example.test' })).toThrow(
       'API_PUBLIC_URL must use HTTPS in production',
