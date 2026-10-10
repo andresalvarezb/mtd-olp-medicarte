@@ -7,6 +7,7 @@ import { DATABASE } from '../tokens';
 import { resolveAuthorizationOperationalStatus } from '../clinical/authorization-query-status';
 import { resolveAuthorizationInitialValidationStatus, resolveAuthorizationValidityStatus } from '../clinical/authorization-query-state';
 import { authorizationQueryValidityWindow } from '../clinical/authorization-query-validity';
+import { isBillingAuditFulfillmentEligible } from './authorization-billing-audit-eligibility';
 import {
   BILLING_AUDIT_BULK_MAX_BYTES,
   createBillingAuditBulkResult,
@@ -41,10 +42,15 @@ type ResultRow = {
 };
 
 
-export function isBillingAuditBulkEligibleStatus(
-  status: ReturnType<typeof resolveBillingAuditBulkOperationalStatus>,
-): boolean {
-  return status === 'CLOSED';
+export function isBillingAuditBulkEligibleStatus(authorization: AuthRow): boolean {
+  return isBillingAuditFulfillmentEligible({
+    authorized_quantity: authorization.quantity,
+    fulfilled_quantity: Math.max(
+      Number(authorization.fulfillment_quantity),
+      Number(authorization.application_quantity),
+      Number(authorization.consumed_quantity), 0,
+    ),
+  });
 }
 
 export function resolveBillingAuditBulkOperationalStatus(authorization: AuthRow, today = authorizationQueryValidityWindow().today) {
@@ -136,10 +142,9 @@ export class AuthorizationBillingAuditBulkService {
           sql`i.authorization_key in (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})`,
         ),
       );
-      const operationalByKey = new Map(
+      const eligibilityByKey = new Map(
         previewSnapshots.rows.map((auth) => [
-          auth.authorization_key,
-          resolveBillingAuditBulkOperationalStatus(auth),
+          auth.authorization_key, isBillingAuditBulkEligibleStatus(auth),
         ]),
       );
       for (const row of rows) {
@@ -149,15 +154,10 @@ export class AuthorizationBillingAuditBulkService {
         } else if (byKey.get(row.authorizationKey) === 'REVIEWED') {
           row.errorCode = 'AUDIT_ALREADY_REVIEWED'; row.errorMessage = 'La AUTO ya tiene auditoría definitiva.';
         } else {
-          const operationalStatus = operationalByKey.get(row.authorizationKey);
-
-          if (
-            !operationalStatus ||
-            !isBillingAuditBulkEligibleStatus(operationalStatus)
-          ) {
+          if (!eligibilityByKey.get(row.authorizationKey)) {
             row.errorCode = 'AUTO_NOT_ELIGIBLE';
             row.errorMessage =
-              'La AUTO debe estar cerrada. PARTIALLY_ASSIGNED no representa un cierre con aplicación pendiente.';
+              'La AUTO requiere atención parcial registrada (con aplicación pendiente) o cierre.';
           }
         }
       }
@@ -298,10 +298,10 @@ export class AuthorizationBillingAuditBulkService {
 
     const operationalStatus = resolveBillingAuditBulkOperationalStatus(authorization);
 
-if (!isBillingAuditBulkEligibleStatus(operationalStatus)) {
+if (!isBillingAuditBulkEligibleStatus(authorization)) {
       return fail(
         'AUTO_NOT_ELIGIBLE',
-        'La AUTO debe estar cerrada. PARTIALLY_ASSIGNED no es un cierre con aplicación pendiente.',
+        'La AUTO requiere atención parcial registrada (con aplicación pendiente) o cierre.',
         operationalStatus,
       );
     }

@@ -120,6 +120,19 @@ describe('AuthorizationBillingAuditService', () => {
     });
   });
 
+  it('rechaza iniciar sin atención registrada', async () => {
+    const { repository, service } = createSubject();
+    repository.start.mockResolvedValue({ outcome: 'not_eligible' });
+    await expect(service.start('00000000-0000-4000-8000-000000000001', MTD_SCOPE))
+      .rejects.toBeInstanceOf(ConflictException);
+  });
+  it('rechaza decidir sin atención al confirmar', async () => {
+    const { repository, service } = createSubject();
+    repository.decide.mockResolvedValue({ outcome: 'not_eligible' });
+    await expect(service.decide('00000000-0000-4000-8000-000000000001',
+      { result: 'COMPLIES' }, MTD_SCOPE)).rejects.toBeInstanceOf(ConflictException);
+  });
+
   it('DOES_NOT_COMPLY exige observación', async () => {
     const { service } = createSubject();
 

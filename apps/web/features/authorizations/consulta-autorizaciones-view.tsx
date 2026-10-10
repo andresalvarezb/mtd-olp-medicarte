@@ -155,6 +155,11 @@ function validityLabel(
 }
 
 
+function canRegisterBillingAudit(item: AuthorizationQueryItem): boolean {
+  return item.authorizedQuantity > 0 &&
+    (item.fulfillmentProgressStatus === 'PARTIAL' || item.fulfillmentProgressStatus === 'COMPLETE');
+}
+
 function fulfillmentStatusLabel(
   item:
     AuthorizationQueryItem,
@@ -2021,7 +2026,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
          * un detalle técnico, no una acción de negocio
          * que deba ejecutar manualmente el usuario.
          *
-         * Para una AUTO cerrada y con permiso de gestión,
+         * Para una AUTO con atención parcial o cerrada y con permiso de gestión,
          * materializamos automáticamente la auditoría.
          */
         if (
@@ -2030,8 +2035,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
           selected?.id ===
             authorizationItemId
           &&
-          selected.operationalStatus ===
-            'CLOSED'
+          canRegisterBillingAudit(selected)
         ) {
           try {
             const audit =
@@ -2195,11 +2199,10 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
     }
 
     if (
-      selected.operationalStatus !==
-        'CLOSED'
+      !canRegisterBillingAudit(selected)
     ) {
       setBillingAuditActionError(
-        'La auditoría solo puede registrarse cuando la AUTO está cerrada.',
+        'La auditoría requiere atención parcial registrada (con aplicación pendiente) o cierre de la AUTO.',
       );
 
       return;
@@ -4123,10 +4126,9 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                             0.7,
                         }}
                       >
-                        {selected.operationalStatus ===
-                        'CLOSED'
+                        {canRegisterBillingAudit(selected)
                           ? 'La AUTO está pendiente de auditoría y no tiene soportes registrados.'
-                          : 'La AUTO debe estar cerrada antes de realizar la auditoría de facturación.'}
+                          : 'La AUTO requiere atención parcial registrada (con aplicación pendiente) o cierre para auditarse.'}
                       </p>
                     </div>
 
