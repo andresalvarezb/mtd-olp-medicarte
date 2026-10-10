@@ -135,7 +135,7 @@ export class BulkImportService {
     file: BulkImportUploadFile | undefined;
     actor: Scope;
   }): Promise<BulkImportJobResponse> {
-    const file = this.assertFile(input.file);
+    const file = this.assertFile(input.file, this.config.AUTHORIZATION_IMPORT_MAX_FILE_BYTES);
     let parsed;
     try {
       parsed = parseAuthorizationWorkbook(file.buffer);
@@ -487,7 +487,10 @@ export class BulkImportService {
   private readonly classifier: PatientScheduleImportService | undefined;
   private readonly schedules: PatientScheduleService | undefined;
 
-  private assertFile(file: BulkImportUploadFile | undefined): BulkImportUploadFile {
+  private assertFile(
+    file: BulkImportUploadFile | undefined,
+    maxBytes = Math.min(this.config.IMPORT_MAX_FILE_BYTES, BULK_IMPORT_MAX_FILE_BYTES),
+  ): BulkImportUploadFile {
     if (!file) {
       throw new BadRequestException({
         code: 'BULK_IMPORT_FILE_REQUIRED',
@@ -500,7 +503,6 @@ export class BulkImportService {
         message: 'The uploaded file is empty',
       });
     }
-    const maxBytes = Math.min(this.config.IMPORT_MAX_FILE_BYTES, BULK_IMPORT_MAX_FILE_BYTES);
     if (file.size > maxBytes) {
       throw new BadRequestException({
         code: 'BULK_IMPORT_FILE_TOO_LARGE',

@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { describe, expect, it, vi } from 'vitest';
 import {
   AUTHORIZATION_IMPORT_COLUMNS,
+  BULK_AUTHORIZATION_IMPORT_MAX_FILE_BYTES,
   ESP014_AUTHORIZATIONS_TEMPLATE_VERSION,
 } from '@authorization/contracts';
 import { BulkImportService } from './bulk-import.service';
@@ -65,13 +66,48 @@ function createService() {
     listRows: vi.fn(),
   };
   const service = new BulkImportService(
-    { IMPORT_MAX_FILE_BYTES: 20 * 1024 * 1024 } as unknown as ApiConfig,
+    { IMPORT_MAX_FILE_BYTES: 20 * 1024 * 1024, AUTHORIZATION_IMPORT_MAX_FILE_BYTES: BULK_AUTHORIZATION_IMPORT_MAX_FILE_BYTES } as unknown as ApiConfig,
     repository as unknown as BulkImportRepository,
   );
   return { service, repository };
 }
 
 describe('BulkImportService', () => {
+  const actor = {
+    organizationId: 'org-1', userId: 'user-1',
+    correlationId: '11111111-1111-1111-1111-111111111111',
+  } as unknown as Scope;
+
+  it('acepta metadata de archivo de autorizaciones de 50 MiB', async () => {
+    const { service, repository } = createService();
+    const buffer = buildAuthorizationWorkbook(['TAR-001']);
+    // Simula size de Multer sin asignar un Buffer de 50 MiB.
+    await service.uploadAuthorizations({
+      file: {
+        buffer, size: BULK_AUTHORIZATION_IMPORT_MAX_FILE_BYTES,
+        originalname: 'autorizaciones.xlsx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      },
+      actor,
+    });
+    expect(repository.createJob).toHaveBeenCalledOnce();
+  });
+
+  it('rechaza un byte por encima de 50 MiB antes del staging', async () => {
+    const { service, repository } = createService();
+    const buffer = buildAuthorizationWorkbook(['TAR-001']);
+    await expect(service.uploadAuthorizations({
+      file: {
+        buffer, size: BULK_AUTHORIZATION_IMPORT_MAX_FILE_BYTES + 1,
+        originalname: 'autorizaciones.xlsx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      },
+      actor,
+    })).rejects.toMatchObject({
+      response: { code: 'BULK_IMPORT_FILE_TOO_LARGE' },
+    });
+    expect(repository.createJob).not.toHaveBeenCalled();
+  });
   it('prepara para persistencia una AUTO aunque el producto no exista en el AT', async () => {
     const {
       service,

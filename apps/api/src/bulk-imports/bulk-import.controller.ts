@@ -15,7 +15,11 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { BULK_IMPORT_MAX_FILE_BYTES, bulkImportRowListQuerySchema } from '@authorization/contracts';
+import {
+  BULK_IMPORT_MAX_FILE_BYTES,
+  BULK_AUTHORIZATION_IMPORT_MAX_FILE_BYTES,
+  bulkImportRowListQuerySchema,
+} from '@authorization/contracts';
 import { AuthGuard } from '../common/auth.guard';
 import { scopeFromProfile } from '../common/request-scope';
 import { AccessService } from '../identity/access.service';
@@ -79,7 +83,7 @@ export class BulkImportController {
 
   @Post('authorizations/upload')
   @HttpCode(202)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: BULK_IMPORT_MAX_FILE_BYTES } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: BULK_AUTHORIZATION_IMPORT_MAX_FILE_BYTES } }))
   async uploadAuthorizations(
     @UploadedFile() file: BulkImportUploadFile | undefined,
     @Headers('x-organization-id') organizationId: string | undefined,
