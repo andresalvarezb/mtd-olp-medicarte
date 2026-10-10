@@ -308,6 +308,9 @@ beforeAll(
 
               TIPO_DOCUMENTO:
                 'CC',
+
+              CANTIDAD:
+                '10',
             }),
             batchId,
           ],
@@ -391,6 +394,18 @@ afterAll(
         await database.query(
           `
             delete from
+              authorization_fulfillments
+            where authorization_item_id =
+              $1
+          `,
+          [
+            authorizationItemId,
+          ],
+        );
+
+        await database.query(
+          `
+            delete from
               authorization_item_organizations
             where authorization_item_id =
               $1
@@ -455,7 +470,43 @@ describe(
       'inicia, registra evidencia, decide, audita y bloquea mutaciones terminales',
       async () => {
         /*
-         * 1. INICIAR
+         * 1. SIN ATENCION REGISTRADA: BLOQUEO 409.
+         * Una reserva o el mero registro de la AUTO no
+         * habilitan la auditoria de facturacion.
+         */
+        const ineligibleStart =
+          await api(
+            'POST',
+            `/authorization-billing-audits/authorization/${authorizationItemId}/start`,
+          );
+
+        expect(ineligibleStart.status).toBe(409);
+        expect(await json<{ code: string }>(ineligibleStart)).toMatchObject({
+          code: 'AUTHORIZATION_BILLING_AUDIT_NOT_ELIGIBLE',
+        });
+
+        /*
+         * 2. CUMPLIMIENTO PARCIAL: 4 DE 10 UNIDADES.
+         * La evidencia se crea solo en la base aislada
+         * de integracion; no requiere reserva completa.
+         */
+        await database.query(
+          `
+            insert into authorization_fulfillments (
+              organization_id,
+              authorization_item_id,
+              fulfillment_type,
+              effective_date,
+              quantity,
+              source,
+              confirmed_by
+            ) values ($1, $2, 'APPLICATION', '2026-10-09', 4, 'UI', $3)
+          `,
+          [ORGANIZATION_IDS.MTD, authorizationItemId, foundationUserId],
+        );
+
+        /*
+         * 3. INICIAR: PARTIAL debe admitir auditoria.
          */
         const startResponse =
           await api(
