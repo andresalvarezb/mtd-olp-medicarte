@@ -452,7 +452,7 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
 </div>
 
                     <p className={styles.info}>
-                      Solo se pueden auditar autorizaciones cerradas (CLOSED), con aplicación pendiente y sin auditoría definitiva previa.
+                      Solo se pueden auditar AUTOs con atención parcial registrada (con aplicación pendiente) o cerradas, sin auditoría definitiva previa. No se exige reserva completa.
                     </p>
 
 
@@ -482,7 +482,7 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
                   <p className={styles.warning}>
                     {allAlreadyReviewed
                       ? 'Estas autorizaciones ya tienen una auditoría definitiva. Consulta la decisión guardada en el detalle de cada AUTO.'
-                      : 'No hay auditorías nuevas para confirmar. Verifica que las AUTOs estén cerradas, con aplicación pendiente y sin auditoría definitiva previa.'}
+                      : 'No hay auditorías nuevas para confirmar. Verifica que las AUTOs tengan atención parcial registrada (con aplicación pendiente) o estén cerradas, y que no exista auditoría definitiva previa.'}
                   </p>
                 ) : null}
 

@@ -5,6 +5,7 @@ import type { createDatabase } from '@authorization/database';
 
 import type { Scope } from '../common/request-scope';
 import { DATABASE } from '../tokens';
+import { billingAuditFulfillmentSnapshotSql, isBillingAuditFulfillmentEligible, type BillingAuditFulfillmentRow } from './authorization-billing-audit-eligibility';
 
 type Database = ReturnType<typeof createDatabase>;
 type Tx = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -88,14 +89,9 @@ export class AuthorizationBillingAuditRepository {
   async start(authorizationItemId: string, scope: Scope) {
     return this.database.db.transaction(async (tx) => {
       const authorization = (
-        await tx.execute<{
-          id: string;
-        }>(sql`
-            select id
-            from authorization_items
-            where id = ${authorizationItemId}
-            for update
-          `)
+        await tx.execute<BillingAuditFulfillmentRow>(
+          billingAuditFulfillmentSnapshotSql(authorizationItemId),
+        )
       ).rows[0];
 
       if (!authorization) {
@@ -117,13 +113,13 @@ export class AuthorizationBillingAuditRepository {
           `)
       ).rows[0];
 
+      if (existing?.status === 'REVIEWED') {
+        return { outcome: 'already_reviewed' as const };
+      }
+      if (!isBillingAuditFulfillmentEligible(authorization)) {
+        return { outcome: 'not_eligible' as const };
+      }
       if (existing) {
-        if (existing.status === 'REVIEWED') {
-          return {
-            outcome: 'already_reviewed' as const,
-          };
-        }
-
         return {
           outcome: 'existing' as const,
           audit: await this.readbackOrThrow(tx, authorizationItemId),
@@ -185,6 +181,15 @@ export class AuthorizationBillingAuditRepository {
     scope: Scope,
   ) {
     return this.database.db.transaction(async (tx) => {
+      // Orden de bloqueo: AUTO primero y auditoría después, igual que bulk.
+      const target = (await tx.execute<{ authorization_item_id: string }>(sql`
+        select authorization_item_id from authorization_billing_audits where id = ${auditId}
+      `)).rows[0];
+      if (!target) return { outcome: 'not_found' as const };
+      const authorization = (await tx.execute<BillingAuditFulfillmentRow>(
+        billingAuditFulfillmentSnapshotSql(target.authorization_item_id),
+      )).rows[0];
+      if (!authorization) return { outcome: 'not_found' as const };
       const audit = (
         await tx.execute<AuditLockRow>(sql`
             select
@@ -199,16 +204,17 @@ export class AuthorizationBillingAuditRepository {
           `)
       ).rows[0];
 
-      if (!audit) {
-        return {
-          outcome: 'not_found' as const,
-        };
+      if (!audit || audit.authorization_item_id !== authorization.id) {
+        return { outcome: 'not_found' as const };
       }
 
       if (audit.status === 'REVIEWED') {
         return {
           outcome: 'already_reviewed' as const,
         };
+      }
+      if (!isBillingAuditFulfillmentEligible(authorization)) {
+        return { outcome: 'not_eligible' as const };
       }
       const evidenceCount =
         Number(

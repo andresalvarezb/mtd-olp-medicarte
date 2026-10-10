@@ -44,18 +44,21 @@ describe('reglas de elegibilidad operativa de auditoría bulk', () => {
 });
 
 
-describe('ESP-AUD-BULK-001 - elegibilidad de cierre', () => {
-  it('rechaza PARTIALLY_ASSIGNED como cierre', () => {
-    expect(isBillingAuditBulkEligibleStatus('PARTIALLY_ASSIGNED')).toBe(false);
+describe('ESP-AUD-BULK-001 - elegibilidad por cumplimiento', () => {
+  it('permite parcial 4/10 con asignación parcial', () => {
+    const auth = sample({ fulfillment_quantity: 4, remaining_assigned_quantity: 2 });
+    expect(resolveBillingAuditBulkOperationalStatus(auth, '2026-10-09')).toBe('PARTIALLY_ASSIGNED');
+    expect(isBillingAuditBulkEligibleStatus(auth)).toBe(true);
   });
-
-  it('admite CLOSED con aplicación pendiente', () => {
-    expect(isBillingAuditBulkEligibleStatus('CLOSED')).toBe(true);
+  it('rechaza parcial asignada sin entrega/aplicación', () => {
+    expect(isBillingAuditBulkEligibleStatus(sample({ remaining_assigned_quantity: 6 }))).toBe(false);
   });
-
-  it('rechaza estados que no representan cierre', () => {
-    expect(isBillingAuditBulkEligibleStatus('ASSIGNED')).toBe(false);
-    expect(isBillingAuditBulkEligibleStatus('UNASSIGNED')).toBe(false);
-    expect(isBillingAuditBulkEligibleStatus('OUT_OF_OPERATION')).toBe(false);
+  it('permite 4/10 con reserva completa, parcial o agotada', () => {
+    for (const n of [0, 2, 6]) {
+      expect(isBillingAuditBulkEligibleStatus(sample({ fulfillment_quantity: 4, remaining_assigned_quantity: n }))).toBe(true);
+    }
+  });
+  it('permite cerrada 10/10 y no duplica evidencias', () => {
+    expect(isBillingAuditBulkEligibleStatus(sample({ fulfillment_quantity: 10, application_quantity: 10, consumed_quantity: 10 }))).toBe(true);
   });
 });

@@ -63,6 +63,9 @@ export class AuthorizationBillingAuditService {
     if (result.outcome === 'already_reviewed') {
       throw this.alreadyReviewed();
     }
+    if (result.outcome === 'not_eligible') {
+      throw this.notEligible();
+    }
 
     return result.audit;
   }
@@ -103,6 +106,9 @@ export class AuthorizationBillingAuditService {
 
     if (result.outcome === 'already_reviewed') {
       throw this.alreadyReviewed();
+    }
+    if (result.outcome === 'not_eligible') {
+      throw this.notEligible();
     }
 
     return result.audit;
@@ -225,6 +231,13 @@ export class AuthorizationBillingAuditService {
     });
   }
 
+
+  private notEligible() {
+    return new ConflictException({
+      code: 'AUTHORIZATION_BILLING_AUDIT_NOT_ELIGIBLE',
+      message: 'Solo se pueden auditar AUTOs con atención parcial registrada (con aplicación pendiente) o cerradas.',
+    });
+  }
 
   private alreadyReviewed() {
     return new ConflictException({
