@@ -164,6 +164,37 @@ describe('ESP-014 authorization workbook parser', () => {
       ).toBe(20261031);
   });
 
+  function manyAuthorizationRows(count: number): Buffer {
+    const book = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([[...AUTHORIZATION_IMPORT_COLUMNS]]);
+    // Conservar encabezado completo; las filas contienen una celda para probar el límite del parser.
+    XLSX.utils.sheet_add_aoa(
+      sheet,
+      Array.from({ length: count }, (_, index) => [`EPS-${index + 1}`]),
+      { origin: 'A2' },
+    );
+    XLSX.utils.book_append_sheet(book, sheet, 'Autorizaciones');
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(META), 'METADATA');
+    return XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  }
+
+  it('accepts exactly 20000 authorization data rows, excluding the header', () => {
+    const result = parseAuthorizationWorkbook(manyAuthorizationRows(20_000));
+    expect(result.rows).toHaveLength(20_000);
+    expect(result.rows[0]?.rowNumber).toBe(2);
+    expect(result.rows[19_999]?.rowNumber).toBe(20_001);
+  });
+
+  it('rejects 20001 authorization data rows with TOO_MANY_ROWS', () => {
+    const oversized = manyAuthorizationRows(20_001);
+    try {
+      parseAuthorizationWorkbook(oversized);
+      throw new Error('expected TOO_MANY_ROWS');
+    } catch (error) {
+      expect((error as BulkImportFileError).code).toBe('TOO_MANY_ROWS');
+    }
+  });
+
   it('emits the official authorization template', () => {
     const parsed = parseAuthorizationWorkbook(buildAuthorizationTemplate());
     expect(parsed.templateVersion).toBe(ESP014_AUTHORIZATIONS_TEMPLATE_VERSION);
