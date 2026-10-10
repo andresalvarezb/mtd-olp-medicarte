@@ -124,13 +124,13 @@ export class AuthorizationBillingAuditBulkService {
     const rows = parseBillingAuditBulkWorkbook(file.buffer);
     const keys = [...new Set(rows.filter((r) => !r.errorCode).map((r) => r.authorizationKey))];
     if (keys.length) {
-      const existing = await this.database.db.execute<{ authorization_key: string; audit_status: string | null }>(sql`
-        select i.authorization_key, aba.status as audit_status
+      const existing = await this.database.db.execute<{ authorization_key: string; review_status: string | null }>(sql`
+        select i.authorization_key, aba.status as review_status
         from authorization_items i
         left join authorization_billing_audits aba on aba.authorization_item_id = i.id
         where i.authorization_key in (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})
       `);
-      const byKey = new Map(existing.rows.map((r) => [r.authorization_key, r.audit_status]));
+      const byKey = new Map(existing.rows.map((r) => [r.authorization_key, r.review_status]));
       const previewSnapshots = await this.database.db.execute<AuthRow>(
         billingAuditBulkAuthorizationSnapshotSql(
           sql`i.authorization_key in (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})`,
