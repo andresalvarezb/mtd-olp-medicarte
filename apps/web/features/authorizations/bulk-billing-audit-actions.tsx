@@ -13,7 +13,6 @@ import {
   getBillingAuditBulkJob,
   uploadBillingAuditBulk,
   type BillingAuditBulkJob,
-  type BillingAuditBulkRow,
 } from '@/lib/authorization-billing-audit-bulk-api';
 
 import styles from './bulk-billing-audit-actions.module.css';
@@ -36,7 +35,7 @@ type Props = Readonly<{
 function jobStatusLabel(status: string): string {
   switch (status) {
     case 'READY': return 'Lista para confirmar';
-    case 'INVALID': return 'Sin filas válidas';
+    case 'INVALID': return 'Sin auditorías procesables';
     case 'PROCESSING': return 'En procesamiento';
     case 'COMPLETED': return 'Completada';
     case 'PARTIALLY_COMPLETED': return 'Completada parcialmente';
@@ -45,39 +44,11 @@ function jobStatusLabel(status: string): string {
   }
 }
 
-function resultLabel(result: BillingAuditBulkRow['result']) {
-  switch (result) {
-    case 'COMPLIES': return 'Cumple';
-    case 'DOES_NOT_COMPLY': return 'No cumple';
-    default: return '—';
-  }
-}
 
-function rowStatusLabel(status: string): string {
-  switch (status) {
-    case 'PENDING': return 'Válida';
-    case 'SUCCEEDED': return 'Registrada';
-    case 'FAILED': return 'Fallida';
-    case 'SKIPPED': return 'Rechazada';
-    default: return status;
-  }
-}
 
-function errorLabel(row: BillingAuditBulkRow): string {
-  if (row.errorCode === 'AUTO_NOT_FOUND') {
-    return 'La clave AUTO no existe.';
-  }
 
-  if (row.errorCode === 'AUTO_NOT_ELIGIBLE') {
-    return 'La autorización no está cerrada.';
-  }
 
-  if (row.errorCode === 'AUDIT_ALREADY_REVIEWED') {
-    return 'La auditoría ya fue revisada.';
-  }
 
-  return row.errorMessage ?? '—';
-}
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -142,6 +113,15 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
 
   const total = job?.total_rows ?? 0;
   const counts = job?.counts;
+
+  const allAlreadyReviewed =
+    job !== null &&
+    total > 0 &&
+    offset === 0 &&
+    job.rows.length === total &&
+    job.rows.every(
+      (row) => row.errorCode === 'AUDIT_ALREADY_REVIEWED',
+    );
   const pending = counts?.pending ?? 0;
   const terminal = job
     ? ['COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED'].includes(job.status)
@@ -150,9 +130,7 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
   const canConfirm =
     canManage && job?.status === 'READY' && pending > 0;
 
-  const hasNext = job
-    ? offset + job.rows.length < total
-    : false;
+
 
   function resetSelection(next: File | null) {
     setError(null);
@@ -186,8 +164,8 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
     }
   }
 
-  async function uploadFile() {
-    if (!file || !canManage || busy) return;
+  async function uploadFile(selectedFile: File) {
+    if (!canManage || busy) return;
 
     const epoch = organizationEpoch.current;
     setBusy('upload');
@@ -196,7 +174,7 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
     setConfirmIntent(false);
 
     try {
-      const preview = await uploadBillingAuditBulk(organizationId, file);
+      const preview = await uploadBillingAuditBulk(organizationId, selectedFile);
       if (epoch !== organizationEpoch.current) return;
 
       setJob(preview);
@@ -300,17 +278,6 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
 
   return (
     <>
-      {canRead ? (
-        <button
-          type="button"
-          className="btn"
-          disabled={busy !== null}
-          onClick={() => { void downloadTemplate(); }}
-        >
-          {busy === 'template' ? 'Descargando…' : 'Descargar plantilla'}
-        </button>
-      ) : null}
-
       {canManage ? (
         <button
           type="button"
@@ -364,69 +331,68 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
                   </button>
                 </header>
 
+
                 <div className={styles.steps}>
                   <div className={styles.section}>
                     <span className={styles.stepNumber}>01</span>
-                    <div>
-                      <h3>Preparar archivo</h3>
-                      <p>
-                        Descarga la plantilla. Completa la clave AUTO,
-                        el resultado y, cuando aplique, la observación.
-                      </p>
-                    </div>
-                    {canRead ? (
-                      <button
-                        type="button"
-                        className="btn"
-                        disabled={busy !== null}
-                        onClick={() => { void downloadTemplate(); }}
-                      >
-                        Descargar plantilla
-                      </button>
-                    ) : null}
-                  </div>
 
-                  <div className={styles.section}>
-                    <span className={styles.stepNumber}>02</span>
                     <div className={styles.sectionContent}>
-                      <h3>Cargar archivo XLSX</h3>
+                      <h3>Seleccionar archivo</h3>
+
                       <p>
-                        Tamaño máximo 20 MiB. La carga solo prepara
-                        la previsualización; todavía no registra auditorías.
+                        Descarga la plantilla si la necesitas.
+                        Selecciona el Excel y revisa la
+                        validación automática antes de confirmar.
                       </p>
 
                       <div className={styles.fileRow}>
+                        {canRead ? (
+                          <button
+                            type="button"
+                            className="btn"
+                            disabled={busy !== null}
+                            onClick={() => {
+                              void downloadTemplate();
+                            }}
+                          >
+                            Descargar plantilla
+                          </button>
+                        ) : null}
+
                         <input
                           ref={fileRef}
                           className={styles.fileInput}
                           type="file"
                           accept=".xlsx"
-                          disabled={busy !== null || terminal}
-                          aria-label="Seleccionar archivo de auditoría"
+                          aria-label="Seleccionar Excel de auditoría"
+                          disabled={busy !== null}
                           onChange={(event) => {
-                            resetSelection(event.target.files?.[0] ?? null);
+                            const selected =
+                              event.currentTarget.files?.[0] ?? null;
+
+                            event.currentTarget.value = '';
+
+                            resetSelection(selected);
+
+                            if (
+                              selected &&
+                              selected.name.toLowerCase().endsWith('.xlsx') &&
+                              selected.size > 0 &&
+                              selected.size <= MAX_FILE_BYTES
+                            ) {
+                              void uploadFile(selected);
+                            }
                           }}
                         />
-                        <button
-                          type="button"
-                          className="btn primary"
-                          disabled={!file || busy !== null || terminal}
-                          onClick={() => { void uploadFile(); }}
-                        >
-                          {busy === 'upload' ? 'Validando…' : 'Validar archivo'}
-                        </button>
                       </div>
 
-                      {file ? (
-                        <p className={styles.filename}>
-                          Archivo seleccionado: {file.name}
+                      {busy === 'upload' ? (
+                        <p role="status" className={styles.filename}>
+                          Validando archivo…
                         </p>
-                      ) : null}
-
-                      {terminal ? (
-                        <p className={styles.info}>
-                          Para procesar otro archivo, cierra este panel
-                          y abre una nueva carga.
+                      ) : file ? (
+                        <p className={styles.filename}>
+                          Archivo: {file.name}
                         </p>
                       ) : null}
                     </div>
@@ -437,13 +403,16 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
                   <div className={styles.preview}>
                     <div className={styles.previewHeading}>
                       <div>
-                        <span className={styles.eyebrow}>03 · Validación</span>
+                        <span className={styles.eyebrow}>02 · Revisión</span>
                         <h3>Resultado de la previsualización</h3>
                         <p>
-                          Estado del lote: <strong>{jobStatusLabel(job.status)}</strong>
+                          Estado del lote: <strong>{allAlreadyReviewed
+                          ? 'Todas las AUTOs ya auditadas'
+                          : jobStatusLabel(job.status)}</strong>
                         </p>
                       </div>
-                      <button
+                      {job.status === 'PROCESSING' ? (
+<button
                         type="button"
                         className="btn"
                         disabled={busy !== null}
@@ -451,86 +420,44 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
                       >
                         {busy === 'refresh' ? 'Actualizando…' : 'Actualizar'}
                       </button>
+) : null}
                     </div>
 
-                    <div className={styles.metrics}>
-                      <div><span>Total</span><strong>{total}</strong></div>
-                      <div><span>Pendientes</span><strong>{pending}</strong></div>
-                      <div><span>Registradas</span><strong>{counts?.succeeded ?? 0}</strong></div>
-                      <div><span>Fallidas</span><strong>{counts?.failed ?? 0}</strong></div>
-                      <div><span>Rechazadas</span><strong>{counts?.skipped ?? 0}</strong></div>
-                    </div>
+
+<div className={styles.metrics}>
+  <div>
+    <span>Total</span>
+    <strong>{total}</strong>
+  </div>
+
+  <div>
+    <span>{terminal ? 'Registradas' : 'Válidas'}</span>
+    <strong>
+      {terminal ? counts?.succeeded ?? 0 : pending}
+    </strong>
+  </div>
+
+  <div>
+    <span>{terminal
+                          ? 'No procesadas'
+                          : allAlreadyReviewed
+                            ? 'Ya auditadas'
+                            : 'No procesables'}</span>
+    <strong>
+      {terminal
+        ? (counts?.failed ?? 0) + (counts?.skipped ?? 0)
+        : counts?.skipped ?? 0}
+    </strong>
+  </div>
+</div>
 
                     <p className={styles.info}>
-                      Solo las AUTOs con estado operacional CLOSED son elegibles.
-                      Esto incluye entregas completas con aplicación pendiente.
-                      PARTIALLY_ASSIGNED no equivale a una autorización cerrada.
+                      Solo se pueden auditar autorizaciones cerradas (CLOSED), con aplicación pendiente y sin auditoría definitiva previa.
                     </p>
 
-                    <div className={styles.tableWrap}>
-                      <table className={styles.table}>
-                        <thead>
-                          <tr>
-                            <th>Fila</th>
-                            <th>Clave AUTO</th>
-                            <th>Resultado</th>
-                            <th>Estado</th>
-                            <th>Observación / motivo</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {job.rows.map((row) => (
-                            <tr key={`${row.rowNumber}-${row.authorizationKey}`}>
-                              <td>{row.rowNumber}</td>
-                              <td className={styles.key}>{row.authorizationKey || '—'}</td>
-                              <td>{resultLabel(row.result)}</td>
-                              <td>
-                                <span className={
-                                  row.executionStatus === 'SUCCEEDED'
-                                    ? styles.statusSuccess
-                                    : row.executionStatus === 'PENDING'
-                                      ? styles.statusPending
-                                      : styles.statusError
-                                }>
-                                  {rowStatusLabel(row.executionStatus)}
-                                </span>
-                              </td>
-                              <td>
-                                {row.errorCode
-                                  ? errorLabel(row)
-                                  : row.observation || '—'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
 
-                    <div className={styles.pagination}>
-                      <span>
-                        {total
-                          ? `${offset + 1}–${Math.min(offset + job.rows.length, total)} de ${total}`
-                          : 'Sin filas'}
-                      </span>
-                      <div className={styles.paginationButtons}>
-                        <button
-                          type="button"
-                          className="btn"
-                          disabled={offset === 0 || busy !== null}
-                          onClick={() => { void loadPage(Math.max(0, offset - PAGE_SIZE)); }}
-                        >
-                          Anterior
-                        </button>
-                        <button
-                          type="button"
-                          className="btn"
-                          disabled={!hasNext || busy !== null}
-                          onClick={() => { void loadPage(offset + PAGE_SIZE); }}
-                        >
-                          Siguiente
-                        </button>
-                      </div>
-                    </div>
+
+
                   </div>
                 ) : null}
 
@@ -553,8 +480,9 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
 
                 {job?.status === 'INVALID' ? (
                   <p className={styles.warning}>
-                    No existen filas válidas para confirmar.
-                    Puedes descargar el reporte y corregir el archivo.
+                    {allAlreadyReviewed
+                      ? 'Estas autorizaciones ya tienen una auditoría definitiva. Consulta la decisión guardada en el detalle de cada AUTO.'
+                      : 'No hay auditorías nuevas para confirmar. Verifica que las AUTOs estén cerradas, con aplicación pendiente y sin auditoría definitiva previa.'}
                   </p>
                 ) : null}
 
@@ -568,7 +496,21 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
                     Cerrar
                   </button>
 
-                  {job && canRead ? (
+
+                  {job && (terminal || job.status === 'INVALID') ? (
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={busy !== null}
+                      onClick={() => {
+                        resetSelection(null);
+                      }}
+                    >
+                      Nueva carga
+                    </button>
+                  ) : null}
+
+                  {job && canRead && (terminal || job.status === 'INVALID') ? (
                     <button
                       type="button"
                       className="btn"
