@@ -9122,3 +9122,83 @@ table.operational-list-table tbody tr:hover {
 }
 
 /* END AUTHORIZATION QUERY FILTER ROW V1 */
+
+/* Anexo Tarifario: tabla compacta y ficha lateral de detalle. */
+.tariff-products-workspace { margin: 18px 0; }
+.tariff-products-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.tariff-products-summary > div {
+  padding: 16px 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tariff-products-summary span { font-size: 12px; color: #667085; }
+.tariff-products-summary strong { font-size: 23px; color: #172033; font-variant-numeric: tabular-nums; }
+.tariff-products-card { margin: 0; }
+.tariff-product-name { display: inline-block; max-width: 320px; line-height: 1.35; font-weight: 600; }
+.tariff-money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tariff-detail-trigger { white-space: nowrap; }
+.tariff-detail-trigger span { padding-left: 7px; font-size: 18px; }
+.tariff-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  z-index: 1200;
+  background: rgba(16, 30, 55, 0.46);
+  backdrop-filter: blur(2px);
+}
+.tariff-detail-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 32px));
+  max-height: 100dvh;
+  background: #fff;
+  color: #172033;
+  border-left: 1px solid #e2e8f0;
+  box-shadow: -18px 0 52px rgba(16, 30, 55, 0.15);
+  animation: authorization-drawer-enter 180ms ease-out;
+}
+.tariff-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 23px 25px 18px;
+  border-bottom: 1px solid #e7ebf1;
+}
+.tariff-detail-header h2 { margin: 6px 0; font-size: 21px; line-height: 1.25; }
+.tariff-detail-eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #667085; font-weight: 700; }
+.tariff-detail-code { font-size: 12px; color: #58677e; }
+.tariff-detail-body { flex: 1; overflow-y: auto; padding: 4px 25px 24px; }
+.tariff-detail-section { padding: 22px 0; border-bottom: 1px solid #edf0f4; }
+.tariff-detail-section:last-child { border-bottom: 0; }
+.tariff-detail-section h3 { font-size: 14px; margin: 0 0 18px; color: #172033; }
+.tariff-detail-prices { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-bottom: 18px; }
+.tariff-detail-prices > div { background: #f5f7fb; border: 1px solid #e5ebf3; border-radius: 10px; padding: 15px 13px; display: flex; flex-direction: column; gap: 8px; }
+.tariff-detail-prices span { font-size: 11px; color: #667085; }
+.tariff-detail-prices strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.tariff-detail-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); column-gap: 20px; row-gap: 18px; margin: 0; }
+.tariff-detail-field { min-width: 0; }
+.tariff-detail-field dt { font-size: 11px; color: #667085; margin-bottom: 6px; }
+.tariff-detail-field dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; color: #172033; font-weight: 550; }
+.tariff-detail-footer { padding: 14px 25px; border-top: 1px solid #e7ebf1; display: flex; justify-content: flex-end; }
+@media (max-width: 640px) {
+  .tariff-products-summary { gap: 7px; }
+  .tariff-products-summary > div { padding: 12px 9px; }
+  .tariff-products-summary strong { font-size: 18px; }
+  .tariff-detail-panel { width: 100vw; }
+  .tariff-detail-header, .tariff-detail-body { padding-left: 17px; padding-right: 17px; }
+  .tariff-detail-footer { padding: 14px 17px; }
+  .tariff-detail-grid { column-gap: 12px; }
+  .tariff-detail-prices { gap: 8px; }
+  .tariff-detail-prices strong { font-size: 15px; }
+}
