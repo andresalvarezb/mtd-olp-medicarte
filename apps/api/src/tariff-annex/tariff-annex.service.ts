@@ -67,6 +67,7 @@ type TariffProductListRow = Record<string, unknown> & {
   codigo_producto: string;
   tarifa_unidad: string | null;
   tarifa_unidad_canonical: string | null;
+  tarifa_compra: string | null;
   numero_expediente_invima: string | null;
   consecutivo_invima_presentacion: string | null;
   descripcion_generica: string | null;
@@ -87,6 +88,7 @@ export type TariffProductListItem = Readonly<{
   codigoProducto: string;
   tarifaUnidad: string | null;
   tarifaUnidadCanonical: string | null;
+  tarifaCompra: string | null;
   numeroExpedienteInvima: string | null;
   consecutivoInvimaPresentacion: string | null;
   descripcionGenerica: string | null;
@@ -309,6 +311,7 @@ export class TariffAnnexService {
         product.codigo_producto,
         product.tarifa_unidad,
         product.tarifa_unidad_canonical::text as tarifa_unidad_canonical,
+        round(product.tarifa_unidad_canonical * 0.95, 4)::text as tarifa_compra,
         product.numero_expediente_invima,
         product.consecutivo_invima_presentacion,
         product.descripcion_generica,
@@ -394,6 +397,7 @@ export class TariffAnnexService {
       codigoProducto: row.codigo_producto,
       tarifaUnidad: row.tarifa_unidad,
       tarifaUnidadCanonical: row.tarifa_unidad_canonical,
+      tarifaCompra: row.tarifa_compra,
       numeroExpedienteInvima: row.numero_expediente_invima,
       consecutivoInvimaPresentacion: row.consecutivo_invima_presentacion,
       descripcionGenerica: row.descripcion_generica,

@@ -383,6 +383,28 @@ describe('STEP1 tariff HTTP gate', () => {
     expect(revisions.rows[0]?.import_row_id).not.toBeNull();
   });
 
+  it('calcula Tarifa compra como TV menos 5%, sin modificar la tarifa de venta', async () => {
+    const response = await apiJson(
+      'GET',
+      '/admin/tariff-annex/products',
+      adminToken,
+      mtdOrganizationId,
+    );
+    expect(response.status).toBe(200);
+
+    const payload = (await response.json()) as {
+      items: Array<{
+        codigoProducto: string;
+        tarifaUnidadCanonical: string | null;
+        tarifaCompra: string | null;
+      }>;
+    };
+    const product = payload.items.find((item) => item.codigoProducto === commercialCode);
+    expect(product).toBeDefined();
+    expect(product?.tarifaUnidadCanonical).toBe('12.5000');
+    expect(product?.tarifaCompra).toBe('11.8750');
+  });
+
   it('CONFIRM repetido es HTTP-idempotente y no duplica revisión', async () => {
     const firstCount = await database.query<{
       count: number;

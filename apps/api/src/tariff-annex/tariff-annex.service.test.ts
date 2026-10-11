@@ -16,6 +16,53 @@ function scope(code = 'MTD') {
 }
 
 describe('TariffAnnexService', () => {
+  it('expone la tarifa de compra derivada y conserva intacta la tarifa de venta', async () => {
+    const original = {
+      id: '44444444-4444-4444-8444-444444444444',
+      codigo_producto: 'MED-1',
+      tarifa_unidad: '100,00',
+      tarifa_unidad_canonical: '100.0000',
+      tarifa_compra: '95.0000',
+      numero_expediente_invima: null,
+      consecutivo_invima_presentacion: null,
+      descripcion_generica: 'Producto prueba',
+      descripcion_comercial: null,
+      laboratorio: null,
+      tipo_inclusion: 'PBS',
+      minimum_quantity: 1,
+      active: true,
+      source_cum_code: null,
+      dispensing_point_id: null,
+      dispensing_point_code: null,
+      dispensing_point_name: null,
+      updated_at: '2026-10-10T00:00:00.000Z',
+    };
+    const database = {
+      db: {
+        execute: vi.fn().mockResolvedValue({
+          rows: [original, {
+            ...original,
+            id: '55555555-5555-4555-8555-555555555555',
+            codigo_producto: 'MED-SIN-TARIFA',
+            tarifa_unidad: null,
+            tarifa_unidad_canonical: null,
+            tarifa_compra: null,
+          }],
+        }),
+      },
+    };
+    const service = new TariffAnnexService({} as never, database as never);
+    const result = await service.listProducts(scope());
+
+    expect(result.total).toBe(2);
+    expect(result.items[0]).toMatchObject({
+      tarifaUnidad: '100,00',
+      tarifaUnidadCanonical: '100.0000',
+      tarifaCompra: '95.0000',
+    });
+    expect(result.items[1]?.tarifaCompra).toBeNull();
+  });
+
   it('bloquea organizaciones distintas de MTD', async () => {
     const repository = {
       prepareImport: vi.fn(),

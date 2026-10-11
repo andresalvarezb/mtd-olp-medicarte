@@ -5,6 +5,7 @@ export interface TariffProductListItem {
   codigoProducto: string;
   tarifaUnidad: string | null;
   tarifaUnidadCanonical: string | null;
+  tarifaCompra: string | null;
   numeroExpedienteInvima: string | null;
   consecutivoInvimaPresentacion: string | null;
   descripcionGenerica: string | null;

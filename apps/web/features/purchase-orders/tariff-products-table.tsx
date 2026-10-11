@@ -12,10 +12,9 @@ import {
 } from '@/components/ui/filter-bar';
 import { useApiData } from '@/hooks/use-api-data';
 import { useLoadingFeedback } from '@/hooks/use-loading-feedback';
-import { listTariffProducts, type TariffProductListItem } from '@/lib/tariff-products-api';
+import { listTariffProducts } from '@/lib/tariff-products-api';
 
-function formatCurrency(product: TariffProductListItem): string {
-  const raw = product.tarifaUnidadCanonical ?? product.tarifaUnidad;
+function formatCurrency(raw: string | null): string {
 
   if (!raw) {
     return '—';
@@ -52,6 +51,7 @@ const COLUMNS = [
   { label: 'Código' },
   { label: 'Producto' },
   { label: 'Tarifa unidad' },
+  { label: 'Tarifa compra' },
   { label: 'Producto mínimo' },
   { label: 'INVIMA / presentación' },
   { label: 'CUM' },
@@ -172,7 +172,8 @@ export function TariffProductsTable() {
   const rows = paginatedProducts.map((product) => [
     product.codigoProducto,
     product.descripcionGenerica ?? product.descripcionComercial ?? '—',
-    formatCurrency(product),
+    formatCurrency(product.tarifaUnidadCanonical ?? product.tarifaUnidad),
+    formatCurrency(product.tarifaCompra),
     product.minimumQuantity,
     [product.numeroExpedienteInvima, product.consecutivoInvimaPresentacion]
       .filter(Boolean)
