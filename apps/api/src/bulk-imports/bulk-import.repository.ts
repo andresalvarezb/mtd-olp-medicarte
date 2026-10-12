@@ -12,6 +12,9 @@ import {
   BULK_IMPORT_ROW_CLAIM_LEASE_SECONDS,
   POINT_ACCESS_DENIED,
   decideBulkImportCompletion,
+  currentBogotaDate,
+  decideAuthorization16Renewal,
+  AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY,
   isAuthorizationSourceEnabled,
   rowIdempotencyKey,
 } from '@authorization/domain';
@@ -1157,10 +1160,33 @@ export class BulkImportRepository {
       };
 
 
-    const effectiveSourceStatus =
-      mergedText(
-        'ESTADO_AUTORIZACION',
-      );
+    const renewalDecision = decideAuthorization16Renewal({
+      storedSourceStatus: existingRow.source_status_normalized,
+      incomingSourceStatus: mergedText('ESTADO_AUTORIZACION'),
+      previousValidityEndDate: typeof existingRow.source_data.FECHA_FINAL_VIGENCIA === 'string'
+        ? existingRow.source_data.FECHA_FINAL_VIGENCIA : null,
+      nextValidityEndDate: mergedText('FECHA_FINAL_VIGENCIA'),
+      todayBogota: currentBogotaDate(),
+      previouslyRenewed: Boolean(existingRow.source_data[AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY]),
+    });
+
+    if (renewalDecision.outcome === 'STALE_RELOAD') {
+      throw new Error('AUTHORIZATION_RENEWAL_STALE_RELOAD');
+    }
+
+    if (renewalDecision.outcome === 'PROMOTED') {
+      mergedPayload[AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY] = {
+        originalSourceStatus: '16',
+        previousValidityEndDate: existingRow.source_data.FECHA_FINAL_VIGENCIA,
+        renewedValidityEndDate: mergedText('FECHA_FINAL_VIGENCIA'),
+        channel: 'XLSX_RELOAD',
+      };
+    }
+    if (renewalDecision.outcome === 'PROMOTED' || renewalDecision.outcome === 'PRESERVED') {
+      mergedPayload.ESTADO_AUTORIZACION = '5';
+    }
+
+    const effectiveSourceStatus = renewalDecision.effectiveSourceStatus;
 
     const effectivePrescriptionNumber =
       mergedText(
@@ -1365,6 +1391,19 @@ export class BulkImportRepository {
     }
 
     await linkOrganization(updatedRow.id);
+
+    if (renewalDecision.outcome === 'PROMOTED') {
+      await this.audit(tx, input.actor, 'AUTHORIZATION_SOURCE_STATUS_RENEWED', input.jobId, {
+        authorizationItemId: updatedRow.id,
+        previousVersion: existingRow.version,
+        version: updatedRow.version,
+        fromState: '16',
+        effectiveState: '5',
+        previousValidityEndDate: existingRow.source_data.FECHA_FINAL_VIGENCIA,
+        renewedValidityEndDate: mergedText('FECHA_FINAL_VIGENCIA'),
+        channel: 'XLSX_RELOAD',
+      });
+    }
 
     await this.audit(tx, input.actor, 'AUTHORIZATION_SMART_RELOAD_UPDATED', input.jobId, {
       authorizationItemId: updatedRow.id,

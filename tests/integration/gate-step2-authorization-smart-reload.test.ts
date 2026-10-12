@@ -186,6 +186,9 @@ function buildSparseAuthorizationWorkbook(
     validityEndDate?:
       string;
 
+    sourceStatus?:
+      string;
+
     workbookNonce:
       string;
   },
@@ -227,6 +230,10 @@ function buildSparseAuthorizationWorkbook(
   ) {
     values.FECHA_FINAL_VIGENCIA =
       input.validityEndDate;
+  }
+
+  if (input.sourceStatus !== undefined) {
+    values.ESTADO_AUTORIZACION = input.sourceStatus;
   }
 
   XLSX.utils.book_append_sheet(
@@ -302,6 +309,9 @@ async function uploadSparseAuthorization(
       number;
 
     validityEndDate?:
+      string;
+
+    sourceStatus?:
       string;
 
     workbookNonce:
@@ -1629,5 +1639,65 @@ describe('Macro 2 / 2C + 2D — smart reload + purchase order lineage', () => {
     },
     60_000,
   );
+
+  it('10. renueva estado 16 a 5 por recarga parcial y conserva la habilitación ante replay del 16', async () => {
+    const code = `M2CD-RENEW-${suffix}`;
+    const authorization = `M2CD-AUTH-RENEW-${suffix}`;
+    await seedTariffProduct(code);
+    const first = await uploadAndConfirm({
+      authorizationNumber: authorization, commercialCode: code,
+      filename: `m2cd-renew-initial-${suffix}.xlsx`, workbookNonce: randomUUID(),
+    });
+    expect(first.confirmed.succeededRows).toBe(1);
+    await database.query(`update authorization_items
+      set source_status_normalized = '16', enablement_status = 'BLOCKED_SOURCE_STATUS',
+      source_data = jsonb_set(
+        jsonb_set(source_data, '{ESTADO_AUTORIZACION}', to_jsonb('16'::text)),
+        '{FECHA_FINAL_VIGENCIA}', to_jsonb('2099-01-01'::text))
+      where numero_autorizacion = $1 and codigo_medicamento = $2`, [authorization, code]);
+    const before = await snapshot(authorization, code);
+    const uploadResponse = await uploadSparseAuthorization({
+      authorizationNumber: authorization, commercialCode: code,
+      filename: `m2cd-renew-date-${suffix}.xlsx`,
+      validityEndDate: '2099-12-31', workbookNonce: randomUUID(),
+    });
+    expect(uploadResponse.status).toBe(202);
+    const job = await uploadResponse.json() as Job;
+    const confirmResponse = await confirm(job.id);
+    expect(confirmResponse.status).toBe(200);
+    const completed = await confirmResponse.json() as Job;
+    expect(completed.succeededRows).toBe(1);
+    const after = await database.query<{
+      source_status_normalized: string; enablement_status: string;
+      source_data: Record<string, unknown>; version: number;
+    }>(`select source_status_normalized, enablement_status, source_data, version
+      from authorization_items where id=$1`, [before.id]);
+    const updated = after.rows[0]!;
+    expect(updated.source_status_normalized).toBe('5');
+    expect(updated.enablement_status).toBe('ENABLED');
+    expect(updated.source_data.ESTADO_AUTORIZACION).toBe('5');
+    expect(updated.source_data.__authorizationRenewal16To5).toMatchObject({
+      originalSourceStatus: '16', channel: 'XLSX_RELOAD',
+    });
+    expect(updated.version).toBe(before.version + 1);
+    // Reenvío fuente 16 (sin regresión de fecha): el estado efectivo no se revierte.
+    const replay = await uploadSparseAuthorization({
+      authorizationNumber: authorization, commercialCode: code,
+      filename: `m2cd-renew-replay-${suffix}.xlsx`,
+      sourceStatus: '16',
+      validityEndDate: '2099-12-31', workbookNonce: randomUUID(),
+    });
+    expect(replay.status).toBe(202);
+    const replayJob = await replay.json() as Job;
+    const replayConfirmed = await confirm(replayJob.id);
+    expect(replayConfirmed.status).toBe(200);
+    expect((await replayConfirmed.json() as Job).succeededRows).toBe(1);
+    const finalRow = await database.query<{ source_status_normalized: string; enablement_status: string }>(
+      'select source_status_normalized, enablement_status from authorization_items where id=$1',
+      [before.id],
+    );
+    expect(finalRow.rows[0]).toMatchObject({ source_status_normalized: '5', enablement_status: 'ENABLED' });
+  }, 60_000);
+
 
 });

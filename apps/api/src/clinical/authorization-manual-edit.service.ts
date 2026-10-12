@@ -16,6 +16,9 @@ import type {
 } from '@authorization/database';
 
 import {
+  AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY,
+  currentBogotaDate,
+  decideAuthorization16Renewal,
   normalizeCommercialCode,
 } from '@authorization/domain';
 
@@ -71,6 +74,12 @@ type AuthorizationRow =
 
     source_data:
       Record<string, unknown>;
+
+    source_status_normalized:
+      string;
+
+    enablement_status:
+      string;
 
     coverage_type:
       string;
@@ -249,6 +258,8 @@ export class AuthorizationManualEditService {
                 i.codigo_medicamento,
                 i.authorization_key,
                 i.source_data,
+                i.source_status_normalized,
+                i.enablement_status,
                 i.coverage_type,
                 i.direction_status,
                 i.version
@@ -316,6 +327,97 @@ export class AuthorizationManualEditService {
           input.validityEndDate !==
           previousValidity;
 
+        /*
+         * Renovación exclusivamente de vigencia: no depende del AT ni del
+         * mínimo contractual. Resolver el estado 16 no habilita otros gates.
+         * No cambia producto, cantidad, OC, inventario ni cumplimiento.
+         */
+        const dateOnlyRenewal = decideAuthorization16Renewal({
+          storedSourceStatus: current.source_status_normalized,
+          incomingSourceStatus: current.source_status_normalized,
+          previousValidityEndDate: previousValidity,
+          nextValidityEndDate: input.validityEndDate,
+          todayBogota: currentBogotaDate(),
+        });
+        if (dateOnlyRenewal.outcome === 'PROMOTED' && !productChanged && !quantityChanged) {
+          const latest = (await tx.execute<{ latest_effective_date: string | null }>(sql`
+            select greatest(
+              (select max(effective_date)::date from authorization_fulfillments
+               where authorization_item_id = ${authorizationItemId}),
+              (select max(application_date)::date from patient_applications
+               where authorization_item_id = ${authorizationItemId} and status = 'CONFIRMED')
+            )::text as latest_effective_date
+          `)).rows[0]?.latest_effective_date ?? null;
+          if (latest && input.validityEndDate < latest) {
+            throw new ConflictException({
+              code: 'AUTHORIZATION_VALIDITY_BEFORE_FULFILLMENT',
+              message: 'La vigencia no puede terminar antes de la entrega/aplicación registrada.',
+            });
+          }
+          const newSourceData = {
+            ...current.source_data,
+            FECHA_FINAL_VIGENCIA: input.validityEndDate,
+            ESTADO_AUTORIZACION: '5',
+            [AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY]: {
+              originalSourceStatus: '16',
+              previousValidityEndDate: previousValidity,
+              renewedValidityEndDate: input.validityEndDate,
+              channel: 'MANUAL_EDIT',
+            },
+          };
+          const updated = (await tx.execute<{ version: number }>(sql`
+            update authorization_items
+            set source_data = ${JSON.stringify(newSourceData)}::jsonb,
+                source_status_normalized = '5', enablement_status = 'ENABLED',
+                updated_by = ${scope.userId}, updated_at = now(), version = version + 1
+            where id = ${authorizationItemId}
+            returning version
+          `)).rows[0]!;
+          await tx.execute(sql`
+            insert into audit_events
+              (actor_type, actor_id, organization_id, action, resource_type, resource_id,
+               before, after, correlation_id, request_id, result)
+            values
+              ('USER', ${scope.userId}, ${scope.organizationId}, 'AUTHORIZATION_MANUAL_EDITED',
+               'authorization_item', ${authorizationItemId},
+               ${JSON.stringify({
+                 sourceStatus: '16', enablementStatus: current.enablement_status,
+                 validityEndDate: previousValidity, version: current.version,
+               })}::jsonb,
+               ${JSON.stringify({
+                 sourceStatus: '5', enablementStatus: 'ENABLED',
+                 validityEndDate: input.validityEndDate, version: updated.version,
+                 impact: { productChanged: false, quantityChanged: false,
+                           validityChanged: true, stateRenewal16To5: true },
+               })}::jsonb,
+               ${scope.correlationId}, ${scope.correlationId}, 'SUCCESS')
+          `);
+          await tx.execute(realtimeInvalidationSql({
+            organizationCodes: REALTIME_AUDIENCE.AUTHORIZATION,
+            topics: ['AUTHORIZATIONS', 'DASHBOARD'],
+            correlationId: scope.correlationId,
+            resource: { type: 'authorization_item', id: authorizationItemId,
+              version: updated.version },
+          }));
+          return {
+            id: authorizationItemId,
+            authorizationKey: current.authorization_key,
+            commercialCode,
+            quantity: input.quantity,
+            validityEndDate: input.validityEndDate,
+            version: updated.version,
+            impact: {
+              productChanged: false,
+              quantityChanged: false,
+              validityChanged: true,
+              releasedInventoryQuantity: 0,
+              historicalPurchaseOrderIds: [],
+              activePurchaseOrderEffect: 'NONE',
+              olpAlreadyAccepted: false,
+              medicarteAlreadyReceived: false,
+            },
+          };
+        }
 
         const tariff =
           (
@@ -1869,6 +1971,26 @@ export class AuthorizationManualEditService {
         sourceData.FECHA_FINAL_VIGENCIA =
           input.validityEndDate;
 
+        const renewalDecision = decideAuthorization16Renewal({
+          storedSourceStatus: current.source_status_normalized,
+          incomingSourceStatus: current.source_status_normalized,
+          previousValidityEndDate: previousValidity,
+          nextValidityEndDate: input.validityEndDate,
+          todayBogota: currentBogotaDate(),
+          previouslyRenewed: Boolean(current.source_data[AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY]),
+        });
+        const renewedState = renewalDecision.outcome === 'PROMOTED';
+        if (renewedState) {
+          sourceData.ESTADO_AUTORIZACION = '5';
+          sourceData[AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY] = {
+            originalSourceStatus: '16',
+            previousValidityEndDate: previousValidity,
+            renewedValidityEndDate: input.validityEndDate,
+            channel: 'MANUAL_EDIT',
+          };
+        }
+        const nextSourceStatus = renewedState ? '5' : current.source_status_normalized;
+        const nextEnablementStatus = renewedState ? 'ENABLED' : current.enablement_status;
 
         const tariffRuleVersion =
           `TARIFF-ANNEX-1:${Number(
@@ -1896,6 +2018,12 @@ export class AuthorizationManualEditService {
                   ${JSON.stringify(
                     sourceData,
                   )}::jsonb,
+
+                source_status_normalized =
+                  ${nextSourceStatus},
+
+                enablement_status =
+                  ${nextEnablementStatus},
 
                 coverage_type =
                   ${nextCoverageType},
@@ -1961,6 +2089,9 @@ export class AuthorizationManualEditService {
             validityEndDate:
               previousValidity,
 
+            sourceStatus: current.source_status_normalized,
+            enablementStatus: current.enablement_status,
+
             version:
               current.version,
           };
@@ -1977,6 +2108,9 @@ export class AuthorizationManualEditService {
 
             validityEndDate:
               input.validityEndDate,
+
+            sourceStatus: nextSourceStatus,
+            enablementStatus: nextEnablementStatus,
 
             version:
               updated.version,
@@ -2017,6 +2151,7 @@ export class AuthorizationManualEditService {
                 productChanged,
                 quantityChanged,
                 validityChanged,
+                stateRenewal16To5: renewedState,
 
                 releasedInventoryQuantity,
 
