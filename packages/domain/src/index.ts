@@ -1,3 +1,5 @@
+export { AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY, decideAuthorization16Renewal } from './authorization-source-renewal';
+export type { Authorization16RenewalDecision } from './authorization-source-renewal';
 export type ActorContext = Readonly<{
   userId: string;
   organizationId: string;

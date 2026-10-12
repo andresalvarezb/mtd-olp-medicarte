@@ -1446,6 +1446,97 @@ afterAll(
 describe(
   'Manual authorization edit',
   () => {
+    it('estado 16 pasa a estado efectivo 5 tras renovar vigencia, sin saltar gates comerciales', async () => {
+      const item = await createAuthorization({ quantity: 1, validityEndDate: '2026-10-01' });
+      await database.query(
+        `update authorization_items
+         set source_status_normalized = '16', enablement_status = 'BLOCKED_SOURCE_STATUS',
+             source_data = jsonb_set(source_data, '{ESTADO_AUTORIZACION}', to_jsonb('16'::text))
+         where id = $1`, [item.id],
+      );
+      const edited = await editAuthorization({
+        id: item.id, expectedVersion: item.version,
+        commercialCode: item.commercialCode, quantity: 1, validityEndDate: '2099-12-31',
+      });
+      expect(edited.status).toBe(200);
+      const result = await database.query<{
+        source_status_normalized: string; enablement_status: string;
+        source_data: Record<string, unknown>; tariff_membership_status: string;
+      }>(`select source_status_normalized, enablement_status, source_data, tariff_membership_status
+          from authorization_items where id = $1`, [item.id]);
+      const row = result.rows[0]!;
+      expect(row.source_status_normalized).toBe('5');
+      expect(row.enablement_status).toBe('ENABLED');
+      expect(row.source_data.ESTADO_AUTORIZACION).toBe('5');
+      expect(row.source_data.__authorizationRenewal16To5).toMatchObject({
+        originalSourceStatus: '16', channel: 'MANUAL_EDIT',
+      });
+      // No se modifica la cantidad: las demás reglas conservan su autoridad.
+      expect(row.source_data.CANTIDAD).toBe('1');
+      expect(row.tariff_membership_status).toBe('LISTED');
+    }, 60_000);
+
+    it('renovación 16 a 5 no quita bloqueo del producto ausente del AT', async () => {
+      const missingCode = `ME-NOT-IN-AT-${suffix}`;
+      const item = await createAuthorization({
+        commercialCode: missingCode, quantity: 1, validityEndDate: '2026-10-01',
+      });
+      await database.query(`update authorization_items
+        set source_status_normalized='16', enablement_status='BLOCKED_SOURCE_STATUS',
+            tariff_membership_status='NOT_LISTED', coverage_type='UNCLASSIFIED',
+            direction_status='PENDING',
+            source_data=jsonb_set(source_data, '{ESTADO_AUTORIZACION}', to_jsonb('16'::text))
+        where id=$1`, [item.id]);
+      const response = await editAuthorization({
+        id: item.id, expectedVersion: item.version,
+        commercialCode: missingCode, quantity: 1, validityEndDate: '2099-12-31',
+      });
+      expect(response.status).toBe(200);
+      const rows = await database.query<{
+        source_status_normalized: string; enablement_status: string;
+        tariff_membership_status: string; coverage_type: string;
+      }>(`select source_status_normalized, enablement_status, tariff_membership_status,
+           coverage_type from authorization_items where id=$1`, [item.id]);
+      expect(rows.rows[0]).toMatchObject({
+        source_status_normalized: '5', enablement_status: 'ENABLED',
+        tariff_membership_status: 'NOT_LISTED', coverage_type: 'UNCLASSIFIED',
+      });
+      const detail = await apiCall('GET', `/authorization-query/${item.id}`, undefined);
+      expect(detail.status).toBe(200);
+      const projection = await detail.json() as { lifecycleEnablement: string };
+      expect(projection.lifecycleEnablement).toBe('DISABLED');
+    }, 60_000);
+
+    it('renovación 16 a 5 conserva bloqueo por mínimo del AT', async () => {
+      await database.query('update tariff_annex_products set minimum_quantity=5 where codigo_producto=$1', [CODE_A]);
+      try {
+        const item = await createAuthorization({ quantity: 1, validityEndDate: '2026-10-01' });
+        await database.query(`update authorization_items
+          set source_status_normalized='16', enablement_status='BLOCKED_SOURCE_STATUS',
+              source_data=jsonb_set(source_data, '{ESTADO_AUTORIZACION}', to_jsonb('16'::text))
+          where id=$1`, [item.id]);
+        const response = await editAuthorization({
+          id: item.id, expectedVersion: item.version,
+          commercialCode: CODE_A, quantity: 1, validityEndDate: '2099-12-31',
+        });
+        expect(response.status).toBe(200);
+        const state = await database.query<{ source_status_normalized: string; enablement_status: string }>(
+          'select source_status_normalized, enablement_status from authorization_items where id=$1',
+          [item.id],
+        );
+        expect(state.rows[0]).toMatchObject({
+          source_status_normalized: '5', enablement_status: 'ENABLED',
+        });
+        const detail = await apiCall('GET', `/authorization-query/${item.id}`, undefined);
+        expect(detail.status).toBe(200);
+        const projection = await detail.json() as { lifecycleEnablement: string };
+        expect(projection.lifecycleEnablement).toBe('DISABLED');
+      } finally {
+        await database.query('update tariff_annex_products set minimum_quantity=1 where codigo_producto=$1', [CODE_A]);
+      }
+    }, 60_000);
+
+
     it(
       'MTD_OPERATOR edita cantidad/vigencia y conserva cuota moderadora',
       async () => {
