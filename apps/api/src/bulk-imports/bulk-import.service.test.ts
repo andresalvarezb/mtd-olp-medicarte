@@ -381,12 +381,13 @@ describe('BulkImportService', () => {
       organizationId: 'org-1',
     } as unknown as Scope);
     const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const sheet = workbook.Sheets.RESULTADO!;
+    const sheet = workbook.Sheets.RECHAZADAS!;
     const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
 
     expect(rows).toHaveLength(3);
-    expect(rows[1]?.[0]).toBe(2);
-    expect(rows[2]?.[0]).toBe(3);
+    expect(rows[0]).toEqual(['CLAVE_AUTORIZACION', 'DESCRIPCION_ERROR']);
+    expect(rows[1]).toEqual(['AUTH-2 | TAR-999', 'No existe en el anexo tarifario activo']);
+    expect(rows[2]).toEqual(['AUTH-3 | TAR-002', 'Falló la ejecución']);
   });
 
   it('persiste fallo seguro ante excepción inesperada, sin dejar PROCESSING', async () => {
