@@ -423,8 +423,11 @@ describe('BulkImportService', () => {
     expect(mark).toHaveBeenCalledOnce();
     expect(mark).toHaveBeenCalledWith(expect.objectContaining({
       rowId: 'row-1', status: 'FAILED', errorCode: 'DATABASE_UNIQUE_CONFLICT',
-      errorMessage: expect.stringContaining('restricción de unicidad'),
     }));
+    const failure = mark.mock.calls[0]?.[0] as
+      | { errorMessage?: string }
+      | undefined;
+    expect(failure?.errorMessage).toContain('restricción de unicidad');
     expect(JSON.stringify(mark.mock.calls)).not.toContain('dato confidencial');
     expect(JSON.stringify(mark.mock.calls)).not.toContain('consulta que contiene');
   });
