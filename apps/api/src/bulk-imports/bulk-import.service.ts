@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
+import * as XLSX from 'xlsx';
 import type {
   BulkImportJobResponse,
   BulkImportRowListQuery,
@@ -395,7 +396,23 @@ export class BulkImportService {
     const rejectedRows = rows.filter(
       (row) => row.validationStatus !== 'VALID' || row.executionStatus === 'FAILED',
     );
-    return buildBulkImportResultWorkbook(rejectedRows);
+    const data = [
+      ['CLAVE_AUTORIZACION', 'DESCRIPCION_ERROR'],
+      ...rejectedRows.map((row) => [
+        [
+          row.authorizationNumber || 'SIN_NUMERO',
+          row.commercialCode || 'SIN_CODIGO',
+        ].join(' | '),
+        row.errorMessage || row.errorCode || 'Motivo no registrado',
+      ]),
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook, XLSX.utils.aoa_to_sheet(data), 'RECHAZADAS',
+    );
+    return XLSX.write(workbook, {
+      type: 'buffer', bookType: 'xlsx',
+    }) as Buffer;
   }
 
   private async processRows(
