@@ -333,6 +333,12 @@ export class BulkImportService {
     }
     const claimed = await this.repository.markJobProcessing(jobId, randomUUID());
     if (!claimed) {
+      if (job.status === 'PROCESSING') {
+        throw new ConflictException({
+          code: 'BULK_IMPORT_STILL_ACTIVE',
+          message: 'Hay intentos activos. Espere a que venza su reserva antes de reanudar.',
+        });
+      }
       return this.getJob(jobId, actor);
     }
     if (claimed.previousStatus === 'READY') {
@@ -458,15 +464,39 @@ export class BulkImportService {
             }),
           ),
         );
-        if (!isBulkDomainFailure(error)) continue;
+        // Ninguna excepción puede dejar la fila indefinidamente en PROCESSING.
+        // El detalle bruto de PostgreSQL puede contener información clínica:
+        // para errores inesperados persistimos un mensaje seguro y registramos
+        // solamente su SQLSTATE (sin SQL, valores ni documentos del paciente).
+        const annulled = error instanceof Error &&
+          error.message === 'AUTHORIZATION_ALREADY_ANNULLED';
+        const expected = isBulkDomainFailure(error);
+        const safeFailure = annulled
+          ? { code: 'AUTHORIZATION_ALREADY_ANNULLED',
+              message: 'La autorización anulada no admite recarga.' }
+          : expected
+            ? mapped
+            : { code: 'PROCESSING_ERROR',
+                message: 'Error inesperado al procesar la fila. Consulte soporte técnico.' };
+        if (!expected && !annulled) {
+          const sqlstate = typeof error === 'object' && error !== null &&
+            'code' in error && typeof error.code === 'string' &&
+            /^[A-Z0-9]{5}$/.test(error.code) ? error.code : null;
+          this.logger.error(JSON.stringify(phiSafeBulkImportLog({
+            jobId,
+            rowNumber: claimed.rowNumber,
+            errorCode: safeFailure.code,
+            status: sqlstate ? `SQLSTATE_${sqlstate}` : 'UNEXPECTED_ERROR',
+          })));
+        }
         const completed = await this.repository.markRowResult({
           rowId: claimed.id,
           attemptNumber: claimed.attemptCount,
           claimToken: claimed.claimToken,
           claimGeneration: claimed.claimGeneration,
           status: 'FAILED',
-          errorCode: mapped.code,
-          errorMessage: mapped.message,
+          errorCode: safeFailure.code,
+          errorMessage: safeFailure.message,
         });
         if (!completed) {
           this.logger.warn(

@@ -75,7 +75,16 @@ function formatDate(value: string | null | undefined): string {
 }
 
 function rejectedCount(job: BulkImportJobResponse): number {
-  return Math.max(Number(job.totalRows) - Number(job.validRows), 0);
+  return Math.max(Number(job.invalidRows) + Number(job.failedRows), 0);
+}
+
+function pendingCount(job: BulkImportJobResponse): number {
+  if (isLegacyJob(job)) return 0;
+  return Math.max(
+    Number(job.totalRows) - Number(job.succeededRows) -
+      Number(job.failedRows) - Number(job.skippedRows),
+    0,
+  );
 }
 
 export function BulkImportsView() {
@@ -117,12 +126,20 @@ export function BulkImportsView() {
 
   const canConfirm = Boolean(selected && !selectedIsLegacy && selectedStatus === 'READY');
 
-  const canRetry = Boolean(selected && !selectedIsLegacy && selectedStatus === 'FAILED');
+  const canResume = Boolean(
+    selected && !selectedIsLegacy && selectedStatus === 'PROCESSING' &&
+    pendingCount(selected) > 0,
+  );
+
+  const canRetry = Boolean(
+    selected && !selectedIsLegacy &&
+    ['FAILED', 'PARTIALLY_COMPLETED'].includes(selectedStatus),
+  );
 
   const canCancel = Boolean(
     selected &&
       !selectedIsLegacy &&
-      ['UPLOADED', 'VALIDATING', 'READY', 'PROCESSING'].includes(selectedStatus),
+      ['UPLOADED', 'VALIDATING', 'READY'].includes(selectedStatus),
   );
 
   const hasRejectedRows = Boolean(
@@ -254,13 +271,19 @@ export function BulkImportsView() {
                   label: 'Estado',
                 },
                 {
-                  label: 'Procesadas',
+                  label: 'Filas',
                 },
                 {
-                  label: 'Pasaron',
+                  label: 'Válidas',
                 },
                 {
-                  label: 'No pasaron',
+                  label: 'Ejecutadas',
+                },
+                {
+                  label: 'Fallidas',
+                },
+                {
+                  label: 'Pendientes',
                 },
                 {
                   label: '',
@@ -272,7 +295,9 @@ export function BulkImportsView() {
                 statusLabel(String(job.status)),
                 job.totalRows,
                 job.validRows,
-                rejectedCount(job),
+                isLegacyJob(job) ? '—' : job.succeededRows,
+                isLegacyJob(job) ? rejectedCount(job) : job.failedRows + job.invalidRows,
+                isLegacyJob(job) ? '—' : pendingCount(job),
                 <button
                   key={job.id}
                   className="button"
@@ -301,7 +326,7 @@ export function BulkImportsView() {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(4, minmax(120px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
                   gap: 12,
                   marginBottom: 18,
                 }}
@@ -313,21 +338,29 @@ export function BulkImportsView() {
                 </div>
 
                 <div>
-                  <div className="field-note">Procesadas</div>
+                  <div className="field-note">Filas del archivo</div>
 
                   <strong>{selected.totalRows}</strong>
                 </div>
 
                 <div>
-                  <div className="field-note">Pasaron</div>
+                  <div className="field-note">Válidas</div>
 
                   <strong>{selected.validRows}</strong>
                 </div>
 
                 <div>
-                  <div className="field-note">No pasaron</div>
+                  <div className="field-note">Ejecutadas</div>
 
+                  <strong>{selectedIsLegacy ? '—' : selected.succeededRows}</strong>
+                </div>
+                <div>
+                  <div className="field-note">Fallidas</div>
                   <strong>{rejectedCount(selected)}</strong>
+                </div>
+                <div>
+                  <div className="field-note">Pendientes</div>
+                  <strong>{selectedIsLegacy ? '—' : pendingCount(selected)}</strong>
                 </div>
               </div>
 
@@ -347,6 +380,17 @@ export function BulkImportsView() {
                       onClick={() => void run((id) => confirmBulkImport(organizationId, id))}
                     >
                       Confirmar carga
+                    </button>
+                  ) : null}
+
+                  {canResume ? (
+                    <button
+                      className="button"
+                      type="button"
+                      onClick={() => void run((id) => confirmBulkImport(organizationId, id))}
+                      title="Solo reanuda filas con reservas vencidas; no repite las exitosas"
+                    >
+                      Reanudar pendientes
                     </button>
                   ) : null}
 

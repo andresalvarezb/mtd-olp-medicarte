@@ -90,7 +90,11 @@ function asIso(value: Date | string | null): string | null {
   return value instanceof Date ? value.toISOString() : value;
 }
 
-function toJob(row: JobRow): BulkImportJobResponse {
+function toJob(row: JobRow & {
+  live_succeeded_rows?: number | null;
+  live_failed_rows?: number | null;
+  live_skipped_rows?: number | null;
+}): BulkImportJobResponse {
   return {
     id: row.id,
     importType: row.import_type,
@@ -108,9 +112,9 @@ function toJob(row: JobRow): BulkImportJobResponse {
     warningRows: Number(row.warning_rows),
     createRows: Number(row.valid_rows),
     conflictRows: Number(row.warning_rows),
-    succeededRows: Number(row.succeeded_rows),
-    failedRows: Number(row.failed_rows),
-    skippedRows: Number(row.skipped_rows),
+    succeededRows: Number(row.live_succeeded_rows ?? row.succeeded_rows),
+    failedRows: Number(row.live_failed_rows ?? row.failed_rows),
+    skippedRows: Number(row.live_skipped_rows ?? row.skipped_rows),
     lastErrorCode: row.last_error_code,
     createdAt: asIso(row.created_at) as string,
     validatedAt: asIso(row.validated_at),
@@ -444,7 +448,17 @@ export class BulkImportRepository {
   async findJob(id: string, actor: Scope): Promise<BulkImportJobResponse | null> {
     const org = this.orgFilter(actor);
     const result = await this.database.db.execute<JobRow>(sql`
-      select ${JOB_COLUMNS} from bulk_import_jobs where id = ${id} and ${org}
+      select ${JOB_COLUMNS},
+             live.live_succeeded_rows, live.live_failed_rows, live.live_skipped_rows
+      from bulk_import_jobs j
+      left join lateral (
+        select
+          count(*) filter (where r.execution_status = 'SUCCEEDED')::int as live_succeeded_rows,
+          count(*) filter (where r.execution_status = 'FAILED')::int as live_failed_rows,
+          count(*) filter (where r.execution_status = 'SKIPPED')::int as live_skipped_rows
+        from bulk_import_rows r where r.job_id = j.id
+      ) live on j.status = 'PROCESSING'
+      where j.id = ${id} and ${org}
     `);
     const row = result.rows[0];
     return row ? toJob(row) : null;
@@ -469,8 +483,16 @@ export class BulkImportRepository {
         JobRow
       >(sql`
         select
-          ${JOB_COLUMNS}
-        from bulk_import_jobs
+          ${JOB_COLUMNS},
+          live.live_succeeded_rows, live.live_failed_rows, live.live_skipped_rows
+        from bulk_import_jobs j
+        left join lateral (
+          select
+            count(*) filter (where r.execution_status = 'SUCCEEDED')::int as live_succeeded_rows,
+            count(*) filter (where r.execution_status = 'FAILED')::int as live_failed_rows,
+            count(*) filter (where r.execution_status = 'SKIPPED')::int as live_skipped_rows
+          from bulk_import_rows r where r.job_id = j.id
+        ) live on j.status = 'PROCESSING'
         where ${org}
         order by
           created_at desc,
@@ -669,6 +691,15 @@ export class BulkImportRepository {
         from bulk_import_jobs
         where id = ${jobId}
           and status in ('READY', 'PARTIALLY_COMPLETED', 'FAILED', 'PROCESSING')
+          and (
+            status <> 'PROCESSING'
+            or not exists (
+              select 1 from bulk_import_rows active_row
+              where active_row.job_id = ${jobId}
+                and active_row.execution_status = 'PROCESSING'
+                and active_row.claim_expires_at > now()
+            )
+          )
         for update
       ) as current_job
       where j.id = current_job.id

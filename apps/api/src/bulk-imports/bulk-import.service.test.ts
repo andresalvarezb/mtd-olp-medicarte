@@ -388,4 +388,68 @@ describe('BulkImportService', () => {
     expect(rows[1]?.[0]).toBe(2);
     expect(rows[2]?.[0]).toBe(3);
   });
+
+  it('persiste fallo seguro ante excepción inesperada, sin dejar PROCESSING', async () => {
+    const { service, repository } = createService();
+    const claim = {
+      id: 'row-1', rowNumber: 5134, attemptCount: 1,
+      claimToken: 'claim-1', claimGeneration: 1,
+      reclaimed: false, normalizedPayload: { NUMERO_AUTORIZACION: 'AUTO-1' },
+    };
+    Object.assign(repository, {
+      markJobProcessing: vi.fn().mockResolvedValue({
+        previousStatus: 'READY', waveStartedAt: new Date().toISOString(),
+      }),
+      recordAudit: vi.fn().mockResolvedValue(undefined),
+      claimNextRow: vi.fn().mockResolvedValueOnce(claim).mockResolvedValueOnce(null),
+      executeClaimedRow: vi.fn().mockRejectedValue(
+        Object.assign(new Error('dato confidencial en la excepción SQL'), { code: '23505' }),
+      ),
+      markRowResult: vi.fn().mockResolvedValue(true),
+      finalizeFromRows: vi.fn().mockResolvedValue({ id: 'job-1', status: 'FAILED' }),
+    });
+    await service.confirm('job-1', actor);
+    const mark = (repository as unknown as { markRowResult: ReturnType<typeof vi.fn> })
+      .markRowResult;
+    expect(mark).toHaveBeenCalledOnce();
+    expect(mark).toHaveBeenCalledWith(expect.objectContaining({
+      rowId: 'row-1', status: 'FAILED', errorCode: 'PROCESSING_ERROR',
+    }));
+    expect(JSON.stringify(mark.mock.calls)).not.toContain('dato confidencial');
+  });
+
+  it('rechaza recarga de una autorización anulada como fallo controlado', async () => {
+    const { service, repository } = createService();
+    Object.assign(repository, {
+      markJobProcessing: vi.fn().mockResolvedValue({
+        previousStatus: 'READY', waveStartedAt: new Date().toISOString(),
+      }),
+      recordAudit: vi.fn().mockResolvedValue(undefined),
+      claimNextRow: vi.fn().mockResolvedValueOnce({
+        id: 'row-2', rowNumber: 8473, attemptCount: 1,
+        claimToken: 'claim-2', claimGeneration: 1,
+        reclaimed: false, normalizedPayload: {},
+      }).mockResolvedValueOnce(null),
+      executeClaimedRow: vi.fn().mockRejectedValue(new Error('AUTHORIZATION_ALREADY_ANNULLED')),
+      markRowResult: vi.fn().mockResolvedValue(true),
+      finalizeFromRows: vi.fn().mockResolvedValue({ id: 'job-1', status: 'FAILED' }),
+    });
+    await service.confirm('job-1', actor);
+    const mark = (repository as unknown as { markRowResult: ReturnType<typeof vi.fn> })
+      .markRowResult;
+    expect(mark).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'FAILED', errorCode: 'AUTHORIZATION_ALREADY_ANNULLED',
+    }));
+  });
+
+  it('no permite reanudación mientras existen ejecuciones activas', async () => {
+    const { service, repository } = createService();
+    repository.findJob.mockResolvedValue({ id: 'job-1', status: 'PROCESSING' });
+    Object.assign(repository, {
+      markJobProcessing: vi.fn().mockResolvedValue(null),
+    });
+    await expect(service.confirm('job-1', actor)).rejects.toMatchObject({
+      response: { code: 'BULK_IMPORT_STILL_ACTIVE' },
+    });
+  });
 });
