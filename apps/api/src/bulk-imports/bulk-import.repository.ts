@@ -672,6 +672,84 @@ export class BulkImportRepository {
     });
   }
 
+  /** Lectura de rechazadas de cargues anteriores a bulk_import_jobs.
+   * Consulta sus resultados originales sin migrarlos, mutarlos ni reejecutarlos.
+   * null significa que el batch no existe o no está autorizado.
+   */
+  async getLegacyRejectedRows(
+    jobId: string,
+    actor: Scope,
+  ): Promise<Array<{
+    rowNumber: number;
+    authorizationKey: string | null;
+    errorCode: string;
+    errorMessage: string | null;
+  }> | null> {
+    const allowed = actor.organizationCode === 'MTD' || actor.isFoundationAdmin
+      ? sql`true`
+      : sql`b.organization_id = ${actor.organizationId}`;
+    const batch = await this.database.db.execute<{ id: string }>(sql`
+      select b.id from import_batches b
+      where b.id = ${jobId}
+        and ${allowed}
+        and not exists (
+          select 1 from bulk_import_jobs j
+          where j.authorization_import_batch_id = b.id
+        )
+    `);
+    if (!batch.rows[0]) return null;
+
+    const records = await this.database.db.execute<{
+      row_number: number;
+      stored_key: string | null;
+      item_key: string | null;
+      source_key: string | null;
+      result_code: string;
+      result_message: string;
+      validation_messages: string | null;
+    }>(sql`
+      select r.row_number,
+             r.authorization_key as stored_key,
+             ai.authorization_key as item_key,
+             coalesce(
+               nullif(btrim(r.normalized_data->>'CLAVE_AUTORIZACION'), ''),
+               nullif(btrim(r.raw_data->>'CLAVE_AUTORIZACION'), ''),
+               nullif(btrim(r.raw_data->>'AUTHORIZATION_KEY'), '')
+             ) as source_key,
+             r.result_code, r.result_message,
+             validations.messages as validation_messages
+      from import_rows r
+      left join authorization_items ai on ai.id = r.authorization_item_id
+      left join lateral (
+        select string_agg(nullif(btrim(e.message), ''), '; ' order by e.created_at, e.id) as messages
+        from validation_errors e
+        where e.import_row_id = r.id
+      ) validations on true
+      where r.import_batch_id = ${jobId}
+        and r.result_code not in ('ROW_VALID', 'ITEM_CREATED', 'ITEM_UPDATED')
+      order by r.row_number
+    `);
+    return records.rows.map((row) => ({
+      rowNumber: Number(row.row_number),
+      authorizationKey:
+        row.stored_key?.trim() || row.item_key?.trim() || row.source_key?.trim() || null,
+      errorCode: row.result_code,
+      errorMessage: row.validation_messages?.trim() || row.result_message?.trim() || null,
+    }));
+  }
+
+  /** Filas aún en PROCESSING cuya reserva venció: no son rechazos confirmados. */
+  async listExpiredClaimRowNumbers(jobId: string, actor: Scope): Promise<number[]> {
+    const rows = await this.database.db.execute<{ row_number: number }>(sql`
+      select row_number from bulk_import_rows
+      where job_id = ${jobId}
+        and execution_status = 'PROCESSING'
+        and claim_expires_at < now()
+        and ${this.rowPointFilter(actor)}
+    `);
+    return rows.rows.map((row) => Number(row.row_number));
+  }
+
   /** Claves reales de las filas rechazadas: BD primero, fuente después.
    * Nunca se fabrican claves concatenando componentes de la autorización.
    */
@@ -699,7 +777,8 @@ export class BulkImportRepository {
            and aio.organization_id = j.organization_id
        )
       where r.job_id = ${jobId}
-        and (r.validation_status <> 'VALID' or r.execution_status = 'FAILED')
+        and (r.validation_status <> 'VALID' or r.execution_status = 'FAILED' or
+          (r.execution_status = 'PROCESSING' and r.claim_expires_at < now()))
         and ${this.rowPointFilter(actor)}
       order by r.row_number
     `);

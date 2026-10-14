@@ -143,7 +143,8 @@ export function BulkImportsView() {
   );
 
   const hasRejectedRows = Boolean(
-    selected && !selectedIsLegacy && (selected.invalidRows > 0 || selected.failedRows > 0),
+    selected && (selected.invalidRows > 0 || (!selectedIsLegacy &&
+      (selected.failedRows > 0 || (selectedStatus === 'PROCESSING' && pendingCount(selected) > 0)))),
   );
 
   async function onUpload(file: File | undefined) {
@@ -367,7 +368,7 @@ export function BulkImportsView() {
               {selectedIsLegacy ? (
                 <p className="field-note">
                   Este registro pertenece al historial anterior al módulo operativo actual. Se
-                  conserva para consulta y trazabilidad.
+                  conserva para consulta y descarga de sus filas rechazadas.
                 </p>
               ) : null}
 
@@ -416,24 +417,26 @@ export function BulkImportsView() {
                 </div>
               ) : null}
 
-              {!selectedIsLegacy ? (
+              {!selectedIsLegacy || hasRejectedRows ? (
                 <div
                   className="actions"
                   style={{
                     marginTop: 12,
                   }}
                 >
-                  <button
-                    className="button"
-                    type="button"
-                    onClick={() => {
-                      void downloadBulkImportResult(organizationId, selected.id).then((blob) =>
-                        triggerDownload(blob, 'resultado-importacion.xlsx'),
-                      );
-                    }}
-                  >
-                    Descargar resultado
-                  </button>
+                  {!selectedIsLegacy ? (
+                    <button
+                      className="button"
+                      type="button"
+                      onClick={() => {
+                        void downloadBulkImportResult(organizationId, selected.id).then((blob) =>
+                          triggerDownload(blob, 'resultado-importacion.xlsx'),
+                        );
+                      }}
+                    >
+                      Descargar resultado
+                    </button>
+                  ) : null}
 
                   {hasRejectedRows ? (
                     <button

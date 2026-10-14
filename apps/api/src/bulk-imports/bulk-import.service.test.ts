@@ -65,6 +65,8 @@ function createService() {
     findJob: vi.fn().mockResolvedValue({ id: 'job-1', status: 'READY' }),
     listRows: vi.fn(),
     getAuthorizationKeysForRejected: vi.fn().mockResolvedValue(new Map<number, string>()),
+    getLegacyRejectedRows: vi.fn().mockResolvedValue(null),
+    listExpiredClaimRowNumbers: vi.fn().mockResolvedValue([]),
   };
   const service = new BulkImportService(
     { IMPORT_MAX_FILE_BYTES: 20 * 1024 * 1024, AUTHORIZATION_IMPORT_MAX_FILE_BYTES: BULK_AUTHORIZATION_IMPORT_MAX_FILE_BYTES } as unknown as ApiConfig,
@@ -392,8 +394,68 @@ describe('BulkImportService', () => {
     expect(rows).toHaveLength(3);
     expect(rows[0]).toEqual(['CLAVE_AUTORIZACION', 'DESCRIPCION_ERROR']);
     expect(rows[1]).toEqual(['CLAVE-HISTORICA:AUTH-2:TAR-999', 'No existe en el anexo tarifario activo']);
-    expect(rows[2]).toEqual(['CLAVE/OTRO-FORMATO/AUTH-3', 'Falló la ejecución']);
+    expect(rows[2]).toEqual(['CLAVE/OTRO-FORMATO/AUTH-3', 'Error interno en este cargue (PROCESSING_ERROR). La causa original no quedó registrada; no puede reconstruirse únicamente desde el historial.']);
     expect(repository.getAuthorizationKeysForRejected).toHaveBeenCalledWith('job-1', expect.anything());
+  });
+
+  it('descarga rechazadas de un batch histórico sin reconstruir su clave', async () => {
+    const { service, repository } = createService();
+    repository.findJob.mockResolvedValue(null);
+    repository.getLegacyRejectedRows.mockResolvedValue([
+      {
+        rowNumber: 8,
+        authorizationKey: 'HIST:ABC\\:123',
+        errorCode: 'INVALID_FIELD_FORMAT',
+        errorMessage: 'Fecha inválida en la columna FECHA_FINAL_VIGENCIA',
+      },
+      {
+        rowNumber: 9,
+        authorizationKey: null,
+        errorCode: 'PROCESSING_ERROR',
+        errorMessage: 'Error inesperado al procesar la fila. Consulte soporte técnico.',
+      },
+    ]);
+    const buffer = await service.rejectedRowsWorkbook('historical-job', actor);
+    const sheet = XLSX.read(buffer, { type: 'buffer' }).Sheets.RECHAZADAS!;
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
+
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toEqual(['CLAVE_AUTORIZACION', 'DESCRIPCION_ERROR']);
+    expect(rows[1]).toEqual([
+      'HIST:ABC\\:123',
+      'Fecha inválida en la columna FECHA_FINAL_VIGENCIA',
+    ]);
+    expect(rows[2]?.[0]).toBe('SIN CLAVE REGISTRADA (fila 9)');
+    expect(rows[2]?.[1]).toContain('La causa original no quedó registrada');
+    expect(repository.listRows).not.toHaveBeenCalled();
+    expect(repository.getLegacyRejectedRows).toHaveBeenCalledWith('historical-job', actor);
+  });
+
+  it('incluye ejecuciones interrumpidas antiguas sin marcarlas como rechazadas', async () => {
+    const { service, repository } = createService();
+    repository.findJob.mockResolvedValue({ id: 'job-1', status: 'PROCESSING' });
+    repository.listRows.mockResolvedValue([{
+      rowNumber: 5134, validationStatus: 'VALID', executionStatus: 'PROCESSING',
+      errorCode: null, errorMessage: null, authorizationNumber: 'AUTO-X',
+      commercialCode: '123',
+    }]);
+    repository.listExpiredClaimRowNumbers.mockResolvedValue([5134]);
+    repository.getAuthorizationKeysForRejected.mockResolvedValue(new Map([
+      [5134, 'CLAVE-CON-FORMATO-PROPIO'],
+    ]));
+    const buffer = await service.rejectedRowsWorkbook('job-1', actor);
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(
+      XLSX.read(buffer, { type: 'buffer' }).Sheets.RECHAZADAS!, { header: 1 },
+    );
+    expect(rows[1]?.[0]).toBe('CLAVE-CON-FORMATO-PROPIO');
+    expect(rows[1]?.[1]).toContain('Procesamiento interrumpido');
+  });
+
+  it('no exporta históricos no autorizados', async () => {
+    const { service, repository } = createService();
+    repository.findJob.mockResolvedValue(null);
+    repository.getLegacyRejectedRows.mockResolvedValue(null);
+    await expect(service.rejectedRowsWorkbook('unknown-job', actor)).rejects.toThrow();
   });
 
   it('persiste fallo seguro ante excepción inesperada, sin dejar PROCESSING', async () => {
