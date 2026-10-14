@@ -920,10 +920,21 @@ describe('Gate ESP-015 — alcance operacional por punto', () => {
     expect(confirmed.status).toBe(200);
     const result = await json<Job>(confirmed);
     if (result.succeededRows !== 1 || result.failedRows !== 1) {
-      const details = await json<{ items: Row[] }>(
-        await api('GET', `/bulk-imports/${ready.id}/rows?filter=ALL`, undefined, scopeAToken),
+      const snapshot = await database.query(
+        `select row_number, validation_status, execution_status,
+                error_code, execution_error_code, attempt_count,
+                (claim_token is not null) as has_claim, claim_expires_at
+         from bulk_import_rows
+         where job_id = $1
+         order by row_number`,
+        [ready.id],
       );
-      throw new Error(`ESP015_DIAGNOSTICO ${JSON.stringify({ result, rows: details.items })}`);
+      throw new Error(`ESP015_DB_DIAGNOSTICO ${JSON.stringify({
+        jobStatus: result.status,
+        succeededRows: result.succeededRows,
+        failedRows: result.failedRows,
+        rows: snapshot.rows,
+      })}`);
     }
     expect(result.succeededRows).toBe(1);
     expect(result.failedRows).toBe(1);

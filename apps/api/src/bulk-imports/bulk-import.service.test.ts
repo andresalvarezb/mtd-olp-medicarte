@@ -65,6 +65,7 @@ function createService() {
     findJob: vi.fn().mockResolvedValue({ id: 'job-1', status: 'READY' }),
     listRows: vi.fn(),
     getAuthorizationKeysForRejected: vi.fn().mockResolvedValue(new Map<number, string>()),
+    getRetrospectiveRenewalReasons: vi.fn().mockResolvedValue(new Map<number, string>()),
     getLegacyRejectedRows: vi.fn().mockResolvedValue(null),
     listExpiredClaimRowNumbers: vi.fn().mockResolvedValue([]),
   };
@@ -396,6 +397,40 @@ describe('BulkImportService', () => {
     expect(rows[1]).toEqual(['CLAVE-HISTORICA:AUTH-2:TAR-999', 'No existe en el anexo tarifario activo']);
     expect(rows[2]).toEqual(['CLAVE/OTRO-FORMATO/AUTH-3', 'Error interno en este cargue (PROCESSING_ERROR). La causa original no quedó registrada; no puede reconstruirse únicamente desde el historial.']);
     expect(repository.getAuthorizationKeysForRejected).toHaveBeenCalledWith('job-1', expect.anything());
+  });
+
+  it('exporta motivos retrospectivos verificables conservando claves originales', async () => {
+    const { service, repository } = createService();
+    repository.listRows.mockResolvedValue([
+      {
+        rowNumber: 5134, validationStatus: 'VALID',
+        executionStatus: 'FAILED', errorCode: 'PROCESSING_ERROR',
+        errorMessage: 'Error inesperado al procesar la fila. Consulte soporte técnico.',
+      },
+      {
+        rowNumber: 8473, validationStatus: 'VALID',
+        executionStatus: 'FAILED', errorCode: 'DATABASE_REQUIRED_VALUE',
+        errorMessage: 'Falta un dato obligatorio.',
+      },
+    ]);
+    repository.getAuthorizationKeysForRejected.mockResolvedValue(new Map([
+      [5134, '261457252957062|13346'],
+      [8473, '262495752660058:10342'],
+    ]));
+    repository.getRetrospectiveRenewalReasons.mockResolvedValue(new Map([
+      [5134, 'Diagnóstico retrospectivo: vigencia anterior a la renovada.'],
+    ]));
+    const buffer = await service.rejectedRowsWorkbook('job-1', actor);
+    const sheet = XLSX.read(buffer, { type: 'buffer' }).Sheets.RECHAZADAS!;
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
+    expect(rows[1]).toEqual([
+      '261457252957062|13346',
+      'Diagnóstico retrospectivo: vigencia anterior a la renovada.',
+    ]);
+    expect(rows[2]).toEqual([
+      '262495752660058:10342',
+      'Falta un dato obligatorio.',
+    ]);
   });
 
   it('descarga rechazadas de un batch histórico sin reconstruir su clave', async () => {
