@@ -45,6 +45,7 @@ let point2Id: string;
 let periodOnTimeId: string;
 let periodLateId: string;
 let periodNextId: string;
+let terminalPeriodId: string | null = null;
 let authorizationItemsBefore: number;
 let itemASnapshot: Record<string, unknown>;
 let onTimeScheduleId: string;
@@ -372,9 +373,9 @@ afterAll(async () => {
         [point1Id, point2Id].filter(Boolean),
       ]);
     }
-    if (periodOnTimeId || periodLateId || periodNextId) {
+    if (periodOnTimeId || periodLateId || periodNextId || terminalPeriodId) {
       await database.query(`delete from planning_periods where id = any($1::uuid[])`, [
-        [periodOnTimeId, periodLateId, periodNextId].filter(Boolean),
+        [periodOnTimeId, periodLateId, periodNextId, terminalPeriodId].filter(Boolean),
       ]);
     }
     if (provenanceBatchIds.length > 0) {
@@ -573,18 +574,61 @@ describe('Gate ESP-003 — programación de pacientes', () => {
   });
 
   it('5c. NEXT_PERIOD sin período siguiente → rechazo', async () => {
-    const response = await apiCall('POST', '/patient-schedules', {
-      authorizationItemId: itemAId,
-      commercialCode: CODE_A,
-      dispensingPointId: point2Id,
-      scheduledDate: scheduledDateIn('next'),
-      quantity: 1,
-      lateHandling: 'NEXT_PERIOD',
-    });
-    expect(response.status).toBe(409);
-    expect(((await response.json()) as { code: string }).code).toBe(
-      'PATIENT_SCHEDULE_NEXT_PERIOD_NOT_FOUND',
+    // Aislar el escenario de los períodos creados por otras suites.
+    const result = await database.query<{
+      id: string;
+      scheduled_date: string;
+      end_date: string;
+    }>(
+      `insert into planning_periods
+        (start_date, end_date, scheduling_cutoff_at,
+         purchase_order_deadline_at, expected_delivery_date,
+         created_by, updated_by)
+       select last_end + 30, last_end + 36,
+              '2026-01-01T00:00:00-05:00',
+              '2026-01-02T00:00:00-05:00',
+              last_end + 37, $1, $1
+       from (
+         select coalesce(max(end_date), date '2034-12-31') as last_end
+         from planning_periods
+       ) existing
+       returning id,
+         to_char(start_date + 2, 'YYYY-MM-DD') as scheduled_date,
+         to_char(end_date, 'YYYY-MM-DD') as end_date`,
+      [foundationUserId],
     );
+
+    const terminal = result.rows[0]!;
+    terminalPeriodId = terminal.id;
+
+    await database.query('begin');
+    try {
+      // Impedir nuevos períodos mientras se evalúa el rechazo.
+      await database.query('lock table planning_periods in share mode');
+
+      const later = await database.query<{ count: number }>(
+        `select count(*)::int as count
+         from planning_periods where start_date > $1::date`,
+        [terminal.end_date],
+      );
+      expect(later.rows[0]?.count).toBe(0);
+
+      const response = await apiCall('POST', '/patient-schedules', {
+        authorizationItemId: itemAId,
+        commercialCode: CODE_A,
+        dispensingPointId: point2Id,
+        scheduledDate: terminal.scheduled_date,
+        quantity: 1,
+        lateHandling: 'NEXT_PERIOD',
+      });
+
+      expect(response.status).toBe(409);
+      expect(((await response.json()) as { code: string }).code).toBe(
+        'PATIENT_SCHEDULE_NEXT_PERIOD_NOT_FOUND',
+      );
+    } finally {
+      await database.query('rollback');
+    }
   });
 
   it('10. reprogramación genera nueva revisión y conserva el historial', async () => {
