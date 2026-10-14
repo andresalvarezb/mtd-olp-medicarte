@@ -396,13 +396,16 @@ export class BulkImportService {
     const rejectedRows = rows.filter(
       (row) => row.validationStatus !== 'VALID' || row.executionStatus === 'FAILED',
     );
+    // La clave puede tener formatos históricos distintos: no reconstruirla.
+    // Priorizar la clave persistida, luego la informada en el archivo fuente.
+    const keys = rejectedRows.length
+      ? await this.repository.getAuthorizationKeysForRejected(jobId, actor)
+      : new Map<number, string>();
     const data = [
       ['CLAVE_AUTORIZACION', 'DESCRIPCION_ERROR'],
       ...rejectedRows.map((row) => [
-        [
-          row.authorizationNumber || 'SIN_NUMERO',
-          row.commercialCode || 'SIN_CODIGO',
-        ].join(' | '),
+        keys.get(row.rowNumber) ||
+          `SIN CLAVE REGISTRADA (fila ${row.rowNumber}; autorización ${row.authorizationNumber ?? 'no informada'}; producto ${row.commercialCode ?? 'no informado'})`,
         row.errorMessage || row.errorCode || 'Motivo no registrado',
       ]),
     ];
@@ -481,29 +484,24 @@ export class BulkImportService {
             }),
           ),
         );
-        // Ninguna excepción puede dejar la fila indefinidamente en PROCESSING.
-        // El detalle bruto de PostgreSQL puede contener información clínica:
-        // para errores inesperados persistimos un mensaje seguro y registramos
-        // solamente su SQLSTATE (sin SQL, valores ni documentos del paciente).
+        // Persistir errores específicos sin exponer consultas SQL, datos clínicos
+        // o mensajes brutos de librerías/controladores de PostgreSQL.
         const annulled = error instanceof Error &&
           error.message === 'AUTHORIZATION_ALREADY_ANNULLED';
         const expected = isBulkDomainFailure(error);
+        const diagnostic = expected || annulled ? null : classifyUnexpectedBulkError(error);
         const safeFailure = annulled
           ? { code: 'AUTHORIZATION_ALREADY_ANNULLED',
               message: 'La autorización anulada no admite recarga.' }
           : expected
             ? mapped
-            : { code: 'PROCESSING_ERROR',
-                message: 'Error inesperado al procesar la fila. Consulte soporte técnico.' };
-        if (!expected && !annulled) {
-          const sqlstate = typeof error === 'object' && error !== null &&
-            'code' in error && typeof error.code === 'string' &&
-            /^[A-Z0-9]{5}$/.test(error.code) ? error.code : null;
+            : diagnostic!;
+        if (diagnostic) {
           this.logger.error(JSON.stringify(phiSafeBulkImportLog({
             jobId,
             rowNumber: claimed.rowNumber,
             errorCode: safeFailure.code,
-            status: sqlstate ? `SQLSTATE_${sqlstate}` : 'UNEXPECTED_ERROR',
+            status: diagnostic.sqlstate ? `SQLSTATE_${diagnostic.sqlstate}` : 'UNEXPECTED_ERROR',
           })));
         }
         const completed = await this.repository.markRowResult({
@@ -577,6 +575,81 @@ function jobNotFound(): NotFoundException {
     code: 'BULK_IMPORT_NOT_FOUND',
     message: 'Bulk import job not found',
   });
+}
+
+/** Extrae SQLSTATE incluso cuando Drizzle envuelve la excepción del driver. */
+function findSqlState(error: unknown): string | null {
+  const visited = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current && typeof current === 'object'; depth++) {
+    if (visited.has(current)) break;
+    visited.add(current);
+    const candidate = current as { code?: unknown; cause?: unknown; originalError?: unknown };
+    if (typeof candidate.code === 'string' && /^[0-9A-Z]{5}$/.test(candidate.code)) {
+      return candidate.code;
+    }
+    current = candidate.cause ?? candidate.originalError;
+  }
+  return null;
+}
+
+/** Diagnósticos funcionales seguros; no persistir error.message de un SQL desconocido. */
+function classifyUnexpectedBulkError(error: unknown): {
+  code: string;
+  message: string;
+  sqlstate: string | null;
+} {
+  const sqlstate = findSqlState(error);
+  const known: Record<string, { code: string; message: string }> = {
+    '23505': { code: 'DATABASE_UNIQUE_CONFLICT',
+      message: 'Existe un conflicto con una restricción de unicidad. Revise registros duplicados o cargas simultáneas; no se guardaron los cambios de esta fila.' },
+    '23503': { code: 'DATABASE_MISSING_REFERENCE',
+      message: 'La operación hace referencia a un registro relacionado que no existe o no está disponible.' },
+    '23502': { code: 'DATABASE_REQUIRED_VALUE',
+      message: 'Falta un dato obligatorio requerido para guardar la autorización o uno de sus registros relacionados.' },
+    '23514': { code: 'DATABASE_CHECK_CONSTRAINT',
+      message: 'Uno de los valores no cumple una regla de integridad definida en la base de datos.' },
+    '22P02': { code: 'DATABASE_INVALID_FORMAT',
+      message: 'Un valor tiene un formato incompatible con el tipo de dato requerido.' },
+    '22001': { code: 'DATABASE_VALUE_TOO_LONG',
+      message: 'Un valor supera la longitud máxima permitida para guardarlo.' },
+    '22003': { code: 'DATABASE_NUMERIC_OUT_OF_RANGE',
+      message: 'Un valor numérico está fuera del rango permitido por la base de datos.' },
+    '40P01': { code: 'DATABASE_DEADLOCK',
+      message: 'Dos operaciones simultáneas bloquearon recursos entre sí. La transacción fue revertida; puede reintentarse.' },
+    '40001': { code: 'DATABASE_CONCURRENT_CHANGE',
+      message: 'Otra transacción modificó los datos durante esta operación. La transacción fue revertida; puede reintentarse.' },
+    '55P03': { code: 'DATABASE_LOCK_UNAVAILABLE',
+      message: 'El registro estaba bloqueado por otra operación. Puede reintentarse después.' },
+    '57014': { code: 'DATABASE_QUERY_CANCELLED',
+      message: 'La base de datos canceló la operación, posiblemente por tiempo de espera o interrupción.' },
+    'P0001': { code: 'DATABASE_BUSINESS_EXCEPTION',
+      message: 'Una validación interna de la base de datos rechazó la operación. Se requiere revisión de la regla aplicada.' },
+  };
+  if (sqlstate && known[sqlstate]) {
+    const detail = known[sqlstate];
+    return { ...detail, sqlstate };
+  }
+  const internalMessages: Record<string, { code: string; message: string }> = {
+    AUTHORIZATION_IMPORT_BATCH_NOT_FOUND: {
+      code: 'AUTHORIZATION_IMPORT_BATCH_NOT_FOUND',
+      message: 'No se encontró el lote interno que respalda esta importación.' },
+    AUTHORIZATION_CONCURRENT_UPSERT_NOT_FOUND: {
+      code: 'AUTHORIZATION_CONCURRENT_UPSERT_NOT_FOUND',
+      message: 'La autorización cambió durante la recarga y no pudo localizarse de nuevo. Reintente la fila.' },
+    AUTHORIZATION_SMART_RELOAD_UPDATE_FAILED: {
+      code: 'AUTHORIZATION_SMART_RELOAD_UPDATE_FAILED',
+      message: 'No fue posible completar la actualización de la autorización existente. Reintente la fila.' },
+  };
+  const internal = error instanceof Error ? internalMessages[error.message] : undefined;
+  if (internal) return { ...internal, sqlstate };
+  return {
+    code: sqlstate ? 'DATABASE_UNCLASSIFIED_ERROR' : 'PROCESSING_ERROR',
+    message: sqlstate
+      ? `La base de datos rechazó la operación (código técnico ${sqlstate}). Se requiere revisar esta operación en los registros de la API.`
+      : 'La operación falló por una excepción no clasificada. Revise el registro de la API asociado a este lote y fila.',
+    sqlstate,
+  };
 }
 
 function isBulkDomainFailure(error: unknown): boolean {
