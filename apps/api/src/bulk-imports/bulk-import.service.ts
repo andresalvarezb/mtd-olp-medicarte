@@ -409,12 +409,18 @@ export class BulkImportService {
       const keys = failed.length
         ? await this.repository.getAuthorizationKeysForRejected(jobId, actor)
         : new Map<number, string>();
+      const retrospective = failed.some((row) =>
+        isGenericProcessingError(row.errorCode, row.errorMessage))
+        ? await this.repository.getRetrospectiveRenewalReasons(jobId, actor)
+        : new Map<number, string>();
       rejected = failed.map((row) => [
         keys.get(row.rowNumber) ?? `SIN CLAVE REGISTRADA (fila ${row.rowNumber})`,
         expiredRows.has(row.rowNumber)
           ? 'Procesamiento interrumpido: venció la reserva de esta fila y no hay resultado ' +
             'confirmado. Reanude el cargue para obtener un diagnóstico definitivo.'
-          : describeRejectedError(row.errorCode, row.errorMessage),
+          : isGenericProcessingError(row.errorCode, row.errorMessage)
+            ? retrospective.get(row.rowNumber) ?? describeRejectedError(row.errorCode, row.errorMessage)
+            : describeRejectedError(row.errorCode, row.errorMessage),
       ]);
     } else {
       // Cargues anteriores al cutover: import_batches / import_rows.
@@ -653,6 +659,10 @@ function classifyUnexpectedBulkError(error: unknown): {
     return { ...detail, sqlstate };
   }
   const internalMessages: Record<string, { code: string; message: string }> = {
+    AUTHORIZATION_RENEWAL_STALE_RELOAD: {
+      code: 'AUTHORIZATION_RENEWAL_STALE_RELOAD',
+      message: 'La autorización ya fue renovada del estado 16 al estado 5. La recarga intenta aplicar una vigencia anterior o inválida. La autorización no fue modificada.',
+    },
     AUTHORIZATION_IMPORT_BATCH_NOT_FOUND: {
       code: 'AUTHORIZATION_IMPORT_BATCH_NOT_FOUND',
       message: 'No se encontró el lote interno que respalda esta importación.' },
@@ -802,6 +812,12 @@ export function dateValue(
     ) ??
     text
   );
+}
+
+function isGenericProcessingError(code: string | null, message: string | null): boolean {
+  const detail = message?.trim();
+  return code === 'PROCESSING_ERROR' &&
+    (!detail || /^(error inesperado al procesar|falló la ejecución|confirmation failed|la operación falló por una excepción no clasificada)/i.test(detail));
 }
 
 /** No se debe atribuir una causa técnica no registrada a un error histórico. */

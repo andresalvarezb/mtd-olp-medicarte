@@ -750,6 +750,68 @@ export class BulkImportRepository {
     return rows.rows.map((row) => Number(row.row_number));
   }
 
+  /**
+   * Diagnóstico retrospectivo de solo lectura.
+   * No altera autorizaciones ni atribuye como confirmado un fallo antiguo.
+   */
+  async getRetrospectiveRenewalReasons(
+    jobId: string,
+    actor: Scope,
+  ): Promise<Map<number, string>> {
+    const result = await this.database.db.execute<{
+      row_number: number;
+      stored_status: string | null;
+      incoming_status: string | null;
+      stored_end: string | null;
+      incoming_end: string | null;
+      previously_renewed: boolean;
+    }>(sql`
+      select r.row_number,
+             ai.source_status_normalized as stored_status,
+             r.normalized_payload->>'ESTADO_AUTORIZACION' as incoming_status,
+             ai.source_data->>'FECHA_FINAL_VIGENCIA' as stored_end,
+             r.normalized_payload->>'FECHA_FINAL_VIGENCIA' as incoming_end,
+             (ai.source_data ? ${AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY}) as previously_renewed
+      from bulk_import_rows r
+      join bulk_import_jobs j on j.id = r.job_id
+      join authorization_items ai
+        on ai.numero_autorizacion = r.normalized_payload->>'NUMERO_AUTORIZACION'
+       and ai.codigo_medicamento = r.normalized_payload->>'CODIGO_COMERCIAL'
+       and exists (
+         select 1 from authorization_item_organizations aio
+         where aio.authorization_item_id = ai.id
+           and aio.organization_id = j.organization_id
+       )
+      where r.job_id = ${jobId}
+        and r.execution_status = 'FAILED'
+        and r.execution_error_code = 'PROCESSING_ERROR'
+        and ${this.rowPointFilter(actor)}
+      order by r.row_number
+    `);
+
+    const reasons: Array<readonly [number, string]> = [];
+    for (const row of result.rows) {
+      const decision = decideAuthorization16Renewal({
+        storedSourceStatus: row.stored_status,
+        incomingSourceStatus: row.incoming_status,
+        previousValidityEndDate: row.stored_end,
+        nextValidityEndDate: row.incoming_end,
+        todayBogota: currentBogotaDate(),
+        previouslyRenewed: row.previously_renewed,
+      });
+      if (decision.outcome !== 'STALE_RELOAD') continue;
+
+      reasons.push([
+        Number(row.row_number),
+        'Diagnóstico retrospectivo basado en los datos actuales (causa original no registrada): ' +
+        `la autorización está renovada al estado 5 con vigencia ${row.stored_end ?? 'no registrada'}; ` +
+        `el archivo intenta cargar estado 16 con vigencia ${row.incoming_end ?? 'no registrada'}. ` +
+        'La regla de renovación rechaza una vigencia anterior o inválida.',
+      ]);
+    }
+    return new Map(reasons);
+  }
+
   /** Claves reales de las filas rechazadas: BD primero, fuente después.
    * Nunca se fabrican claves concatenando componentes de la autorización.
    */
