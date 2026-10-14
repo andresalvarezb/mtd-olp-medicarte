@@ -17,6 +17,9 @@ import type {
 
 import {
   AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY,
+  AUTHORIZATION_ANNULMENT_EVIDENCE_KEY,
+  authorizationAnnulmentBlock,
+  isAuthorizationAnnulled,
   currentBogotaDate,
   decideAuthorization16Renewal,
   normalizeCommercialCode,
@@ -86,6 +89,9 @@ type AuthorizationRow =
 
     direction_status:
       string;
+
+    annulled_at:
+      Date | string | null;
 
     version:
       number;
@@ -222,6 +228,240 @@ export class AuthorizationManualEditService {
   ) {}
 
 
+  /**
+   * BR-AUTO-ANNUL-001: anular AUTO sin atención confirmada, liberar todas
+   * las reservas físicas pendientes, mantener OC y procedencia histórica.
+   */
+  async annul(
+    authorizationItemId: string,
+    input: Readonly<{ expectedVersion: number; reason: string }>,
+    scope: Scope,
+  ) {
+    if (scope.organizationCode !== 'MTD') {
+      throw new ForbiddenException({
+        code: 'AUTHORIZATION_ANNULMENT_MTD_ONLY',
+        message: 'Solo MTD puede anular autorizaciones.',
+      });
+    }
+
+    return this.database.db.transaction(async (tx) => {
+      // Mismo lock de autorización empleado por la confirmación de atención.
+      const current = (await tx.execute<{
+        id: string;
+        authorization_key: string;
+        version: number;
+        source_status_normalized: string;
+        enablement_status: string;
+        source_data: Record<string, unknown>;
+        annulled_at: Date | string | null;
+      }>(sql`
+        select id, authorization_key, version, source_status_normalized,
+               enablement_status, source_data, annulled_at
+        from authorization_items
+        where id = ${authorizationItemId}
+        for update
+      `)).rows[0];
+
+      if (!current) {
+        throw new NotFoundException({
+          code: 'AUTHORIZATION_NOT_FOUND',
+          message: 'La autorización no existe.',
+        });
+      }
+      if (current.version !== input.expectedVersion) {
+        throw new ConflictException({
+          code: 'AUTHORIZATION_VERSION_CONFLICT',
+          message: 'La autorización cambió desde que fue abierta.',
+        });
+      }
+
+      // Evidencia positiva: bloquea incluso si las cantidades legacy son 0.
+      const attention = (await tx.execute<{
+        has_fulfillment: boolean;
+        has_confirmed_application: boolean;
+        has_inventory_consumption: boolean;
+      }>(sql`
+        select
+          exists(select 1 from authorization_fulfillments
+                 where authorization_item_id = ${authorizationItemId}) as has_fulfillment,
+          exists(select 1 from patient_applications
+                 where authorization_item_id = ${authorizationItemId}
+                   and status = 'CONFIRMED') as has_confirmed_application,
+          exists(select 1 from inventory_authorization_allocations
+                 where authorization_item_id = ${authorizationItemId}
+                   and consumed_quantity > 0) as has_inventory_consumption
+      `)).rows[0]!;
+
+      const block = authorizationAnnulmentBlock({
+        alreadyAnnulled: current.annulled_at !== null ||
+          isAuthorizationAnnulled(current.source_data) ||
+          current.source_status_normalized === 'ANULADA',
+        hasFulfillment: attention.has_fulfillment,
+        hasConfirmedApplication: attention.has_confirmed_application,
+        hasInventoryConsumption: attention.has_inventory_consumption,
+      });
+      if (block) {
+        throw new ConflictException({
+          code: block,
+          message: block === 'AUTHORIZATION_ALREADY_ANNULLED'
+            ? 'La autorización ya está anulada.'
+            : 'No se puede anular: existe al menos una entrega, aplicación o consumo confirmado.',
+        });
+      }
+
+      const allocations = (await tx.execute<{
+        id: string;
+        allocated_quantity: number;
+        consumed_quantity: number;
+        released_quantity: number;
+      }>(sql`
+        select id, allocated_quantity::int, consumed_quantity::int,
+               released_quantity::int
+        from inventory_authorization_allocations
+        where authorization_item_id = ${authorizationItemId}
+          and allocated_quantity > consumed_quantity + released_quantity
+        order by id
+        for update
+      `)).rows;
+
+      // También cubre consumos concurrentes que se materializaron antes del lock.
+      if (allocations.some((row) => Number(row.consumed_quantity) > 0)) {
+        throw new ConflictException({
+          code: 'AUTHORIZATION_ALREADY_ATTENDED',
+          message: 'La autorización tiene consumo confirmado y no puede anularse.',
+        });
+      }
+
+      let releasedQuantity = 0;
+      for (const allocation of allocations) {
+        const outstanding = Math.max(
+          Number(allocation.allocated_quantity) -
+          Number(allocation.consumed_quantity) -
+          Number(allocation.released_quantity), 0,
+        );
+        if (!outstanding) continue;
+        await tx.execute(sql`
+          update inventory_authorization_allocations
+          set released_quantity = released_quantity + ${outstanding},
+              status = 'RELEASED',
+              updated_by = ${scope.userId}, updated_at = now()
+          where id = ${allocation.id}
+        `);
+        releasedQuantity += outstanding;
+      }
+
+      const links = (await tx.execute<{
+        purchase_order_id: string;
+        purchase_order_code: string | null;
+        committed_quantity: number;
+      }>(sql`
+        select po.id as purchase_order_id, po.purchase_order_code,
+               sum(poas.source_quantity_snapshot)::int as committed_quantity
+        from purchase_order_authorization_sources poas
+        join purchase_order_lines pol on pol.id = poas.purchase_order_line_id
+        join purchase_orders po on po.id = pol.purchase_order_id
+        where poas.authorization_item_id = ${authorizationItemId}
+          and poas.released_at is null
+        group by po.id, po.purchase_order_code
+        order by po.id
+      `)).rows;
+
+      const releasedLinks = (await tx.execute<{
+        quantity: number;
+      }>(sql`
+        update purchase_order_authorization_sources
+        set released_at = now(),
+            released_by = ${scope.userId}
+        where authorization_item_id = ${authorizationItemId}
+          and released_at is null
+        returning source_quantity_snapshot::int as quantity
+      `)).rows;
+
+      const releasedPurchaseCommitmentQuantity =
+        releasedLinks.reduce(
+          (total, row) => total + Number(row.quantity),
+          0,
+        );
+
+      const expectedCommitmentQuantity =
+        links.reduce(
+          (total, row) => total + Number(row.committed_quantity),
+          0,
+        );
+
+      if (
+        releasedPurchaseCommitmentQuantity !==
+        expectedCommitmentQuantity
+      ) {
+        throw new ConflictException({
+          code: 'AUTHORIZATION_ANNULMENT_COMMITMENT_CONFLICT',
+          message: 'No se pudieron liberar todos los compromisos OC.',
+        });
+      }
+
+      const priorSourceStatus = current.source_status_normalized;
+      const evidence = {
+        reason: input.reason.trim(),
+        annulledAt: new Date().toISOString(),
+        annulledBy: scope.userId,
+        previousSourceStatus: priorSourceStatus,
+        releasedInventoryQuantity: releasedQuantity,
+        releasedPurchaseCommitmentQuantity,
+        linkedPurchaseOrders: links.map((link) => ({
+          id: link.purchase_order_id,
+          code: link.purchase_order_code,
+          committedQuantitySnapshot: Number(link.committed_quantity),
+        })),
+      };
+      const nextData = {
+        ...current.source_data,
+        [AUTHORIZATION_ANNULMENT_EVIDENCE_KEY]: evidence,
+        ESTADO_AUTORIZACION: 'ANULADA',
+      };
+
+      const updated = (await tx.execute<{ version: number }>(sql`
+        update authorization_items
+        set source_data = ${JSON.stringify(nextData)}::jsonb,
+            source_status_normalized = 'ANULADA',
+            enablement_status = 'BLOCKED_SOURCE_STATUS',
+            annulled_at = now(),
+            annulled_by = ${scope.userId},
+            annulment_reason = ${input.reason.trim()},
+            updated_by = ${scope.userId}, updated_at = now(),
+            version = version + 1
+        where id = ${authorizationItemId}
+        returning version
+      `)).rows[0]!;
+
+      await tx.execute(sql`
+        insert into audit_events
+          (actor_type, actor_id, organization_id, action, resource_type,
+           resource_id, before, after, correlation_id, request_id, result)
+        values
+          ('USER', ${scope.userId}, ${scope.organizationId},
+           'AUTHORIZATION_ANNULLED', 'authorization_item', ${authorizationItemId},
+           ${JSON.stringify({ sourceStatus: priorSourceStatus, version: current.version })}::jsonb,
+           ${JSON.stringify({ sourceStatus: 'ANULADA', version: updated.version, ...evidence })}::jsonb,
+           ${scope.correlationId}, ${scope.correlationId}, 'SUCCESS')
+      `);
+      await tx.execute(realtimeInvalidationSql({
+        organizationCodes: REALTIME_AUDIENCE.AUTHORIZATION,
+        topics: ['AUTHORIZATIONS', 'DASHBOARD', 'INVENTORY'],
+        correlationId: scope.correlationId,
+        resource: { type: 'authorization_item', id: authorizationItemId, version: updated.version },
+      }));
+      return {
+        id: authorizationItemId,
+        authorizationKey: current.authorization_key,
+        status: 'ANULADA' as const,
+        releasedInventoryQuantity: releasedQuantity,
+        releasedPurchaseCommitmentQuantity,
+        linkedPurchaseOrderCount: links.length,
+        version: updated.version,
+      };
+    });
+  }
+
   async edit(
     authorizationItemId:
       string,
@@ -262,6 +502,7 @@ export class AuthorizationManualEditService {
                 i.enablement_status,
                 i.coverage_type,
                 i.direction_status,
+                i.annulled_at,
                 i.version
 
               from
@@ -282,6 +523,24 @@ export class AuthorizationManualEditService {
 
             message:
               'La autorización no existe.',
+          });
+        }
+
+        if (isAuthorizationAnnulled(current.source_data)) {
+          throw new ConflictException({
+            code: 'AUTHORIZATION_ALREADY_ANNULLED',
+            message: 'La autorización está anulada y no puede editarse.',
+          });
+        }
+
+        if (
+          current.annulled_at !== null
+          || isAuthorizationAnnulled(current.source_data)
+          || current.source_status_normalized === 'ANULADA'
+        ) {
+          throw new ConflictException({
+            code: 'AUTHORIZATION_ALREADY_ANNULLED',
+            message: 'No se puede editar ni renovar una autorización anulada.',
           });
         }
 

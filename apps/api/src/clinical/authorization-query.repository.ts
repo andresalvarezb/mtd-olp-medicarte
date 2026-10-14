@@ -126,6 +126,10 @@ interface AuthorizationQueryRow
   enablement_status:
     string;
 
+  is_annulled: boolean;
+
+  annulment_reason: string | null;
+
   tariff_membership_status:
     string;
 
@@ -4561,6 +4565,13 @@ export class AuthorizationQueryRepository {
 
         i.enablement_status,
 
+        (i.annulled_at is not null or i.source_status_normalized = 'ANULADA' or i.source_data ? '__mtdAnnulment') as is_annulled,
+
+        coalesce(
+          i.annulment_reason,
+          i.source_data -> '__mtdAnnulment' ->> 'reason'
+        ) as annulment_reason,
+
         i.tariff_membership_status,
 
         i.direction_status,
@@ -5499,6 +5510,10 @@ export class AuthorizationQueryRepository {
 
       enablementStatus:
         row.enablement_status,
+
+      isAnnulled: Boolean(row.is_annulled),
+
+      annulmentReason: row.annulment_reason,
 
       initialValidationStatus,
 

@@ -178,6 +178,10 @@ export type AuthorizationQueryItem = {
   enablementStatus:
     string;
 
+  isAnnulled?: boolean;
+
+  annulmentReason?: string | null;
+
   initialValidationStatus:
     AuthorizationInitialValidationStatus;
 
@@ -573,6 +577,25 @@ export function editAuthorizationManually(
   );
 }
 
+
+export function annulAuthorization(
+  organizationId: string,
+  authorizationItemId: string,
+  input: Readonly<{ expectedVersion: number; reason: string }>,
+) {
+  return apiRequest<{
+    id: string;
+    authorizationKey: string;
+    status: 'ANULADA';
+    releasedInventoryQuantity: number;
+    linkedPurchaseOrderCount: number;
+    version: number;
+  }>(`/authorizations/${authorizationItemId}/annul`, {
+    method: 'POST',
+    organizationId,
+    body: JSON.stringify(input),
+  });
+}
 
 export function fulfillAuthorization(
   organizationId:

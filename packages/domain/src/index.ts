@@ -1,3 +1,9 @@
+export {
+  AUTHORIZATION_ANNULMENT_EVIDENCE_KEY,
+  authorizationAnnulmentBlock,
+  isAuthorizationAnnulled,
+} from './authorization-annulment';
+export type { AuthorizationAnnulmentBlock } from './authorization-annulment';
 export { AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY, decideAuthorization16Renewal } from './authorization-source-renewal';
 export type { Authorization16RenewalDecision } from './authorization-source-renewal';
 export type ActorContext = Readonly<{

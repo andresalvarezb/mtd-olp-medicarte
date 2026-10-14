@@ -1748,7 +1748,9 @@ export class ReceiptRepository {
               purchase_order_authorization_sources poas
 
             where
-              poas.purchase_order_line_id
+              poas.released_at is null
+
+              and poas.purchase_order_line_id
                 in (
                   ${sql.join(
                     poolLineIds.map(
@@ -2022,6 +2024,24 @@ export class ReceiptRepository {
         const candidate of
         candidates.rows
       ) {
+        // Serializar recepción y anulación de esta AUTO.
+        // La comprobación se realiza después de adquirir
+        // el lock, dentro de la misma transacción.
+        const eligibleAuthorization = await tx.execute<{ id: string }>(sql`
+          select id
+          from authorization_items
+          where id = ${candidate.authorization_item_id}
+            and version = ${candidate.authorization_version}
+            and annulled_at is null
+            and source_status_normalized <> 'ANULADA'
+            and not (source_data ? '__mtdAnnulment')
+          for share
+        `);
+
+        if (eligibleAuthorization.rows.length !== 1) {
+          continue;
+        }
+
         const quantity =
           Number(
             candidate.required_quantity,
@@ -2460,6 +2480,8 @@ export class ReceiptRepository {
             where
               pol.purchase_order_id =
                 po.id
+
+              and poas.released_at is null
 
               and not exists (
                 select
