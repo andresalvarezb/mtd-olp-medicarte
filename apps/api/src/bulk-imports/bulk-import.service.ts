@@ -391,27 +391,49 @@ export class BulkImportService {
   }
 
   async rejectedRowsWorkbook(jobId: string, actor: Scope): Promise<Buffer> {
-    await this.getJob(jobId, actor);
-    const rows = await this.repository.listRows(jobId, 'ALL', actor);
-    const rejectedRows = rows.filter(
-      (row) => row.validationStatus !== 'VALID' || row.executionStatus === 'FAILED',
-    );
-    // La clave puede tener formatos históricos distintos: no reconstruirla.
-    // Priorizar la clave persistida, luego la informada en el archivo fuente.
-    const keys = rejectedRows.length
-      ? await this.repository.getAuthorizationKeysForRejected(jobId, actor)
-      : new Map<number, string>();
-    const data = [
-      ['CLAVE_AUTORIZACION', 'DESCRIPCION_ERROR'],
-      ...rejectedRows.map((row) => [
-        keys.get(row.rowNumber) ||
-          `SIN CLAVE REGISTRADA (fila ${row.rowNumber}; autorización ${row.authorizationNumber ?? 'no informada'}; producto ${row.commercialCode ?? 'no informado'})`,
-        row.errorMessage || row.errorCode || 'Motivo no registrado',
-      ]),
-    ];
+    // El historial incluye dos generaciones de cargues con tablas distintas.
+    // Los reportes son de solo lectura: nunca cambiar estados al descargarlos.
+    const current = await this.repository.findJob(jobId, actor);
+    let rejected: string[][];
+
+    if (current) {
+      const rows = await this.repository.listRows(jobId, 'ALL', actor);
+      const expired = current.status === 'PROCESSING'
+        ? await this.repository.listExpiredClaimRowNumbers(jobId, actor)
+        : [];
+      const expiredRows = new Set(expired);
+      const failed = rows.filter(
+        (row) => row.validationStatus !== 'VALID' || row.executionStatus === 'FAILED' ||
+          expiredRows.has(row.rowNumber),
+      );
+      const keys = failed.length
+        ? await this.repository.getAuthorizationKeysForRejected(jobId, actor)
+        : new Map<number, string>();
+      rejected = failed.map((row) => [
+        keys.get(row.rowNumber) ?? `SIN CLAVE REGISTRADA (fila ${row.rowNumber})`,
+        expiredRows.has(row.rowNumber)
+          ? 'Procesamiento interrumpido: venció la reserva de esta fila y no hay resultado ' +
+            'confirmado. Reanude el cargue para obtener un diagnóstico definitivo.'
+          : describeRejectedError(row.errorCode, row.errorMessage),
+      ]);
+    } else {
+      // Cargues anteriores al cutover: import_batches / import_rows.
+      const legacy = await this.repository.getLegacyRejectedRows(jobId, actor);
+      if (!legacy) throw jobNotFound();
+      rejected = legacy.map((row) => [
+        row.authorizationKey ?? `SIN CLAVE REGISTRADA (fila ${row.rowNumber})`,
+        describeRejectedError(row.errorCode, row.errorMessage),
+      ]);
+    }
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(
-      workbook, XLSX.utils.aoa_to_sheet(data), 'RECHAZADAS',
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        ['CLAVE_AUTORIZACION', 'DESCRIPCION_ERROR'],
+        ...rejected,
+      ]),
+      'RECHAZADAS',
     );
     return XLSX.write(workbook, {
       type: 'buffer', bookType: 'xlsx',
@@ -780,6 +802,17 @@ export function dateValue(
     ) ??
     text
   );
+}
+
+/** No se debe atribuir una causa técnica no registrada a un error histórico. */
+function describeRejectedError(code: string | null, message: string | null): string {
+  const detail = message?.trim();
+  if (code === 'PROCESSING_ERROR' &&
+      (!detail || /^(error inesperado al procesar|falló la ejecución|confirmation failed)/i.test(detail))) {
+    return 'Error interno en este cargue (PROCESSING_ERROR). La causa original no quedó registrada; ' +
+      'no puede reconstruirse únicamente desde el historial.';
+  }
+  return detail || code || 'No se registró una descripción del error.';
 }
 
 function mapDomainError(error: unknown): { code: string; message: string } {
