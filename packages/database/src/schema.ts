@@ -282,6 +282,9 @@ export const authorizationItems = pgTable(
     createdFromBatchId: uuid('created_from_batch_id')
       .notNull()
       .references(() => importBatches.id, { onDelete: 'restrict' }),
+    annulledAt: timestamp('annulled_at', { withTimezone: true }),
+    annulledBy: uuid('annulled_by').references(() => users.id, { onDelete: 'restrict' }),
+    annulmentReason: text('annulment_reason'),
     version: integer('version').notNull().default(1),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'restrict' }),
     lastLoadId: uuid('last_load_id').references(() => importBatches.id, { onDelete: 'restrict' }),
@@ -303,6 +306,9 @@ export const authorizationItems = pgTable(
     ),
 
     index('authorization_items_audit_status_idx').on(table.auditStatus, table.createdAt, table.id),
+    index('authorization_items_annulled_at_idx')
+      .on(table.annulledAt)
+      .where(sql`${table.annulledAt} IS NOT NULL`),
     index('authorization_items_created_idx').on(table.createdAt, table.id),
     index('authorization_items_tariff_membership_idx').on(
       table.codigoMedicamento,
@@ -374,6 +380,16 @@ export const authorizationItems = pgTable(
     check(
       'authorization_items_dispensed_requires_approval_check',
       sql`${table.operationStatus} <> 'DISPENSED' OR ${table.auditStatus} = 'APPROVED'`,
+    ),
+    check(
+      'authorization_items_annulment_consistency_check',
+      sql`(
+        (${table.annulledAt} IS NULL AND ${table.annulledBy} IS NULL AND ${table.annulmentReason} IS NULL)
+        OR
+        (${table.annulledAt} IS NOT NULL AND ${table.annulledBy} IS NOT NULL
+         AND ${table.annulmentReason} IS NOT NULL
+         AND length(btrim(${table.annulmentReason})) > 0)
+      )`,
     ),
     check('authorization_items_version_check', sql`${table.version} > 0`),
   ],
@@ -1209,6 +1225,8 @@ export const purchaseOrderAuthorizationSources = pgTable(
     sourceQuantitySnapshot: integer('source_quantity_snapshot').notNull(),
     provenance: varchar('provenance', { length: 40 }).notNull().default('LIVE_DEMAND'),
     evidenceAt: timestamp('evidence_at', { withTimezone: true }),
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+    releasedBy: uuid('released_by').references(() => users.id, { onDelete: 'restrict' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -1220,6 +1238,9 @@ export const purchaseOrderAuthorizationSources = pgTable(
       table.authorizationItemId,
       table.purchaseOrderLineId,
     ),
+    index('purchase_order_authorization_sources_active_auth_idx')
+      .on(table.authorizationItemId, table.purchaseOrderLineId)
+      .where(sql`${table.releasedAt} IS NULL`),
     index('purchase_order_authorization_sources_demand_idx').on(
       table.projectedDemandLineId,
       table.projectedDemandRevision,
@@ -1252,6 +1273,10 @@ export const purchaseOrderAuthorizationSources = pgTable(
           AND ${table.projectedDemandRevision} IS NULL
           AND ${table.evidenceAt} IS NOT NULL)
       )`,
+    ),
+    check(
+      'purchase_order_authorization_sources_release_consistency_check',
+      sql`(${table.releasedAt} IS NULL) = (${table.releasedBy} IS NULL)`,
     ),
     check(
       'purchase_order_authorization_sources_quantity_check',

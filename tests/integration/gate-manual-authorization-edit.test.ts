@@ -69,6 +69,8 @@ let dispensingPointId:
 let planningPeriodId:
   string;
 
+let planningPeriodReused = false;
+
 
 function isoToday() {
   return new Date()
@@ -898,8 +900,30 @@ beforeAll(
       point.rows[0]!.id;
 
 
+    // Reutilizar únicamente períodos creados por este gate.
+    // Evita colisiones al conservar historial OC/AUTO liberado.
+    const reusablePeriod = await database.query<{ id: string }>(
+      `
+        select pp.id
+        from planning_periods pp
+        where pp.start_date = '2042-06-01'
+          and pp.end_date = '2042-06-30'
+          and exists (
+            select 1
+            from purchase_orders po
+            where po.planning_period_id = pp.id
+              and po.purchase_order_code like 'ME-OC-%'
+          )
+        limit 1
+      `,
+    );
+
+    planningPeriodReused = reusablePeriod.rows.length > 0;
+
     const period =
-      await database.query<{
+      planningPeriodReused
+        ? reusablePeriod
+        : await database.query<{
         id:
           string;
       }>(
@@ -944,6 +968,40 @@ afterAll(
     );
 
     try {
+      /*
+       * La anulación conserva historia OC/AUTO inmutable.
+       * En integración preservamos los registros protegidos
+       * y sus padres, sin desactivar triggers.
+       */
+      const releasedHistory = await database.query<{
+        authorization_item_id: string;
+        purchase_order_id: string;
+      }>(
+        `
+          select distinct
+            poas.authorization_item_id::text as authorization_item_id,
+            pol.purchase_order_id::text as purchase_order_id
+          from purchase_order_authorization_sources poas
+          join purchase_order_lines pol
+            on pol.id = poas.purchase_order_line_id
+          join authorization_items ai
+            on ai.id = poas.authorization_item_id
+          where ai.numero_autorizacion like $1
+            and poas.released_at is not null
+        `,
+        [`ME-AUTH-${suffix}-%`],
+      );
+
+      const protectedAuthorizationIds = new Set(
+        releasedHistory.rows.map(row => row.authorization_item_id),
+      );
+
+      const protectedPurchaseOrderIds = new Set(
+        releasedHistory.rows.map(row => row.purchase_order_id),
+      );
+
+      const hasProtectedHistory = releasedHistory.rows.length > 0;
+
       const authorizations =
         await database.query<{
           id:
@@ -960,10 +1018,9 @@ afterAll(
         );
 
       const authorizationIds =
-        authorizations.rows.map(
-          (row) =>
-            row.id,
-        );
+        authorizations.rows
+          .filter(row => !protectedAuthorizationIds.has(row.id))
+          .map(row => row.id);
 
 
       const purchaseOrders =
@@ -982,10 +1039,9 @@ afterAll(
         );
 
       const purchaseOrderIds =
-        purchaseOrders.rows.map(
-          (row) =>
-            row.id,
-        );
+        purchaseOrders.rows
+          .filter(row => !protectedPurchaseOrderIds.has(row.id))
+          .map(row => row.id);
 
 
       let scheduleIds:
@@ -1362,6 +1418,11 @@ afterAll(
       }
 
 
+      /*
+       * Recursos compartidos con las evidencias retenidas:
+       * productos, período, punto y lote de procedencia.
+       */
+      if (!hasProtectedHistory) {
       await database.query(
         `
           delete from
@@ -1381,7 +1442,8 @@ afterAll(
 
 
       if (
-        planningPeriodId
+        planningPeriodId &&
+        !planningPeriodReused
       ) {
         await database.query(
           `
@@ -1425,6 +1487,8 @@ afterAll(
       }
 
 
+      }
+
       await database.query(
         'commit',
       );
@@ -1446,6 +1510,240 @@ afterAll(
 describe(
   'Manual authorization edit',
   () => {
+
+    it('AUTO 10 con OC1=4 y OC2=6 libera compromisos y reservas sin borrar historia', async () => {
+      const item = await createAuthorization({ quantity: 10 });
+
+      const oc1 = await createPurchaseOrder({
+        authorizationItemId: item.id,
+        commercialCode: item.commercialCode,
+        quantity: 4,
+      });
+
+      const oc2 = await createPurchaseOrder({
+        authorizationItemId: item.id,
+        commercialCode: item.commercialCode,
+        quantity: 6,
+      });
+
+      await createAllocation({
+        authorizationItemId: item.id,
+        authorizationVersion: item.version,
+        purchaseOrderId: oc1.purchaseOrderId,
+        commercialCode: item.commercialCode,
+        quantity: 4,
+      });
+
+      await createAllocation({
+        authorizationItemId: item.id,
+        authorizationVersion: item.version,
+        purchaseOrderId: oc2.purchaseOrderId,
+        commercialCode: item.commercialCode,
+        quantity: 2,
+      });
+
+      const response = await apiCall(
+        'POST',
+        '/authorizations/' + item.id + '/annul',
+        {
+          expectedVersion: item.version,
+          reason: 'Anulación logística sin entrega ni aplicación',
+        },
+      );
+
+      expect(response.status, await response.text()).toBe(201);
+
+      const links = await database.query<{
+        total_links: number;
+        total_quantity: number;
+        released_links: number;
+        active_quantity: number;
+      }>(
+        `select
+          count(*)::int as total_links,
+          coalesce(sum(source_quantity_snapshot), 0)::int as total_quantity,
+          count(*) filter (where released_at is not null)::int as released_links,
+          coalesce(
+            sum(source_quantity_snapshot) filter (where released_at is null),
+            0
+          )::int as active_quantity
+        from purchase_order_authorization_sources
+        where authorization_item_id = $1`,
+        [item.id],
+      );
+
+      expect(links.rows[0]).toMatchObject({
+        total_links: 2,
+        total_quantity: 10,
+        released_links: 2,
+        active_quantity: 0,
+      });
+
+      const allocations = await database.query<{
+        allocated: number;
+        released: number;
+        remaining: number;
+      }>(
+        `select
+          coalesce(sum(allocated_quantity), 0)::int as allocated,
+          coalesce(sum(released_quantity), 0)::int as released,
+          coalesce(
+            sum(allocated_quantity - consumed_quantity - released_quantity),
+            0
+          )::int as remaining
+        from inventory_authorization_allocations
+        where authorization_item_id = $1`,
+        [item.id],
+      );
+
+      expect(allocations.rows[0]).toMatchObject({
+        allocated: 6,
+        released: 6,
+        remaining: 0,
+      });
+
+      const state = await database.query<{
+        source_status_normalized: string;
+        enablement_status: string;
+        annulled_at: Date | null;
+        annulment_reason: string | null;
+      }>(
+        `select source_status_normalized, enablement_status,
+                annulled_at, annulment_reason
+         from authorization_items where id = $1`,
+        [item.id],
+      );
+
+      expect(state.rows[0]).toMatchObject({
+        source_status_normalized: 'ANULADA',
+        enablement_status: 'BLOCKED_SOURCE_STATUS',
+        annulment_reason: 'Anulación logística sin entrega ni aplicación',
+      });
+      expect(state.rows[0]?.annulled_at).not.toBeNull();
+
+      await expect(
+        database.query(
+          `delete from purchase_order_authorization_sources
+           where authorization_item_id = $1
+             and purchase_order_line_id = $2`,
+          [item.id, oc1.purchaseOrderLineId],
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+    }, 60_000);
+
+    it('dos solicitudes concurrentes de anulación solo confirman una vez', async () => {
+      const item = await createAuthorization({ quantity: 3 });
+
+      const request = () => apiCall(
+        'POST',
+        '/authorizations/' + item.id + '/annul',
+        {
+          expectedVersion: item.version,
+          reason: 'Anulación concurrente de prueba',
+        },
+      );
+
+      const responses = await Promise.all([request(), request()]);
+      const codes = responses.map(response => response.status).sort();
+
+      expect(codes).toEqual([201, 409]);
+
+      const state = await database.query<{
+        version: number;
+        annulled_at: Date | null;
+      }>(
+        `select version, annulled_at
+         from authorization_items where id = $1`,
+        [item.id],
+      );
+
+      expect(state.rows[0]?.version).toBe(item.version + 1);
+      expect(state.rows[0]?.annulled_at).not.toBeNull();
+    }, 60_000);
+
+    it('permite anular AUTO parcialmente asignada sin consumo, libera toda reserva y conserva OC', async () => {
+      const item = await createAuthorization({ quantity: 10 });
+      const po = await createPurchaseOrder({
+        authorizationItemId: item.id, commercialCode: CODE_A, quantity: 10,
+      });
+      const allocationId = await createAllocation({
+        authorizationItemId: item.id, authorizationVersion: item.version,
+        purchaseOrderId: po.purchaseOrderId, commercialCode: CODE_A, quantity: 6,
+      });
+      const response = await apiCall('POST', `/authorizations/${item.id}/annul`, {
+        expectedVersion: item.version, reason: 'Autorización anulada antes de atender',
+      });
+      expect(response.status).toBe(201);
+      const payload = await response.json() as { status: string; releasedInventoryQuantity: number };
+      expect(payload).toMatchObject({ status: 'ANULADA', releasedInventoryQuantity: 6 });
+      const row = await database.query<{
+        source_status_normalized: string; enablement_status: string;
+        source_data: Record<string, unknown>;
+      }>('select source_status_normalized, enablement_status, source_data from authorization_items where id=$1', [item.id]);
+      expect(row.rows[0]).toMatchObject({
+        source_status_normalized: 'ANULADA', enablement_status: 'BLOCKED_SOURCE_STATUS',
+      });
+      expect(row.rows[0]?.source_data.__mtdAnnulment).toBeTruthy();
+      const allocation = await database.query<{ status: string; released_quantity: number }>(
+        'select status, released_quantity from inventory_authorization_allocations where id=$1', [allocationId],
+      );
+      expect(allocation.rows[0]).toMatchObject({ status: 'RELEASED', released_quantity: 6 });
+      const linked = await database.query<{ count: number }>(
+        'select count(*)::int as count from purchase_order_authorization_sources where authorization_item_id=$1', [item.id],
+      );
+      expect(linked.rows[0]?.count).toBe(1);
+      const order = await database.query<{ status: string }>('select status from purchase_orders where id=$1', [po.purchaseOrderId]);
+      expect(order.rows[0]?.status).toBe('DRAFT');
+      const detail = await apiCall('GET', `/authorization-query/${item.id}`, undefined);
+      expect(detail.status).toBe(200);
+      expect(await detail.json()).toMatchObject({ isAnnulled: true, lifecycleEnablement: 'DISABLED' });
+      const editing = await editAuthorization({
+        id: item.id, expectedVersion: item.version + 1, commercialCode: CODE_A,
+        quantity: 10, validityEndDate: item.validityEndDate,
+      });
+      expect(editing.status).toBe(409);
+      const duplicate = await apiCall('POST', `/authorizations/${item.id}/annul`, {
+        expectedVersion: item.version + 1, reason: 'Intento duplicado',
+      });
+      expect(duplicate.status).toBe(409);
+    }, 60_000);
+
+    it('bloquea anulación con cualquier consumo previo, sin liberar inventario', async () => {
+      const item = await createAuthorization({ quantity: 10 });
+      const po = await createPurchaseOrder({
+        authorizationItemId: item.id, commercialCode: CODE_A, quantity: 10,
+      });
+      const allocationId = await createAllocation({
+        authorizationItemId: item.id, authorizationVersion: item.version,
+        purchaseOrderId: po.purchaseOrderId, commercialCode: CODE_A, quantity: 6,
+      });
+      await database.query(`update inventory_authorization_allocations
+        set consumed_quantity=1, status='PARTIALLY_CONSUMED' where id=$1`, [allocationId]);
+      const response = await apiCall('POST', `/authorizations/${item.id}/annul`, {
+        expectedVersion: item.version, reason: 'No debe permitirse anular',
+      });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'AUTHORIZATION_ALREADY_ATTENDED' });
+      const allocation = await database.query<{ released_quantity: number }>(
+        'select released_quantity from inventory_authorization_allocations where id=$1', [allocationId],
+      );
+      expect(allocation.rows[0]?.released_quantity).toBe(0);
+    }, 60_000);
+
+    it('permite anulación sin OC; MEDICARTE no tiene permiso', async () => {
+      const item = await createAuthorization();
+      const forbidden = await apiCall('POST', `/authorizations/${item.id}/annul`, {
+        expectedVersion: item.version, reason: 'Intento desde otra organización',
+      }, medicarteToken, ORGANIZATION_IDS.MEDICARTE);
+      expect(forbidden.status).toBe(403);
+      const allowed = await apiCall('POST', `/authorizations/${item.id}/annul`, {
+        expectedVersion: item.version, reason: 'No se requiere autorización',
+      });
+      expect(allowed.status).toBe(201);
+      expect(await allowed.json()).toMatchObject({ releasedInventoryQuantity: 0, linkedPurchaseOrderCount: 0 });
+    }, 60_000);
+
+
     it('estado 16 pasa a estado efectivo 5 tras renovar vigencia, sin saltar gates comerciales', async () => {
       const item = await createAuthorization({ quantity: 1, validityEndDate: '2026-10-01' });
       await database.query(

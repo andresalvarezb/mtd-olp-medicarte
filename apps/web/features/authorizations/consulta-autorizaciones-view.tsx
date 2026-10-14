@@ -24,6 +24,7 @@ import {
 
 import {
   editAuthorizationManually,
+  annulAuthorization,
   fulfillAuthorization,
   getAuthorizationQueryItem,
   getAuthorizationHistory,
@@ -112,6 +113,11 @@ function authorizationLifecycleReasonText(
   item:
     AuthorizationQueryItem,
 ): string {
+  if (item.isAnnulled) {
+    return item.annulmentReason
+      ? `Anulada por MTD: ${item.annulmentReason}`
+      : 'Autorización anulada por MTD.';
+  }
   if (
     item.lifecycleReasons.length ===
       0
@@ -790,6 +796,10 @@ export function ConsultaAutorizacionesView() {
     useState<string | null>(
       null,
     );
+
+  const [confirmAnnulment, setConfirmAnnulment] = useState(false);
+  const [annulmentReason, setAnnulmentReason] = useState('');
+  const [annullingAuthorization, setAnnullingAuthorization] = useState(false);
 
   const [
     authorizationEdit,
@@ -1476,6 +1486,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
     setAuthorizationEditError(
       null,
     );
+    setConfirmAnnulment(false);
+    setAnnulmentReason('');
 
     if (!organizationId) {
       return;
@@ -1513,6 +1525,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
       !selected
       ||
       !canManualEdit
+      ||
+      selected.isAnnulled
     ) {
       return;
     }
@@ -1549,6 +1563,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
 
   function cancelManualEdit() {
+    setConfirmAnnulment(false);
+    setAnnulmentReason('');
     setEditingAuthorization(
       false,
     );
@@ -1558,6 +1574,41 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
     );
   }
 
+
+  async function confirmAuthorizationAnnulment() {
+    if (!selected || !organizationId || annullingAuthorization) return;
+    if (annulmentReason.trim().length < 5) {
+      setAuthorizationEditError('Indica un motivo de anulación de al menos cinco caracteres.');
+      return;
+    }
+    setAnnullingAuthorization(true);
+    setAuthorizationEditError(null);
+    try {
+      await annulAuthorization(organizationId, selected.id, {
+        expectedVersion: selected.version,
+        reason: annulmentReason.trim(),
+      });
+      const refreshed = await getAuthorizationQueryItem(organizationId, selected.id);
+      setSelected(refreshed);
+      setEditingAuthorization(false);
+      setConfirmAnnulment(false);
+      setAnnulmentReason('');
+      query.reload();
+    } catch (cause) {
+      const code = cause instanceof ApiError ? cause.code : null;
+      if (code === 'AUTHORIZATION_ALREADY_ATTENDED') {
+        setAuthorizationEditError('No se puede anular: existe una entrega, aplicación o consumo confirmado.');
+      } else if (code === 'AUTHORIZATION_VERSION_CONFLICT') {
+        setAuthorizationEditError('La autorización cambió. Vuelve a abrir la edición para actualizar sus datos.');
+      } else if (code === 'AUTHORIZATION_ALREADY_ANNULLED') {
+        setAuthorizationEditError('La autorización ya está anulada.');
+      } else {
+        setAuthorizationEditError(cause instanceof Error ? cause.message : 'No fue posible anular la autorización.');
+      }
+    } finally {
+      setAnnullingAuthorization(false);
+    }
+  }
 
   async function saveManualEdit() {
     if (
@@ -2986,7 +3037,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   <strong
                     className={`authorization-operational-status ${selected.operationalStatus.toLowerCase()}`}
                   >
-                    {authorizationOperationalLabel(
+                    {selected.isAnnulled ? 'Anulada' : authorizationOperationalLabel(
                       selected,
                     )}
                   </strong>
@@ -2998,13 +3049,13 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
               </div>
 
               <div className="authorization-drawer-actions">
-                {canManualEdit && !managingAuthorization ? (
+                {canManualEdit && !managingAuthorization && !selected.isAnnulled ? (
                   editingAuthorization ? (
                     <>
                       <button
                         type="button"
                         className="btn authorization-drawer-action"
-                        disabled={savingAuthorizationEdit}
+                        disabled={savingAuthorizationEdit || annullingAuthorization}
                         onClick={cancelManualEdit}
                       >
                         Cancelar
@@ -3013,7 +3064,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                       <button
                         type="button"
                         className="btn primary authorization-drawer-action"
-                        disabled={savingAuthorizationEdit}
+                        disabled={savingAuthorizationEdit || annullingAuthorization || confirmAnnulment}
                         onClick={() => {
                           void saveManualEdit();
                         }}
@@ -3021,6 +3072,15 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                         {savingAuthorizationEdit
                           ? 'Guardando…'
                           : 'Guardar'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn authorization-drawer-action"
+                        disabled={savingAuthorizationEdit || annullingAuthorization || selected.fulfilledQuantity > 0}
+                        title={selected.fulfilledQuantity > 0 ? 'No se puede anular una autorización atendida' : 'Anular y liberar reservas pendientes'}
+                        onClick={() => { setConfirmAnnulment(true); setAuthorizationEditError(null); }}
+                      >
+                        Anular
                       </button>
                     </>
                   ) : (
@@ -4485,7 +4545,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                     </span>
 
                     <strong>
-                      {authorizationLifecycleLabel(
+                      {selected.isAnnulled ? 'Anulada' : authorizationLifecycleLabel(
                         selected,
                       )}
                     </strong>
@@ -4570,6 +4630,33 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   </div>
                 ) : null}
 
+
+                {editingAuthorization && confirmAnnulment ? (
+                  <div className="authorization-summary-message disabled">
+                    <strong>Confirmar anulación de autorización</strong>
+                    <p>No puede revertirse desde esta pantalla. Solo se permite si no existe entrega ni aplicación confirmada; las reservas no consumidas volverán a Disponibilidad.</p>
+                    <textarea
+                      className="control authorization-manual-edit-control"
+                      rows={3}
+                      aria-label="Motivo de anulación"
+                      placeholder="Motivo obligatorio (mínimo 5 caracteres)"
+                      value={annulmentReason}
+                      onChange={(event) => setAnnulmentReason(event.target.value)}
+                      disabled={annullingAuthorization}
+                    />
+                    <div>
+                      <button type="button" className="btn" disabled={annullingAuthorization}
+                        onClick={() => { setConfirmAnnulment(false); setAuthorizationEditError(null); }}>
+                        Volver
+                      </button>
+                      <button type="button" className="btn primary"
+                        disabled={annullingAuthorization || annulmentReason.trim().length < 5}
+                        onClick={() => { void confirmAuthorizationAnnulment(); }}>
+                        {annullingAuthorization ? 'Anulando…' : 'Confirmar anulación'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
 
                 {authorizationEditError ? (
                   <div className="authorization-manual-edit-error">

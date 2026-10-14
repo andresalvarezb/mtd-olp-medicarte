@@ -14,6 +14,7 @@ import {
   decideBulkImportCompletion,
   currentBogotaDate,
   decideAuthorization16Renewal,
+  isAuthorizationAnnulled,
   AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY,
   isAuthorizationSourceEnabled,
   rowIdempotencyKey,
@@ -1111,6 +1112,11 @@ export class BulkImportRepository {
 
     if (!existingRow) {
       throw new Error('AUTHORIZATION_CONCURRENT_UPSERT_NOT_FOUND');
+    }
+    // La decisión manual MTD prevalece sobre nuevas fuentes XLSX.
+    if (isAuthorizationAnnulled(existingRow.source_data) ||
+        existingRow.source_status_normalized === 'ANULADA') {
+      throw new Error('AUTHORIZATION_ALREADY_ANNULLED');
     }
 
 

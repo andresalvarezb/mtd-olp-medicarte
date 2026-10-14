@@ -6,8 +6,8 @@ const databaseUrl =
 const parsed = new URL(databaseUrl);
 if (
   parsed.hostname !== 'localhost' ||
-  parsed.port !== '25432' ||
-  !parsed.pathname.includes('authorization_test_integration')
+  parsed.port !== (process.env.INTEGRATION_ANNULMENT_ISOLATED === '1' ? '26432' : '25432') ||
+  parsed.pathname !== '/authorization_test_integration'
 ) {
   throw new Error(
     'Integration tests require the dedicated authorization_test_integration database',

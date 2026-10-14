@@ -1316,6 +1316,8 @@ export class PurchaseOrderImportService {
                     poas.authorization_item_id =
                       ai.id
 
+                    and poas.released_at is null
+
                     and po.status not in (
                       'CANCELLED',
                       'REJECTED'
@@ -1464,6 +1466,8 @@ export class PurchaseOrderImportService {
                     where
                       poas.authorization_item_id =
                         ai.id
+
+                      and poas.released_at is null
 
                       and po.status not in (
                         'CANCELLED',
@@ -2938,6 +2942,8 @@ export class PurchaseOrderImportService {
                   poas.authorization_item_id =
                     $1
 
+                  and poas.released_at is null
+
                   and po.status not in (
                     'CANCELLED',
                     'REJECTED'
@@ -3043,6 +3049,8 @@ export class PurchaseOrderImportService {
               where
                 poas.authorization_item_id =
                   $1
+
+                and poas.released_at is null
 
                 and po.status not in (
                   'CANCELLED',
@@ -4644,6 +4652,8 @@ export class PurchaseOrderImportService {
                 and poas.authorization_item_id =
                   $2
 
+                and poas.released_at is null
+
                 and pol.commercial_code =
                   $3
 
@@ -5015,6 +5025,8 @@ export class PurchaseOrderImportService {
                   poas.authorization_item_id =
                     $2
 
+                  and poas.released_at is null
+
                   and poas.purchase_order_line_id
                     in (
                       select
@@ -5253,6 +5265,26 @@ export class PurchaseOrderImportService {
         }
       }
 
+
+      const releasedHistory = await client.query<{ id: string }>(
+        `
+          select poas.authorization_item_id::text as id
+          from purchase_order_authorization_sources poas
+          join purchase_order_lines pol
+            on pol.id = poas.purchase_order_line_id
+          where pol.purchase_order_id = $1
+            and poas.released_at is not null
+          limit 1
+          for share of poas
+        `,
+        [purchaseOrderId],
+      );
+
+      if (releasedHistory.rows.length > 0) {
+        throw new Error(
+          'PURCHASE_ORDER_RELEASED_SOURCE_IMMUTABLE',
+        );
+      }
 
       await client.query(
         `

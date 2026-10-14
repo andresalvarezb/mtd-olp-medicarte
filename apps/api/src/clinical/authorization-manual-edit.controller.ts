@@ -4,6 +4,7 @@ import {
   Headers,
   Param,
   Patch,
+  Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -105,6 +106,11 @@ const manualEditSchema =
   });
 
 
+const annulmentSchema = z.object({
+  expectedVersion: z.coerce.number().int().positive(),
+  reason: z.string().trim().min(5).max(1000),
+});
+
 @Controller('authorizations')
 @UseGuards(AuthGuard)
 export class AuthorizationManualEditController {
@@ -116,6 +122,24 @@ export class AuthorizationManualEditController {
       AccessService,
   ) {}
 
+
+  @Post(':id/annul')
+  async annul(
+    @Param('id') rawId: string,
+    @Body() rawBody: unknown,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const orgId = uuid.parse(organizationId);
+    const profile = await this.access.requirePermission(
+      request.auth.sub, orgId, 'authorizations.manual_edit',
+    );
+    return this.service.annul(
+      uuid.parse(rawId),
+      annulmentSchema.parse(rawBody),
+      scopeFromProfile(profile, orgId, request),
+    );
+  }
 
   @Patch(':id/manual-edit')
   async edit(
