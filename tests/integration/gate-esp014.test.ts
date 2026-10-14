@@ -855,7 +855,7 @@ describe('Gate ESP-014 — operaciones masivas XLSX', () => {
     const recovered = await json<Job>(
       await api(
         'POST',
-        `/bulk-imports/${job.id}/confirm`,
+        `/bulk-imports/${job.id}/retry-failed`,
         {},
         medicarteToken,
         ORGANIZATION_IDS.MEDICARTE,
