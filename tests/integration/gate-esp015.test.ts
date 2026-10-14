@@ -919,6 +919,12 @@ describe('Gate ESP-015 — alcance operacional por punto', () => {
     const confirmed = await api('POST', `/bulk-imports/${ready.id}/confirm`, {}, scopeAToken);
     expect(confirmed.status).toBe(200);
     const result = await json<Job>(confirmed);
+    if (result.succeededRows !== 1 || result.failedRows !== 1) {
+      const details = await json<{ items: Row[] }>(
+        await api('GET', `/bulk-imports/${ready.id}/rows?filter=ALL`, undefined, scopeAToken),
+      );
+      throw new Error(`ESP015_DIAGNOSTICO ${JSON.stringify({ result, rows: details.items })}`);
+    }
     expect(result.succeededRows).toBe(1);
     expect(result.failedRows).toBe(1);
     const executed = await json<{ items: Row[] }>(
