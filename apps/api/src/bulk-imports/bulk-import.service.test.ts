@@ -64,6 +64,7 @@ function createService() {
     createJob: vi.fn().mockResolvedValue({ id: 'job-1' }),
     findJob: vi.fn().mockResolvedValue({ id: 'job-1', status: 'READY' }),
     listRows: vi.fn(),
+    getAuthorizationKeysForRejected: vi.fn().mockResolvedValue(new Map<number, string>()),
   };
   const service = new BulkImportService(
     { IMPORT_MAX_FILE_BYTES: 20 * 1024 * 1024, AUTHORIZATION_IMPORT_MAX_FILE_BYTES: BULK_AUTHORIZATION_IMPORT_MAX_FILE_BYTES } as unknown as ApiConfig,
@@ -377,6 +378,10 @@ describe('BulkImportService', () => {
       },
     ]);
 
+    repository.getAuthorizationKeysForRejected.mockResolvedValue(new Map([
+      [2, 'CLAVE-HISTORICA:AUTH-2:TAR-999'],
+      [3, 'CLAVE/OTRO-FORMATO/AUTH-3'],
+    ]));
     const buffer = await service.rejectedRowsWorkbook('job-1', {
       organizationId: 'org-1',
     } as unknown as Scope);
@@ -386,8 +391,9 @@ describe('BulkImportService', () => {
 
     expect(rows).toHaveLength(3);
     expect(rows[0]).toEqual(['CLAVE_AUTORIZACION', 'DESCRIPCION_ERROR']);
-    expect(rows[1]).toEqual(['AUTH-2 | TAR-999', 'No existe en el anexo tarifario activo']);
-    expect(rows[2]).toEqual(['AUTH-3 | TAR-002', 'Falló la ejecución']);
+    expect(rows[1]).toEqual(['CLAVE-HISTORICA:AUTH-2:TAR-999', 'No existe en el anexo tarifario activo']);
+    expect(rows[2]).toEqual(['CLAVE/OTRO-FORMATO/AUTH-3', 'Falló la ejecución']);
+    expect(repository.getAuthorizationKeysForRejected).toHaveBeenCalledWith('job-1', expect.anything());
   });
 
   it('persiste fallo seguro ante excepción inesperada, sin dejar PROCESSING', async () => {
@@ -404,7 +410,9 @@ describe('BulkImportService', () => {
       recordAudit: vi.fn().mockResolvedValue(undefined),
       claimNextRow: vi.fn().mockResolvedValueOnce(claim).mockResolvedValueOnce(null),
       executeClaimedRow: vi.fn().mockRejectedValue(
-        Object.assign(new Error('dato confidencial en la excepción SQL'), { code: '23505' }),
+        new Error('consulta que contiene un dato confidencial', {
+          cause: Object.assign(new Error('dato confidencial en la excepción SQL'), { code: '23505' }),
+        }),
       ),
       markRowResult: vi.fn().mockResolvedValue(true),
       finalizeFromRows: vi.fn().mockResolvedValue({ id: 'job-1', status: 'FAILED' }),
@@ -414,9 +422,14 @@ describe('BulkImportService', () => {
       .markRowResult;
     expect(mark).toHaveBeenCalledOnce();
     expect(mark).toHaveBeenCalledWith(expect.objectContaining({
-      rowId: 'row-1', status: 'FAILED', errorCode: 'PROCESSING_ERROR',
+      rowId: 'row-1', status: 'FAILED', errorCode: 'DATABASE_UNIQUE_CONFLICT',
     }));
+    const failure = mark.mock.calls[0]?.[0] as
+      | { errorMessage?: string }
+      | undefined;
+    expect(failure?.errorMessage).toContain('restricción de unicidad');
     expect(JSON.stringify(mark.mock.calls)).not.toContain('dato confidencial');
+    expect(JSON.stringify(mark.mock.calls)).not.toContain('consulta que contiene');
   });
 
   it('rechaza recarga de una autorización anulada como fallo controlado', async () => {

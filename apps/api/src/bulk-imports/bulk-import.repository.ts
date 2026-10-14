@@ -672,6 +672,43 @@ export class BulkImportRepository {
     });
   }
 
+  /** Claves reales de las filas rechazadas: BD primero, fuente después.
+   * Nunca se fabrican claves concatenando componentes de la autorización.
+   */
+  async getAuthorizationKeysForRejected(jobId: string, actor: Scope): Promise<Map<number, string>> {
+    const result = await this.database.db.execute<{
+      row_number: number;
+      persisted_key: string | null;
+      source_key: string | null;
+    }>(sql`
+      select r.row_number,
+             ai.authorization_key as persisted_key,
+             coalesce(
+               nullif(btrim(r.normalized_payload->>'CLAVE_AUTORIZACION'), ''),
+               nullif(btrim(r.raw_payload->>'CLAVE_AUTORIZACION'), ''),
+               nullif(btrim(r.raw_payload->>'AUTHORIZATION_KEY'), '')
+             ) as source_key
+      from bulk_import_rows r
+      join bulk_import_jobs j on j.id = r.job_id
+      left join authorization_items ai
+        on ai.numero_autorizacion = r.normalized_payload->>'NUMERO_AUTORIZACION'
+       and ai.codigo_medicamento = r.normalized_payload->>'CODIGO_COMERCIAL'
+       and exists (
+         select 1 from authorization_item_organizations aio
+         where aio.authorization_item_id = ai.id
+           and aio.organization_id = j.organization_id
+       )
+      where r.job_id = ${jobId}
+        and (r.validation_status <> 'VALID' or r.execution_status = 'FAILED')
+        and ${this.rowPointFilter(actor)}
+      order by r.row_number
+    `);
+    return new Map(result.rows.flatMap((row) => {
+      const key = row.persisted_key?.trim() || row.source_key?.trim();
+      return key ? [[Number(row.row_number), key] as const] : [];
+    }));
+  }
+
   async markJobProcessing(
     jobId: string,
     token: string,
