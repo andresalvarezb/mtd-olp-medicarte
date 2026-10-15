@@ -1,6 +1,7 @@
 import {
   Inject,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 
 import {
@@ -226,6 +227,7 @@ interface AuthorizationQueryRow
 
 @Injectable()
 export class AuthorizationQueryRepository {
+  private readonly logger = new Logger(AuthorizationQueryRepository.name);
   constructor(
     @Inject(DATABASE)
     private readonly database:
@@ -1358,6 +1360,8 @@ export class AuthorizationQueryRepository {
       *
       filters.limit;
 
+    const countStartedAt = performance.now();
+
     const count =
       await this.database.db.execute<{
         total: number;
@@ -1373,6 +1377,9 @@ export class AuthorizationQueryRepository {
           ${where}
       `);
 
+    const countMs = Math.round(performance.now() - countStartedAt);
+    const pageStartedAt = performance.now();
+
     const result =
       await this.queryRows(
         where,
@@ -1380,6 +1387,27 @@ export class AuthorizationQueryRepository {
         offset,
         scope,
       );
+
+    const pageMs = Math.round(performance.now() - pageStartedAt);
+
+    if (countMs + pageMs >= 1000) {
+      this.logger.warn(JSON.stringify({
+        code: 'AUTHORIZATION_QUERY_SLOW',
+        countMs,
+        pageMs,
+        page: filters.page,
+        limit: filters.limit,
+        filters: {
+          authorization: Boolean(filters.authorizationNumber),
+          commercialCode: Boolean(filters.commercialCode),
+          patient: Boolean(filters.patient),
+          lifecycle: Boolean(filters.lifecycleEnablement),
+          operational: Boolean(filters.operationalStatus),
+          fulfillment: Boolean(filters.fulfillmentProgressStatus),
+          coverage: Boolean(filters.coverageType),
+        },
+      }));
+    }
 
     return {
       items:
@@ -4468,12 +4496,8 @@ export class AuthorizationQueryRepository {
 
         from inventory_authorization_allocations iaa
 
-        join purchase_orders po
-          on po.id = iaa.purchase_order_id
-
-        join dispensing_points dp
-          on dp.id = iaa.dispensing_point_id
-
+        -- Ambas FK son NOT NULL y referencian claves primarias.
+        -- Estos JOIN no filtran filas ni modifican la suma.
         where iaa.authorization_item_id = i.id
 
           and iaa.status in (
