@@ -15,7 +15,7 @@
     "test:legacy-scan": "node scripts/check-legacy-operational-usage.mjs",
     "reconciliation:run": "pnpm --filter @authorization/api reconciliation:run",
     "integration:setup": "node scripts/setup-integration.mjs",
-    "test:integration": "pnpm integration:setup && API_HOST_PORT=3003 vitest run --config tests/vitest.integration.config.ts",
+    "test:integration": "node scripts/run-integration.mjs",
     "format:check": "prettier --check .",
     "db:generate": "pnpm --filter @authorization/database db:generate",
     "db:migrate": "pnpm --filter @authorization/database db:migrate",

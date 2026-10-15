@@ -1114,7 +1114,7 @@ const [
 
 
 const query = useApiData(
-    () =>
+    (signal) =>
       listAuthorizationQuery(organizationId, {
         page,
         limit: pageSize,
@@ -1149,7 +1149,7 @@ const query = useApiData(
         ...authorizationUnifiedStatusFilters(
           appliedFilters.status,
         ),
-      }),
+      }, signal),
     [
       organizationId,
       appliedFilters,

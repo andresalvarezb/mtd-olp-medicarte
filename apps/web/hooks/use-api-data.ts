@@ -18,7 +18,7 @@ interface UseApiDataResult<T> {
 
 /** Obtiene datos de la API y reconcilia en segundo plano tras invalidaciones realtime. */
 export function useApiData<T>(
-  fetcher: () => Promise<T>,
+  fetcher: (signal: AbortSignal) => Promise<T>,
   deps: unknown[],
   realtimeTopics: readonly RealtimeTopic[] = [],
 ): UseApiDataResult<T> {
@@ -47,10 +47,12 @@ export function useApiData<T>(
     let cancelled =
       false;
 
+    const controller = new AbortController();
+
     setLoading(true);
     setError(null);
 
-    fetcher()
+    fetcher(controller.signal)
       .then((result) => {
         if (
           cancelled ||
@@ -112,6 +114,7 @@ export function useApiData<T>(
     return () => {
       cancelled =
         true;
+      controller.abort();
     };
   }, [
     ...deps,

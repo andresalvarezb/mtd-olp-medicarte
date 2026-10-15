@@ -339,6 +339,7 @@ export function listAuthorizationQuery(
 
   filters:
     AuthorizationQueryFilters,
+  signal?: AbortSignal,
 ) {
   const params =
     new URLSearchParams();
@@ -439,6 +440,7 @@ export function listAuthorizationQuery(
     `/authorization-query?${params}`,
     {
       organizationId,
+      ...(signal ? { signal } : {}),
     },
   );
 }

@@ -83,7 +83,7 @@ const JOB_COLUMNS = sql`
   confirmed_at, completed_at, cancelled_at
 `;
 
-const BULK_IMPORT_ROW_STAGING_BATCH_SIZE = 200;
+const BULK_IMPORT_ROW_STAGING_BATCH_SIZE = 400;
 
 function asIso(value: Date | string | null): string | null {
   if (value == null) return null;
@@ -319,10 +319,13 @@ export class BulkImportRepository {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
 
   async hasDuplicateHash(createdBy: string, fileHash: string): Promise<boolean> {
-    const result = await this.database.db.execute<{ n: string }>(sql`
-      select count(*)::text n from bulk_import_jobs where created_by = ${createdBy} and file_hash = ${fileHash}
+    const result = await this.database.db.execute<{ duplicated: boolean }>(sql`
+      select exists (
+        select 1 from bulk_import_jobs
+        where created_by = ${createdBy} and file_hash = ${fileHash}
+      ) as duplicated
     `);
-    return Number(result.rows[0]?.n ?? 0) > 0;
+    return result.rows[0]?.duplicated === true;
   }
 
   async findActiveTariffAnnexProducts(
@@ -389,11 +392,19 @@ export class BulkImportRepository {
     importType?: 'AUTHORIZATIONS' | 'SCHEDULING';
   }): Promise<BulkImportJobResponse> {
     return this.database.db.transaction(async (tx) => {
-      const validRows = input.rows.filter((row) => row.validationStatus === 'VALID').length;
-      const invalidRows = input.rows.filter((row) => row.validationStatus === 'INVALID').length;
-      const duplicateRows = input.rows.filter((row) => row.validationStatus === 'DUPLICATE').length;
-      const warningRows = input.rows.filter((row) => row.validationStatus === 'CONFLICT').length;
-      const skippedRows = input.rows.filter((row) => row.executionStatus === 'SKIPPED').length;
+      let validRows = 0;
+      let invalidRows = 0;
+      let duplicateRows = 0;
+      let warningRows = 0;
+      let skippedRows = 0;
+
+      for (const row of input.rows) {
+        if (row.validationStatus === 'VALID') validRows++;
+        if (row.validationStatus === 'INVALID') invalidRows++;
+        if (row.validationStatus === 'DUPLICATE') duplicateRows++;
+        if (row.validationStatus === 'CONFLICT') warningRows++;
+        if (row.executionStatus === 'SKIPPED') skippedRows++;
+      }
       const authorizationBatch = await tx.execute<{ id: string }>(sql`
         insert into import_batches
           (organization_id, created_by, original_filename, mime_type, size_bytes, sha256, processor_version, status, total_rows, valid_rows, rejected_rows)
@@ -611,12 +622,14 @@ export class BulkImportRepository {
 
   async listRows(
     jobId: string,
-    filter: 'ALL' | 'VALID' | 'INVALID' | 'EXECUTED' | 'FAILED',
+    filter: 'ALL' | 'VALID' | 'INVALID' | 'EXECUTED' | 'FAILED' | 'REJECTED',
     actor?: Scope,
   ): Promise<BulkImportRowResponse[]> {
     const where =
       filter === 'VALID'
         ? sql`validation_status = 'VALID'`
+        : filter === 'REJECTED'
+          ? sql`(validation_status <> 'VALID' or execution_status = 'FAILED')`
         : filter === 'INVALID'
           ? sql`validation_status in ('INVALID', 'DUPLICATE', 'CONFLICT')`
           : filter === 'EXECUTED'

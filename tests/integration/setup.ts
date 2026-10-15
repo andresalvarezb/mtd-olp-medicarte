@@ -1,12 +1,16 @@
 import { Client } from 'pg';
 
+const integrationPort =
+  process.env.POSTGRES_HOST_PORT ??
+  (process.env.INTEGRATION_ANNULMENT_ISOLATED === '1' ? '26432' : '25432');
+
 const databaseUrl =
   process.env.DATABASE_URL ??
-  'postgresql://authorization:authorization@localhost:25432/authorization_test_integration';
+  `postgresql://authorization:authorization@localhost:${integrationPort}/authorization_test_integration`;
 const parsed = new URL(databaseUrl);
 if (
   parsed.hostname !== 'localhost' ||
-  parsed.port !== (process.env.INTEGRATION_ANNULMENT_ISOLATED === '1' ? '26432' : '25432') ||
+  parsed.port !== integrationPort ||
   parsed.pathname !== '/authorization_test_integration'
 ) {
   throw new Error(
