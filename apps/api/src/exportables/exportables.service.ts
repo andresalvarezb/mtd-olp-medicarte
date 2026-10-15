@@ -180,28 +180,20 @@ function appendRecordSheet(
       unknown
     >[],
 ): void {
-  const matrix:
-    SpreadsheetValue[][] =
-      [
-        [
-          ...columns,
-        ],
+  // Evitar duplicar toda la matriz antes de construir la hoja.
+  const sheet = XLSX.utils.aoa_to_sheet([[...columns]]);
 
-        ...rows.map(
-          (row) =>
-            columns.map(
-              (column) =>
-                safeSpreadsheetValue(
-                  row[column],
-                ),
-            ),
-        ),
-      ];
+  for (let offset = 0; offset < rows.length; offset += 1000) {
+    const batch: SpreadsheetValue[][] = rows
+      .slice(offset, offset + 1000)
+      .map((row) =>
+        columns.map((column) => safeSpreadsheetValue(row[column])),
+      );
 
-  const sheet =
-    XLSX.utils.aoa_to_sheet(
-      matrix,
-    );
+    XLSX.utils.sheet_add_aoa(sheet, batch, {
+      origin: { r: offset + 1, c: 0 },
+    });
+  }
 
   sheet['!cols'] =
     columns.map(

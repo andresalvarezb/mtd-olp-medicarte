@@ -397,7 +397,8 @@ export class BulkImportService {
     let rejected: string[][];
 
     if (current) {
-      const rows = await this.repository.listRows(jobId, 'ALL', actor);
+      const reportFilter = current.status === 'PROCESSING' ? 'ALL' : 'REJECTED';
+      const rows = await this.repository.listRows(jobId, reportFilter, actor);
       const expired = current.status === 'PROCESSING'
         ? await this.repository.listExpiredClaimRowNumbers(jobId, actor)
         : [];
@@ -432,15 +433,20 @@ export class BulkImportService {
       ]);
     }
 
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['CLAVE_AUTORIZACION', 'DESCRIPCION_ERROR'],
+    ]);
+
+    for (let offset = 0; offset < rejected.length; offset += 1000) {
+      XLSX.utils.sheet_add_aoa(
+        sheet,
+        rejected.slice(offset, offset + 1000),
+        { origin: { r: offset + 1, c: 0 } },
+      );
+    }
+
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.aoa_to_sheet([
-        ['CLAVE_AUTORIZACION', 'DESCRIPCION_ERROR'],
-        ...rejected,
-      ]),
-      'RECHAZADAS',
-    );
+    XLSX.utils.book_append_sheet(workbook, sheet, 'RECHAZADAS');
     return XLSX.write(workbook, {
       type: 'buffer', bookType: 'xlsx',
     }) as Buffer;

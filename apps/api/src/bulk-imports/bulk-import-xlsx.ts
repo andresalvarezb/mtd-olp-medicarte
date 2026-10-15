@@ -200,6 +200,7 @@ export function parseAuthorizationWorkbook(content: Buffer): {
   const firstRow: unknown[] = matrix[0] ?? [];
   const headers: string[] = firstRow.map((value: unknown) => sanitizeHeader(value));
   const authorizationColumns = [...AUTHORIZATION_IMPORT_COLUMNS];
+  const authorizationColumnSet = new Set<string>(authorizationColumns);
   const missing = authorizationColumns.filter((column) => !headers.includes(column));
   if (missing.length > 0) {
     throw new BulkImportFileError('INVALID_HEADERS', `Missing required columns: ${missing.join(', ')}`);
@@ -213,7 +214,7 @@ export function parseAuthorizationWorkbook(content: Buffer): {
     for (const [columnIndex, cell] of cells.entries()) {
       const column = headers[columnIndex] ?? `COLUMNA_${columnIndex + 1}`;
       rawData[column] = cell;
-      if (authorizationColumns.includes(column as (typeof AUTHORIZATION_IMPORT_COLUMNS)[number])) {
+      if (authorizationColumnSet.has(column)) {
         values[column as (typeof AUTHORIZATION_IMPORT_COLUMNS)[number]] = cell;
       }
     }
@@ -334,19 +335,28 @@ export function buildBulkImportResultWorkbook(
     'FECHA_ASIGNACION',
     'CANTIDAD',
   ];
-  const body = rows.map((row) => [
-    row.rowNumber,
-    row.executionStatus,
-    row.errorCode,
-    row.errorMessage,
-    row.entityReference,
-    row.authorizationNumber,
-    row.commercialCode,
-    row.dispensingPointCode,
-    row.assignmentDate,
-    row.quantity,
-  ]);
+  const sheet = XLSX.utils.aoa_to_sheet([header]);
+
+  for (let offset = 0; offset < rows.length; offset += 1000) {
+    const batch = rows.slice(offset, offset + 1000).map((row) => [
+      row.rowNumber,
+      row.executionStatus,
+      row.errorCode,
+      row.errorMessage,
+      row.entityReference,
+      row.authorizationNumber,
+      row.commercialCode,
+      row.dispensingPointCode,
+      row.assignmentDate,
+      row.quantity,
+    ]);
+
+    XLSX.utils.sheet_add_aoa(sheet, batch, {
+      origin: { r: offset + 1, c: 0 },
+    });
+  }
+
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([header, ...body]), 'RESULTADO');
+  XLSX.utils.book_append_sheet(workbook, sheet, 'RESULTADO');
   return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
