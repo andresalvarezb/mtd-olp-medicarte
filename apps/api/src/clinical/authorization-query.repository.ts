@@ -4127,7 +4127,67 @@ export class AuthorizationQueryRepository {
           po_link.id
       `);
 
-    return result.rows.map(
+    const physicalLinks =
+      await this.database.db.execute<{
+        id: string;
+        purchase_order_code: string | null;
+        source_quantity: number;
+        available_quantity: number;
+        dispensing_point_code: string | null;
+        dispensing_point_name: string | null;
+      }>(sql`
+        select
+          po.id,
+          po.purchase_order_code,
+          0::int as source_quantity,
+          sum(
+            greatest(
+              iaa.allocated_quantity
+                - iaa.consumed_quantity
+                - iaa.released_quantity,
+              0
+            )
+          )::int as available_quantity,
+          string_agg(distinct dp.code, ', ')
+            as dispensing_point_code,
+          string_agg(distinct dp.name, ', ')
+            as dispensing_point_name
+        from inventory_authorization_allocations iaa
+        join purchase_orders po
+          on po.id = iaa.purchase_order_id
+        left join dispensing_points dp
+          on dp.id = iaa.dispensing_point_id
+        where iaa.authorization_item_id = ${authorizationItemId}
+          and iaa.status in (
+            'ALLOCATED', 'PARTIALLY_CONSUMED'
+          )
+          and greatest(
+            iaa.allocated_quantity
+              - iaa.consumed_quantity
+              - iaa.released_quantity,
+            0
+          ) > 0
+          and po.status not in (
+            'CANCELLED', 'REJECTED'
+          )
+        group by
+          po.id,
+          po.purchase_order_code
+      `);
+
+    const linkedRows = [...result.rows];
+    const linkedIds = new Set(
+      linkedRows.map((row) => row.id),
+    );
+
+    for (const row of physicalLinks.rows) {
+      if (!linkedIds.has(row.id)) {
+        linkedRows.push(row);
+        linkedIds.add(row.id);
+      }
+    }
+
+    return linkedRows.map(
       (row) => ({
         id:
           row.id,
@@ -4755,6 +4815,26 @@ export class AuthorizationQueryRepository {
             and po_linked_status.status not in (
               'CANCELLED',
               'REJECTED'
+            )
+        )
+        or exists (
+          select 1
+          from inventory_authorization_allocations iaa_linked_status
+          join purchase_orders po_inventory_linked
+            on po_inventory_linked.id =
+               iaa_linked_status.purchase_order_id
+          where iaa_linked_status.authorization_item_id = i.id
+            and iaa_linked_status.status in (
+              'ALLOCATED', 'PARTIALLY_CONSUMED'
+            )
+            and greatest(
+              iaa_linked_status.allocated_quantity
+                - iaa_linked_status.consumed_quantity
+                - iaa_linked_status.released_quantity,
+              0
+            ) > 0
+            and po_inventory_linked.status not in (
+              'CANCELLED', 'REJECTED'
             )
         )
           as has_linked_purchase_order,

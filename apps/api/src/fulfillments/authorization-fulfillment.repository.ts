@@ -930,7 +930,7 @@ export class AuthorizationFulfillmentRepository {
         : scope.organizationCode ===
             'MEDICARTE'
           ? sql`
-              exists (
+              (exists (
                 select 1
 
                 from
@@ -956,6 +956,26 @@ export class AuthorizationFulfillmentRepository {
                     'REJECTED'
                   )
               )
+              or exists (
+                select 1
+                from inventory_authorization_allocations iaa
+                join purchase_orders po_inventory
+                  on po_inventory.id = iaa.purchase_order_id
+                where iaa.authorization_item_id = i.id
+                  and po_inventory.purchase_order_code = ${purchaseOrderCode}
+                  and po_inventory.status not in (
+                    'CANCELLED', 'REJECTED'
+                  )
+                  and iaa.status in (
+                    'ALLOCATED', 'PARTIALLY_CONSUMED'
+                  )
+                  and greatest(
+                    iaa.allocated_quantity
+                      - iaa.consumed_quantity
+                      - iaa.released_quantity,
+                    0
+                  ) > 0
+              ))
             `
 
           : sql`

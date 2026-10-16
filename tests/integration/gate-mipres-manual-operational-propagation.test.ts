@@ -534,7 +534,7 @@ describe('W4 MIPRES manual operational propagation', () => {
     expect(enabled.results[0]?.errorCode).not.toBe('PURCHASE_ORDER_DESTINATION_NOT_ENABLED');
   });
 
-  it('inventory blocks pending and disabled while enabled reaches schedule gate', async () => {
+  it('inventory blocks pending and disabled while enabled reaches point validation', async () => {
     const repository = new InventoryAvailabilityRepository(database);
 
     await expect(
@@ -589,7 +589,7 @@ describe('W4 MIPRES manual operational propagation', () => {
 
         'UI',
       ),
-    ).rejects.toThrow('INVENTORY_ALLOCATION_SCHEDULE_REQUIRED');
+    ).rejects.toThrow('INVENTORY_ALLOCATION_POINT_REQUIRED');
   });
 
   it('fulfillment blocks pending and disabled while enabled reaches allocation gate', async () => {
