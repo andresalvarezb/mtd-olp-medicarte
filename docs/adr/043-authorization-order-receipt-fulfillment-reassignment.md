@@ -404,3 +404,68 @@ producto por producto para BUCARAMANGA.
 
 `product_delivery_point_mappings` permanece como fallback para autorizaciones
 sin programación activa.
+
+
+## 2026-10-15 — Corrección de regresión en asignación desde OC
+
+- Para una OC existente y `CLAVE_AUTORIZACION_ORIGEN` vacía,
+  la plantilla V2/V3 reserva existencias recibidas del producto
+  en el punto correspondiente. No crea cantidades de compra.
+- `purchase_order_lines.requested_quantity` permanece intacto.
+- `purchase_order_authorization_sources` no se modifica para
+  representar una nueva reserva física.
+- La materialización se registra mediante
+  `inventory_allocation_batches` e
+  `inventory_authorization_allocations`.
+- Una OC nueva conserva su creación comercial.
+- Una reasignación con origen explícito conserva el
+  comportamiento 1:1 sin modificar cantidades compradas.
+- El evento `PURCHASE_ORDER_AVAILABLE_ASSIGNED` distingue
+  la reserva física de una ampliación de compra.
+- El evento incluye actor, correlación, OC, producto, punto,
+  autorización destino, cantidad y lote de asignación.
+- MEDICARTE puede consultar y consumir reservas físicas
+  aunque no se cree una fuente de compra nueva.
+- Las líneas indebidas creadas el 15 de octubre son un
+  incidente histórico de producción que requiere una
+  reconciliación supervisada y auditoría independiente.
+
+
+## 2026-10-16 — Consistencia de disponibilidad de OC existente (corrección local)
+
+Implementación pendiente de pruebas finales e integración: **NO desplegada**.
+
+- Una reserva `ASSIGN_AVAILABLE` compara dos límites en una misma transacción:
+  disponibilidad `OC+producto+punto` y saldo global `OC+producto`. El mínimo
+  determina la cantidad admitida. Las reservas pendientes del mismo archivo
+  se descuentan de ambos límites antes de insertar.
+- Para `quantity-only`, la recepción moderna persistida en
+  `purchase_order_receipt_lines` es fuente válida de entrada, aunque
+  `inventory_lots` e `inventory_movements` estén vacías. El modelo histórico
+  sigue contando **solo entradas** `RECEIPT` válidas y no vencidas;
+  además, si no existe recepción moderna para la OC/producto, la reserva
+  se limita al balance FEFO utilizable del ledger legado (descontando reservas
+  activas del mismo producto/punto de todas las OC).
+- Los consumos se toman de `authorization_fulfillment_lines` y las reservas
+  pendientes de `inventory_authorization_allocations`. No se suman dos veces
+  las allocations ya consumidas. Una liberación histórica no es reserva activa.
+- El lock advisory `OC_PRODUCT_ALLOCATION:<OC_UUID>:<CODIGO>` se adquiere en
+  asignación UI/XLSX y en el importador hacia OC existente; también se conserva
+  el lock por punto y el lock de reconciliación existente.
+- La consulta de disponibilidad aplica el mismo límite global, sin dar a otro
+  punto saldo de una OC ya consumido o comprometido.
+- La clave numérica `numero_autorizacion` del archivo se resuelve junto al
+  código comercial; también se admite `authorization_key` persistida. Se
+  rechazan identidades duplicadas o ambiguas.
+- Cuando la línea OC no contiene punto, se usa mapping canónico solo si es
+  inequívoco. Nunca se multiplica la recepción por múltiples filas del AT.
+- La ruta de asignación directa resuelve punto mediante programación activa,
+  punto habitual y mapping canónico, con errores explícitos por ambigüedad.
+- No se editan `requested_quantity`, `purchase_order_authorization_sources`,
+  recepciones ni reservas históricas. No se liberan automáticamente AUTOs
+  vencidas o administrativamente bloqueadas.
+
+**Criterios de certificación pendientes:** pruebas unitarias,
+`pnpm lint`, `pnpm --filter @authorization/api typecheck`, build, suite
+de integración PostgreSQL real, concurrencia entre importador/UI y
+conciliación sobre OC 9198/9218/9230, sin intervenir producción.

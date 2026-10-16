@@ -10,7 +10,7 @@ import { DATABASE } from '../tokens';
 import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 import {
-  calculateUnassignedAvailability,
+  calculateAssignableAvailability,
 } from './inventory-availability-balance';
 
 import type { InventoryAvailabilityImportRow } from './inventory-availability-xlsx';
@@ -273,6 +273,9 @@ export class InventoryAvailabilityRepository {
 
         assigned_quantity:
           number;
+        global_received_quantity: number;
+        global_fulfilled_quantity: number;
+        global_assigned_quantity: number;
       }>(sql`
         WITH
         po_products AS (
@@ -633,60 +636,22 @@ export class InventoryAvailabilityRepository {
               ON pol.id =
                  porl.purchase_order_line_id
 
-          LEFT JOIN
-            tariff_annex_products tap
-              ON tap.codigo_producto =
-                 pol.commercial_code
-
-             AND tap.active =
-                 true
-
-          LEFT JOIN
-            product_delivery_point_mappings mapping
-              ON pol.dispensing_point_id
-                 IS NULL
-
-             AND BTRIM(
-                   COALESCE(
-                     tap.numero_expediente_invima,
-                     ''
-                   )
-                 ) ~ '^[0-9]+$'
-
-             AND BTRIM(
-                   COALESCE(
-                     tap.consecutivo_invima_presentacion,
-                     ''
-                   )
-                 ) ~ '^[0-9]+$'
-
-             AND mapping.invima_record_normalized =
-                 COALESCE(
-                   NULLIF(
-                     LTRIM(
-                       BTRIM(
-                         tap.numero_expediente_invima
-                       ),
-                       '0'
-                     ),
-                     ''
-                   ),
-                   '0'
-                 )
-
-             AND mapping.invima_presentation_normalized =
-                 COALESCE(
-                   NULLIF(
-                     LTRIM(
-                       BTRIM(
-                         tap.consecutivo_invima_presentacion
-                       ),
-                       '0'
-                     ),
-                     ''
-                   ),
-                   '0'
-                 )
+          /* Un solo mapping por producto: evitar duplicar el recibido
+             cuando hay múltiples filas de anexo tarifario. */
+          LEFT JOIN LATERAL (
+            SELECT (ARRAY_AGG(DISTINCT m.dispensing_point_id))[1] AS dispensing_point_id
+            FROM tariff_annex_products tap
+            JOIN product_delivery_point_mappings m
+              ON m.invima_record_normalized =
+                 COALESCE(NULLIF(LTRIM(BTRIM(tap.numero_expediente_invima), '0'), ''), '0')
+             AND m.invima_presentation_normalized =
+                 COALESCE(NULLIF(LTRIM(BTRIM(tap.consecutivo_invima_presentacion), '0'), ''), '0')
+            WHERE tap.codigo_producto = pol.commercial_code
+              AND tap.active = TRUE
+              AND BTRIM(COALESCE(tap.numero_expediente_invima, '')) ~ '^[0-9]+$'
+              AND BTRIM(COALESCE(tap.consecutivo_invima_presentacion, '')) ~ '^[0-9]+$'
+            HAVING COUNT(DISTINCT m.dispensing_point_id) = 1
+          ) mapping ON pol.dispensing_point_id IS NULL
 
           WHERE
             porl.received_quantity >
@@ -749,6 +714,15 @@ export class InventoryAvailabilityRepository {
 
             AND im.source_type =
               'RECEIPT_LINE'
+
+            AND NOT EXISTS (
+              SELECT 1 FROM purchase_order_receipt_lines direct_porl
+              JOIN purchase_order_receipts direct_por ON direct_por.id = direct_porl.receipt_id
+              JOIN purchase_order_lines direct_pol ON direct_pol.id = direct_porl.purchase_order_line_id
+              WHERE direct_por.purchase_order_id = d.purchase_order_id
+                AND direct_pol.commercial_code = dl.commercial_code
+                AND direct_porl.received_quantity > 0
+            )
 
             AND im.quantity_delta >
               0
@@ -860,6 +834,25 @@ export class InventoryAvailabilityRepository {
             iaa.purchase_order_id,
             iaa.commercial_code,
             iaa.dispensing_point_id
+        ),
+
+        received_global AS (
+          SELECT purchase_order_id, commercial_code,
+                 SUM(received_quantity)::int AS quantity
+          FROM received
+          GROUP BY purchase_order_id, commercial_code
+        ),
+        fulfilled_global AS (
+          SELECT purchase_order_id, commercial_code,
+                 SUM(fulfilled_quantity)::int AS quantity
+          FROM fulfilled
+          GROUP BY purchase_order_id, commercial_code
+        ),
+        assigned_global AS (
+          SELECT purchase_order_id, commercial_code,
+                 SUM(assigned_quantity)::int AS quantity
+          FROM assigned
+          GROUP BY purchase_order_id, commercial_code
         )
 
 
@@ -903,7 +896,11 @@ export class InventoryAvailabilityRepository {
             assigned.assigned_quantity,
             0
           )::int
-            AS assigned_quantity
+            AS assigned_quantity,
+
+          COALESCE(received_global.quantity, 0)::int AS global_received_quantity,
+          COALESCE(fulfilled_global.quantity, 0)::int AS global_fulfilled_quantity,
+          COALESCE(assigned_global.quantity, 0)::int AS global_assigned_quantity
 
         FROM
           po_product_points ppp
@@ -955,6 +952,18 @@ export class InventoryAvailabilityRepository {
                IS NOT DISTINCT FROM
                ppp.dispensing_point_id
 
+        LEFT JOIN received_global
+          ON received_global.purchase_order_id = ppp.purchase_order_id
+         AND received_global.commercial_code = ppp.commercial_code
+
+        LEFT JOIN fulfilled_global
+          ON fulfilled_global.purchase_order_id = ppp.purchase_order_id
+         AND fulfilled_global.commercial_code = ppp.commercial_code
+
+        LEFT JOIN assigned_global
+          ON assigned_global.purchase_order_id = ppp.purchase_order_id
+         AND assigned_global.commercial_code = ppp.commercial_code
+
         WHERE
           ${sql.join(
             conditions,
@@ -1001,10 +1010,13 @@ export class InventoryAvailabilityRepository {
               );
 
             const availableQuantity =
-              calculateUnassignedAvailability(
+              calculateAssignableAvailability(
                 receivedQuantity,
                 fulfilledQuantity,
                 assignedQuantity,
+                Math.max(Number(row.global_received_quantity), 0),
+                Math.max(Number(row.global_fulfilled_quantity), 0),
+                Math.max(Number(row.global_assigned_quantity), 0),
               );
 
             const pendingReceiptQuantity =
@@ -2084,37 +2096,64 @@ export class InventoryAvailabilityRepository {
 
     const auth = authorization.rows[0]!;
 
-    const schedule = await tx.execute<{
-      dispensing_point_id: string;
-    }>(sql`
-        SELECT
-          ps.dispensing_point_id
-
-        FROM
-          patient_schedules ps
-
-        WHERE
-          ps.authorization_item_id =
-            ${auth.id}
-
-          AND ps.status IN (
-            'SCHEDULED',
-            'RESCHEDULED'
-          )
-
-        ORDER BY
-          ps.scheduled_date DESC,
-          ps.revision DESC,
-          ps.created_at DESC,
-          ps.id DESC
-
-        LIMIT 1
-      `);
-
-    const dispensingPointId = schedule.rows[0]?.dispensing_point_id;
+    const scheduled = await tx.execute<{ dispensing_point_id: string }>(sql`
+      SELECT DISTINCT ps.dispensing_point_id
+      FROM patient_schedules ps
+      WHERE ps.authorization_item_id = ${auth.id}
+        AND ps.status IN ('SCHEDULED', 'RESCHEDULED')
+      LIMIT 2
+    `);
+    if (scheduled.rows.length > 1) {
+      throw new Error('INVENTORY_ALLOCATION_SCHEDULE_POINT_AMBIGUOUS');
+    }
+    let dispensingPointId = scheduled.rows[0]?.dispensing_point_id;
 
     if (!dispensingPointId) {
-      throw new Error('INVENTORY_ALLOCATION_SCHEDULE_REQUIRED');
+      const defaults = await tx.execute<{ dispensing_point_id: string }>(sql`
+        SELECT DISTINCT pdp.dispensing_point_id
+        FROM authorization_items ai
+        JOIN patient_default_dispensing_points pdp
+          ON pdp.patient_document = COALESCE(
+            NULLIF(BTRIM(ai.source_data ->> 'IDENTIFICACION_PACIENTE'), ''),
+            NULLIF(BTRIM(ai.source_data ->> 'NUM_DOCUMENTO'), '')
+          )
+         AND pdp.active = TRUE
+        WHERE ai.id = ${auth.id}
+        LIMIT 2
+      `);
+      if (defaults.rows.length > 1) {
+        throw new Error('INVENTORY_ALLOCATION_PATIENT_POINT_AMBIGUOUS');
+      }
+      dispensingPointId = defaults.rows[0]?.dispensing_point_id;
+    }
+    if (!dispensingPointId) {
+      const mappings = await tx.execute<{ dispensing_point_id: string }>(sql`
+        SELECT DISTINCT m.dispensing_point_id
+        FROM tariff_annex_products tap
+        JOIN product_delivery_point_mappings m
+          ON m.invima_record_normalized =
+             COALESCE(NULLIF(LTRIM(BTRIM(tap.numero_expediente_invima), '0'), ''), '0')
+         AND m.invima_presentation_normalized =
+             COALESCE(NULLIF(LTRIM(BTRIM(tap.consecutivo_invima_presentacion), '0'), ''), '0')
+        WHERE tap.codigo_producto = ${auth.commercial_code}
+          AND tap.active = TRUE
+          AND BTRIM(COALESCE(tap.numero_expediente_invima, '')) ~ '^[0-9]+$'
+          AND BTRIM(COALESCE(tap.consecutivo_invima_presentacion, '')) ~ '^[0-9]+$'
+        LIMIT 2
+      `);
+      if (mappings.rows.length > 1) {
+        throw new Error('INVENTORY_ALLOCATION_PRODUCT_POINT_AMBIGUOUS');
+      }
+      dispensingPointId = mappings.rows[0]?.dispensing_point_id;
+    }
+    if (!dispensingPointId) {
+      throw new Error('INVENTORY_ALLOCATION_POINT_REQUIRED');
+    }
+    const point = await tx.execute<{ active: boolean }>(sql`
+      SELECT active FROM dispensing_points WHERE id = ${dispensingPointId}
+    `);
+    if (point.rows[0]?.active !== true) {
+      throw new Error('INVENTORY_ALLOCATION_POINT_INACTIVE');
     }
 
     const orderSql = lock ? sql`FOR UPDATE` : sql``;
@@ -2172,47 +2211,50 @@ export class InventoryAvailabilityRepository {
     const order = purchaseOrder.rows[0]!;
 
     if (lock) {
+      // GLOBAL primero: mismo lock que importador de OC existente.
       await tx.execute(sql`
-        SELECT
-          pg_advisory_xact_lock(
-            hashtextextended(
-              ${[order.id, auth.commercial_code, dispensingPointId].join(':')},
-              0::bigint
-            )
-          )
+        SELECT pg_advisory_xact_lock(hashtextextended(
+          ${`OC_PRODUCT_ALLOCATION:${order.id}:${auth.commercial_code}`}, 0::bigint
+        ))
+      `);
+      await tx.execute(sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(
+          ${[order.id, auth.commercial_code, dispensingPointId].join(':')}, 0::bigint
+        ))
+      `);
+      await tx.execute(sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(
+          ${`OC_AUTO_ALLOCATION:${order.id}:${auth.commercial_code}:${dispensingPointId}`}, 0::bigint
+        ))
+      `);
+      await tx.execute(sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(
+          ${`INVENTORY_PHYSICAL:${auth.commercial_code}:${dispensingPointId}`}, 0::bigint
+        ))
       `);
     }
 
+    /*
+     * Una entrega histórica puede existir sin allocation vigente. No
+     * reservar nuevamente unidades ya atendidas de esa AUTO.
+     */
     const authorizationAllocated = await tx.execute<{
       quantity: number;
     }>(sql`
-        SELECT
-          COALESCE(
-            SUM(
-              GREATEST(
-                allocated_quantity
-                -
-                released_quantity,
-                0
-              )
-            ),
-            0
-          )::int
-            AS quantity
-
-        FROM
-          inventory_authorization_allocations
-
-        WHERE
-          authorization_item_id =
-            ${auth.id}
-
-          AND status IN (
-            'ALLOCATED',
-            'PARTIALLY_CONSUMED',
-            'CONSUMED'
-          )
-      `);
+      SELECT GREATEST(
+        COALESCE((
+          SELECT SUM(GREATEST(allocated_quantity - released_quantity, 0))
+          FROM inventory_authorization_allocations
+          WHERE authorization_item_id = ${auth.id}
+            AND status IN ('ALLOCATED', 'PARTIALLY_CONSUMED', 'CONSUMED')
+        ), 0),
+        COALESCE((
+          SELECT SUM(quantity)
+          FROM authorization_fulfillments
+          WHERE authorization_item_id = ${auth.id}
+        ), 0)
+      )::int AS quantity
+    `);
 
     const authorizationPending = Math.max(
       auth.authorized_quantity - (authorizationAllocated.rows[0]?.quantity ?? 0),
@@ -2223,186 +2265,139 @@ export class InventoryAvailabilityRepository {
       throw new Error('INVENTORY_ALLOCATION_EXCEEDS_AUTHORIZATION_PENDING');
     }
 
-    const received = await tx.execute<{
-      quantity: number;
+    /*
+     * Fuente canónica: recepción moderna quantity-only + movimientos
+     * históricos RECEIPT (sin duplicar aplicaciones ni crear lotes).
+     * El límite global incluye TODAS las sedes de la misma OC/producto.
+     */
+    const availability = await tx.execute<{
+      point_available_quantity: number;
+      global_available_quantity: number;
+      has_direct_receipt: boolean;
     }>(sql`
-        SELECT
-          COALESCE(
-            SUM(
-              rl.accepted_quantity
-            ),
-            0
-          )::int
-            AS quantity
+      WITH receipt_events AS (
+        SELECT por.purchase_order_id,
+               pol.commercial_code,
+               COALESCE(pol.dispensing_point_id, mapping.dispensing_point_id)
+                 AS dispensing_point_id,
+               SUM(porl.received_quantity)::int AS quantity
+        FROM purchase_order_receipt_lines porl
+        JOIN purchase_order_receipts por ON por.id = porl.receipt_id
+        JOIN purchase_order_lines pol ON pol.id = porl.purchase_order_line_id
+        LEFT JOIN LATERAL (
+          SELECT (ARRAY_AGG(DISTINCT m.dispensing_point_id))[1] AS dispensing_point_id
+          FROM tariff_annex_products tap
+          JOIN product_delivery_point_mappings m
+            ON m.invima_record_normalized =
+               COALESCE(NULLIF(LTRIM(BTRIM(tap.numero_expediente_invima), '0'), ''), '0')
+           AND m.invima_presentation_normalized =
+               COALESCE(NULLIF(LTRIM(BTRIM(tap.consecutivo_invima_presentacion), '0'), ''), '0')
+          WHERE tap.codigo_producto = pol.commercial_code
+            AND tap.active = true
+            AND BTRIM(COALESCE(tap.numero_expediente_invima, '')) ~ '^[0-9]+$'
+            AND BTRIM(COALESCE(tap.consecutivo_invima_presentacion, '')) ~ '^[0-9]+$'
+          HAVING COUNT(DISTINCT m.dispensing_point_id) = 1
+        ) mapping ON pol.dispensing_point_id IS NULL
+        WHERE por.purchase_order_id = ${order.id}
+          AND pol.commercial_code = ${auth.commercial_code}
+          AND porl.received_quantity > 0
+        GROUP BY por.purchase_order_id, pol.commercial_code,
+                 COALESCE(pol.dispensing_point_id, mapping.dispensing_point_id)
 
-        FROM
-          receipts r
+        UNION ALL
 
-        JOIN
-          receipt_lines rl
-            ON rl.receipt_id =
-               r.id
-
-        JOIN
-          delivery_lines dl
-            ON dl.id =
-               rl.delivery_line_id
-
-        JOIN
-          deliveries d
-            ON d.id =
-               dl.delivery_id
-
-        WHERE
-          r.status =
-            'CONFIRMED'
-
-          AND d.purchase_order_id =
-            ${order.id}
-
-          AND dl.commercial_code =
-            ${auth.commercial_code}
-
-          AND dl.dispensing_point_id =
-            ${dispensingPointId}
-
-          AND rl.accepted_quantity
-            >
-            0
-
-          AND rl.received_expiration_date
-            >=
-            (
-              NOW()
-              AT TIME ZONE
-              'America/Bogota'
-            )::date
-      `);
-
-    const allocationState = await tx.execute<{
-      consumed: number;
-      assigned: number;
-    }>(sql`
-        SELECT
-          COALESCE(
-            SUM(
-              consumed_quantity
-            ),
-            0
-          )::int
-            AS consumed,
-
-          COALESCE(
-            SUM(
-              CASE
-                WHEN status IN (
-                  'ALLOCATED',
-                  'PARTIALLY_CONSUMED'
-                )
-                THEN GREATEST(
-                  allocated_quantity
-                  -
-                  consumed_quantity
-                  -
-                  released_quantity,
-                  0
-                )
-
-                ELSE 0
-              END
-            ),
-            0
-          )::int
-            AS assigned
-
-        FROM
-          inventory_authorization_allocations
-
-        WHERE
-          purchase_order_id =
-            ${order.id}
-
-          AND commercial_code =
-            ${auth.commercial_code}
-
-          AND dispensing_point_id =
-            ${dispensingPointId}
-      `);
-
-    const physical = await tx.execute<{
-      usable: number;
-      reserved: number;
-    }>(sql`
-        SELECT
-          COALESCE(
-            (
-              SELECT
-                SUM(
-                  iul.usable_balance
-                )::int
-
-              FROM
-                inventory_usable_lots iul
-
-              WHERE
-                iul.commercial_code =
-                  ${auth.commercial_code}
-
-                AND iul.dispensing_point_id =
-                  ${dispensingPointId}
-            ),
-            0
+        SELECT d.purchase_order_id, dl.commercial_code,
+               il.dispensing_point_id, SUM(im.quantity_delta)::int
+        FROM inventory_movements im
+        JOIN inventory_lots il ON il.id = im.inventory_lot_id
+        JOIN receipt_lines rl ON rl.id = im.source_id
+        JOIN delivery_lines dl ON dl.id = rl.delivery_line_id
+        JOIN deliveries d ON d.id = dl.delivery_id
+        WHERE d.purchase_order_id = ${order.id}
+          AND dl.commercial_code = ${auth.commercial_code}
+          AND im.movement_type = 'RECEIPT'
+          AND im.source_type = 'RECEIPT_LINE'
+          AND NOT EXISTS (
+            select 1 from purchase_order_receipt_lines direct_porl
+            join purchase_order_receipts direct_por
+              on direct_por.id = direct_porl.receipt_id
+            join purchase_order_lines direct_pol
+              on direct_pol.id = direct_porl.purchase_order_line_id
+            where direct_por.purchase_order_id = d.purchase_order_id
+              and direct_pol.commercial_code = dl.commercial_code
+              and direct_porl.received_quantity > 0
           )
-            AS usable,
 
-          COALESCE(
-            (
-              SELECT
-                SUM(
-                  GREATEST(
-                    iaa.allocated_quantity
-                    -
-                    iaa.consumed_quantity
-                    -
-                    iaa.released_quantity,
-                    0
-                  )
-                )::int
+          AND im.quantity_delta > 0
+          AND il.expiration_date >= (NOW() AT TIME ZONE 'America/Bogota')::date
+        GROUP BY d.purchase_order_id, dl.commercial_code, il.dispensing_point_id
+      ),
+      receipts AS (
+        SELECT COALESCE(SUM(quantity) FILTER
+                 (WHERE dispensing_point_id = ${dispensingPointId}), 0)::int AS at_point,
+               COALESCE(SUM(quantity), 0)::int AS total
+        FROM receipt_events
+      ),
+      fulfillments AS (
+        SELECT COALESCE(SUM(quantity) FILTER
+                 (WHERE dispensing_point_id = ${dispensingPointId}), 0)::int AS at_point,
+               COALESCE(SUM(quantity), 0)::int AS total
+        FROM authorization_fulfillment_lines
+        WHERE purchase_order_id = ${order.id}
+          AND commercial_code = ${auth.commercial_code}
+      ),
+      reservations AS (
+        SELECT COALESCE(SUM(GREATEST(allocated_quantity - consumed_quantity - released_quantity, 0))
+                 FILTER (WHERE dispensing_point_id = ${dispensingPointId}), 0)::int AS at_point,
+               COALESCE(SUM(GREATEST(allocated_quantity - consumed_quantity - released_quantity, 0)), 0)::int AS total
+        FROM inventory_authorization_allocations
+        WHERE purchase_order_id = ${order.id}
+          AND commercial_code = ${auth.commercial_code}
+          AND status IN ('ALLOCATED', 'PARTIALLY_CONSUMED')
+      )
+      SELECT GREATEST(receipts.at_point - fulfillments.at_point - reservations.at_point, 0)::int
+               AS point_available_quantity,
+             GREATEST(receipts.total - fulfillments.total - reservations.total, 0)::int
+               AS global_available_quantity,
+             EXISTS (
+               SELECT 1 FROM purchase_order_receipt_lines porl
+               JOIN purchase_order_receipts por ON por.id = porl.receipt_id
+               JOIN purchase_order_lines pol ON pol.id = porl.purchase_order_line_id
+               WHERE por.purchase_order_id = ${order.id}
+                 AND pol.commercial_code = ${auth.commercial_code}
+                 AND porl.received_quantity > 0
+             ) AS has_direct_receipt
+      FROM receipts, fulfillments, reservations
+    `);
 
-              FROM
-                inventory_authorization_allocations iaa
-
-              WHERE
-                iaa.commercial_code =
-                  ${auth.commercial_code}
-
-                AND iaa.dispensing_point_id =
-                  ${dispensingPointId}
-
-                AND iaa.status IN (
-                  'ALLOCATED',
-                  'PARTIALLY_CONSUMED'
-                )
-            ),
-            0
-          )
-            AS reserved
+    let pointAvailable = Number(availability.rows[0]?.point_available_quantity ?? 0);
+    if (!availability.rows[0]?.has_direct_receipt) {
+      /* Ledger histórico: respetar balance físico FEFO actualizado. */
+      const physical = await tx.execute<{ physical_available_quantity: number }>(sql`
+        SELECT GREATEST(
+          COALESCE((
+            SELECT SUM(usable_balance) FROM inventory_usable_lots
+            WHERE commercial_code = ${auth.commercial_code}
+              AND dispensing_point_id = ${dispensingPointId}
+          ), 0)
+          - COALESCE((
+            SELECT SUM(GREATEST(allocated_quantity - consumed_quantity - released_quantity, 0))
+            FROM inventory_authorization_allocations
+            WHERE commercial_code = ${auth.commercial_code}
+              AND dispensing_point_id = ${dispensingPointId}
+              AND status IN ('ALLOCATED', 'PARTIALLY_CONSUMED')
+          ), 0), 0
+        )::int AS physical_available_quantity
       `);
-
-    const receivedQuantity = received.rows[0]?.quantity ?? 0;
-
-    const consumedQuantity = allocationState.rows[0]?.consumed ?? 0;
-
-    const assignedQuantity = allocationState.rows[0]?.assigned ?? 0;
-
-    const logicalAvailable = Math.max(receivedQuantity - consumedQuantity - assignedQuantity, 0);
-
-    const physicalAvailable = Math.max(
-      (physical.rows[0]?.usable ?? 0) - (physical.rows[0]?.reserved ?? 0),
-      0,
+      pointAvailable = Math.min(
+        pointAvailable,
+        Number(physical.rows[0]?.physical_available_quantity ?? 0),
+      );
+    }
+    const purchaseOrderAvailable = Math.min(
+      pointAvailable,
+      Number(availability.rows[0]?.global_available_quantity ?? 0),
     );
-
-    const purchaseOrderAvailable = Math.min(logicalAvailable, physicalAvailable);
 
     if (request.quantity > purchaseOrderAvailable) {
       throw new Error('INVENTORY_ALLOCATION_INSUFFICIENT');
@@ -2525,7 +2520,11 @@ export class InventoryAvailabilityRepository {
       INVENTORY_ALLOCATION_AUTHORIZATION_AMBIGUOUS:
         'La clave de autorización no identifica un único registro.',
 
-      INVENTORY_ALLOCATION_SCHEDULE_REQUIRED: 'La autorización no tiene una programación activa.',
+      INVENTORY_ALLOCATION_POINT_REQUIRED: 'La autorización no tiene un punto de dispensación resoluble.',
+      INVENTORY_ALLOCATION_POINT_INACTIVE: 'El punto de dispensación no existe o está inactivo.',
+      INVENTORY_ALLOCATION_SCHEDULE_POINT_AMBIGUOUS: 'La autorización tiene programaciones activas en varios puntos.',
+      INVENTORY_ALLOCATION_PATIENT_POINT_AMBIGUOUS: 'El paciente tiene múltiples puntos habituales activos.',
+      INVENTORY_ALLOCATION_PRODUCT_POINT_AMBIGUOUS: 'El producto tiene varios puntos posibles.',
 
       INVENTORY_ALLOCATION_OC_PRODUCT_NOT_FOUND:
         'La OC no contiene el producto correspondiente a la autorización.',

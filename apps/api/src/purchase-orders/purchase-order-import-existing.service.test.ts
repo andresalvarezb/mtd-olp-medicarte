@@ -309,6 +309,15 @@ describe(
 
 
               if (
+                normalized.includes('as committed_here') &&
+                normalized.includes('as allocated_here')
+              ) {
+                return queryResult([
+                  { committed_here: 0, allocated_here: 0 }
+                ]);
+              }
+
+              if (
                 normalized.includes(
                   'as source_busy',
                 )
@@ -436,13 +445,14 @@ describe(
 
               if (
                 normalized.includes(
-                  'as available_quantity',
+                  'as point_available_quantity',
                 )
               ) {
                 return queryResult([
                   {
-                    available_quantity:
-                      2,
+                    point_available_quantity: 2,
+                    global_available_quantity: 2,
+                    has_direct_receipt: true,
                   },
                 ]);
               }
@@ -661,54 +671,28 @@ describe(
           0,
         );
 
-        /*
-         * Incorporar una AUTO a una OC NO crea una
-         * reserva física anticipada.
-         */
-        expect(
-          clientQuery.mock.calls.some(
-            ([sql]) =>
-              String(
-                sql,
-              ).includes(
-                'insert into\n                inventory_authorization_allocations',
-              ),
-          ),
-        ).toBe(
-          false,
-        );
+        const statements =
+          clientQuery.mock.calls.map(([statement]) =>
+            String(statement)
+              .replace(/\\s+/g, ' ')
+              .toLowerCase(),
+          ).join('\\n');
 
-        /*
-         * Sí debe dejar trazabilidad OC -> AUTO.
-         */
-        expect(
-          clientQuery.mock.calls.some(
-            ([sql]) =>
-              String(
-                sql,
-              ).includes(
-                'insert into\n          purchase_order_authorization_sources',
-              ),
-          ),
-        ).toBe(
-          true,
+        expect(statements).toContain(
+          'as point_available_quantity'
         );
-
-        /*
-         * Tampoco debe consultar disponibilidad recibida.
-         */
-        expect(
-          clientQuery.mock.calls.some(
-            ([sql]) =>
-              String(
-                sql,
-              ).includes(
-                'as available_quantity',
-              ),
-          ),
-        ).toBe(
-          false,
+        expect(statements).toMatch(/insert\s+into\s+inventory_allocation_batches/i);
+        expect(statements).toMatch(/insert\s+into\s+inventory_authorization_allocations/i);
+        expect(statements).not.toContain(
+          'insert into purchase_order_lines'
         );
+        expect(statements).not.toContain(
+          'update purchase_order_lines'
+        );
+        expect(statements).not.toContain(
+          'insert into purchase_order_authorization_sources'
+        );
+        expect(statements).toMatch(/insert\s+into\s+audit_events/i);
 
         expect(
           release,

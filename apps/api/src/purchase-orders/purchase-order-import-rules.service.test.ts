@@ -281,6 +281,10 @@ type ExistingOptions =
 
     availableQuantity?:
       number;
+    pointAvailableQuantity?: number;
+    globalAvailableQuantity?: number;
+    hasDirectReceipt?: boolean;
+    legacyPhysicalAvailableQuantity?: number;
 
     sourceQuantity?:
       number;
@@ -517,6 +521,15 @@ async function runExisting(
 
 
         if (
+          normalized.includes('as committed_here') &&
+          normalized.includes('as allocated_here')
+        ) {
+          return queryResult([
+            { committed_here: 0, allocated_here: 0 }
+          ]);
+        }
+
+        if (
           normalized.includes(
             'as source_busy',
           )
@@ -671,18 +684,26 @@ async function runExisting(
 
         if (
           normalized.includes(
-            'as available_quantity',
+            'as point_available_quantity',
           )
         ) {
           return queryResult([
             {
-              available_quantity:
-                options.availableQuantity ??
-                2,
+              point_available_quantity:
+                options.pointAvailableQuantity ?? options.availableQuantity ?? 2,
+              global_available_quantity:
+                options.globalAvailableQuantity ?? options.availableQuantity ?? 2,
+              has_direct_receipt: options.hasDirectReceipt ?? true,
             },
           ]);
         }
 
+
+        if (normalized.includes('as physical_available_quantity')) {
+          return queryResult([{
+            physical_available_quantity: options.legacyPhysicalAvailableQuantity ?? 0,
+          }]);
+        }
 
         if (
           normalized.includes(
@@ -1339,72 +1360,69 @@ describe(
 
 
     it(
-      'AGREGAR_AUTO no exige recepción previa ni disponibilidad física',
+      'ASIGNAR_DISPONIBLE rechaza stock insuficiente sin crear demanda',
       async () => {
-        const {
+        const { result, clientQuery } = await runExisting(
+          ['', 'AUTO-DEST', 'OC-EXISTENTE', 'PROD-1', 2],
+          { availableQuantity: 0 },
+        );
+
+        expectRejected(
           result,
-          clientQuery,
-        } =
-          await runExisting(
-            [
-              '',
-              'AUTO-DEST',
-              'OC-EXISTENTE',
-              'PROD-1',
-              2,
-            ],
-            {
-              availableQuantity:
-                0,
-
-              allowDirectAssignment:
-                true,
-            },
-          );
-
-
-        expect(
-          result.acceptedRows,
-        ).toBe(
-          1,
+          'PURCHASE_ORDER_AVAILABLE_QUANTITY_INSUFFICIENT'
         );
 
-        expect(
-          result.rejectedRows,
-        ).toBe(
-          0,
+        const statements =
+          clientQuery.mock.calls.map(([statement]) =>
+            String(statement)
+              .replace(/\\s+/g, ' ')
+              .toLowerCase(),
+          ).join('\\n');
+
+        expect(statements).toContain(
+          'as point_available_quantity'
         );
-
-
-        expect(
-          clientQuery.mock.calls.some(
-            ([sql]) =>
-              String(
-                sql,
-              ).includes(
-                'as available_quantity',
-              ),
-          ),
-        ).toBe(
-          false,
+        expect(statements).not.toContain(
+          'insert into purchase_order_lines'
         );
-
-
-        expect(
-          clientQuery.mock.calls.some(
-            ([sql]) =>
-              String(
-                sql,
-              ).includes(
-                'insert into\n          purchase_order_authorization_sources',
-              ),
-          ),
-        ).toBe(
-          true,
+        expect(statements).not.toContain(
+          'update purchase_order_lines'
+        );
+        expect(statements).not.toContain(
+          'insert into purchase_order_authorization_sources'
+        );
+        expect(statements).not.toContain(
+          'insert into inventory_authorization_allocations'
         );
       },
     );
 
+
+    it(
+      'ASIGNAR_DISPONIBLE bloquea saldo aparente local si el saldo global de OC es cero',
+      async () => {
+        const { result, clientQuery } = await runExisting(
+          ['', 'AUTO-DEST', 'OC-EXISTENTE', 'PROD-1', 2],
+          { pointAvailableQuantity: 15, globalAvailableQuantity: 0 },
+        );
+        expectRejected(result, 'PURCHASE_ORDER_AVAILABLE_QUANTITY_INSUFFICIENT');
+        const statements = clientQuery.mock.calls.map(([statement]) => String(statement)).join('\n');
+        expect(statements).toContain('global_available_quantity');
+        expect(statements).not.toMatch(/insert\s+into\s+inventory_authorization_allocations/i);
+        expect(statements).not.toMatch(/insert\s+into\s+purchase_order_lines/i);
+      },
+    );
+
+    it(
+      'LOT_LEDGER no permite asignar si el balance físico útil es cero',
+      async () => {
+        const { result } = await runExisting(
+          ['', 'AUTO-DEST', 'OC-EXISTENTE', 'PROD-1', 2],
+          { availableQuantity: 10, hasDirectReceipt: false, legacyPhysicalAvailableQuantity: 0 },
+        );
+        expectRejected(result, 'PURCHASE_ORDER_AVAILABLE_QUANTITY_INSUFFICIENT');
+      },
+    );
 
     it(
       'REASIGNAR rechaza AUTO_DESTINO que ya tiene asignación activa',
