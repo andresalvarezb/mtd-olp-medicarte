@@ -69,6 +69,8 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
     organizationCode === 'MTD' &&
     hasPermission('application_audits.manage');
 
+  const canDownloadTemplate = canRead || canManage;
+
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [job, setJob] = useState<BillingAuditBulkJob | null>(null);
@@ -87,6 +89,7 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
     setFile(null);
     setJob(null);
     setOffset(0);
+    setBusy(null);
     setError(null);
     setConfirmIntent(false);
   }, [organizationId]);
@@ -150,17 +153,25 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
   }
 
   async function downloadTemplate() {
-    if (busy) return;
+    if (!canDownloadTemplate || busy) return;
+
+    const epoch = organizationEpoch.current;
     setBusy('template');
     setError(null);
 
     try {
       const blob = await downloadBillingAuditBulkTemplate(organizationId);
+      if (epoch !== organizationEpoch.current) return;
+      if (!(blob instanceof Blob) || blob.size === 0) {
+        throw new Error('La API no devolvió una plantilla Excel válida.');
+      }
       saveExportable(blob, 'plantilla-auditoria-facturacion.xlsx');
     } catch (cause) {
-      setError(errorMessage(cause, 'No fue posible descargar la plantilla.'));
+      if (epoch === organizationEpoch.current) {
+        setError(errorMessage(cause, 'No fue posible descargar la plantilla.'));
+      }
     } finally {
-      setBusy(null);
+      if (epoch === organizationEpoch.current) setBusy(null);
     }
   }
 
@@ -278,6 +289,17 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
 
   return (
     <>
+      {canDownloadTemplate ? (
+        <button
+          type="button"
+          className="btn"
+          disabled={busy !== null}
+          onClick={() => { void downloadTemplate(); }}
+        >
+          {busy === 'template' ? 'Descargando plantilla…' : 'Descargar plantilla de auditoría'}
+        </button>
+      ) : null}
+
       {canManage ? (
         <button
           type="button"
@@ -346,7 +368,7 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
                       </p>
 
                       <div className={styles.fileRow}>
-                        {canRead ? (
+                        {canDownloadTemplate ? (
                           <button
                             type="button"
                             className="btn"
@@ -355,7 +377,7 @@ export function BulkBillingAuditActions({ onUpdated }: Props) {
                               void downloadTemplate();
                             }}
                           >
-                            Descargar plantilla
+                            {busy === 'template' ? 'Descargando plantilla…' : 'Descargar plantilla'}
                           </button>
                         ) : null}
 

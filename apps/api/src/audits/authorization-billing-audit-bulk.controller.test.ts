@@ -131,6 +131,24 @@ describe('ESP-AUD-BULK-001 HTTP permissions', () => {
     await request(app.getHttpServer() as Server)
       .get(`${path}/template.xlsx`)
       .set('x-organization-id', organizationId)
+      .expect('Content-Type', /spreadsheetml\.sheet/)
+      .expect('Content-Disposition', /plantilla-auditoria-facturacion\.xlsx/)
+      .expect(200);
+
+    expect(bulk.template).toHaveBeenCalledTimes(1);
+    expect(access.requirePermission).toHaveBeenCalledWith(
+      userId,
+      organizationId,
+      'application_audits.read',
+    );
+  });
+
+  it('permite descargar plantilla con permiso manage aunque falte read', async () => {
+    allowedPermissions = new Set(['application_audits.manage']);
+
+    await request(app.getHttpServer() as Server)
+      .get(`${path}/template.xlsx`)
+      .set('x-organization-id', organizationId)
       .expect(200);
 
     expect(access.requirePermission).toHaveBeenCalledWith(
@@ -138,6 +156,23 @@ describe('ESP-AUD-BULK-001 HTTP permissions', () => {
       organizationId,
       'application_audits.read',
     );
+    expect(access.requirePermission).toHaveBeenCalledWith(
+      userId,
+      organizationId,
+      'application_audits.manage',
+    );
+    expect(bulk.template).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechaza descarga sin read ni manage', async () => {
+    allowedPermissions = new Set();
+
+    await request(app.getHttpServer() as Server)
+      .get(`${path}/template.xlsx`)
+      .set('x-organization-id', organizationId)
+      .expect(403);
+
+    expect(bulk.template).not.toHaveBeenCalled();
   });
 
   it('rechaza carga masiva sin permiso manage', async () => {
