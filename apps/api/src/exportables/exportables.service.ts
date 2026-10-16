@@ -1879,11 +1879,14 @@ export class ExportablesService {
               )
                 as has_legacy_fulfillment,
 
-              audit_review.status
-                as resolved_review_status,
+              billing_audit.status
+                as billing_audit_status,
 
-              audit_review.observations
-                as audit_observations
+              billing_audit.result
+                as billing_audit_result,
+
+              billing_audit.observation
+                as billing_audit_observation
 
             from
               authorization_items ai
@@ -2058,22 +2061,23 @@ export class ExportablesService {
 
             left join lateral (
               select
-                review.status,
-                review.observations
+                audit.status,
+                audit.result,
+                audit.observation
 
               from
-                audit_reviews review
+                authorization_billing_audits audit
 
               where
-                review.authorization_item_id =
+                audit.authorization_item_id =
                   ai.id
 
               order by
-                review.review_number desc,
-                review.created_at desc
+                audit.created_at desc,
+                audit.id desc
 
               limit 1
-            ) audit_review
+            ) billing_audit
               on true
 
             where
@@ -2663,31 +2667,41 @@ export class ExportablesService {
               'fulfillment_quantity'
             ];
 
-          const audit =
+          // La pestaña Auditoría presenta la auditoría de facturación,
+          // no las revisiones clínicas de audit_reviews.
+          const billingAuditStatus =
             row[
-              'resolved_review_status'
+              'billing_audit_status'
+            ];
+
+          const billingAuditResult =
+            row[
+              'billing_audit_result'
             ];
 
           output[
             'AUDITORIA'
           ] =
-            audit ===
-              'IN_REVIEW'
-              ? 'En auditoría'
-              : audit ===
-                  'APPROVED'
-                ? 'Se puede facturar'
-                : audit ===
-                    'REJECTED'
-                  ? 'Rechazada'
-                  : 'Pendiente';
+            billingAuditStatus === 'REVIEWED'
+              ? billingAuditResult === 'COMPLIES'
+                ? 'Revisada · Cumple'
+                : billingAuditResult === 'DOES_NOT_COMPLY'
+                  ? 'Revisada · No cumple'
+                  : 'Inconsistente'
+              : billingAuditStatus === 'PENDING'
+                ? billingAuditResult == null
+                  ? 'Pendiente'
+                  : 'Inconsistente'
+                : billingAuditStatus == null
+                  ? 'Sin auditoría de facturación'
+                  : 'Inconsistente';
 
           output[
             'OBSERVACION_AUDITORIA'
           ] =
             row[
-              'audit_observations'
-            ];
+              'billing_audit_observation'
+            ] ?? null;
 
           output[
             'FECHA_CREACION_SISTEMA'
