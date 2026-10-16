@@ -104,9 +104,19 @@ export function saveExportable(
   anchor.download =
     filename;
 
-  anchor.click();
+  // Chrome necesita que el enlace esté conectado al DOM y que el Blob
+  // continúe disponible mientras programa la descarga (puede ser > 25 MB).
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
 
-  URL.revokeObjectURL(
-    url,
-  );
+  try {
+    anchor.click();
+  } finally {
+    anchor.remove();
+
+    // Revocar inmediatamente aquí cancela descargas en algunos navegadores.
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 60_000);
+  }
 }

@@ -150,6 +150,21 @@ new Gauge({
   registers: [registry],
 });
 
+// Medición pasiva: no abre conexiones ni ejecuta consultas SQL adicionales.
+// Visible en GET /api/v1/metrics (requiere platform.jobs.manage).
+new Gauge({
+  name: 'authorization_api_database_pool_connections',
+  help: 'PostgreSQL API pool connections by state',
+  labelNames: ['state'],
+  registers: [registry],
+  collect() {
+    this.set({ state: 'total' }, database.pool.totalCount);
+    this.set({ state: 'idle' }, database.pool.idleCount);
+    this.set({ state: 'busy' }, Math.max(database.pool.totalCount - database.pool.idleCount, 0));
+    this.set({ state: 'waiting' }, database.pool.waitingCount);
+  },
+});
+
 @Module({
   imports: [
     ClinicalModule.register(database),
