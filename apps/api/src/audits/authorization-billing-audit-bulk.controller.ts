@@ -1,4 +1,4 @@
-import { Inject, Controller, Get, Post, Header, Headers, HttpCode, Param, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Inject, Controller, ForbiddenException, Get, Post, Header, Headers, HttpCode, Param, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
@@ -33,11 +33,21 @@ export class AuthorizationBillingAuditBulkController {
     return scopeFromProfile(profile, id, request);
   }
 
+  /** Descargar una plantilla no requiere poder importar; gestionar también concede acceso. */
+  private async templateScope(organizationId: string | undefined, request: AuthenticatedRequest) {
+    try {
+      return await this.scope(organizationId, request, 'application_audits.read');
+    } catch (error) {
+      if (!(error instanceof ForbiddenException)) throw error;
+      return this.scope(organizationId, request, 'application_audits.manage');
+    }
+  }
+
   @Get('template.xlsx')
   @Header('Cache-Control', 'private, no-store')
   async template(@Res() response: Response, @Headers('x-organization-id') organizationId: string | undefined,
     @Req() request: AuthenticatedRequest) {
-    const file = this.bulk.template(await this.scope(organizationId, request, 'application_audits.read'));
+    const file = this.bulk.template(await this.templateScope(organizationId, request));
     response.setHeader('Content-Type', xlsxType);
     response.setHeader('Content-Disposition', 'attachment; filename="plantilla-auditoria-facturacion.xlsx"');
     response.send(file);
