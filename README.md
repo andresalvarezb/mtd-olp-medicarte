@@ -111,7 +111,15 @@ no equivale a una comprobación ejecutada por la actualización de estos archivo
 - [Auditoría de facturación individual y masiva](docs/casos-especiales/auditoria-facturacion.md)
 - [Soportes Google Drive y sincronización](docs/casos-especiales/soportes-drive.md)
 - [Auditorías de atención y conciliación](docs/casos-especiales/auditorias-atencion-conciliacion.md)
-- [47 escenarios adicionales pendientes de validación](docs/casos-especiales/matriz-pruebas-especiales.md)
+- [97 escenarios adicionales pendientes de validación](docs/casos-especiales/matriz-pruebas-especiales.md)
+- [MIPRES / PBS / NO PBS y excepciones](docs/casos-especiales/mipres-pbs-no-pbs.md)
+- [Inasistencia, reprogramación y producto preparado](docs/casos-especiales/inasistencia-reprogramacion.md)
+- [Recepciones parciales y lotes](docs/casos-especiales/recepciones-parciales-lotes.md)
+- [Traslados entre puntos](docs/casos-especiales/traslados-inventario.md)
+- [Devoluciones, daños, pérdidas y merma](docs/casos-especiales/devoluciones-mermas-productos.md)
+- [Conciliación financiera y costos](docs/casos-especiales/conciliacion-financiera-costos.md)
+- [Permisos, roles, organizaciones y puntos](docs/casos-especiales/permisos-rbac-casos-cruzados.md)
+- [10 brechas funcionales pendientes de decisión](docs/casos-especiales/pendientes-funcionales-priorizados.md)
 - [Cobertura y lagunas documentales](docs/casos-especiales/cobertura-pendiente.md)
 
 **Atención:** el vencimiento de una AUTO **no libera** automáticamente su reserva en la política implementada en `develop`. La ejecución del worker de vigencia actualiza vistas; no crea movimientos de devolución a disponibilidad.

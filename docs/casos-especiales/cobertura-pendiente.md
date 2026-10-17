@@ -2,6 +2,21 @@
 
 **Respuesta a «¿ya cubriste todo?»** No. Este paquete cubre por lectura estática los **casos especiales identificados y priorizados**, no el 100 % de operaciones, estados, pantallas y decisiones de negocio. No hay prueba de integración, UAT ni despliegue verificado en esta revisión.
 
+## Estado actualizado de la ampliación — 2026-10-17
+
+Se realizó revisión específica de las excepciones previamente listadas en esta guía. Véase [índice CE-33 a CE-84](README.md) y [brechas RF-01 a RF-10](pendientes-funcionales-priorizados.md).
+
+| Excepción | Cobertura documental actual | Límite de implementación/validación |
+| --- | --- | --- |
+| MIPRES PBS/NO PBS | **Ampliada**: decisión MTD, vigencia, recheck, fallas, motivos y gates | Falta ejecución real con MIPRES/fixtures y aprobación operativa |
+| No asistencia/reprogramación | **Ampliada**: novedad, disposición producto, historial y fechas tardías | Política de liberación/reuso requiere decisión explícita |
+| Recepción parcial/lotes | **Ampliada**: legacy y directa OC, rechazos, acumulados y cantidades | Recepción directa no captura lotes; corregir confirmada requiere proceso |
+| Traslados/daños/devoluciones | **Ampliada**: estados y movimientos comprobados | No se halló reversión completa, merma genérica o devolución posrecepción |
+| Conciliación financiera | **Ampliada**: campos tarifarios y costos, indicadores, límites de auditoría | Sin cierre contable/facturas/glosas/pagos integral verificado |
+| Permisos complejos | **Ampliada**: roles, permisos, puntos, ejemplos cruzados | No hay pruebas UAT de todas las combinaciones/usuarios reales |
+
+**La cobertura documental fue ampliada; los pendientes funcionales RF y las pruebas por ejecutar siguen abiertos.**
+
 ## Mapa de cobertura del manual
 
 | Grupo | Nivel documental actual | Brecha pendiente |

@@ -78,3 +78,11 @@ redirige a `/ordenes-compra`.
 ## Ampliación de casos especiales — 2026-10-17
 
 Se agrega `docs/casos-especiales/` con ocho guías, reglas y una matriz de 47 escenarios **pendientes de ejecución**, basados en lectura estática de `develop` al SHA `6b611d80d5fbe920d3464baaca9424eb6ad2f387`. No certifica resultados de integración ni despliegue. Hallazgo crítico: `inventory-expiration-release.ts` no libera asignaciones automáticamente; solo envía invalidaciones de consulta. Se documentan asimismo edición MTD y su impacto limitado en OC, auditoría de facturación individual/XLSX, soportes y sincronización Drive opcional, auditorías de aplicación/fulfillment y conciliación. Véanse [casos especiales](casos-especiales/README.md) y [pendientes](casos-especiales/cobertura-pendiente.md).
+
+## Cobertura de excepciones adicionales — 2026-10-17
+
+Inspección estática nueva de `develop` al commit `97ade0b87f1a6e87730c89bf718169df41254155`.
+Se añaden ocho guías con **CE-33 a CE-84** (**84 casos documentados acumulados**), una cartera de diez brechas **RF-01 a RF-10**, y 50 escenarios adicionales **TE-48 a TE-97** (**97 pruebas propuestas acumuladas**).
+Se verificaron controladores, repositorios, contratos y política de roles para MIPRES, resultados de no aplicación, programación, recepción por entregas/directa por OC, traslados, analíticas y RBAC.
+
+**Límites específicos:** no se verificó flujo integral de devoluciones postrecepción, recepción parcial de traslado, ajuste genérico por merma o contabilidad financiera; por tanto NO se describen como implementados. La auditoría de facturación es distinta de cierre contable. Las pruebas siguen pendientes de ejecución; no se consultó base de datos ni ambiente desplegado. Véanse [índice de excepciones](casos-especiales/README.md), [brechas](casos-especiales/pendientes-funcionales-priorizados.md) y [matriz de pruebas](casos-especiales/matriz-pruebas-especiales.md).

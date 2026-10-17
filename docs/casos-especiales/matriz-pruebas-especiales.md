@@ -52,6 +52,63 @@
 | TE-46 | Incidencia resuelta y alerta no marcada leída | Estado de incidencia y notificación independientes | BD y UI |
 | TE-47 | Recepción repetida/fragmentada + conciliación | No crear consumo ni doble asignación | OC/recibos/allocations |
 
+## Matriz adicional CE-33 a CE-84 (TE-48 a TE-97)
+
+Todos los siguientes casos son **PENDIENTES**, no pruebas ejecutadas. Para brechas funcionales la aceptación consiste en **documentar bloqueo, decisión y ausencia de efecto indebido**, no suponer que el endpoint existe.
+
+| ID | Escenario | Resultado esperado | Evidencia mínima |
+| --- | --- | --- | --- |
+| TE-48 | PBS con autorización operable | Gate MIPRES no requiere decisión manual; otros filtros continúan | API + DB + auditoría / acta RF |
+| TE-49 | NO PBS sin desbloqueo | Sigue bloqueado hasta decisión MANUALLY_ENABLED | API + DB + auditoría / acta RF |
+| TE-50 | NO PBS sin prescripción intenta ENABLE | MIPRES_DECISION_NOT_APPLICABLE | API + DB + auditoría / acta RF |
+| TE-51 | NO PBS con AUTO DISABLED intenta ENABLE | MIPRES_ENABLE_REQUIRES_ELIGIBLE_AUTHORIZATION | API + DB + auditoría / acta RF |
+| TE-52 | NO PBS con AUTO PENDING manual ENABLE | MIPRES desbloquea; AUTO sigue PENDING | API + DB + auditoría / acta RF |
+| TE-53 | Decision MIPRES expectedVersion obsoleta | MIPRES_DECISION_VERSION_CONFLICT | API + DB + auditoría / acta RF |
+| TE-54 | Concepto MIPRES equivocado | MIPRES_DECISION_CONCEPT_INVALID | API + DB + auditoría / acta RF |
+| TE-55 | Concepto MIPRES que exige nota sin observación | MIPRES_DECISION_NOTE_REQUIRED | API + DB + auditoría / acta RF |
+| TE-56 | Recheck externo con timeout | QUERY_ERROR; no inventar rechazo | API + DB + auditoría / acta RF |
+| TE-57 | Dirección con maximumDeliveryDate igual a hoy Bogotá | No vigente | API + DB + auditoría / acta RF |
+| TE-58 | Inasistencia PATIENT_NO_SHOW | NOT_APPLIED con novedad y trazabilidad | API + DB + auditoría / acta RF |
+| TE-59 | No aplicación por INSUFFICIENT_STOCK | Evento NOT_APPLIED sin aplicación ficticia | API + DB + auditoría / acta RF |
+| TE-60 | No aplicado NON_REUSABLE con 2 lotes | Movimiento negativo por lote y auditoría | API + DB + auditoría / acta RF |
+| TE-61 | No aplicado REUSABLE con nonReusableLines | Validación rechaza líneas no reutilizables | API + DB + auditoría / acta RF |
+| TE-62 | Producto no reutilizable con cantidad > programada | PATIENT_OUTCOME_QUANTITY_EXCEEDED | API + DB + auditoría / acta RF |
+| TE-63 | Producto no reutilizable con saldo insuficiente | PATIENT_OUTCOME_INSUFFICIENT_BALANCE | API + DB + auditoría / acta RF |
+| TE-64 | Not-applied duplicado misma revisión | No duplica inventario ni resultado | API + DB + auditoría / acta RF |
+| TE-65 | Cancelar programación CANCELLED y luego reprogramar | Rechazo transición terminal | API + DB + auditoría / acta RF |
+| TE-66 | Reprogramar con expectedRevision obsoleta | Conflicto sin cambio | API + DB + auditoría / acta RF |
+| TE-67 | Programación LATE sin lateHandling | PATIENT_SCHEDULE_LATE_HANDLING_REQUIRED | API + DB + auditoría / acta RF |
+| TE-68 | Programación NEXT_PERIOD sin siguiente período | PATIENT_SCHEDULE_NEXT_PERIOD_NOT_FOUND | API + DB + auditoría / acta RF |
+| TE-69 | Recepción legacy accepted+rejected difiere received | RECEIPT_QUANTITY_SUM_INVALID | API + DB + auditoría / acta RF |
+| TE-70 | Recepción legacy recibida supera despachada | RECEIPT_OVER_RECEIVED | API + DB + auditoría / acta RF |
+| TE-71 | Recepción legacy acepta sin lote/vencimiento | RECEIPT_LOT_EXPIRATION_REQUIRED | API + DB + auditoría / acta RF |
+| TE-72 | Recepción legacy acepta producto vencido | RECEIPT_EXPIRED_PRODUCT | API + DB + auditoría / acta RF |
+| TE-73 | Recepción legacy faltante parcial | Entrega no necesariamente finalizada; acumular saldo | API + DB + auditoría / acta RF |
+| TE-74 | Recepción directa OC parcial | RECEIVED_PARTIAL; sin evidencia de lote físico | API + DB + auditoría / acta RF |
+| TE-75 | Recepción directa repetida misma OC | No duplicar unidades ni asignación AUTO | API + DB + auditoría / acta RF |
+| TE-76 | Recepción confirmada intenta PATCH | RECEIPT_FROZEN | API + DB + auditoría / acta RF |
+| TE-77 | Traslado despacho con stock insuficiente | STOCK_TRANSFER_INSUFFICIENT_BALANCE | API + DB + auditoría / acta RF |
+| TE-78 | Traslado de lote expirado | STOCK_TRANSFER_EXPIRED_STOCK | API + DB + auditoría / acta RF |
+| TE-79 | Traslado fuera del punto del usuario | Denegación alcance de punto | API + DB + auditoría / acta RF |
+| TE-80 | Traslado RECEIVED intentar CANCEL | STOCK_TRANSFER_CANCEL_NOT_ALLOWED | API + DB + auditoría / acta RF |
+| TE-81 | Traslado versión vieja | Version conflict; no duplica ledger | API + DB + auditoría / acta RF |
+| TE-82 | Traslado despachado con pérdida en tránsito | Escalamiento/pendiente funcional RF-02; no falso recibo | API + DB + auditoría / acta RF |
+| TE-83 | Devolución proveedor tras recepción confirmada | RF-01: pendiente; no endpoint inventado | API + DB + auditoría / acta RF |
+| TE-84 | Producto dañado en recepción | DAMAGED_PRODUCT y cantidades rechazadas | API + DB + auditoría / acta RF |
+| TE-85 | Caducado almacenado sin atención | RF-04: no ajuste inventado | API + DB + auditoría / acta RF |
+| TE-86 | Tarifa COMPENSAR diferente costo OLP | Snapshots separados y métricas correctas | API + DB + auditoría / acta RF |
+| TE-87 | Tarifa AT modificada después de OC | No reescribir historia sin regla | API + DB + auditoría / acta RF |
+| TE-88 | Usuario analytics.read solicita economics | 403 sin economics.read | API + DB + auditoría / acta RF |
+| TE-89 | Export.xlsx con analytics.read sin economics.read | Archivo sin columnas económicas | API + DB + auditoría / acta RF |
+| TE-90 | Auditoría NO CUMPLE equivale a nota crédito | No registrar contabilización automática | API + DB + auditoría / acta RF |
+| TE-91 | Factura OLP vs factura COMPENSAR | RF-06: pendiente; datos externos requeridos | API + DB + auditoría / acta RF |
+| TE-92 | MEDICARTE intenta decisión MIPRES | Denegación MTD only | API + DB + auditoría / acta RF |
+| TE-93 | COMPENSAR_VIEWER intenta escritura | Denegación por permisos de backend | API + DB + auditoría / acta RF |
+| TE-94 | Rol personalizado cambiado con asignaciones incompatibles | ROLE_SCOPE_ASSIGNMENTS_CONFLICT | API + DB + auditoría / acta RF |
+| TE-95 | Rol MTD_ADMIN intenta desactivación | ROLE_PROTECTED | API + DB + auditoría / acta RF |
+| TE-96 | Revocación grant de punto antes de mutar | Denegación al revalidar y sin saldo negativo | API + DB + auditoría / acta RF |
+| TE-97 | Usuario doble organización cambia X-Organization-Id | No mezcla datos/permisos entre organizaciones | API + DB + auditoría / acta RF |
+
 ## Condiciones de cierre
 
 No declarar cobertura final hasta registrar para cada prueba: entorno, SHA, actor/organización, fixture, input, respuesta HTTP, consultas BD verificables, outbox/eventos, evidencia anonimizada, fecha, ejecutor y resultado PASS/FAIL. Ejecutar `pnpm test`, `pnpm test:integration` y smoke funcional; no asumir que tests unitarios prueban permisos o migraciones.
