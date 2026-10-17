@@ -94,6 +94,28 @@ pnpm test:integration
 `pnpm test:integration` requiere el entorno de integración correspondiente;
 no equivale a una comprobación ejecutada por la actualización de estos archivos.
 
+## Guías operativas por actor
+
+- [Manual operativo y recorrido MTD → OLP → MEDICARTE](docs/manual-operativo.md)
+- [MTD: Anexo Tarifario, autorizaciones y órdenes de compra](docs/flujo-mtd.md)
+- [OLP: aceptación y gestión de órdenes](docs/flujo-olp.md)
+- [MEDICARTE: programación, recepción y aplicación](docs/flujo-medicarte.md)
+- [Catálogo de casos de uso y escenarios especiales](docs/casos-de-uso.md)
+- [Matriz de pruebas de aceptación operativa](docs/matriz-pruebas-operativas.md)
+
+## Casos especiales y controles documentales
+
+- [Índice de casos especiales y excepciones](docs/casos-especiales/README.md)
+- [Vigencia, producto, cantidad y edición manual de AUTO](docs/casos-especiales/edicion-autorizaciones.md)
+- [Vencimiento, reservas, anulación y liberaciones](docs/casos-especiales/liberaciones-reservas.md)
+- [Auditoría de facturación individual y masiva](docs/casos-especiales/auditoria-facturacion.md)
+- [Soportes Google Drive y sincronización](docs/casos-especiales/soportes-drive.md)
+- [Auditorías de atención y conciliación](docs/casos-especiales/auditorias-atencion-conciliacion.md)
+- [47 escenarios adicionales pendientes de validación](docs/casos-especiales/matriz-pruebas-especiales.md)
+- [Cobertura y lagunas documentales](docs/casos-especiales/cobertura-pendiente.md)
+
+**Atención:** el vencimiento de una AUTO **no libera** automáticamente su reserva en la política implementada en `develop`. La ejecución del worker de vigencia actualiza vistas; no crea movimientos de devolución a disponibilidad.
+
 ## Documentación
 
 - [Arquitectura y límites de dominio](docs/architecture-current.md)

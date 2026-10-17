@@ -60,3 +60,21 @@
 compiló ni ejecutó el proyecto durante la creación de la documentación. La
 actualización se ha preparado contra un SHA fijo y debe revisarse de nuevo
 si `develop` avanza antes de aplicar los cambios.
+
+## Ampliación operativa — 2026-10-17
+
+Se agregan `manual-operativo.md`, `flujo-mtd.md`, `flujo-olp.md`,
+`flujo-medicarte.md`, `casos-de-uso.md` y `matriz-pruebas-operativas.md`.
+Las guías registran lo que muestran controladores/servicios/contratos y las
+rutas de interfaz, con campos de plantilla AT/AUTO/OC y modelos de cantidades.
+
+**Advertencias:** los casos de la matriz son **PENDIENTES**, no `PASS`. Es preciso
+confrontar formularios, errores, recepciones `quantity-only` y excepciones en
+API/PostgreSQL. En la creación por importación, una nueva OC válida es emitida;
+en el flujo programático de API `create` y `issue` están separados. La pantalla
+`/importaciones` redirige a `/autorizaciones`, al igual que `/logistica-olp`
+redirige a `/ordenes-compra`.
+
+## Ampliación de casos especiales — 2026-10-17
+
+Se agrega `docs/casos-especiales/` con ocho guías, reglas y una matriz de 47 escenarios **pendientes de ejecución**, basados en lectura estática de `develop` al SHA `6b611d80d5fbe920d3464baaca9424eb6ad2f387`. No certifica resultados de integración ni despliegue. Hallazgo crítico: `inventory-expiration-release.ts` no libera asignaciones automáticamente; solo envía invalidaciones de consulta. Se documentan asimismo edición MTD y su impacto limitado en OC, auditoría de facturación individual/XLSX, soportes y sincronización Drive opcional, auditorías de aplicación/fulfillment y conciliación. Véanse [casos especiales](casos-especiales/README.md) y [pendientes](casos-especiales/cobertura-pendiente.md).
