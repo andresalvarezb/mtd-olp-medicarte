@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDrizzleSchema } from './db-schema-catalog.mjs';
+import { parseDrizzleSchema, normalizeLineEndings, schemaSourceHash } from './db-schema-catalog.mjs';
 
 const fixture = `
   import { pgTable, uuid, varchar, foreignKey, primaryKey, index, check, integer } from 'drizzle-orm/pg-core';
@@ -56,4 +56,11 @@ test('obtiene FK compuesta desde foreignKey()', () => {
 test('no retorna contenido de filas ni datos personales', () => {
   const r = parseDrizzleSchema(fixture);
   assert.equal(JSON.stringify(r).includes('SELECT '), false);
+});
+
+test('catálogo determinista en Git Bash (CRLF) y GitHub Actions (LF)', () => {
+  const lf = normalizeLineEndings(fixture);
+  const crlf = lf.replace(/\n/g, '\r\n');
+  assert.equal(schemaSourceHash(lf), schemaSourceHash(crlf));
+  assert.deepEqual(parseDrizzleSchema(lf), parseDrizzleSchema(crlf));
 });

@@ -13,6 +13,7 @@
  */
 
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +23,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
 const sourcePath = path.join(repo, 'packages/database/src/schema.ts');
 const docsRoot = path.join(repo, 'docs/base-de-datos');
+
+// Canoniza texto antes de calcular huellas y comparar artefactos.
+// Git Bash/Windows suele leer CRLF; GitHub Actions/Linux lee LF.
+export const normalizeLineEndings = text => text.replace(/\r\n?/g, '\n');
+export const schemaSourceHash = text => createHash('sha256')
+  .update(normalizeLineEndings(text), 'utf8').digest('hex');
 
 const GROUPS = Object.freeze([
   ['identidad', 'Identidad, permisos y organizaciones'],
@@ -262,7 +269,7 @@ export function parseDrizzleSchema(contents) {
 
 const safeCell = x => String(x ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').replace(/`/g, "'");
 const groupLabel = id => GROUPS.find(([k])=>k===id)?.[1] ?? id;
-const md = arr => arr.join('\n')+'\n';
+const md = arr => arr.join('\n').replace(/\n+$/, '')+'\n';
 const fmtCols = x => x.join(', ');
 const fkText = fk => `${fmtCols(fk.columns)} → ${fk.to}(${fmtCols(fk.toColumns)})`;
 
@@ -364,8 +371,9 @@ function writeFiles(files, check) {
   for(const [rel,content] of files){
     const full=path.join(docsRoot,rel);
     if(check){
-      if(!fs.existsSync(full)||fs.readFileSync(full,'utf8')!==content){
-        console.error(`DESACTUALIZADO: ${path.relative(repo,full)}`);mismatches++;
+      if (!fs.existsSync(full) ||
+          normalizeLineEndings(fs.readFileSync(full, 'utf8')) !== normalizeLineEndings(content)) {
+        console.error(`DESACTUALIZADO: ${path.relative(repo,full)}`); mismatches++;
       }
     } else {
       fs.mkdirSync(path.dirname(full),{recursive:true});
@@ -430,9 +438,8 @@ async function compareLive(tables){
 }
 
 export async function main(argv=process.argv.slice(2)) {
-  const source=fs.readFileSync(sourcePath,'utf8');
-  const {createHash}=await import('node:crypto');
-  const hash=createHash('sha256').update(source).digest('hex');
+  const source=normalizeLineEndings(fs.readFileSync(sourcePath,'utf8'));
+  const hash=schemaSourceHash(source);
   const tables=parseDrizzleSchema(source);
   if(!tables.length)throw new Error('No se encontraron llamadas pgTable en packages/database/src/schema.ts');
   if(argv.includes('--generate'))return writeFiles(contentFiles(tables,hash),false);

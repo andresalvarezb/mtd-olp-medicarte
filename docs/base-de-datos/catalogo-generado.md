@@ -1,9 +1,9 @@
 # Catálogo estructural de la base de datos — generado
 
 > **Origen:** `packages/database/src/schema.ts` (Drizzle). **No demuestra que las migraciones estén aplicadas a un PostgreSQL concreto.**
-> **Identificador de fuente SHA-256:** `c244860f2ae0868f70590de594043050f481a4199c15c222468e3238453c1e0b`. Generador: `scripts/db-schema-catalog.mjs`.
+> **Identificador de fuente SHA-256:** `53fe28f873644d0c88391777e127e7cd76edeba4d32ca857cc00b60488a01cc3`. Generador: `scripts/db-schema-catalog.mjs`.
 
-**Tablas Drizzle:** 88. **Columnas:** 1125. **Referencias FK declaradas:** 235.
+**Tablas Drizzle:** 87. **Columnas:** 1112. **Referencias FK declaradas:** 232.
 
 ## Índice por proceso
 
@@ -20,7 +20,6 @@
 | Auditoría y novedades | 9 |
 | Conciliación operacional | 8 |
 | Cargas masivas, jobs y eventos técnicos | 13 |
-| Otros objetos | 1 |
 
 ## Diccionario de tablas
 
@@ -39,7 +38,7 @@
 | `active` | boolean | No | default: true |
 | `created_at` | timestamp | No | default: defaultNow() |
 
-**Referenciada por:** `authorization_dispensations(organization_id)`; `authorization_fulfillments(organization_id)`; `authorization_item_organizations(organization_id)`; `authorization_mipres_decision_history(organization_id)`; `authorization_moderator_fee_events(organization_id)`; `bulk_import_jobs(organization_id)`; `bulk_update_batches(organization_id)`; `dispensing_points(organization_id)`; `import_batches(organization_id)`; `inventory_allocation_batches(organization_id)`; `inventory_authorization_allocations(organization_id)`; `inventory_locations(organization_id)`; `operational_field_changes(organization_id)`; `outbox_events(organization_id)`; `patient_schedule_imports(organization_id)`; `reconciliation_issue_comments(tenant_id)`; `reconciliation_issue_events(tenant_id)`; `reconciliation_issues(tenant_id)`; `reconciliation_notifications(tenant_id)`; `reconciliation_operation_executions(tenant_id)`; `reconciliation_operation_policies(tenant_id)`; `reconciliation_runs(tenant_id)`; `role_organization_scopes(organization_id)`; `tariff_annex_imports(organization_id)`; `tariff_annex_products(organization_id)`; `user_organization_roles(organization_id)`.
+**Referenciada por:** `authorization_dispensations(organization_id)`; `authorization_fulfillments(organization_id)`; `authorization_item_organizations(organization_id)`; `authorization_mipres_decision_history(organization_id)`; `bulk_import_jobs(organization_id)`; `bulk_update_batches(organization_id)`; `dispensing_points(organization_id)`; `import_batches(organization_id)`; `inventory_allocation_batches(organization_id)`; `inventory_authorization_allocations(organization_id)`; `inventory_locations(organization_id)`; `operational_field_changes(organization_id)`; `outbox_events(organization_id)`; `patient_schedule_imports(organization_id)`; `reconciliation_issue_comments(tenant_id)`; `reconciliation_issue_events(tenant_id)`; `reconciliation_issues(tenant_id)`; `reconciliation_notifications(tenant_id)`; `reconciliation_operation_executions(tenant_id)`; `reconciliation_operation_policies(tenant_id)`; `reconciliation_runs(tenant_id)`; `role_organization_scopes(organization_id)`; `tariff_annex_imports(organization_id)`; `tariff_annex_products(organization_id)`; `user_organization_roles(organization_id)`.
 
 #### `permissions`
 
@@ -144,7 +143,7 @@
 | `created_at` | timestamp | No | default: defaultNow() |
 | `updated_at` | timestamp | No | default: defaultNow() |
 
-**Referenciada por:** `audit_findings(created_by)`; `audit_reviews(started_by)`; `audit_reviews(decided_by)`; `authorization_billing_audits(created_by)`; `authorization_billing_audits(audited_by)`; `authorization_dispensations(reported_by)`; `authorization_fulfillments(confirmed_by)`; `authorization_items(mipres_manual_updated_by)`; `authorization_items(annulled_by)`; `authorization_items(updated_by)`; `authorization_mipres_decision_history(actor_id)`; `authorization_moderator_fee_events(registered_by)`; `bulk_import_jobs(created_by)`; `bulk_update_batches(created_by)`; `deliveries(dispatched_by)`; `deliveries(created_by)`; `deliveries(updated_by)`; `dispensing_points(created_by)`; `import_batches(created_by)`; `inventory_allocation_batches(created_by)`; `inventory_allocation_batches(confirmed_by)`; `inventory_authorization_allocations(created_by)`; `inventory_authorization_allocations(updated_by)`; `inventory_locations(created_by)`; `inventory_locations(updated_by)`; `inventory_movements(created_by)`; `novelties(created_by)`; `patient_application_audits(started_by)`; `patient_application_audits(decided_by)`; `patient_applications(created_by)`; `patient_applications(confirmed_by)`; `patient_default_dispensing_points(created_by)`; `patient_default_dispensing_points(updated_by)`; `patient_schedule_history(changed_by)`; `patient_schedule_imports(created_by)`; `patient_schedule_outcomes(created_by)`; `patient_schedules(created_by)`; `patient_schedules(updated_by)`; `planning_periods(created_by)`; `planning_periods(updated_by)`; `product_delivery_point_mappings(created_by)`; `product_delivery_point_mappings(updated_by)`; `projected_demand_lines(created_by)`; `projected_demand_lines(updated_by)`; `purchase_order_authorization_sources(released_by)`; `purchase_order_receipts(confirmed_by)`; `purchase_orders(legacy_assigned_by)`; `purchase_orders(issued_by)`; `purchase_orders(created_by)`; `purchase_orders(updated_by)`; `receipts(created_by)`; `receipts(updated_by)`; `reconciliation_issue_comments(author_user_id)`; `reconciliation_issue_events(actor_user_id)`; `reconciliation_issues(assigned_to_user_id)`; `reconciliation_issues(acknowledged_by)`; `reconciliation_issues(resolved_by)`; `reconciliation_issues(accepted_risk_by)`; `reconciliation_operation_policies(created_by)`; `reconciliation_operation_policies(updated_by)`; `reconciliation_runs(started_by)`; `stock_transfers(created_by)`; `stock_transfers(updated_by)`; `tariff_annex_imports(created_by)`; `tariff_annex_imports(confirmed_by)`; `tariff_annex_products(created_by)`; `tariff_annex_products(updated_by)`; `tariff_product_revisions(changed_by)`; `user_organization_roles(user_id)`; `user_point_scopes(user_id)`; `user_point_scopes(granted_by)`; `user_point_scopes(revoked_by)`.
+**Referenciada por:** `audit_findings(created_by)`; `audit_reviews(started_by)`; `audit_reviews(decided_by)`; `authorization_billing_audits(created_by)`; `authorization_billing_audits(audited_by)`; `authorization_dispensations(reported_by)`; `authorization_fulfillments(confirmed_by)`; `authorization_items(mipres_manual_updated_by)`; `authorization_items(annulled_by)`; `authorization_items(updated_by)`; `authorization_mipres_decision_history(actor_id)`; `bulk_import_jobs(created_by)`; `bulk_update_batches(created_by)`; `deliveries(dispatched_by)`; `deliveries(created_by)`; `deliveries(updated_by)`; `dispensing_points(created_by)`; `import_batches(created_by)`; `inventory_allocation_batches(created_by)`; `inventory_allocation_batches(confirmed_by)`; `inventory_authorization_allocations(created_by)`; `inventory_authorization_allocations(updated_by)`; `inventory_locations(created_by)`; `inventory_locations(updated_by)`; `inventory_movements(created_by)`; `novelties(created_by)`; `patient_application_audits(started_by)`; `patient_application_audits(decided_by)`; `patient_applications(created_by)`; `patient_applications(confirmed_by)`; `patient_default_dispensing_points(created_by)`; `patient_default_dispensing_points(updated_by)`; `patient_schedule_history(changed_by)`; `patient_schedule_imports(created_by)`; `patient_schedule_outcomes(created_by)`; `patient_schedules(created_by)`; `patient_schedules(updated_by)`; `planning_periods(created_by)`; `planning_periods(updated_by)`; `product_delivery_point_mappings(created_by)`; `product_delivery_point_mappings(updated_by)`; `projected_demand_lines(created_by)`; `projected_demand_lines(updated_by)`; `purchase_order_authorization_sources(released_by)`; `purchase_order_receipts(confirmed_by)`; `purchase_orders(legacy_assigned_by)`; `purchase_orders(issued_by)`; `purchase_orders(created_by)`; `purchase_orders(updated_by)`; `receipts(created_by)`; `receipts(updated_by)`; `reconciliation_issue_comments(author_user_id)`; `reconciliation_issue_events(actor_user_id)`; `reconciliation_issues(assigned_to_user_id)`; `reconciliation_issues(acknowledged_by)`; `reconciliation_issues(resolved_by)`; `reconciliation_issues(accepted_risk_by)`; `reconciliation_operation_policies(created_by)`; `reconciliation_operation_policies(updated_by)`; `reconciliation_runs(started_by)`; `stock_transfers(created_by)`; `stock_transfers(updated_by)`; `tariff_annex_imports(created_by)`; `tariff_annex_imports(confirmed_by)`; `tariff_annex_products(created_by)`; `tariff_annex_products(updated_by)`; `tariff_product_revisions(changed_by)`; `user_organization_roles(user_id)`; `user_point_scopes(user_id)`; `user_point_scopes(granted_by)`; `user_point_scopes(revoked_by)`.
 
 **Índices / unicidad declarados:** `users_username_lower_unique` (uniqueIndex).
 
@@ -216,7 +215,7 @@
 
 **Claves foráneas:** `mipres_manual_concept_code → mipres_manual_decision_concepts(code)`; `mipres_manual_updated_by → users(id)`; `created_from_batch_id → import_batches(id)`; `annulled_by → users(id)`; `updated_by → users(id)`; `last_load_id → import_batches(id)`.
 
-**Referenciada por:** `audit_reviews(authorization_item_id)`; `authorization_billing_audits(authorization_item_id)`; `authorization_dispensations(authorization_item_id)`; `authorization_fulfillments(authorization_item_id)`; `authorization_item_organizations(authorization_item_id)`; `authorization_mipres_decision_history(authorization_item_id)`; `authorization_moderator_fee_events(authorization_item_id)`; `authorization_tariff_snapshots(authorization_item_id)`; `bulk_update_rows(authorization_item_id)`; `coverage_evaluations(authorization_item_id)`; `demand_sources(authorization_item_id)`; `import_rows(authorization_item_id)`; `inventory_allocation_import_rows(resolved_authorization_item_id)`; `inventory_authorization_allocations(authorization_item_id)`; `mipres_checks(authorization_item_id)`; `mipres_directions(authorization_item_id)`; `novelties(authorization_item_id)`; `operational_field_changes(authorization_item_id)`; `patient_application_audits(authorization_item_id)`; `patient_applications(authorization_item_id)`; `patient_applications(authorization_item_id, commercial_code)`; `patient_schedule_history(authorization_item_id)`; `patient_schedule_history(authorization_item_id, commercial_code)`; `patient_schedule_import_rows(authorization_item_id)`; `patient_schedule_outcomes(authorization_item_id)`; `patient_schedules(authorization_item_id)`; `patient_schedules(authorization_item_id, commercial_code)`; `purchase_order_authorization_sources(authorization_item_id)`.
+**Referenciada por:** `audit_reviews(authorization_item_id)`; `authorization_billing_audits(authorization_item_id)`; `authorization_dispensations(authorization_item_id)`; `authorization_fulfillments(authorization_item_id)`; `authorization_item_organizations(authorization_item_id)`; `authorization_mipres_decision_history(authorization_item_id)`; `authorization_tariff_snapshots(authorization_item_id)`; `bulk_update_rows(authorization_item_id)`; `coverage_evaluations(authorization_item_id)`; `demand_sources(authorization_item_id)`; `import_rows(authorization_item_id)`; `inventory_allocation_import_rows(resolved_authorization_item_id)`; `inventory_authorization_allocations(authorization_item_id)`; `mipres_checks(authorization_item_id)`; `mipres_directions(authorization_item_id)`; `novelties(authorization_item_id)`; `operational_field_changes(authorization_item_id)`; `patient_application_audits(authorization_item_id)`; `patient_applications(authorization_item_id)`; `patient_applications(authorization_item_id, commercial_code)`; `patient_schedule_history(authorization_item_id)`; `patient_schedule_history(authorization_item_id, commercial_code)`; `patient_schedule_import_rows(authorization_item_id)`; `patient_schedule_outcomes(authorization_item_id)`; `patient_schedules(authorization_item_id)`; `patient_schedules(authorization_item_id, commercial_code)`; `purchase_order_authorization_sources(authorization_item_id)`.
 
 **Índices / unicidad declarados:** `authorization_items_identity_idx` (uniqueIndex); `authorization_items_id_code_unique` (unique); `authorization_items_authorization_key_idx` (uniqueIndex); `authorization_items_coverage_idx` (index); `authorization_items_mipres_manual_decision_idx` (index); `authorization_items_audit_status_idx` (index); `authorization_items_annulled_at_idx` (index); `authorization_items_created_idx` (index); `authorization_items_tariff_membership_idx` (index).
 
@@ -2301,35 +2300,6 @@
 
 **Índices / unicidad declarados:** `validation_errors_row_idx` (index).
 
-### Otros objetos
-
-#### `authorization_moderator_fee_events`
-
-**Columnas:** 13 · **Clave primaria:** id · **FK:** 3.
-
-| Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
-| --- | --- | --- | --- |
-| `id` | uuid | No | PK; default: defaultRandom() |
-| `authorization_item_id` | uuid | No | FK authorization_items |
-| `version` | integer | No |  |
-| `status` | varchar(20) | No |  |
-| `amount_cop` | numeric(14,2) | Sí |  |
-| `collected_at` | timestamp | Sí |  |
-| `observation` | text | Sí |  |
-| `reference` | text | Sí |  |
-| `registered_by` | uuid | No | FK users |
-| `organization_id` | uuid | No | FK organizations |
-| `correlation_id` | uuid | No |  |
-| `idempotency_key` | uuid | No |  |
-| `created_at` | timestamp | No | default: defaultNow() |
-
-**Claves foráneas:** `authorization_item_id → authorization_items(id)`; `registered_by → users(id)`; `organization_id → organizations(id)`.
-
-**Índices / unicidad declarados:** `authorization_moderator_fee_version_unique` (uniqueIndex); `authorization_moderator_fee_idempotency_unique` (uniqueIndex); `authorization_moderator_fee_history_idx` (index); `authorization_moderator_fee_created_idx` (index).
-
-**Checks declarados:** `authorization_moderator_fee_version_positive`; `authorization_moderator_fee_status_valid`; `authorization_moderator_fee_amount_consistency`; `authorization_moderator_fee_observation_length`; `authorization_moderator_fee_reference_length`.
-
 ---
 
 **Interpretación:** una FK refleja únicamente relaciones declaradas en Drizzle; no prueba reglas de negocio, relaciones lógicas sin FK, cardinalidades reales, permisos ni consistencia de un entorno desplegado. Consulta siempre los servicios/repositorios y las migraciones pertinentes.
-
