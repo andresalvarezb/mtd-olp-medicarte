@@ -1,0 +1,30 @@
+name: Drizzle schema documentation
+
+on:
+  pull_request:
+    paths:
+      - 'packages/database/src/schema.ts'
+      - 'scripts/db-schema-catalog.mjs'
+      - 'docs/base-de-datos/**'
+      - '.github/workflows/schema-catalog.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'packages/database/src/schema.ts'
+      - 'scripts/db-schema-catalog.mjs'
+      - 'docs/base-de-datos/**'
+      - '.github/workflows/schema-catalog.yml'
+
+jobs:
+  schema-catalog-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node --test scripts/db-schema-catalog.test.mjs
+      - run: node scripts/db-schema-catalog.mjs --check

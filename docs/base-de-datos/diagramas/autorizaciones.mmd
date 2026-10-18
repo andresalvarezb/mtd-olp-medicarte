@@ -1,0 +1,46 @@
+erDiagram
+  authorization_item_organizations {
+    uuid authorization_item_id PK,FK
+    uuid organization_id PK,FK
+  }
+  authorization_items {
+    uuid id PK
+    varchar_80_ mipres_manual_concept_code FK
+    uuid mipres_manual_updated_by FK
+    uuid created_from_batch_id FK
+    uuid annulled_by FK
+    uuid updated_by FK
+    uuid last_load_id FK
+  }
+  authorization_mipres_decision_history {
+    uuid id PK
+    uuid authorization_item_id FK
+    varchar_80_ concept_code FK
+    uuid actor_id FK
+    uuid organization_id FK
+  }
+  coverage_evaluations {
+    uuid id PK
+    uuid authorization_item_id FK
+  }
+  mipres_checks {
+    uuid id PK
+    uuid authorization_item_id FK
+  }
+  mipres_directions {
+    uuid id PK
+    uuid mipres_check_id FK
+    uuid authorization_item_id FK
+  }
+  mipres_manual_decision_concepts {
+    varchar_80_ code PK
+  }
+  authorization_items ||--o{ authorization_item_organizations : "authorization_item_id"
+  mipres_manual_decision_concepts ||--o{ authorization_items : "mipres_manual_concept_code"
+  authorization_items ||--o{ authorization_mipres_decision_history : "authorization_item_id"
+  mipres_manual_decision_concepts ||--o{ authorization_mipres_decision_history : "concept_code"
+  authorization_items ||--o{ coverage_evaluations : "authorization_item_id"
+  authorization_items ||--o{ mipres_checks : "authorization_item_id"
+  mipres_checks ||--o{ mipres_directions : "mipres_check_id"
+  authorization_items ||--o{ mipres_directions : "authorization_item_id"
+  %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.

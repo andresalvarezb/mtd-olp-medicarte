@@ -1,0 +1,72 @@
+erDiagram
+  demand_sources {
+    uuid id PK
+    uuid projected_demand_line_id FK
+    uuid authorization_item_id FK
+    uuid planning_period_id FK
+    varchar_255_ commercial_code FK
+  }
+  patient_schedule_history {
+    uuid id PK
+    uuid patient_schedule_id FK
+    uuid authorization_item_id FK
+    uuid planning_period_id FK
+    uuid dispensing_point_id FK
+    varchar_255_ commercial_code FK
+    uuid deferred_planning_period_id FK
+    uuid changed_by FK
+  }
+  patient_schedule_import_rows {
+    uuid id PK
+    uuid import_id FK
+    uuid authorization_item_id FK
+    uuid planning_period_id FK
+    uuid dispensing_point_id FK
+    uuid deferred_planning_period_id FK
+    uuid patient_schedule_id FK
+  }
+  patient_schedule_import_source_files {
+    uuid id PK
+    uuid import_id FK
+  }
+  patient_schedule_imports {
+    uuid id PK
+    uuid organization_id FK
+    uuid created_by FK
+  }
+  patient_schedules {
+    uuid id PK
+    uuid authorization_item_id FK
+    uuid planning_period_id FK
+    uuid dispensing_point_id FK
+    varchar_255_ commercial_code FK
+    uuid deferred_planning_period_id FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  planning_periods {
+    uuid id PK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  projected_demand_lines {
+    uuid id PK
+    uuid planning_period_id FK
+    uuid dispensing_point_id FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  projected_demand_lines ||--o{ demand_sources : "projected_demand_line_id"
+  projected_demand_lines ||--o{ demand_sources : "projected_demand_line_id_planning_period_id_commercial_code"
+  patient_schedules ||--o{ patient_schedule_history : "patient_schedule_id"
+  planning_periods ||--o{ patient_schedule_history : "planning_period_id"
+  planning_periods ||--o{ patient_schedule_history : "deferred_planning_period_id"
+  patient_schedule_imports ||--o{ patient_schedule_import_rows : "import_id"
+  planning_periods ||--o{ patient_schedule_import_rows : "planning_period_id"
+  planning_periods ||--o{ patient_schedule_import_rows : "deferred_planning_period_id"
+  patient_schedules ||--o{ patient_schedule_import_rows : "patient_schedule_id"
+  patient_schedule_imports ||--o{ patient_schedule_import_source_files : "import_id"
+  planning_periods ||--o{ patient_schedules : "planning_period_id"
+  planning_periods ||--o{ patient_schedules : "deferred_planning_period_id"
+  planning_periods ||--o{ projected_demand_lines : "planning_period_id"
+  %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.

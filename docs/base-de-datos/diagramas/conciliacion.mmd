@@ -1,0 +1,62 @@
+erDiagram
+  reconciliation_findings {
+    uuid id PK
+    uuid reconciliation_run_id FK
+  }
+  reconciliation_issue_comments {
+    uuid id PK
+    uuid issue_id FK
+    uuid tenant_id FK
+    uuid author_user_id FK
+  }
+  reconciliation_issue_events {
+    uuid id PK
+    uuid issue_id FK
+    uuid tenant_id FK
+    uuid actor_user_id FK
+    uuid reconciliation_run_id FK
+  }
+  reconciliation_issues {
+    uuid id PK
+    uuid tenant_id FK
+    uuid first_run_id FK
+    uuid last_run_id FK
+    uuid assigned_to_user_id FK
+    uuid acknowledged_by FK
+    uuid resolved_by FK
+    uuid accepted_risk_by FK
+  }
+  reconciliation_notifications {
+    uuid id PK
+    uuid tenant_id FK
+    uuid execution_id FK
+    uuid reconciliation_run_id FK
+  }
+  reconciliation_operation_executions {
+    uuid id PK
+    uuid tenant_id FK
+    uuid policy_id FK
+  }
+  reconciliation_operation_policies {
+    uuid id PK
+    uuid tenant_id FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  reconciliation_runs {
+    uuid id PK
+    uuid tenant_id FK
+    uuid started_by FK
+    uuid operation_execution_id FK
+  }
+  reconciliation_runs ||--o{ reconciliation_findings : "reconciliation_run_id"
+  reconciliation_issues ||--o{ reconciliation_issue_comments : "issue_id"
+  reconciliation_issues ||--o{ reconciliation_issue_events : "issue_id"
+  reconciliation_runs ||--o{ reconciliation_issue_events : "reconciliation_run_id"
+  reconciliation_runs ||--o{ reconciliation_issues : "first_run_id"
+  reconciliation_runs ||--o{ reconciliation_issues : "last_run_id"
+  reconciliation_operation_executions ||--o{ reconciliation_notifications : "execution_id"
+  reconciliation_runs ||--o{ reconciliation_notifications : "reconciliation_run_id"
+  reconciliation_operation_policies ||--o{ reconciliation_operation_executions : "policy_id"
+  reconciliation_operation_executions ||--o{ reconciliation_runs : "operation_execution_id"
+  %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.

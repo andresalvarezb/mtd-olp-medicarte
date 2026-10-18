@@ -1,0 +1,46 @@
+erDiagram
+  authorization_tariff_snapshots {
+    uuid id PK
+    uuid authorization_item_id FK
+    uuid product_id FK
+    uuid product_revision_id FK
+    uuid import_id FK
+  }
+  tariff_annex_import_rows {
+    uuid id PK
+    uuid import_id FK
+    uuid product_id FK
+  }
+  tariff_annex_import_source_files {
+    uuid id PK
+    uuid import_id FK
+  }
+  tariff_annex_imports {
+    uuid id PK
+    uuid organization_id FK
+    uuid created_by FK
+    uuid confirmed_by FK
+  }
+  tariff_annex_products {
+    uuid id PK
+    uuid organization_id FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  tariff_product_revisions {
+    uuid id PK
+    uuid product_id FK
+    uuid import_id FK
+    uuid import_row_id FK
+    uuid changed_by FK
+  }
+  tariff_annex_products ||--o{ authorization_tariff_snapshots : "product_id"
+  tariff_product_revisions ||--o{ authorization_tariff_snapshots : "product_revision_id"
+  tariff_annex_imports ||--o{ authorization_tariff_snapshots : "import_id"
+  tariff_annex_imports ||--o{ tariff_annex_import_rows : "import_id"
+  tariff_annex_products ||--o{ tariff_annex_import_rows : "product_id"
+  tariff_annex_imports ||--o{ tariff_annex_import_source_files : "import_id"
+  tariff_annex_products ||--o{ tariff_product_revisions : "product_id"
+  tariff_annex_imports ||--o{ tariff_product_revisions : "import_id"
+  tariff_annex_import_rows ||--o{ tariff_product_revisions : "import_row_id"
+  %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.

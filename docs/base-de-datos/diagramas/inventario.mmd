@@ -1,0 +1,87 @@
+erDiagram
+  dispensing_points {
+    uuid id PK
+    uuid organization_id FK
+    uuid created_by FK
+  }
+  inventory_allocation_batches {
+    uuid id PK
+    uuid organization_id FK
+    uuid import_batch_id FK
+    uuid created_by FK
+    uuid confirmed_by FK
+  }
+  inventory_allocation_import_rows {
+    uuid id PK
+    uuid batch_id FK
+    uuid resolved_authorization_item_id FK
+    uuid resolved_purchase_order_id FK
+  }
+  inventory_authorization_allocations {
+    uuid id PK
+    uuid batch_id FK
+    uuid source_import_row_id FK
+    uuid organization_id FK
+    uuid authorization_item_id FK
+    uuid purchase_order_id FK
+    uuid dispensing_point_id FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  inventory_locations {
+    uuid id PK
+    uuid organization_id FK
+    uuid legacy_dispensing_point_id FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  inventory_lots {
+    uuid id PK
+    uuid inventory_location_id FK
+    uuid dispensing_point_id FK
+  }
+  inventory_movements {
+    uuid id PK
+    uuid inventory_lot_id FK
+    uuid created_by FK
+  }
+  patient_default_dispensing_points {
+    uuid id PK
+    uuid dispensing_point_id FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  product_delivery_point_mappings {
+    uuid id PK
+    uuid dispensing_point_id FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  stock_transfer_lines {
+    uuid id PK
+    uuid stock_transfer_id FK
+    uuid source_inventory_lot_id FK
+  }
+  stock_transfers {
+    uuid id PK
+    uuid source_dispensing_point_id FK
+    uuid destination_dispensing_point_id FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  inventory_allocation_batches ||--o{ inventory_allocation_import_rows : "batch_id"
+  inventory_allocation_batches ||--o{ inventory_authorization_allocations : "batch_id"
+  inventory_allocation_import_rows ||--o{ inventory_authorization_allocations : "source_import_row_id"
+  dispensing_points ||--o{ inventory_authorization_allocations : "dispensing_point_id"
+  dispensing_points ||--o{ inventory_locations : "legacy_dispensing_point_id"
+  inventory_locations ||--o{ inventory_lots : "inventory_location_id"
+  dispensing_points ||--o{ inventory_lots : "dispensing_point_id"
+  inventory_locations ||--o{ inventory_lots : "inventory_location_id_dispensing_point_id"
+  inventory_lots ||--o{ inventory_movements : "inventory_lot_id"
+  dispensing_points ||--o{ patient_default_dispensing_points : "dispensing_point_id"
+  dispensing_points ||--o{ product_delivery_point_mappings : "dispensing_point_id"
+  stock_transfers ||--o{ stock_transfer_lines : "stock_transfer_id"
+  inventory_lots ||--o{ stock_transfer_lines : "source_inventory_lot_id"
+  dispensing_points ||--o{ stock_transfers : "source_dispensing_point_id"
+  dispensing_points ||--o{ stock_transfers : "destination_dispensing_point_id"
+  %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.
