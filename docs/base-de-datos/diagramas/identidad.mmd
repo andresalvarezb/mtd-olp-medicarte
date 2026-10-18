@@ -1,0 +1,44 @@
+erDiagram
+  organizations {
+    uuid id PK
+  }
+  permissions {
+    uuid id PK
+  }
+  role_organization_scopes {
+    uuid role_id PK,FK
+    uuid organization_id PK,FK
+  }
+  role_permissions {
+    uuid role_id PK,FK
+    uuid permission_id PK,FK
+  }
+  roles {
+    uuid id PK
+  }
+  user_organization_roles {
+    uuid user_id PK,FK
+    uuid organization_id PK,FK
+    uuid role_id PK,FK
+  }
+  user_point_scopes {
+    uuid id PK
+    uuid user_id FK
+    uuid dispensing_point_id FK
+    uuid granted_by FK
+    uuid revoked_by FK
+  }
+  users {
+    uuid id PK
+  }
+  roles ||--o{ role_organization_scopes : "role_id"
+  organizations ||--o{ role_organization_scopes : "organization_id"
+  roles ||--o{ role_permissions : "role_id"
+  permissions ||--o{ role_permissions : "permission_id"
+  users ||--o{ user_organization_roles : "user_id"
+  organizations ||--o{ user_organization_roles : "organization_id"
+  roles ||--o{ user_organization_roles : "role_id"
+  users ||--o{ user_point_scopes : "user_id"
+  users ||--o{ user_point_scopes : "granted_by"
+  users ||--o{ user_point_scopes : "revoked_by"
+  %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.

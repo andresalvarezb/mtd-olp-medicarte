@@ -1,0 +1,45 @@
+erDiagram
+  deliveries {
+    uuid id PK
+    uuid purchase_order_id FK
+    uuid dispatched_by FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  delivery_lines {
+    uuid id PK
+    uuid delivery_id FK
+    uuid purchase_order_line_id FK
+    uuid dispensing_point_id FK
+  }
+  purchase_order_authorization_sources {
+    uuid purchase_order_line_id PK,FK
+    uuid authorization_item_id PK,FK
+    uuid released_by FK
+  }
+  purchase_order_demand_allocations {
+    uuid purchase_order_line_id PK,FK
+    uuid projected_demand_line_id PK
+    integer projected_demand_revision PK
+    varchar_20_ demand_bucket PK
+  }
+  purchase_order_lines {
+    uuid id PK
+    uuid purchase_order_id FK
+    uuid dispensing_point_id FK
+  }
+  purchase_orders {
+    uuid id PK
+    uuid legacy_assigned_by FK
+    uuid planning_period_id FK
+    uuid issued_by FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  purchase_orders ||--o{ deliveries : "purchase_order_id"
+  deliveries ||--o{ delivery_lines : "delivery_id"
+  purchase_order_lines ||--o{ delivery_lines : "purchase_order_line_id"
+  purchase_order_lines ||--o{ purchase_order_authorization_sources : "purchase_order_line_id"
+  purchase_order_lines ||--o{ purchase_order_demand_allocations : "purchase_order_line_id"
+  purchase_orders ||--o{ purchase_order_lines : "purchase_order_id"
+  %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.

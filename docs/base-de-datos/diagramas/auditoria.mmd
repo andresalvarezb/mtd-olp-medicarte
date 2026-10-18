@@ -1,0 +1,54 @@
+erDiagram
+  audit_events {
+    uuid id PK
+  }
+  audit_findings {
+    uuid id PK
+    uuid audit_review_id FK
+    uuid created_by FK
+  }
+  audit_reviews {
+    uuid id PK
+    uuid authorization_item_id FK
+    uuid authorization_fulfillment_id FK
+    uuid started_by FK
+    uuid decided_by FK
+  }
+  authorization_billing_audit_evidence {
+    uuid id PK
+    uuid billing_audit_id FK
+  }
+  authorization_billing_audits {
+    uuid id PK
+    uuid authorization_item_id FK
+    uuid created_by FK
+    uuid audited_by FK
+  }
+  novelties {
+    uuid id PK
+    uuid authorization_item_id FK
+    uuid import_batch_id FK
+    uuid bulk_update_batch_id FK
+    uuid tariff_annex_import_id FK
+    varchar_30_ code FK
+    uuid created_by FK
+  }
+  novelty_codes {
+    varchar_30_ code PK
+  }
+  operational_field_changes {
+    uuid id PK
+    uuid authorization_item_id FK
+    uuid organization_id FK
+  }
+  patient_application_audits {
+    uuid id PK
+    uuid patient_application_id FK
+    uuid authorization_item_id FK
+    uuid started_by FK
+    uuid decided_by FK
+  }
+  audit_reviews ||--o{ audit_findings : "audit_review_id"
+  authorization_billing_audits ||--o{ authorization_billing_audit_evidence : "billing_audit_id"
+  novelty_codes ||--o{ novelties : "code"
+  %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.

@@ -1,0 +1,66 @@
+erDiagram
+  bulk_import_jobs {
+    uuid id PK
+    uuid organization_id FK
+    uuid created_by FK
+    uuid authorization_import_batch_id FK
+  }
+  bulk_import_row_attempts {
+    uuid id PK
+    uuid row_id FK
+  }
+  bulk_import_rows {
+    uuid id PK
+    uuid job_id FK
+  }
+  bulk_update_batches {
+    uuid id PK
+    uuid organization_id FK
+    uuid created_by FK
+  }
+  bulk_update_rows {
+    uuid id PK
+    uuid batch_id FK
+    uuid authorization_item_id FK
+  }
+  bulk_update_source_files {
+    uuid id PK
+    uuid batch_id FK
+  }
+  idempotency_records {
+    uuid id PK
+  }
+  import_batches {
+    uuid id PK
+    uuid organization_id FK
+    uuid created_by FK
+  }
+  import_rows {
+    uuid id PK
+    uuid import_batch_id FK
+    uuid authorization_item_id FK
+  }
+  import_source_files {
+    uuid id PK
+    uuid import_batch_id FK
+  }
+  job_results {
+    uuid id PK
+  }
+  outbox_events {
+    uuid id PK
+    uuid organization_id FK
+  }
+  validation_errors {
+    uuid id PK
+    uuid import_row_id FK
+  }
+  import_batches ||--o{ bulk_import_jobs : "authorization_import_batch_id"
+  bulk_import_rows ||--o{ bulk_import_row_attempts : "row_id"
+  bulk_import_jobs ||--o{ bulk_import_rows : "job_id"
+  bulk_update_batches ||--o{ bulk_update_rows : "batch_id"
+  bulk_update_batches ||--o{ bulk_update_source_files : "batch_id"
+  import_batches ||--o{ import_rows : "import_batch_id"
+  import_batches ||--o{ import_source_files : "import_batch_id"
+  import_rows ||--o{ validation_errors : "import_row_id"
+  %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.

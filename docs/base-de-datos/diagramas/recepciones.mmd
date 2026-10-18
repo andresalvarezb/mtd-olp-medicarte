@@ -1,0 +1,25 @@
+erDiagram
+  purchase_order_receipt_lines {
+    uuid id PK
+    uuid receipt_id FK
+    uuid purchase_order_line_id FK
+  }
+  purchase_order_receipts {
+    uuid id PK
+    uuid purchase_order_id FK
+    uuid confirmed_by FK
+  }
+  receipt_lines {
+    uuid id PK
+    uuid receipt_id FK
+    uuid delivery_line_id FK
+  }
+  receipts {
+    uuid id PK
+    uuid delivery_id FK
+    uuid created_by FK
+    uuid updated_by FK
+  }
+  purchase_order_receipts ||--o{ purchase_order_receipt_lines : "receipt_id"
+  receipts ||--o{ receipt_lines : "receipt_id"
+  %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.
