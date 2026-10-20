@@ -86,3 +86,17 @@ Se añaden ocho guías con **CE-33 a CE-84** (**84 casos documentados acumulados
 Se verificaron controladores, repositorios, contratos y política de roles para MIPRES, resultados de no aplicación, programación, recepción por entregas/directa por OC, traslados, analíticas y RBAC.
 
 **Límites específicos:** no se verificó flujo integral de devoluciones postrecepción, recepción parcial de traslado, ajuste genérico por merma o contabilidad financiera; por tanto NO se describen como implementados. La auditoría de facturación es distinta de cierre contable. Las pruebas siguen pendientes de ejecución; no se consultó base de datos ni ambiente desplegado. Véanse [índice de excepciones](casos-especiales/README.md), [brechas](casos-especiales/pendientes-funcionales-priorizados.md) y [matriz de pruebas](casos-especiales/matriz-pruebas-especiales.md).
+
+## Actualización AC-FIN-001 — 2026-10-20
+
+El PR #91 integró el control de capacidad de compra pendiente
+tras anulación de autorizaciones.
+
+Se documentan por separado disponibilidad física, compromisos
+pendientes e historial liberado.
+
+Documento:
+[AC-FIN-001](requirements/AC-FIN-001-capacidad-compra-anulaciones.md).
+
+La evidencia de integración del código no sustituye validación
+PostgreSQL, concurrencia, UAT ni verificación de despliegue.

@@ -50,3 +50,16 @@ La recepción directa Medicarte (`POST /api/v1/medicarte/purchase-orders/:id/rec
 | Recepción real | Puede reconciliar allocations | Conserva trazabilidad OC | Registra recepción operacional real; distinguir ledger directo/legado | Sí |
 
 **Por certificar:** pruebas de concurrencia anulación vs fulfillment, recepción parcial repetida, límites de disponibilidad por punto, replay del worker y reconciliación histórica; jamás llamar PASS por lectura estática.
+
+## CE-12A — Compromisos pendientes después de anulación
+
+Una fuente liberada por anulación se conserva como evidencia histórica.
+
+El importador de OC existentes permite vincular compra todavía
+pendiente a otra AUTO elegible, sin fabricar inventario.
+
+El sistema diferencia ASSIGN_AVAILABLE, ASSIGN_PENDING_COMMITMENT
+y REASSIGN. Deben preservarse los controles de cantidad por línea,
+producto, punto y OC.
+
+Ver [AC-FIN-001](../requirements/AC-FIN-001-capacidad-compra-anulaciones.md).
