@@ -24,7 +24,7 @@ describe('Disponibilidades: exportación de compromisos liberados', () => {
       await import('./inventory-availability.service');
 
     const service = new InventoryAvailabilityService({
-      list: async () => ({
+      list: () => Promise.resolve({
         items: [{
           purchaseOrderId: 'PO-1',
           purchaseOrderCode: 'OC-1',
