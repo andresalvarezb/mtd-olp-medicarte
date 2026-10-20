@@ -70,6 +70,35 @@ export class AnalyticsController {
     );
   }
 
+
+  @Get('dashboard/financial-audit')
+  async financialAuditDashboard(
+    @Headers('x-organization-id')
+    organizationId: string | undefined,
+
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    const id = z.string().uuid().parse(organizationId);
+
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      id,
+      'analytics.economics.read',
+    );
+
+    // La lectura económica NO sustituye el permiso de auditoría.
+    await this.access.requirePermission(
+      request.auth.sub,
+      id,
+      'application_audits.read',
+    );
+
+    return this.analytics.financialAuditDashboard(
+      scopeFromProfile(profile, id, request),
+    );
+  }
+
   @Get('operational')
   async operational(
     @Query() raw: unknown,

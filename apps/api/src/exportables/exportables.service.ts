@@ -1879,6 +1879,13 @@ export class ExportablesService {
               )
                 as has_legacy_fulfillment,
 
+              moderator_fee.status as moderator_fee_status,
+              moderator_fee.amount_cop as moderator_fee_amount_cop,
+              moderator_fee.collected_at as moderator_fee_collected_at,
+              moderator_fee.created_at as moderator_fee_registered_at,
+              moderator_fee.registered_by as moderator_fee_registered_by,
+              moderator_fee.version as moderator_fee_version,
+
               billing_audit.status
                 as billing_audit_status,
 
@@ -1886,7 +1893,20 @@ export class ExportablesService {
                 as billing_audit_result,
 
               billing_audit.observation
-                as billing_audit_observation
+                as billing_audit_observation,
+
+              coalesce(
+                support_sync.support_status,
+                'UNKNOWN'
+              ) as drive_support_status,
+
+              coalesce(
+                support_sync.evidence_count,
+                0
+              )::int as drive_support_evidence_count,
+
+              support_sync.last_checked_at
+                as drive_support_last_checked_at
 
             from
               authorization_items ai
@@ -2080,6 +2100,25 @@ export class ExportablesService {
             ) billing_audit
               on true
 
+            left join lateral (
+              select
+                fee.status,
+                fee.amount_cop,
+                fee.collected_at,
+                fee.created_at,
+                fee.registered_by,
+                fee.version
+
+              from authorization_moderator_fee_events fee
+              where fee.authorization_item_id = ai.id
+              order by fee.version desc
+              limit 1
+            ) moderator_fee
+              on true
+
+            left join authorization_drive_support_sync support_sync
+              on support_sync.authorization_item_id = ai.id
+
             where
               ${
                 exportAll
@@ -2201,8 +2240,18 @@ export class ExportablesService {
         'CUMPLIMIENTO_CANTIDAD',
         'AUDITORIA',
         'OBSERVACION_AUDITORIA',
+        'ESTADO_SOPORTE',
+        'CANTIDAD_SOPORTES',
+        'FECHA_VERIFICACION_SOPORTE',
         'FECHA_CREACION_SISTEMA',
         'FECHA_ACTUALIZACION_SISTEMA',
+        'CUOTA_ESTABLECIDA_AUTORIZACION',
+        'ESTADO_RECAUDO_CUOTA',
+        'VALOR_RECAUDADO_CUOTA_COP',
+        'FECHA_EFECTIVA_RECAUDO_CUOTA',
+        'FECHA_REGISTRO_RECAUDO_CUOTA',
+        'USUARIO_REGISTRO_RECAUDO_CUOTA',
+        'VERSION_REGISTRO_RECAUDO_CUOTA',
       ] as const;
 
 
@@ -2703,9 +2752,23 @@ export class ExportablesService {
               'billing_audit_observation'
             ] ?? null;
 
-          output[
-            'FECHA_CREACION_SISTEMA'
-          ] =
+          const driveSupportStatus =
+            row['drive_support_status'];
+
+          output['ESTADO_SOPORTE'] =
+            driveSupportStatus === 'WITH_SUPPORT'
+              ? 'CON SOPORTE'
+              : driveSupportStatus === 'WITHOUT_SUPPORT'
+                ? 'SIN SOPORTE'
+                : 'NO VERIFICADO';
+
+          output['CANTIDAD_SOPORTES'] =
+            Number(row['drive_support_evidence_count'] ?? 0);
+
+          output['FECHA_VERIFICACION_SOPORTE'] =
+            row['drive_support_last_checked_at'] ?? null;
+
+          output['FECHA_CREACION_SISTEMA'] =
             row[
               'created_at'
             ];
@@ -2717,6 +2780,51 @@ export class ExportablesService {
               'updated_at'
             ];
 
+          const feeStatus = row['moderator_fee_status'];
+
+          const feeAmountRaw = row['moderator_fee_amount_cop'];
+
+          const feeAmountText =
+            typeof feeAmountRaw === 'string'
+              ? feeAmountRaw
+              : typeof feeAmountRaw === 'number'
+                ? String(feeAmountRaw)
+                : null;
+
+          const feeAmount =
+            feeStatus === 'COLLECTED' &&
+            feeAmountText !== null &&
+            /^\d{1,12}(?:\.\d{1,2})?$/.test(feeAmountText)
+              ? Number(feeAmountText)
+              : null;
+
+          output['CUOTA_ESTABLECIDA_AUTORIZACION'] =
+            source['VALOR_CUOTA_MODERADORA'] ?? null;
+
+          output['ESTADO_RECAUDO_CUOTA'] =
+            feeStatus === 'COLLECTED'
+              ? 'RECAUDADA'
+              : feeStatus === 'NOT_COLLECTED'
+                ? 'NO RECAUDADA'
+                : feeStatus == null
+                  ? 'SIN REGISTRO'
+                  : 'INCONSISTENTE';
+
+          output['VALOR_RECAUDADO_CUOTA_COP'] = feeAmount;
+
+          output['FECHA_EFECTIVA_RECAUDO_CUOTA'] =
+            feeStatus === 'COLLECTED'
+              ? row['moderator_fee_collected_at'] ?? null
+              : null;
+
+          output['FECHA_REGISTRO_RECAUDO_CUOTA'] =
+            row['moderator_fee_registered_at'] ?? null;
+
+          output['USUARIO_REGISTRO_RECAUDO_CUOTA'] =
+            row['moderator_fee_registered_by'] ?? null;
+
+          output['VERSION_REGISTRO_RECAUDO_CUOTA'] =
+            row['moderator_fee_version'] ?? null;
 
           return output;
         },

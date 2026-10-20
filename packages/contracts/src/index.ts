@@ -2704,3 +2704,17 @@ export type AuthorizationBillingAuditResponse = z.infer<
 >;
 
 // AUTHORIZATION BILLING AUDIT CONTRACTS - END
+
+export {
+  moderatorFeeCollectionStatusSchema,
+  registerModeratorFeeRequestSchema,
+  moderatorFeeEventSchema,
+  moderatorFeeResponseSchema,
+} from './moderator-fee';
+
+export type {
+  ModeratorFeeCollectionStatus,
+  RegisterModeratorFeeRequest,
+  ModeratorFeeEvent,
+  ModeratorFeeResponse,
+} from './moderator-fee';

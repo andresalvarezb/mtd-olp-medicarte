@@ -89,6 +89,7 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
     'MTD_ONLY',
   ),
   permission('authorizations.manual_edit', 'authorizations', 'MANUAL_EDIT', 'ACTIVE', 'MTD_ONLY'),
+  permission('moderator_fees.manage', 'authorizations', 'COLLECT_MODERATOR_FEE', 'ACTIVE', 'MTD_ONLY', { configurable: true }),
   permission('imports.create', 'imports', 'CREATE', 'LEGACY', 'MTD_ONLY'),
   permission('imports.confirm', 'imports', 'CONFIRM', 'LEGACY', 'MTD_ONLY'),
   permission('mipres.recheck', 'authorizations', 'RECHECK', 'LEGACY', 'MTD_ONLY'),
@@ -685,8 +686,8 @@ export function validateAccessRegistry(): void {
     routes.add(module.route);
   }
 
-  if (permissionCodes.size !== 82) {
-    throw new Error(`Expected 82 current permission mappings, got ${permissionCodes.size}`);
+  if (permissionCodes.size !== 83) {
+    throw new Error(`Expected 83 current permission mappings, got ${permissionCodes.size}`);
   }
 }
 

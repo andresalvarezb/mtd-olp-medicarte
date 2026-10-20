@@ -1042,6 +1042,171 @@ export class AnalyticsRepository {
     };
   }
 
+
+  /**
+   * AC-02: resumen financiero y de auditoría de facturación.
+   *
+   * Solo invocado después de validar rol y permisos MTD.
+   * Cada autorización contribuye exactamente una fila.
+   * Los importes corresponden al último estado de recaudo,
+   * no a la suma histórica de eventos ni al valor de las OC.
+   */
+  async financialAuditDashboard() {
+    const result = await this.database.pool.query<
+      Record<string, unknown>
+    >(`
+      with per_authorization as (
+        select
+          ai.id,
+
+          fee.status as fee_status,
+          fee.amount_cop as fee_amount_cop,
+
+          audit.status as billing_audit_status,
+          audit.result as billing_audit_result,
+
+          (
+            exists (
+              select 1
+              from authorization_fulfillments af
+              where af.authorization_item_id = ai.id
+            )
+            or exists (
+              select 1
+              from patient_applications pa
+              where pa.authorization_item_id = ai.id
+                and pa.status = 'CONFIRMED'
+            )
+          ) as has_fulfillment
+
+        from authorization_items ai
+
+        left join lateral (
+          select
+            event.status,
+            event.amount_cop
+
+          from authorization_moderator_fee_events event
+
+          where event.authorization_item_id = ai.id
+
+          order by event.version desc
+
+          limit 1
+        ) fee on true
+
+        left join lateral (
+          select
+            ba.status,
+            ba.result
+
+          from authorization_billing_audits ba
+
+          where ba.authorization_item_id = ai.id
+
+          order by ba.created_at desc, ba.id desc
+
+          limit 1
+        ) audit on true
+      )
+
+      select
+        count(*)::int as authorization_total,
+
+        count(*) filter (
+          where fee_status = 'COLLECTED'
+        )::int as collected_count,
+
+        count(*) filter (
+          where fee_status = 'NOT_COLLECTED'
+        )::int as not_collected_count,
+
+        count(*) filter (
+          where fee_status is null
+        )::int as not_recorded_count,
+
+        coalesce(
+          sum(fee_amount_cop) filter (
+            where fee_status = 'COLLECTED'
+          ),
+          0
+        )::numeric(18,2)::text as collected_amount_cop,
+
+        count(*) filter (
+          where billing_audit_status is null
+        )::int as audit_not_started_count,
+
+        count(*) filter (
+          where billing_audit_status = 'PENDING'
+            and billing_audit_result is null
+        )::int as audit_pending_count,
+
+        count(*) filter (
+          where billing_audit_status = 'REVIEWED'
+            and billing_audit_result = 'COMPLIES'
+        )::int as audit_complies_count,
+
+        count(*) filter (
+          where billing_audit_status = 'REVIEWED'
+            and billing_audit_result = 'DOES_NOT_COMPLY'
+        )::int as audit_not_complies_count,
+
+        count(*) filter (
+          where (
+            billing_audit_status = 'PENDING'
+            and billing_audit_result is not null
+          )
+          or (
+            billing_audit_status = 'REVIEWED'
+            and (
+              billing_audit_result is null
+              or billing_audit_result not in (
+                'COMPLIES',
+                'DOES_NOT_COMPLY'
+              )
+            )
+          )
+        )::int as audit_inconsistent_count,
+
+        count(*) filter (
+          where has_fulfillment
+        )::int as fulfilled_authorizations_count
+
+      from per_authorization
+    `);
+
+    const row = result.rows[0] ?? {};
+
+    return {
+      generatedAt: new Date().toISOString(),
+
+      authorizationTotal: asInt(row.authorization_total),
+
+      moderatorFee: {
+        collectedCount: asInt(row.collected_count),
+        notCollectedCount: asInt(row.not_collected_count),
+        notRecordedCount: asInt(row.not_recorded_count),
+        collectedAmountCop:
+          asMoney(row.collected_amount_cop) ?? '0.00',
+      },
+
+      billingAudit: {
+        notStartedCount: asInt(row.audit_not_started_count),
+        pendingCount: asInt(row.audit_pending_count),
+        compliesCount: asInt(row.audit_complies_count),
+        doesNotComplyCount:
+          asInt(row.audit_not_complies_count),
+        inconsistentCount:
+          asInt(row.audit_inconsistent_count),
+      },
+
+      fulfillment: {
+        withFulfillmentCount:
+          asInt(row.fulfilled_authorizations_count),
+      },
+    };
+  }
+
   async novelties(query: AnalyticsQuery): Promise<NoveltyCount[]> {
     const schedulePeriod = query.planningPeriodId
       ? sql`(ps.planning_period_id = ${query.planningPeriodId} or ps.deferred_planning_period_id = ${query.planningPeriodId})`

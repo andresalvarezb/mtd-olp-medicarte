@@ -6,6 +6,7 @@ import { useRole } from '@/components/layout/role-context';
 import { PageHeader } from '@/components/ui/page-header';
 import { useApiData } from '@/hooks/use-api-data';
 import { getDashboardAnalytics } from '@/lib/analytics-api';
+import { FinancialAuditDashboardSection } from './financial-audit-dashboard-section';
 
 const integer = new Intl.NumberFormat('es-CO');
 
@@ -62,8 +63,16 @@ function percentage(
 export function DashboardView() {
   const router = useRouter();
 
-  const { organizationId } =
-    useRole();
+  const { organizationId, me, hasPermission } = useRole();
+
+  const activeOrganization = me?.organizations.find(
+    item => item.id === organizationId,
+  );
+
+  const canReadFinancialAudit =
+    activeOrganization?.code === 'MTD' &&
+    hasPermission('analytics.economics.read') &&
+    hasPermission('application_audits.read');
 
   const dashboard = useApiData(
     () =>
@@ -504,6 +513,12 @@ export function DashboardView() {
               </div>
             )}
           </section>
+
+          {canReadFinancialAudit && organizationId ? (
+            <FinancialAuditDashboardSection
+              organizationId={organizationId}
+            />
+          ) : null}
         </>
       ) : null}
     </div>

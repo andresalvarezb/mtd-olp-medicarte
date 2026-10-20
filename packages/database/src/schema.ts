@@ -395,6 +395,117 @@ export const authorizationItems = pgTable(
   ],
 );
 
+
+/**
+ * AC-02: eventos inmutables de recaudo de cuota moderadora.
+ * La versión mayor representa el estado actual.
+ * NO_RECORDED se deriva de la ausencia de eventos.
+ */
+export const authorizationModeratorFeeEvents = pgTable(
+  'authorization_moderator_fee_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    authorizationItemId: uuid('authorization_item_id')
+      .notNull()
+      .references(() => authorizationItems.id, {
+        onDelete: 'restrict',
+      }),
+
+    version: integer('version').notNull(),
+
+    status: varchar('status', {
+      length: 20,
+    }).notNull(),
+
+    amountCop: numeric('amount_cop', {
+      precision: 14,
+      scale: 2,
+    }),
+
+    collectedAt: timestamp('collected_at', {
+      withTimezone: true,
+    }),
+
+    observation: text('observation'),
+
+    reference: text('reference'),
+
+    registeredBy: uuid('registered_by')
+      .notNull()
+      .references(() => users.id, {
+        onDelete: 'restrict',
+      }),
+
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, {
+        onDelete: 'restrict',
+      }),
+
+    correlationId: uuid('correlation_id').notNull(),
+
+    idempotencyKey: uuid('idempotency_key').notNull(),
+
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+    }).notNull().defaultNow(),
+  },
+  table => [
+    uniqueIndex('authorization_moderator_fee_version_unique')
+      .on(table.authorizationItemId, table.version),
+
+    uniqueIndex('authorization_moderator_fee_idempotency_unique')
+      .on(table.authorizationItemId, table.idempotencyKey),
+
+    index('authorization_moderator_fee_history_idx')
+      .on(table.authorizationItemId, table.version.desc()),
+
+    index('authorization_moderator_fee_created_idx')
+      .on(table.createdAt, table.authorizationItemId),
+
+    check(
+      'authorization_moderator_fee_version_positive',
+      sql`${table.version} > 0`,
+    ),
+
+    check(
+      'authorization_moderator_fee_status_valid',
+      sql`${table.status} IN ('COLLECTED', 'NOT_COLLECTED')`,
+    ),
+
+    check(
+      'authorization_moderator_fee_amount_consistency',
+      sql`(
+        (
+          ${table.status} = 'COLLECTED'
+          AND ${table.amountCop} IS NOT NULL
+          AND ${table.amountCop} > 0
+          AND ${table.collectedAt} IS NOT NULL
+        )
+        OR
+        (
+          ${table.status} = 'NOT_COLLECTED'
+          AND ${table.amountCop} IS NULL
+          AND ${table.collectedAt} IS NULL
+        )
+      )`,
+    ),
+
+    check(
+      'authorization_moderator_fee_observation_length',
+      sql`${table.observation} IS NULL
+        OR length(${table.observation}) <= 1000`,
+    ),
+
+    check(
+      'authorization_moderator_fee_reference_length',
+      sql`${table.reference} IS NULL
+        OR length(${table.reference}) <= 255`,
+    ),
+  ],
+);
+
 export const authorizationMipresDecisionHistory = pgTable(
   'authorization_mipres_decision_history',
   {

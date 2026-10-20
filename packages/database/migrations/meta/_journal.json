@@ -708,6 +708,20 @@
       "when": 1790546879672,
       "tag": "0101_authorization_annulment",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1790546879673,
+      "tag": "0102_authorization_moderator_fee_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1790546879674,
+      "tag": "0103_mtd_moderator_fee_permission",
+      "breakpoints": true
     }
   ]
 }

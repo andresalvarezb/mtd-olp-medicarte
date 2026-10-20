@@ -8,6 +8,9 @@ import { useEffect, useRef, useState } from 'react';
 
 import { PageHeader } from '@/components/ui/page-header';
 import { BulkBillingAuditActions } from './bulk-billing-audit-actions';
+import { AuthorizationModeratorFeePanel } from './authorization-moderator-fee-panel';
+import { getAuthorizationModeratorFee } from '@/lib/authorization-moderator-fee-api';
+import { moderatorFeeDate, moderatorFeeMoney } from '@/lib/moderator-fee-presentation';
 
 import { Card, CardBody } from '@/components/ui/card';
 
@@ -550,80 +553,6 @@ function authorizationDateInputValue(
 }
 
 
-function moderatorFeeLabel(
-  value:
-    string | null,
-) {
-  if (
-    !value
-    ||
-    !value.trim()
-  ) {
-    return 'Sin valor registrado';
-  }
-
-  const raw =
-    value.trim();
-
-  let numeric:
-    number;
-
-  if (
-    /^-?\d+(\.\d+)?$/
-      .test(raw)
-  ) {
-    numeric =
-      Number(raw);
-  } else if (
-    /^\d{1,3}(\.\d{3})+(,\d+)?$/
-      .test(raw)
-  ) {
-    numeric =
-      Number(
-        raw
-          .replace(
-            /\./g,
-            '',
-          )
-          .replace(
-            ',',
-            '.',
-          ),
-      );
-  } else {
-    numeric =
-      Number(
-        raw.replace(
-          ',',
-          '.',
-        ),
-      );
-  }
-
-  if (
-    !Number.isFinite(
-      numeric,
-    )
-  ) {
-    return raw;
-  }
-
-  return new Intl.NumberFormat(
-    'es-CO',
-    {
-      style:
-        'currency',
-
-      currency:
-        'COP',
-
-      maximumFractionDigits:
-        0,
-    },
-  ).format(
-    numeric,
-  );
-}
 
 
 function manualEditErrorMessage(
@@ -711,7 +640,7 @@ function dateTimeLabel(
 }
 
 export function ConsultaAutorizacionesView() {
-  const { organizationId, hasPermission } = useRole();
+  const { organizationId, hasPermission, me } = useRole();
 
   const [filters, setFilters] = useState<{
     authorizationNumber:
@@ -988,6 +917,9 @@ export function ConsultaAutorizacionesView() {
     >(
       [],
     );
+  const [moderatorFeeHistoryError, setModeratorFeeHistoryError] =
+    useState<string | null>(null);
+
 
   const [
     authorizationHistoryLoading,
@@ -1078,6 +1010,20 @@ export function ConsultaAutorizacionesView() {
     }
   }
 
+
+  const currentOrganization =
+    me?.organizations.find((item) => item.id === organizationId);
+
+  const canReadModeratorFee =
+    Boolean(
+      (currentOrganization?.code === 'MTD' ||
+        currentOrganization?.code === 'MEDICARTE') &&
+      hasPermission('authorizations.read'),
+    );
+
+  const canManageModeratorFee =
+    currentOrganization?.code === 'MTD' &&
+    hasPermission('moderator_fees.manage');
 
   const canFulfill =
     hasPermission(
@@ -2413,20 +2359,113 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
       true,
     );
 
-    setAuthorizationHistoryError(
-      null,
-    );
+    setAuthorizationHistoryError(null);
+    setModeratorFeeHistoryError(null);
 
     try {
-      const response =
-        await getAuthorizationHistory(
+      const response = await getAuthorizationHistory(
           organizationId,
           authorizationItemId,
         );
 
-      setAuthorizationHistory(
-        response.items,
+      const merged: AuthorizationHistoryEvent[] = [...response.items];
+
+      if (canReadModeratorFee) {
+        try {
+          const financial = await getAuthorizationModeratorFee(
+            organizationId,
+            authorizationItemId,
+          );
+
+          const financialEvents: AuthorizationHistoryEvent[] =
+            financial.history.map((payment) => {
+              const observation = payment.observation?.trim() ?? '';
+
+              const usefulObservation =
+                observation &&
+                !/^(no|ningun[ao]|n\/a|na|sin observaciones?|[-—])$/i.test(observation)
+                  ? observation
+                  : '';
+
+              const hadPriorCollection = financial.history.some(
+                (previous) =>
+                  previous.version < payment.version &&
+                  previous.status === 'COLLECTED',
+              );
+
+              const isCorrection =
+                payment.version > 1 &&
+                (payment.status === 'NOT_COLLECTED' || hadPriorCollection);
+
+              return {
+                id: payment.id,
+                type: payment.status === 'COLLECTED'
+                  ? 'MODERATOR_FEE_COLLECTED'
+                  : 'MODERATOR_FEE_NOT_COLLECTED',
+                occurredAt: payment.registeredAt,
+                title: isCorrection
+                  ? 'Corrección de cuota moderadora'
+                  : payment.status === 'COLLECTED'
+                    ? 'Cuota moderadora recaudada'
+                    : 'Cuota moderadora no recaudada',
+                description: usefulObservation
+                  ? 'Observación: ' + usefulObservation
+                  : '',
+                actorName: null,
+                organizationCode: null,
+                details: [
+                  {
+                    label: 'Valor recaudado',
+                    value: payment.status === 'COLLECTED'
+                      ? payment.amountCop === null
+                        ? 'No disponible'
+                        : moderatorFeeMoney(Number(payment.amountCop))
+                      : moderatorFeeMoney(0),
+                  },
+                  {
+                    label: 'Estado',
+                    value: payment.status === 'COLLECTED'
+                      ? 'Pago recibido'
+                      : 'Pago no recibido',
+                  },
+                  ...(payment.collectedAt &&
+                  moderatorFeeDate(payment.collectedAt) !==
+                    moderatorFeeDate(payment.registeredAt)
+                    ? [{
+                        label: 'Fecha efectiva del recaudo',
+                        value: moderatorFeeDate(payment.collectedAt),
+                      }]
+                    : []),
+                ],
+              };
+            });
+
+          const knownIds = new Set(
+            merged.map((event) => event.id)
+          );
+
+          for (const payment of financialEvents) {
+            if (!knownIds.has(payment.id)) {
+              merged.push(payment);
+              knownIds.add(payment.id);
+            }
+          }
+        } catch (cause: unknown) {
+          setModeratorFeeHistoryError(
+            cause instanceof Error
+              ? cause.message
+              : 'No fue posible consultar el historial de recaudos.',
+          );
+        }
+      }
+
+      merged.sort(
+        (a, b) =>
+          Date.parse(b.occurredAt) - Date.parse(a.occurredAt) ||
+          a.id.localeCompare(b.id),
       );
+
+      setAuthorizationHistory(merged);
     } catch (
       cause
     ) {
@@ -3157,7 +3196,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                 Resumen
               </button>
 
-              {canFulfill ? (
+              {(canFulfill || canManageModeratorFee) ? (
                 <button
                   type="button"
                   role="tab"
@@ -4206,6 +4245,15 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   </span>
                 </div>
 
+                {moderatorFeeHistoryError ? (
+                  <div
+                    className="authorization-fulfillment-error"
+                    role="alert"
+                  >
+                    No fue posible cargar los recaudos: {moderatorFeeHistoryError}
+                  </div>
+                ) : null}
+
                 {authorizationHistoryLoading ? (
                   <div className="authorization-history-empty">
                     Cargando historial…
@@ -4283,13 +4331,19 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                                             : event.type ===
                                                   'DELIVERY_RECORDED'
                                               ? 'Entrega'
+                                              : event.type === 'MODERATOR_FEE_COLLECTED' ||
+                                                event.type === 'MODERATOR_FEE_NOT_COLLECTED'
+                                              ? 'Recaudo'
                                               : 'Acción'}
                               </span>
                             </div>
 
-                            <p className="authorization-history-description">
-                              {event.description}
-                            </p>
+                            {!event.type.startsWith('MODERATOR_FEE_') &&
+                              event.description ? (
+                              <p className="authorization-history-description">
+                                {event.description}
+                              </p>
+                            ) : null}
 
                             {event.details.length >
                             0 ? (
@@ -4315,8 +4369,15 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                               </div>
                             ) : null}
 
+                            {event.type.startsWith('MODERATOR_FEE_') &&
+                             event.description ? (
+                              <p className="authorization-history-description">
+                                {event.description}
+                              </p>
+                            ) : null}
+
                             {event.actorName ||
-                            event.organizationCode ? (
+                             event.organizationCode ? (
                               <div className="authorization-history-actor">
                                 Registrado por{' '}
                                 <strong>
@@ -4777,6 +4838,16 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                 ) : null}
 
 
+                {canReadModeratorFee && organizationId ? (
+                  <AuthorizationModeratorFeePanel
+                    key={selected.id}
+                    organizationId={organizationId}
+                    authorizationItemId={selected.id}
+                    canManage={canManageModeratorFee}
+                    mode="summary"
+                  />
+                ) : null}
+
                 <div className="authorization-summary-section-heading">
                   <strong>
                     Seguimiento
@@ -4788,17 +4859,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                 </div>
 
                 <div className="authorization-detail-grid authorization-summary-grid">
-                  <div>
-                    <span>
-                      Cuota moderadora
-                    </span>
 
-                    <strong>
-                      {moderatorFeeLabel(
-                        selected.moderatorFeeValue,
-                      )}
-                    </strong>
-                  </div>
 
                   <div>
                     <span>
@@ -4953,23 +5014,23 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                     </strong>
                   </div>
 
-                  <div>
-                    <span>
-                      Cuota moderadora
-                    </span>
 
-                    <strong>
-                      {moderatorFeeLabel(
-                        selected.moderatorFeeValue,
-                      )}
-                    </strong>
-                  </div>
                 </div>
 
 
                 <div className="operation-section-title">
                   Gestionar entrega / aplicación
                 </div>
+
+                {canReadModeratorFee && organizationId ? (
+                  <AuthorizationModeratorFeePanel
+                    key={selected.id}
+                    organizationId={organizationId}
+                    authorizationItemId={selected.id}
+                    canManage={canManageModeratorFee}
+                    mode="manage"
+                  />
+                ) : null}
 
             {selected.operationalStatus ===
             'CLOSED' ? (

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import type {
   AnalyticsDrilldownQuery,
   AnalyticsEconomics,
@@ -142,6 +142,18 @@ export class AnalyticsService {
       organizationCode: scope.organizationCode,
       includeEconomics,
     });
+  }
+
+
+  async financialAuditDashboard(scope: Scope) {
+    if (scope.organizationCode !== 'MTD') {
+      throw new ForbiddenException({
+        code: 'FINANCIAL_AUDIT_DASHBOARD_MTD_ONLY',
+        message: 'El resumen financiero y de auditoría es exclusivo de MTD.',
+      });
+    }
+
+    return this.repository.financialAuditDashboard();
   }
 
   async novelties(query: AnalyticsQuery, scope: Scope) {
