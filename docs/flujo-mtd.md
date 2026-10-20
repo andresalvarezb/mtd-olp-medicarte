@@ -104,3 +104,15 @@ No use estos valores como claves reales. La columna destino puede resolverse des
 **Comprobación antes de dar por cerrado un día:** archivos aceptados/rechazados, totales OC, compromiso OLP, recepción acumulada y diferencias abiertas; cualquier `409`/`403` requiere clasificación, no reintentos ciegos.
 
 **Archivos fuente:** `apps/api/src/tariff-annex/*`, `bulk-imports/*`, `purchase-orders/*`, `clinical/*`; contratos en `packages/contracts/src/index.ts`; UI en `apps/web/features/purchase-orders` y `apps/web/features/authorizations`.
+
+## MTD-OC-02 — Reutilización tras anulación
+
+1. Confirmar que la autorización anterior quedó anulada sin consumo.
+2. Consultar la OC y verificar producto, punto y saldo.
+3. Distinguir disponibilidad física y compra pendiente.
+4. Preparar importación con AUTO_ORIGEN vacía y nueva AUTO_DESTINO.
+5. Verificar las filas aceptadas o rechazadas.
+6. Comprobar la nueva fuente de compra y el evento de auditoría.
+7. Confirmar que no se modificaron las recepciones ni el solicitado de OC.
+
+Ver [AC-FIN-001](requirements/AC-FIN-001-capacidad-compra-anulaciones.md).

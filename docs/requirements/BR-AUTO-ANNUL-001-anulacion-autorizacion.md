@@ -32,3 +32,16 @@ Una autorización puede anularse cuando **no existe ninguna entrega o aplicació
 - Revertir entregas o aplicaciones.
 - Cancelar o modificar OC, recepciones o inventario físico.
 - Hacer merge o desplegar sin pruebas de integración.
+
+## Complemento AC-FIN-001 — Capacidad de compra
+
+La anulación conserva las fuentes históricas marcadas como liberadas,
+sin cancelar la OC ni alterar sus cantidades.
+
+Cuando existe saldo de compra pendiente sin comprometer, otra AUTO
+elegible puede vincularlo mediante importación de OC existente con
+AUTO_ORIGEN vacía.
+
+Esta vinculación no es stock físico ni reasignación histórica 1:1.
+
+Ver [AC-FIN-001 — capacidad de compra](AC-FIN-001-capacidad-compra-anulaciones.md).
