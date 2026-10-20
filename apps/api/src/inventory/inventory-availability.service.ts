@@ -112,6 +112,15 @@ export class InventoryAvailabilityService {
 
             PENDIENTE_RECEPCION:
               item.pendingReceiptQuantity,
+
+            COMPROMISO_OC_ACTIVO:
+              item.activeCommitmentQuantity,
+
+            SALDO_OC_PENDIENTE_SIN_COMPROMETER:
+              item.purchaseCommitmentAvailableQuantity,
+
+            LIBERADO_ANULACION_HISTORICO:
+              item.historicalAnnulmentReleasedQuantity,
           }),
         ),
         {
@@ -126,6 +135,9 @@ export class InventoryAvailabilityService {
             'ASIGNADO',
             'DISPONIBLE_SIN_ASIGNAR',
             'PENDIENTE_RECEPCION',
+            'COMPROMISO_OC_ACTIVO',
+            'SALDO_OC_PENDIENTE_SIN_COMPROMETER',
+            'LIBERADO_ANULACION_HISTORICO',
           ],
         },
       );
@@ -141,6 +153,9 @@ export class InventoryAvailabilityService {
       { wch: 14 },
       { wch: 24 },
       { wch: 22 },
+      { wch: 24 },
+      { wch: 40 },
+      { wch: 34 },
     ];
 
     XLSX.utils.book_append_sheet(

@@ -4105,6 +4105,8 @@ export class AuthorizationQueryRepository {
           poas_link.authorization_item_id =
             ${authorizationItemId}
 
+          and poas_link.released_at is null
+
           /*
            * Canceladas/rechazadas conservan su
            * trazabilidad en BD, pero no participan
@@ -4812,6 +4814,8 @@ export class AuthorizationQueryRepository {
             poas_linked_status.authorization_item_id =
               i.id
 
+            and poas_linked_status.released_at is null
+
             and po_linked_status.status not in (
               'CANCELLED',
               'REJECTED'
@@ -5185,6 +5189,8 @@ export class AuthorizationQueryRepository {
         where
           poas_eligibility.authorization_item_id =
             i.id
+
+          and poas_eligibility.released_at is null
 
           and pol_eligibility.commercial_code =
             i.codigo_medicamento

@@ -1621,6 +1621,25 @@ describe(
       });
       expect(state.rows[0]?.annulled_at).not.toBeNull();
 
+      const detailAfterAnnulment = await apiCall(
+        'GET',
+        '/authorization-query/' + item.id,
+        undefined,
+      );
+
+      expect(detailAfterAnnulment.status).toBe(200);
+
+      const detailBody = await detailAfterAnnulment.json() as {
+        isAnnulled: boolean;
+        hasLinkedPurchaseOrder: boolean;
+        purchaseOrders: unknown[];
+      };
+
+      expect(detailBody.isAnnulled).toBe(true);
+      expect(detailBody.hasLinkedPurchaseOrder).toBe(false);
+      expect(detailBody.purchaseOrders).toEqual([]);
+
+
       await expect(
         database.query(
           `delete from purchase_order_authorization_sources

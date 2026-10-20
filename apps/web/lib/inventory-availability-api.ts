@@ -34,6 +34,12 @@ export type InventoryAvailabilityItem =
     availableQuantity: number;
 
     pendingReceiptQuantity: number;
+
+    activeCommitmentQuantity: number;
+
+    purchaseCommitmentAvailableQuantity: number;
+
+    historicalAnnulmentReleasedQuantity: number;
   }>;
 
 
