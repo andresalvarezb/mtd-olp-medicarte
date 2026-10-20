@@ -137,6 +137,9 @@ export function AuthorizationModeratorFeePanel({
   }
 
   async function save(): Promise<void> {
+    if (detail && moderatorFeeBalances(detail).expected === 0) {
+      return;
+    }
     if (
       mode !== 'manage' ||
       detail?.status === 'COLLECTED' ||
@@ -291,7 +294,12 @@ export function AuthorizationModeratorFeePanel({
             <FinancialAmounts detail={detail} />
             <div>
               <span>Estado del recaudo</span>
-              <strong>{statusLabel(detail.status)}</strong>
+              <strong>
+                {moderatorFeeBalances(detail).expected === 0 &&
+                detail.status === 'NOT_RECORDED'
+                  ? 'No requiere recaudo'
+                  : statusLabel(detail.status)}
+              </strong>
             </div>
             {detail.status === 'COLLECTED' ? (
               <div>
@@ -307,7 +315,8 @@ export function AuthorizationModeratorFeePanel({
 
           </div>
 
-          {mode === 'manage' ? (
+          {mode === 'manage' &&
+          moderatorFeeBalances(detail).expected !== 0 ? (
             <>
               {detail.status === 'NOT_RECORDED' ? (
                 <p role="status">
