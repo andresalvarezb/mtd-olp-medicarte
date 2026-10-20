@@ -4833,10 +4833,33 @@ export class PurchaseOrderImportService {
               destination.id,
             );
 
-            if (lines.length === 0) {
+            // Nunca permitir que una fila incompleta o una cantidad
+            // no numerica llegue al calculo de capacidad ni a SQL.
+            const quantityFields = [
+              'requested_quantity',
+              'received_quantity',
+              'committed_quantity',
+              'global_requested_quantity',
+              'point_requested_quantity',
+              'global_commitment_quantity',
+              'point_commitment_quantity',
+            ] as const;
+
+            const invalidPendingLine = lines.some((line) =>
+              typeof line.line_id !== 'string' ||
+              line.line_id.length === 0 ||
+              typeof line.destination_ever_linked !== 'boolean' ||
+              quantityFields.some((field) =>
+                !Number.isSafeInteger(Number(line[field])) ||
+                Number(line[field]) < 0
+              ) ||
+              Number(line.requested_quantity) <= 0
+            );
+
+            if (lines.length === 0 || invalidPendingLine) {
               this.existingOrderError(
-                'PURCHASE_ORDER_PENDING_COMMITMENT_POINT_NOT_FOUND',
-                'No existen líneas de compra pendientes compatibles con el punto destino.',
+                'PURCHASE_ORDER_AVAILABLE_QUANTITY_INSUFFICIENT',
+                `La OC ${purchaseOrderCode} no dispone de capacidad de compra pendiente válida para ${destination.commercial_code} en el punto de la autorización.`,
               );
             }
 
