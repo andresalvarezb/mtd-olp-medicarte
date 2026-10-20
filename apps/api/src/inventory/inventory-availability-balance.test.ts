@@ -7,6 +7,7 @@ import {
 import {
   calculateUnassignedAvailability,
   calculateAssignableAvailability,
+  calculateUncommittedPurchaseBalance,
 } from './inventory-availability-balance';
 
 describe(
@@ -70,5 +71,23 @@ describe('OC + producto: saldo global y saldo por punto', () => {
 
   it('nunca libera el saldo si se incumple el limite del punto', () => {
     expect(calculateAssignableAvailability(2, 0, 2, 100, 0, 0)).toBe(0);
+  });
+});
+
+describe('saldo OC pendiente sin comprometer', () => {
+  it('libera capacidad de compra sin inventar stock', () => {
+    expect(calculateUncommittedPurchaseBalance(10, 6, 10)).toBe(0);
+    expect(calculateUncommittedPurchaseBalance(10, 6, 0)).toBe(4);
+  });
+
+  it('no descuenta dos veces una reserva y su fuente', () => {
+    expect(calculateUncommittedPurchaseBalance(10, 6, 6)).toBe(4);
+    expect(calculateUncommittedPurchaseBalance(10, 6, 8)).toBe(2);
+  });
+
+  it('respeta la cantidad comprada y no produce negativos', () => {
+    expect(calculateUncommittedPurchaseBalance(10, 0, 6)).toBe(4);
+    expect(calculateUncommittedPurchaseBalance(10, 0, 12)).toBe(0);
+    expect(calculateUncommittedPurchaseBalance(3, 5, 0)).toBe(0);
   });
 });

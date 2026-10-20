@@ -91,6 +91,10 @@ const COLUMNS = [
     label:
       'Pendiente recepción',
   },
+
+  { label: 'Compromiso OC activo' },
+  { label: 'Saldo OC pendiente sin comprometer' },
+  { label: 'Liberado por anulación (histórico)' },
 ];
 
 
@@ -485,6 +489,10 @@ export function DisponibilidadView() {
         quantity(
           item.pendingReceiptQuantity,
         ),
+
+        quantity(item.activeCommitmentQuantity),
+        quantity(item.purchaseCommitmentAvailableQuantity),
+        quantity(item.historicalAnnulmentReleasedQuantity),
       ],
     );
 
@@ -493,7 +501,7 @@ export function DisponibilidadView() {
     <>
       <PageHeader
         title="Disponibilidad"
-        description="Consulta de inventario operativo por OC, producto y punto. Disponible = recibido − entregado/aplicado − asignado. Las asignaciones se gestionan desde Órdenes de compra."
+        description="Inventario físico y capacidad de compra por OC/producto. El saldo pendiente de compra no equivale a existencias; los valores globales de OC/producto se repiten cuando hay varios puntos."
         actions={
           <button
             type="button"

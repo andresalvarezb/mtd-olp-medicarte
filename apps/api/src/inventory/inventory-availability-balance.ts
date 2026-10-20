@@ -37,3 +37,18 @@ export function calculateAssignableAvailability(
     ),
   );
 }
+
+/** Capacidad de compra sin recibir ni comprometer; no es stock físico. */
+export function calculateUncommittedPurchaseBalance(
+  requestedQuantity: number,
+  globalReceivedQuantity: number,
+  activeCommitmentQuantity: number,
+): number {
+  return Math.max(
+    0,
+    Math.max(requestedQuantity, 0) - Math.max(
+      Math.max(globalReceivedQuantity, 0),
+      Math.max(activeCommitmentQuantity, 0),
+    ),
+  );
+}

@@ -11,6 +11,7 @@ import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-o
 
 import {
   calculateAssignableAvailability,
+  calculateUncommittedPurchaseBalance,
 } from './inventory-availability-balance';
 
 import type { InventoryAvailabilityImportRow } from './inventory-availability-xlsx';
@@ -276,6 +277,8 @@ export class InventoryAvailabilityRepository {
         global_received_quantity: number;
         global_fulfilled_quantity: number;
         global_assigned_quantity: number;
+        active_commitment_quantity: number;
+        historical_annulment_released_quantity: number;
       }>(sql`
         WITH
         po_products AS (
@@ -853,6 +856,63 @@ export class InventoryAvailabilityRepository {
                  SUM(assigned_quantity)::int AS quantity
           FROM assigned
           GROUP BY purchase_order_id, commercial_code
+        ),
+        active_source_by_auth AS (
+          SELECT pol.purchase_order_id, pol.commercial_code,
+                 poas.authorization_item_id,
+                 SUM(poas.source_quantity_snapshot)::int AS quantity
+          FROM purchase_order_authorization_sources poas
+          JOIN purchase_order_lines pol
+            ON pol.id = poas.purchase_order_line_id
+          WHERE poas.released_at IS NULL
+          GROUP BY pol.purchase_order_id, pol.commercial_code,
+                   poas.authorization_item_id
+        ),
+        active_allocation_by_auth AS (
+          SELECT iaa.purchase_order_id, iaa.commercial_code,
+                 iaa.authorization_item_id,
+                 SUM(GREATEST(
+                   iaa.allocated_quantity
+                   - iaa.consumed_quantity
+                   - iaa.released_quantity, 0
+                 ))::int AS quantity
+          FROM inventory_authorization_allocations iaa
+          WHERE iaa.status IN ('ALLOCATED', 'PARTIALLY_CONSUMED')
+          GROUP BY iaa.purchase_order_id, iaa.commercial_code,
+                   iaa.authorization_item_id
+        ),
+        purchase_commitments AS (
+          SELECT
+            COALESCE(src.purchase_order_id, res.purchase_order_id)
+              AS purchase_order_id,
+            COALESCE(src.commercial_code, res.commercial_code)
+              AS commercial_code,
+            SUM(GREATEST(
+              COALESCE(src.quantity, 0),
+              COALESCE(res.quantity, 0)
+            ))::int AS active_commitment_quantity
+          FROM active_source_by_auth src
+          FULL OUTER JOIN active_allocation_by_auth res
+            ON res.purchase_order_id = src.purchase_order_id
+           AND res.commercial_code = src.commercial_code
+           AND res.authorization_item_id = src.authorization_item_id
+          GROUP BY
+            COALESCE(src.purchase_order_id, res.purchase_order_id),
+            COALESCE(src.commercial_code, res.commercial_code)
+        ),
+        annulment_history AS (
+          SELECT pol.purchase_order_id, pol.commercial_code,
+                 SUM(poas.source_quantity_snapshot)::int
+                   AS historical_annulment_released_quantity
+          FROM purchase_order_authorization_sources poas
+          JOIN purchase_order_lines pol
+            ON pol.id = poas.purchase_order_line_id
+          JOIN authorization_items ai
+            ON ai.id = poas.authorization_item_id
+          WHERE poas.released_at IS NOT NULL
+            AND ai.annulled_at IS NOT NULL
+            AND poas.released_at >= ai.annulled_at
+          GROUP BY pol.purchase_order_id, pol.commercial_code
         )
 
 
@@ -900,7 +960,9 @@ export class InventoryAvailabilityRepository {
 
           COALESCE(received_global.quantity, 0)::int AS global_received_quantity,
           COALESCE(fulfilled_global.quantity, 0)::int AS global_fulfilled_quantity,
-          COALESCE(assigned_global.quantity, 0)::int AS global_assigned_quantity
+          COALESCE(assigned_global.quantity, 0)::int AS global_assigned_quantity,
+          COALESCE(pc.active_commitment_quantity, 0)::int AS active_commitment_quantity,
+          COALESCE(ah.historical_annulment_released_quantity, 0)::int AS historical_annulment_released_quantity
 
         FROM
           po_product_points ppp
@@ -964,6 +1026,15 @@ export class InventoryAvailabilityRepository {
           ON assigned_global.purchase_order_id = ppp.purchase_order_id
          AND assigned_global.commercial_code = ppp.commercial_code
 
+
+        LEFT JOIN purchase_commitments pc
+          ON pc.purchase_order_id = ppp.purchase_order_id
+         AND pc.commercial_code = ppp.commercial_code
+
+        LEFT JOIN annulment_history ah
+          ON ah.purchase_order_id = ppp.purchase_order_id
+         AND ah.commercial_code = ppp.commercial_code
+
         WHERE
           ${sql.join(
             conditions,
@@ -1026,6 +1097,20 @@ export class InventoryAvailabilityRepository {
                 0,
               );
 
+            // Saldo global de OC/producto; no sumar entre puntos.
+            const activeCommitmentQuantity =
+              Math.max(Number(row.active_commitment_quantity), 0);
+
+            const historicalAnnulmentReleasedQuantity =
+              Math.max(Number(row.historical_annulment_released_quantity), 0);
+
+            const purchaseCommitmentAvailableQuantity =
+              calculateUncommittedPurchaseBalance(
+                requestedQuantity,
+                Math.max(Number(row.global_received_quantity), 0),
+                activeCommitmentQuantity,
+              );
+
             return {
               purchaseOrderId:
                 row.purchase_order_id,
@@ -1056,6 +1141,9 @@ export class InventoryAvailabilityRepository {
               availableQuantity,
 
               pendingReceiptQuantity,
+              activeCommitmentQuantity,
+              purchaseCommitmentAvailableQuantity,
+              historicalAnnulmentReleasedQuantity,
             };
           },
         ),

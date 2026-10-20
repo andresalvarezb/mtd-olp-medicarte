@@ -4165,7 +4165,12 @@ export class PurchaseOrderImportService {
     purchaseOrderId: string,
     commercialCode: string,
     dispensingPointId: string,
-  ): Promise<{ pointAvailable: number; globalAvailable: number }> {
+  ): Promise<{
+    pointAvailable: number;
+    globalAvailable: number;
+    pointReceived: number;
+    globalReceived: number;
+  }> {
     /*
      * El lock GLOBAL se comparte con InventoryAvailabilityRepository:
      * los consumos en otro punto nunca liberan capacidad de la OC.
@@ -4193,6 +4198,8 @@ export class PurchaseOrderImportService {
       point_available_quantity: number;
       global_available_quantity: number;
       has_direct_receipt: boolean;
+      point_received_quantity: number;
+      global_received_quantity: number;
     }>(
       `
         with receipt_events as (
@@ -4280,6 +4287,8 @@ export class PurchaseOrderImportService {
                  as point_available_quantity,
                greatest(receipts.total - fulfillments.total - reservations.total, 0)::int
                  as global_available_quantity,
+               receipts.at_point::int as point_received_quantity,
+               receipts.total::int as global_received_quantity,
                exists (
                  select 1 from purchase_order_receipt_lines porl
                  join purchase_order_receipts por on por.id = porl.receipt_id
@@ -4323,7 +4332,132 @@ export class PurchaseOrderImportService {
     return {
       pointAvailable,
       globalAvailable: Number(result.rows[0]?.global_available_quantity ?? 0),
+      pointReceived: Number(result.rows[0]?.point_received_quantity ?? 0),
+      globalReceived: Number(result.rows[0]?.global_received_quantity ?? 0),
     };
+  }
+
+  /**
+   * Only physically outstanding OC capacity can be committed. Released sources
+   * remain immutable and are deliberately excluded from active commitment sums.
+   * The caller already holds the OC FOR UPDATE and the product advisory lock.
+   */
+  private async existingOrderPendingCommitmentLines(
+    client: PoolClient,
+    purchaseOrderId: string,
+    commercialCode: string,
+    dispensingPointId: string,
+    destinationAuthorizationId: string,
+  ) {
+    const result = await client.query<{
+      line_id: string;
+      requested_quantity: number;
+      received_quantity: number;
+      committed_quantity: number;
+      destination_ever_linked: boolean;
+      global_requested_quantity: number;
+      point_requested_quantity: number;
+      global_commitment_quantity: number;
+      point_commitment_quantity: number;
+    }>(
+      `
+        with product_lines as (
+          select pol.id, pol.requested_quantity,
+                 coalesce(pol.dispensing_point_id, mapping.dispensing_point_id)
+                   as dispensing_point_id
+          from purchase_order_lines pol
+          left join lateral (
+            select (array_agg(distinct m.dispensing_point_id))[1]
+                     as dispensing_point_id
+            from tariff_annex_products tap
+            join product_delivery_point_mappings m
+              on m.invima_record_normalized =
+                 coalesce(nullif(ltrim(btrim(tap.numero_expediente_invima), '0'), ''), '0')
+             and m.invima_presentation_normalized =
+                 coalesce(nullif(ltrim(btrim(tap.consecutivo_invima_presentacion), '0'), ''), '0')
+            where tap.codigo_producto = pol.commercial_code
+              and tap.active = true
+              and btrim(coalesce(tap.numero_expediente_invima, '')) ~ '^[0-9]+$'
+              and btrim(coalesce(tap.consecutivo_invima_presentacion, '')) ~ '^[0-9]+$'
+            having count(distinct m.dispensing_point_id) = 1
+          ) mapping on pol.dispensing_point_id is null
+          where pol.purchase_order_id = $1
+            and pol.commercial_code = $2
+        ),
+        source_commitments as (
+          select poas.authorization_item_id,
+                 sum(poas.source_quantity_snapshot)::int as global_quantity,
+                 coalesce(sum(poas.source_quantity_snapshot)
+                   filter (where pl.dispensing_point_id = $3), 0)::int
+                   as point_quantity
+          from purchase_order_authorization_sources poas
+          join product_lines pl on pl.id = poas.purchase_order_line_id
+          where poas.released_at is null
+          group by poas.authorization_item_id
+        ),
+        allocation_commitments as (
+          select iaa.authorization_item_id,
+                 sum(greatest(iaa.allocated_quantity
+                   - iaa.consumed_quantity - iaa.released_quantity, 0))::int
+                   as global_quantity,
+                 coalesce(sum(greatest(iaa.allocated_quantity
+                   - iaa.consumed_quantity - iaa.released_quantity, 0))
+                   filter (where iaa.dispensing_point_id = $3), 0)::int
+                   as point_quantity
+          from inventory_authorization_allocations iaa
+          where iaa.purchase_order_id = $1
+            and iaa.commercial_code = $2
+            and iaa.status in ('ALLOCATED', 'PARTIALLY_CONSUMED')
+          group by iaa.authorization_item_id
+        ),
+        active_commitments as (
+          select greatest(coalesce(s.global_quantity, 0),
+                          coalesce(a.global_quantity, 0)) as global_quantity,
+                 greatest(coalesce(s.point_quantity, 0),
+                          coalesce(a.point_quantity, 0)) as point_quantity
+          from source_commitments s
+          full outer join allocation_commitments a
+            on a.authorization_item_id = s.authorization_item_id
+        )
+        select pl.id as line_id,
+               pl.requested_quantity::int as requested_quantity,
+               coalesce((
+                 select sum(porl.received_quantity)
+                 from purchase_order_receipt_lines porl
+                 join purchase_order_receipts por on por.id = porl.receipt_id
+                 where porl.purchase_order_line_id = pl.id
+                   and por.purchase_order_id = $1
+               ), 0)::int as received_quantity,
+               coalesce((
+                 select sum(poas.source_quantity_snapshot)
+                 from purchase_order_authorization_sources poas
+                 where poas.purchase_order_line_id = pl.id
+                   and poas.released_at is null
+               ), 0)::int as committed_quantity,
+               exists (
+                 select 1 from purchase_order_authorization_sources poas
+                 where poas.purchase_order_line_id = pl.id
+                   and poas.authorization_item_id = $4
+               ) as destination_ever_linked,
+               coalesce((select sum(requested_quantity)
+                         from product_lines), 0)::int as global_requested_quantity,
+               coalesce((select sum(requested_quantity)
+                         from product_lines
+                         where dispensing_point_id = $3), 0)::int
+                         as point_requested_quantity,
+               coalesce((select sum(global_quantity)
+                         from active_commitments), 0)::int
+                         as global_commitment_quantity,
+               coalesce((select sum(point_quantity)
+                         from active_commitments), 0)::int
+                         as point_commitment_quantity
+        from product_lines pl
+        where pl.dispensing_point_id = $3
+        order by pl.id
+      `,
+      [purchaseOrderId, commercialCode, dispensingPointId, destinationAuthorizationId],
+    );
+    return result.rows;
   }
 
   private async processExistingPurchaseOrderGroup(
@@ -4446,6 +4580,14 @@ export class PurchaseOrderImportService {
             }
 
           | {
+              kind: 'ASSIGN_PENDING_COMMITMENT';
+              row: ImportRow;
+              destination: ExistingAuthorizationRow;
+              dispensingPointId: string;
+              lines: Array<{ id: string; quantity: number }>;
+            }
+
+          | {
               kind:
                 'REASSIGN';
 
@@ -4474,6 +4616,9 @@ export class PurchaseOrderImportService {
       const reservedFromAvailability = new Map<string, number>();
       const reservedAcrossPoints = new Map<string, number>();
       const reservedByDestination = new Map<string, number>();
+      const pendingAtPoint = new Map<string, number>();
+      const pendingGlobally = new Map<string, number>();
+      const pendingAtLine = new Map<string, number>();
 
       const seenOrigins =
         new Set<
@@ -4678,10 +4823,99 @@ export class PurchaseOrderImportService {
           );
 
           if (row.quantity! > remaining) {
-            this.existingOrderError(
-              'PURCHASE_ORDER_AVAILABLE_QUANTITY_INSUFFICIENT',
-              `La OC ${purchaseOrderCode} tiene ${remaining} unidad(es) disponibles del producto ${destination.commercial_code} en el punto de la AUTO; se solicitaron ${row.quantity}. No se modificó la compra.`,
+            // Do not combine physical reservation and future purchase in one row.
+            // The fallback commits the complete row against unreceived OC stock.
+            const lines = await this.existingOrderPendingCommitmentLines(
+              client,
+              order.id,
+              destination.commercial_code,
+              dispensingPointId,
+              destination.id,
             );
+
+            if (lines.length === 0) {
+              this.existingOrderError(
+                'PURCHASE_ORDER_PENDING_COMMITMENT_POINT_NOT_FOUND',
+                'No existen líneas de compra pendientes compatibles con el punto destino.',
+              );
+            }
+
+            const first = lines[0]!;
+            const pointCapacity = Math.max(
+              Number(first.point_requested_quantity) - Math.max(
+                available.pointReceived,
+                Number(first.point_commitment_quantity),
+              ), 0,
+            );
+            const globalCapacity = Math.max(
+              Number(first.global_requested_quantity) - Math.max(
+                available.globalReceived,
+                Number(first.global_commitment_quantity),
+              ), 0,
+            );
+
+            const pointPending = pendingAtPoint.get(poolKey) ?? 0;
+            const globalPending = pendingGlobally.get(globalKey) ?? 0;
+            const remainingCommitment = Math.min(
+              Math.max(pointCapacity - pointPending, 0),
+              Math.max(globalCapacity - globalPending, 0),
+            );
+
+            if (row.quantity! > remainingCommitment) {
+              this.existingOrderError(
+                'PURCHASE_ORDER_PENDING_COMMITMENT_INSUFFICIENT',
+                `La OC ${purchaseOrderCode} solo tiene ${remainingCommitment} unidad(es) pendientes de compra sin comprometer de ${destination.commercial_code}.`,
+              );
+            }
+
+            let outstanding = row.quantity!;
+            const selectedLines: Array<{ id: string; quantity: number }> = [];
+            for (const line of lines) {
+              if (outstanding === 0) break;
+              // The historical source row, even released, is immutable. A PK
+              // prevents creating another relation for the same AUTO + line.
+              if (line.destination_ever_linked) continue;
+
+              const lineCapacity = Math.max(
+                Number(line.requested_quantity) - Math.max(
+                  Number(line.received_quantity),
+                  Number(line.committed_quantity),
+                ) - (pendingAtLine.get(line.line_id) ?? 0),
+                0,
+              );
+              const selected = Math.min(outstanding, lineCapacity);
+              if (selected <= 0) continue;
+              selectedLines.push({ id: line.line_id, quantity: selected });
+              outstanding -= selected;
+            }
+
+            if (outstanding > 0) {
+              this.existingOrderError(
+                'PURCHASE_ORDER_PENDING_COMMITMENT_LINES_INSUFFICIENT',
+                'No hay capacidad por líneas sin reutilizar vínculos históricos de autorizaciones.',
+              );
+            }
+
+            for (const line of selectedLines) {
+              pendingAtLine.set(
+                line.id,
+                (pendingAtLine.get(line.id) ?? 0) + line.quantity,
+              );
+            }
+            pendingAtPoint.set(poolKey, pointPending + row.quantity!);
+            pendingGlobally.set(globalKey, globalPending + row.quantity!);
+            reservedByDestination.set(
+              destination.id,
+              (reservedByDestination.get(destination.id) ?? 0) + row.quantity!,
+            );
+            plans.push({
+              kind: 'ASSIGN_PENDING_COMMITMENT',
+              row,
+              destination,
+              dispensingPointId,
+              lines: selectedLines,
+            });
+            continue;
           }
 
           reservedFromAvailability.set(
@@ -5326,6 +5560,26 @@ export class PurchaseOrderImportService {
               actor.userId,
             ],
           );
+        } else if (plan.kind === 'ASSIGN_PENDING_COMMITMENT') {
+          // Only links the future receipt to the destination. No inventory
+          // allocations, OC quantities or historic released sources change.
+          for (const line of plan.lines) {
+            await client.query(
+              `
+                insert into purchase_order_authorization_sources (
+                  purchase_order_line_id,
+                  authorization_item_id,
+                  projected_demand_line_id,
+                  projected_demand_revision,
+                  source_quantity_snapshot,
+                  provenance,
+                  evidence_at
+                )
+                values ($1, $2, null, null, $3, 'DIRECT_AUTHORIZATION', now())
+              `,
+              [line.id, plan.destination.id, line.quantity],
+            );
+          }
         } else {
           /*
            * La recepción MEDICARTE NO se toca.
@@ -5489,7 +5743,9 @@ export class PurchaseOrderImportService {
             plan.kind ===
               'ASSIGN_AVAILABLE'
               ? 'PURCHASE_ORDER_AVAILABLE_ASSIGNED'
-              : 'PURCHASE_ORDER_AUTHORIZATION_REASSIGNED',
+              : plan.kind === 'ASSIGN_PENDING_COMMITMENT'
+                ? 'PURCHASE_ORDER_PENDING_COMMITMENT_ASSIGNED'
+                : 'PURCHASE_ORDER_AUTHORIZATION_REASSIGNED',
 
             order.id,
 
@@ -5524,6 +5780,8 @@ export class PurchaseOrderImportService {
               purchaseOrderQuantitiesModified: false,
               physicalInventoryReserved:
                 plan.kind === 'ASSIGN_AVAILABLE',
+              pendingPurchaseCommitmentAssigned:
+                plan.kind === 'ASSIGN_PENDING_COMMITMENT',
             }),
 
             actor.correlationId,
