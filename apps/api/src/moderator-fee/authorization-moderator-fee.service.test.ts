@@ -67,6 +67,11 @@ function fixture(
           rows: authorized
             ? [{
                 id: authorizationId,
+                numero_autorizacion: 'TEST-AUTH-001',
+                codigo_medicamento: 'MED001',
+                product_description: 'Medicamento test',
+                patient_document: '123456789',
+                patient_name: 'Paciente Test',
                 expected_amount_cop: expectedAmountCop,
               }]
             : [],
@@ -141,6 +146,13 @@ function fixture(
   return {
     service: new AuthorizationModeratorFeeService(
       database as never,
+      // Config mock: sin Sheet configurado para que no intente conectarse
+      { GOOGLE_SHEETS_MODERATOR_FEE_ID: '', GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: '' } as never,
+      // SheetService mock: no-op
+      {
+        appendRow: vi.fn(() => Promise.resolve()),
+        getInvoiceUrl: vi.fn(() => Promise.resolve('https://drive.google.com/test-invoice.pdf')),
+      } as never,
     ),
     events,
     sqlStatements,
@@ -538,5 +550,18 @@ describe('Recaudo de cuota moderadora', () => {
     });
 
     expect(environment.events).toHaveLength(1);
+  });
+
+  it('obtiene la URL de la factura desde el servicio de Sheets', async () => {
+    const environment = fixture();
+
+    const result = await environment.service.getInvoiceUrl(
+      authorizationId,
+      scope,
+    );
+
+    expect(result).toEqual({
+      invoiceUrl: 'https://drive.google.com/test-invoice.pdf',
+    });
   });
 });

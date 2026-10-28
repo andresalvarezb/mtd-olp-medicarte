@@ -42,6 +42,12 @@ const base = z.object({
     .max(255)
     .nullable()
     .optional(),
+
+  professionalDocument: z.string()
+    .trim()
+    .max(50)
+    .nullable()
+    .optional(),
 });
 
 export const registerModeratorFeeRequestSchema =
@@ -106,4 +112,12 @@ export const moderatorFeeResponseSchema = z.object({
 
 export type ModeratorFeeResponse = z.infer<
   typeof moderatorFeeResponseSchema
+>;
+
+export const moderatorFeeInvoiceUrlResponseSchema = z.object({
+  invoiceUrl: z.string().nullable(),
+});
+
+export type ModeratorFeeInvoiceUrlResponse = z.infer<
+  typeof moderatorFeeInvoiceUrlResponseSchema
 >;

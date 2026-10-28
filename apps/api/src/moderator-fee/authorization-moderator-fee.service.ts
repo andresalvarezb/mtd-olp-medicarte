@@ -4,10 +4,12 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
 import type {
+  ModeratorFeeInvoiceUrlResponse,
   ModeratorFeeResponse,
   RegisterModeratorFeeRequest,
 } from '@authorization/contracts';
@@ -16,13 +18,23 @@ import type { createDatabase } from '@authorization/database';
 import type { PoolClient, QueryResultRow } from 'pg';
 
 import type { Scope } from '../common/request-scope';
-import { DATABASE } from '../tokens';
+import { API_CONFIG, DATABASE } from '../tokens';
+import type { ApiConfig } from '@authorization/config';
+import { ModeratorFeeSheetService } from './moderator-fee-sheet.service';
 
 type Database = ReturnType<typeof createDatabase>;
 
 type AuthorizationRow = QueryResultRow & {
   id: string;
+  numero_autorizacion: string | null;
+  codigo_medicamento: string | null;
+  product_description: string | null;
+  patient_document: string | null;
+  patient_document_type: string | null;
+  patient_name: string | null;
   expected_amount_cop: string | null;
+  fulfillment_effective_date: string | null;
+  fallback_effective_date: string | null;
 };
 
 type EventRow = QueryResultRow & {
@@ -215,8 +227,30 @@ function authorizationSql(
   return `
     select
       i.id,
-      i.source_data->>'VALOR_CUOTA_MODERADORA'
-        as expected_amount_cop
+      i.numero_autorizacion,
+      i.codigo_medicamento,
+      i.source_data->>'NOMBRE_MEDICAMENTO' as product_description,
+      coalesce(
+        i.source_data->>'IDENTIFICACION_PACIENTE',
+        i.source_data->>'NUM_DOCUMENTO'
+      ) as patient_document,
+      coalesce(
+        i.source_data->>'TIPO_IDENTIFICACION',
+        i.source_data->>'TIPO_DOCUMENTO'
+      ) as patient_document_type,
+      i.source_data->>'NOMBRE_PACIENTE' as patient_name,
+      i.source_data->>'VALOR_CUOTA_MODERADORA' as expected_amount_cop,
+      (
+        select to_char(f.effective_date, 'YYYY-MM-DD')
+        from authorization_fulfillments f
+        where f.authorization_item_id = i.id
+        order by f.confirmed_at desc
+        limit 1
+      ) as fulfillment_effective_date,
+      coalesce(
+        to_char(i.fecha_dispensacion, 'YYYY-MM-DD'),
+        to_char(i.fecha_programada, 'YYYY-MM-DD')
+      ) as fallback_effective_date
 
     from authorization_items i
 
@@ -250,9 +284,14 @@ function authorizationParams(
 
 @Injectable()
 export class AuthorizationModeratorFeeService {
+  private readonly logger = new Logger(AuthorizationModeratorFeeService.name);
+
   constructor(
     @Inject(DATABASE)
     private readonly database: Database,
+    @Inject(API_CONFIG)
+    private readonly config: ApiConfig,
+    private readonly sheetService: ModeratorFeeSheetService,
   ) {}
 
   private assertRead(scope: Scope): void {
@@ -397,6 +436,26 @@ export class AuthorizationModeratorFeeService {
     return this.response(authorization, events);
   }
 
+  async getInvoiceUrl(
+    authorizationItemId: string,
+    scope: Scope,
+  ): Promise<ModeratorFeeInvoiceUrlResponse> {
+    this.assertRead(scope);
+
+    const authorization = await this.authorization(
+      this.database.pool,
+      authorizationItemId,
+      scope,
+      false,
+    );
+
+    const invoiceUrl = await this.sheetService.getInvoiceUrl(
+      authorization.numero_autorizacion,
+    );
+
+    return { invoiceUrl };
+  }
+
   async register(
     authorizationItemId: string,
     body: RegisterModeratorFeeRequest,
@@ -420,7 +479,7 @@ export class AuthorizationModeratorFeeService {
     }
 
     const observation = nullableText(body.observation);
-    const reference = nullableText(body.reference);
+    const reference = nullableText(body.professionalDocument ?? body.reference);
 
     const client = await this.database.pool.connect();
 
@@ -644,6 +703,27 @@ export class AuthorizationModeratorFeeService {
       );
 
       await client.query('COMMIT');
+
+      // Enviar al Google Sheet de forma no bloqueante (fire-and-forget).
+      // Si falla, solo se loguea un warning — el recaudo ya quedó en BD.
+      void this.sheetService.appendRow({
+        authorizationItemId,
+        authorizationNumber: authorization.numero_autorizacion,
+        patientDocument: authorization.patient_document,
+        patientDocumentType: authorization.patient_document_type,
+        patientName: authorization.patient_name,
+        effectiveDate:
+          authorization.fulfillment_effective_date ??
+          authorization.fallback_effective_date ??
+          null,
+        professionalDocument: body.professionalDocument ?? body.reference ?? null,
+        status: body.status,
+        expectedAmountCop: authorization.expected_amount_cop,
+        amountCop: amountCop,
+        observation: observation,
+        registeredAt: new Date().toISOString(),
+        registeredBy: scope.userId,
+      });
 
       return this.response(authorization, updatedEvents);
     } catch (error) {

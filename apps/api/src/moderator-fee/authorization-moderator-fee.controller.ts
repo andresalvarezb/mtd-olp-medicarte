@@ -66,6 +66,18 @@ export class AuthorizationModeratorFeeController {
     );
   }
 
+  @Get(':id/moderator-fee/invoice-url')
+  async getInvoiceUrl(
+    @Param('id') rawId: string,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.service.getInvoiceUrl(
+      uuid.parse(rawId),
+      await this.scope(request, organizationId, 'authorizations.read'),
+    );
+  }
+
   @Post(':id/moderator-fee')
   async register(
     @Param('id') rawId: string,

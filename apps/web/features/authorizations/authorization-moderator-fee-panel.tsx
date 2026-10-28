@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/lib/api-client';
 import {
   getAuthorizationModeratorFee,
+  getAuthorizationModeratorFeeInvoiceUrl,
   registerAuthorizationModeratorFee,
   type ModeratorFeeResponse,
   type RegisterModeratorFeeRequest,
@@ -82,7 +83,15 @@ export function AuthorizationModeratorFeePanel({
   const [status, setStatus] = useState<EntryStatus>('');
   const [amountCop, setAmountCop] = useState('');
   const [collectionDate, setCollectionDate] = useState('');
+  const [professionalDocument, setProfessionalDocument] = useState('');
   const [observation, setObservation] = useState('');
+
+  const [fetchingInvoice, setFetchingInvoice] = useState(false);
+  const [invoiceMessage, setInvoiceMessage] = useState<{
+    type: 'info' | 'success' | 'warning' | 'error';
+    text: string;
+    url?: string;
+  } | null>(null);
 
   const attempt = useRef<{
     fingerprint: string;
@@ -99,7 +108,10 @@ export function AuthorizationModeratorFeePanel({
     setStatus('');
     setAmountCop('');
     setCollectionDate('');
+    setProfessionalDocument('');
     setObservation('');
+    setFetchingInvoice(false);
+    setInvoiceMessage(null);
     attempt.current = null;
 
     void getAuthorizationModeratorFee(
@@ -126,6 +138,45 @@ export function AuthorizationModeratorFeePanel({
       cancelled = true;
     };
   }, [organizationId, authorizationItemId]);
+
+  async function handleDownloadInvoice(): Promise<void> {
+    setFetchingInvoice(true);
+    setInvoiceMessage({
+      type: 'info',
+      text: 'Consultando factura generada...',
+    });
+
+    try {
+      const res = await getAuthorizationModeratorFeeInvoiceUrl(
+        organizationId,
+        authorizationItemId,
+      );
+
+      if (res.invoiceUrl) {
+        setInvoiceMessage({
+          type: 'success',
+          text: 'Factura encontrada. Se abrirá en una nueva pestaña.',
+          url: res.invoiceUrl,
+        });
+        window.open(res.invoiceUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        setInvoiceMessage({
+          type: 'warning',
+          text: 'La factura aún no está disponible en la hoja de cálculo. Recuerda que el proceso toma aproximadamente 1 minuto después de registrar el recaudo. Por favor, intenta de nuevo en un momento.',
+        });
+      }
+    } catch (cause: unknown) {
+      setInvoiceMessage({
+        type: 'error',
+        text:
+          cause instanceof Error
+            ? cause.message
+            : 'No fue posible consultar la factura en este momento.',
+      });
+    } finally {
+      setFetchingInvoice(false);
+    }
+  }
 
   async function reload(): Promise<void> {
     const latest = await getAuthorizationModeratorFee(
@@ -178,6 +229,7 @@ export function AuthorizationModeratorFeePanel({
     }
 
     const normalizedObservation = observation.trim() || null;
+    const normalizedProfessional = professionalDocument.trim() || null;
 
     const fingerprint = JSON.stringify({
       authorizationItemId,
@@ -185,6 +237,7 @@ export function AuthorizationModeratorFeePanel({
       status,
       normalizedAmount,
       collectedIso,
+      professionalDocument: normalizedProfessional,
       observation: normalizedObservation,
     });
 
@@ -199,6 +252,7 @@ export function AuthorizationModeratorFeePanel({
       idempotencyKey: attempt.current.key,
       expectedVersion: detail.version,
       observation: normalizedObservation,
+      professionalDocument: normalizedProfessional,
     };
 
     const body: RegisterModeratorFeeRequest = status === 'COLLECTED'
@@ -229,6 +283,7 @@ export function AuthorizationModeratorFeePanel({
       setStatus('');
       setAmountCop('');
       setCollectionDate('');
+      setProfessionalDocument('');
       setObservation('');
       setSuccess('Estado del recaudo guardado correctamente.');
     } catch (cause: unknown) {
@@ -315,6 +370,114 @@ export function AuthorizationModeratorFeePanel({
 
           </div>
 
+          {detail.status === 'COLLECTED' ? (
+            <div
+              className="authorization-moderator-fee-invoice-card"
+              style={{
+                marginTop: 16,
+                padding: '14px 18px',
+                backgroundColor: 'var(--surface-subtle, #f8fafc)',
+                borderRadius: 8,
+                border: '1px solid var(--border-color, #e2e8f0)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: '0.95rem' }}>Factura de cuota moderadora</strong>
+                  <p
+                    style={{
+                      margin: 0,
+                      marginTop: 2,
+                      fontSize: '0.82rem',
+                      color: 'var(--text-muted, #64748b)',
+                    }}
+                  >
+                    Se genera en la hoja de cálculo aproximadamente un minuto después del registro.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  disabled={fetchingInvoice}
+                  onClick={() => void handleDownloadInvoice()}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontWeight: 500,
+                  }}
+                >
+                  {fetchingInvoice ? '⏳ Consultando factura…' : '📄 Descargar factura'}
+                </button>
+              </div>
+
+              {invoiceMessage ? (
+                <div
+                  role="status"
+                  style={{
+                    fontSize: '0.85rem',
+                    padding: '10px 14px',
+                    borderRadius: 6,
+                    backgroundColor:
+                      invoiceMessage.type === 'success'
+                        ? '#ecfdf5'
+                        : invoiceMessage.type === 'warning'
+                        ? '#fffbeb'
+                        : invoiceMessage.type === 'error'
+                        ? '#fef2f2'
+                        : '#f0f9ff',
+                    color:
+                      invoiceMessage.type === 'success'
+                        ? '#065f46'
+                        : invoiceMessage.type === 'warning'
+                        ? '#92400e'
+                        : invoiceMessage.type === 'error'
+                        ? '#991b1b'
+                        : '#075985',
+                    border: `1px solid ${
+                      invoiceMessage.type === 'success'
+                        ? '#a7f3d0'
+                        : invoiceMessage.type === 'warning'
+                        ? '#fde68a'
+                        : invoiceMessage.type === 'error'
+                        ? '#fecaca'
+                        : '#bae6fd'
+                    }`,
+                  }}
+                >
+                  <div>{invoiceMessage.text}</div>
+                  {invoiceMessage.url ? (
+                    <div style={{ marginTop: 6 }}>
+                      <a
+                        href={invoiceMessage.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          fontWeight: 600,
+                          textDecoration: 'underline',
+                          color: 'inherit',
+                        }}
+                      >
+                        Abrir factura enlace directo ↗
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {mode === 'manage' &&
           moderatorFeeBalances(detail).expected !== 0 ? (
             <>
@@ -395,6 +558,21 @@ export function AuthorizationModeratorFeePanel({
                           required
                           onChange={(event) => {
                             setCollectionDate(event.target.value);
+                            setError(null);
+                          }}
+                        />
+                      </label>
+
+                      <label className="authorization-fulfillment-date">
+                        <span>Cédula del profesional</span>
+                        <input
+                          type="text"
+                          className="control"
+                          placeholder="Número de cédula del profesional"
+                          value={professionalDocument}
+                          disabled={saving}
+                          onChange={(event) => {
+                            setProfessionalDocument(event.target.value);
                             setError(null);
                           }}
                         />

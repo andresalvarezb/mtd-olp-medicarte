@@ -72,6 +72,22 @@ const driveAuditConfigSchema = {
 
   GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE:
     z.string().min(1).optional().or(z.literal('')),
+
+  /*
+   * ID del Google Sheet donde se registran los recaudos
+   * de cuota moderadora al guardar el estado.
+   *
+   * Ejemplo: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
+   */
+  GOOGLE_SHEETS_MODERATOR_FEE_ID:
+    z.string().min(1).optional().or(z.literal('')),
+
+  /*
+   * Nombre de la pestaña o pestaña del Google Sheet donde se registran los recaudos.
+   * Por defecto: PRUEBAS
+   */
+  GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME:
+    z.string().min(1).optional().default('PRUEBAS'),
 };
 
 const driveAuditSyncConfigSchema = {
