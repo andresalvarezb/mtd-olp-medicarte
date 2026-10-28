@@ -2,18 +2,18 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: authorization_test_integration
+      POSTGRES_DB: authorization
       POSTGRES_USER: authorization
       POSTGRES_PASSWORD: authorization
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-15432}:5432"
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U authorization -d authorization_test_integration']
+      test: ['CMD-SHELL', 'pg_isready -U authorization -d authorization']
       interval: 2s
       timeout: 3s
       retries: 20
     volumes:
-      - postgres-integration-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
@@ -33,7 +33,7 @@ services:
     working_dir: /workspace
     command: ['node', 'packages/database/dist/migrate.js']
     environment:
-      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization_test_integration
+      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,7 +57,7 @@ services:
     environment:
       NODE_ENV: development
       LOG_LEVEL: info
-      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization_test_integration
+      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization
       REDIS_URL: redis://redis:6379
       AUTH_JWT_SECRET: 0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0
       AUTH_JWT_TTL_SECONDS: 28800
@@ -74,6 +74,11 @@ services:
       MIPRES_MANUAL_RECHECK_DAILY_LIMIT: 3
       THROTTLE_GLOBAL_LIMIT: 1000
       AUTH_LOGIN_THROTTLE_LIMIT: 1000
+      GOOGLE_SHEETS_MODERATOR_FEE_ID: ${GOOGLE_SHEETS_MODERATOR_FEE_ID:-1LEzfvvH60zMsnLxZp03jlkkZO1QwSSrziTCHUWFyr30}
+      GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME: ${GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME:-CUOTAS ALTO COSTO}
+      GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: /workspace/secrets/google-service-account.json
+    volumes:
+      - ./secrets:/workspace/secrets:ro
     ports:
       - '127.0.0.1:${API_HOST_PORT:-3001}:3001'
     healthcheck:
@@ -100,7 +105,7 @@ services:
     environment:
       NODE_ENV: development
       LOG_LEVEL: info
-      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization_test_integration
+      DATABASE_URL: postgresql://authorization:authorization@postgres:5432/authorization
       REDIS_URL: redis://redis:6379
       SCHEDULER_ENABLED: 'true'
       OUTBOX_POLL_INTERVAL_MS: 500
@@ -142,5 +147,5 @@ services:
       - api
 
 volumes:
-  postgres-integration-data:
+  postgres-data:
   redis-data:

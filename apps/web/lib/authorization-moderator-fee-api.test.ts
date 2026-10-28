@@ -4,6 +4,7 @@ import { apiRequest } from './api-client';
 
 import {
   getAuthorizationModeratorFee,
+  getAuthorizationModeratorFeeInvoiceUrl,
   registerAuthorizationModeratorFee,
 } from './authorization-moderator-fee-api';
 
@@ -87,5 +88,17 @@ describe('Cliente de recaudo cuota moderadora', () => {
 
     expect(JSON.parse(options.body)).toEqual(payload);
     expect(options?.organizationId).toBe(organizationId);
+  });
+
+  it('consulta la URL de factura en la organización activa', async () => {
+    await getAuthorizationModeratorFeeInvoiceUrl(
+      organizationId,
+      authorizationId,
+    );
+
+    expect(apiRequest).toHaveBeenCalledWith(
+      `/medicarte/authorizations/${authorizationId}/moderator-fee/invoice-url`,
+      { organizationId },
+    );
   });
 });

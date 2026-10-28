@@ -66,6 +66,7 @@ import { PatientApplicationService } from './applications/patient-application.se
 import { AuthorizationFulfillmentController } from './fulfillments/authorization-fulfillment.controller';
 import { AuthorizationModeratorFeeController } from './moderator-fee/authorization-moderator-fee.controller';
 import { AuthorizationModeratorFeeService } from './moderator-fee/authorization-moderator-fee.service';
+import { ModeratorFeeSheetService } from './moderator-fee/moderator-fee-sheet.service';
 import { AuthorizationFulfillmentImportController } from './fulfillments/authorization-fulfillment-import.controller';
 import { AuthorizationFulfillmentRepository } from './fulfillments/authorization-fulfillment.repository';
 import { AuthorizationFulfillmentService } from './fulfillments/authorization-fulfillment.service';
@@ -269,6 +270,7 @@ new Gauge({
     AuthorizationFulfillmentRepository,
     AuthorizationFulfillmentService,
     AuthorizationModeratorFeeService,
+    ModeratorFeeSheetService,
     AuthorizationFulfillmentImportService,
     PatientOutcomeRepository,
     PatientOutcomeService,

@@ -12,3 +12,6 @@ coverage/
 !.env.test.example
 
 !.env.local.example
+
+secrets/
+*service-account*.json

@@ -2710,6 +2710,7 @@ export {
   registerModeratorFeeRequestSchema,
   moderatorFeeEventSchema,
   moderatorFeeResponseSchema,
+  moderatorFeeInvoiceUrlResponseSchema,
 } from './moderator-fee';
 
 export type {
@@ -2717,4 +2718,5 @@ export type {
   RegisterModeratorFeeRequest,
   ModeratorFeeEvent,
   ModeratorFeeResponse,
+  ModeratorFeeInvoiceUrlResponse,
 } from './moderator-fee';

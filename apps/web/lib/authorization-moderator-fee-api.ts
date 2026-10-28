@@ -35,3 +35,13 @@ export function registerAuthorizationModeratorFee(
     },
   );
 }
+
+export function getAuthorizationModeratorFeeInvoiceUrl(
+  organizationId: string,
+  authorizationItemId: string,
+): Promise<{ invoiceUrl: string | null }> {
+  return apiRequest<{ invoiceUrl: string | null }>(
+    `/medicarte/authorizations/${encodeURIComponent(authorizationItemId)}/moderator-fee/invoice-url`,
+    { organizationId },
+  );
+}
