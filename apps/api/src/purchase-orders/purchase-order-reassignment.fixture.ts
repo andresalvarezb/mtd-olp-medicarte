@@ -1,4 +1,4 @@
-import type { Scope } from '../../apps/api/src/common/request-scope';
+import type { Scope } from '../common/request-scope';
 
 const ORGANIZATION_ID = '10000000-0000-4000-8000-000000000001';
 const ADMIN_USER_ID = '10000000-0000-4000-8000-000000000002';

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { purchaseOrderReassignmentFixture as fixture } from '../../../../tests/fixtures/purchase-order-reassignment';
+import { purchaseOrderReassignmentFixture as fixture } from './purchase-order-reassignment.fixture';
 
 import { PurchaseOrderImportController } from './purchase-order-import.controller';
 
@@ -37,12 +37,12 @@ describe('PurchaseOrderImportController.reassign', () => {
     const { controller, importer, access, request } = setup(false);
 
     await expect(
-      controller.reassign(validInput, ORGANIZATION_ID, request),
+      controller.reassign(validInput, fixture.organizationId, request),
     ).rejects.toMatchObject({ status: 403 });
 
     expect(access.requirePermission).toHaveBeenCalledWith(
-      USER_ID,
-      ORGANIZATION_ID,
+      fixture.nonAdminUserId,
+      fixture.organizationId,
       'purchase_orders.manage',
     );
     expect(importer.reassignSingle).not.toHaveBeenCalled();
@@ -52,15 +52,15 @@ describe('PurchaseOrderImportController.reassign', () => {
     const { controller, importer, request } = setup(true);
 
     await expect(
-      controller.reassign(validInput, ORGANIZATION_ID, request),
+      controller.reassign(validInput, fixture.organizationId, request),
     ).resolves.toEqual({ acceptedRows: 1 });
 
     expect(importer.reassignSingle).toHaveBeenCalledWith({
-      purchaseOrderCode: 'OC-1',
-      originAuthorizationKey: 'AUTO-ORIG',
-      destinationAuthorizationKey: 'AUTO-DEST',
-      commercialCode: 'ABC',
-      quantity: 4,
+      purchaseOrderCode: fixture.purchaseOrder.code,
+      originAuthorizationKey: fixture.origin.authorizationKey,
+      destinationAuthorizationKey: fixture.destination.authorizationKey,
+      commercialCode: fixture.line.commercialCode,
+      quantity: fixture.origin.quantity,
     }, expect.objectContaining({ isFoundationAdmin: true }));
   });
 
@@ -68,10 +68,18 @@ describe('PurchaseOrderImportController.reassign', () => {
     const { controller, importer, request } = setup(true);
 
     await expect(
-      controller.reassign({ ...validInput, quantity: 1.5 }, ORGANIZATION_ID, request),
+      controller.reassign(
+        { ...validInput, quantity: 1.5 },
+        fixture.organizationId,
+        request,
+      ),
     ).rejects.toThrow();
     await expect(
-      controller.reassign({ ...validInput, extra: true }, ORGANIZATION_ID, request),
+      controller.reassign(
+        { ...validInput, extra: true },
+        fixture.organizationId,
+        request,
+      ),
     ).rejects.toThrow();
 
     expect(importer.reassignSingle).not.toHaveBeenCalled();

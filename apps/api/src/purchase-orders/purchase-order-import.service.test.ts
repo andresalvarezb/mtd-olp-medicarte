@@ -6,7 +6,7 @@ import {
 } from 'vitest';
 
 import * as XLSX from 'xlsx';
-import { purchaseOrderReassignmentFixture as fixture } from '../../../../tests/fixtures/purchase-order-reassignment';
+import { purchaseOrderReassignmentFixture as fixture } from './purchase-order-reassignment.fixture';
 
 import {
   calculateDestinationPurchaseDeficit,
