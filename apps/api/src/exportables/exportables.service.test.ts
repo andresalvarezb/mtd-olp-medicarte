@@ -327,6 +327,101 @@ describe(
 
 
 describe(
+  'ExportablesService purchaseOrderCandidates dates',
+  () => {
+    it(
+      'exporta las fechas de asignación y vigencia en ORDENES_COMPRA',
+      async () => {
+        const query =
+          vi.fn()
+            .mockResolvedValue({
+              rows: [
+                {
+                  authorization_key:
+                    'AUTH-1|ABC',
+
+                  numero_autorizacion:
+                    'AUTH-1',
+
+                  codigo_medicamento:
+                    'ABC',
+
+                  cantidad:
+                    5,
+
+                  assignment_date:
+                    '2026-10-01',
+
+                  expiration_date:
+                    '2027-09-30',
+                },
+              ],
+            });
+
+        const service =
+          new ExportablesService(
+            {
+              pool: {
+                query,
+              },
+            } as never,
+          );
+
+        const result =
+          await service.purchaseOrderCandidates(
+            scope,
+          );
+
+        const workbook =
+          XLSX.read(
+            result.content,
+            {
+              type: 'buffer',
+            },
+          );
+
+        const rows =
+          XLSX.utils.sheet_to_json<unknown[]>(
+            workbook.Sheets['ORDENES_COMPRA']!,
+            {
+              header: 1,
+            },
+          );
+
+        expect(rows[0]).toEqual([
+          'CLAVE_AUTORIZACION_ORIGEN',
+          'CLAVE_AUTORIZACION_DESTINO',
+          'OC',
+          'CODIGO_PRODUCTO',
+          'CANTIDAD',
+          'FECHA_ASIGNACION',
+          'FECHA_FINAL_VIGENCIA',
+        ]);
+
+        expect(rows[1]).toEqual([
+          '',
+          'AUTH-1|ABC',
+          '',
+          'ABC',
+          5,
+          '2026-10-01',
+          '2027-09-30',
+        ]);
+
+        const sql =
+          String(
+            query.mock.calls[0]?.[0],
+          );
+
+        expect(sql).toContain('e.assignment_date');
+        expect(sql).toContain('e.expiration_date');
+      },
+    );
+  },
+);
+
+
+describe(
   'ExportablesService purchaseOrderCandidates MIPRES eligibility',
   () => {
     it(

@@ -80,6 +80,10 @@ type CandidateRow =
     codigo_medicamento: string;
 
     cantidad: number;
+
+    assignment_date: string | null;
+
+    expiration_date: string | null;
   }>;
 
 
@@ -748,6 +752,8 @@ export class ExportablesService {
             authorization_key,
             numero_autorizacion,
             codigo_medicamento,
+            e.assignment_date,
+            e.expiration_date,
             purchase_balance.remaining_quantity
               as cantidad
 
@@ -963,6 +969,8 @@ export class ExportablesService {
             'OC',
             'CODIGO_PRODUCTO',
             'CANTIDAD',
+            'FECHA_ASIGNACION',
+            'FECHA_FINAL_VIGENCIA',
           ],
 
           ...result.rows.map(
@@ -978,6 +986,10 @@ export class ExportablesService {
               Number(
                 row.cantidad,
               ),
+
+              row.assignment_date,
+
+              row.expiration_date,
             ],
           ),
         ],
@@ -1004,6 +1016,14 @@ export class ExportablesService {
         {
           wch:
             14,
+        },
+        {
+          wch:
+            18,
+        },
+        {
+          wch:
+            22,
         },
       ];
 

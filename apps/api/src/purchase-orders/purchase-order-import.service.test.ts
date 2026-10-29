@@ -219,6 +219,57 @@ describe(
 
 
     it(
+      'acepta las dos columnas informativas de fechas al final',
+      async () => {
+        const {
+          instance,
+          query,
+        } =
+          service();
+
+        const buffer =
+          workbook([
+            [
+              'CLAVE_AUTORIZACION_ORIGEN',
+              'CLAVE_AUTORIZACION_DESTINO',
+              'OC',
+              'CODIGO_PRODUCTO',
+              'CANTIDAD',
+              'FECHA_ASIGNACION',
+              'FECHA_FINAL_VIGENCIA',
+            ],
+            [
+              '',
+              'AUTH-1|ABC',
+              'OC-TEST-1',
+              'ABC',
+              0,
+              '2026-10-01',
+              '2027-09-30',
+            ],
+          ]);
+
+        const result =
+          await instance.import(
+            uploaded(buffer),
+            scope,
+          );
+
+        expect(result.totalRows).toBe(1);
+        expect(result.rejectedRows).toBe(1);
+        expect(result.results[0]).toMatchObject({
+          authorizationKey: 'AUTH-1|ABC',
+          purchaseOrderCode: 'OC-TEST-1',
+          commercialCode: 'ABC',
+          quantity: null,
+          errorCode: 'PURCHASE_ORDER_QUANTITY_INVALID',
+        });
+        expect(query).not.toHaveBeenCalled();
+      },
+    );
+
+
+    it(
       'rechaza encabezados diferentes',
       async () => {
         const {

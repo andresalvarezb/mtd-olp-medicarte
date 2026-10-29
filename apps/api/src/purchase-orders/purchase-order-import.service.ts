@@ -254,6 +254,12 @@ const TEMPLATE_HEADERS = [
   'CANTIDAD',
 ] as const;
 
+const EXTENDED_TEMPLATE_HEADERS = [
+  ...TEMPLATE_HEADERS,
+  'FECHA_ASIGNACION',
+  'FECHA_FINAL_VIGENCIA',
+] as const;
+
 const LEGACY_TEMPLATE_HEADERS = [
   'AUTO_ORIGEN',
   'AUTO_DESTINO',
@@ -2389,6 +2395,19 @@ export class PurchaseOrderImportService {
           expected,
       );
 
+    const extendedCurrentHeaders =
+      headers.length ===
+        EXTENDED_TEMPLATE_HEADERS.length
+      &&
+      EXTENDED_TEMPLATE_HEADERS.every(
+        (
+          expected,
+          index,
+        ) =>
+          headers[index] ===
+          expected,
+      );
+
 
     const legacyHeaders =
       headers.length ===
@@ -2406,6 +2425,7 @@ export class PurchaseOrderImportService {
 
     if (
       !currentHeaders &&
+      !extendedCurrentHeaders &&
       !legacyHeaders
     ) {
       throw new BadRequestException({
