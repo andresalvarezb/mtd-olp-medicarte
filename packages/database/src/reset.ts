@@ -90,9 +90,11 @@ async function main(): Promise<void> {
   if (
     parsed.hostname !== 'localhost' ||
     parsed.port !== integrationPort ||
-    parsed.pathname !== '/authorization_test_integration'
+    parsed.pathname !== '/authorization' ||
+    process.env.COMPOSE_PROJECT_NAME !== `authorization-integration-${integrationPort}` ||
+    process.env.INTEGRATION_DB_RESET !== '1'
   ) {
-    throw new Error('Refusing reset: only the dedicated TEST/INTEGRATION database may be reset');
+    throw new Error('Refusing reset: only the isolated TEST/INTEGRATION project may be reset');
   }
 
   const flag = process.argv[2];

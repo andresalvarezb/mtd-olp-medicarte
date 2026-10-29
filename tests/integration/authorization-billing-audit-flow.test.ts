@@ -39,7 +39,7 @@ import {
 const databaseUrl =
   process.env.DATABASE_URL
   ??
-  'postgresql://authorization:authorization@localhost:25432/authorization_test_integration';
+  'postgresql://authorization:authorization@localhost:25432/authorization';
 
 const apiUrl =
   process.env.API_URL

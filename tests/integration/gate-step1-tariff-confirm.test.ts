@@ -7,7 +7,7 @@ import { TariffAnnexRepository } from '../../apps/api/src/tariff-annex/tariff-an
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
   process.env.DATABASE_URL ??
-  'postgresql://authorization:authorization@localhost:15432/authorization_test_integration';
+  'postgresql://authorization:authorization@localhost:15432/authorization';
 
 const database = createDatabase(databaseUrl);
 

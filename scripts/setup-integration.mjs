@@ -24,9 +24,10 @@ async function availableRedisPort() {
 }
 
 const postgresHostPort = process.env.POSTGRES_HOST_PORT ?? '25432';
+const integrationProject = 'authorization-integration-' + postgresHostPort;
 const databaseUrl =
   process.env.DATABASE_URL ??
-  `postgresql://authorization:authorization@localhost:${postgresHostPort}/authorization_test_integration`;
+  `postgresql://authorization:authorization@localhost:${postgresHostPort}/authorization`;
 const database = new URL(databaseUrl);
 const integrationEnvironment = {
   ...process.env,
@@ -34,13 +35,14 @@ const integrationEnvironment = {
   API_HOST_PORT: process.env.API_HOST_PORT ?? '3003',
   POSTGRES_HOST_PORT: postgresHostPort,
   REDIS_HOST_PORT: process.env.REDIS_HOST_PORT ?? await availableRedisPort(),
+  COMPOSE_PROJECT_NAME: integrationProject,
 };
 if (
   database.hostname !== 'localhost' ||
   database.port !== postgresHostPort ||
-  database.pathname !== '/authorization_test_integration'
+  database.pathname !== '/authorization'
 ) {
-  throw new Error('Refusing integration setup outside the dedicated TEST/INTEGRATION database');
+  throw new Error('Refusing integration setup outside the isolated TEST/INTEGRATION project');
 }
 execFileSync('docker', ['compose', 'down', '-v', '--remove-orphans'], {
   stdio: 'inherit',
@@ -58,7 +60,7 @@ execFileSync(
   [pnpmExecPath, 'db:reset'],
   {
     stdio: 'inherit',
-    env: integrationEnvironment,
+    env: { ...integrationEnvironment, INTEGRATION_DB_RESET: '1' },
   },
 );
 execFileSync('docker', ['compose', 'up', '-d', '--build', '--wait', 'api', 'worker'], {

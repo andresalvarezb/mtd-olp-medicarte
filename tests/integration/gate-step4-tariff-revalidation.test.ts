@@ -9,7 +9,7 @@ import { ORGANIZATION_IDS, adminLogin } from './helpers/auth';
 
 const databaseUrl =
   process.env.DATABASE_URL ??
-  'postgresql://authorization:authorization@localhost:15432/authorization_test_integration';
+  'postgresql://authorization:authorization@localhost:15432/authorization';
 
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 

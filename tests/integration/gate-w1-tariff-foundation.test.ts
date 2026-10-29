@@ -6,7 +6,7 @@ import { insertNovelty, resolveNovelties } from '../../packages/database/src/nov
 const database = new Client({
   connectionString:
     process.env.DATABASE_URL ??
-    'postgresql://authorization:authorization@localhost:15432/authorization_test_integration',
+    'postgresql://authorization:authorization@localhost:15432/authorization',
 });
 
 function asQueryable(client: Client) {

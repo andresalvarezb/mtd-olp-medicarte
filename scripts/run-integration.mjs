@@ -37,6 +37,7 @@ async function availablePort() {
 const postgresPort = await availablePort();
 const redisPort = await availablePort();
 const apiPort = await availablePort();
+const integrationProject = 'authorization-integration-' + postgresPort;
 
 const env = {
   ...process.env,
@@ -44,10 +45,11 @@ const env = {
   REDIS_HOST_PORT: redisPort,
   API_HOST_PORT: apiPort,
   API_URL: 'http://localhost:' + apiPort,
+  COMPOSE_PROJECT_NAME: integrationProject,
   DATABASE_URL:
     'postgresql://authorization:authorization@localhost:' +
     postgresPort +
-    '/authorization_test_integration',
+    '/authorization',
 };
 
 const pnpmPath = process.env.npm_execpath;
@@ -60,16 +62,22 @@ console.log('INTEGRATION_POSTGRES_PORT=' + postgresPort);
 console.log('INTEGRATION_REDIS_PORT=' + redisPort);
 console.log('INTEGRATION_API_PORT=' + apiPort);
 
-execFileSync(
-  process.execPath,
-  [pnpmPath, 'integration:setup'],
-  { stdio: 'inherit', env },
-);
+try {
+  execFileSync(
+    process.execPath,
+    [pnpmPath, 'integration:setup'],
+    { stdio: 'inherit', env },
+  );
 
-execFileSync(
-  process.execPath,
-  [pnpmPath, 'exec', 'vitest', 'run', '--config', 'tests/vitest.integration.config.ts'],
-  { stdio: 'inherit', env },
-);
+  execFileSync(
+    process.execPath,
+    [pnpmPath, 'exec', 'vitest', 'run', '--config', 'tests/vitest.integration.config.ts'],
+    { stdio: 'inherit', env },
+  );
 
-console.log('WAVE1_INTEGRATION=PASS');
+  console.log('WAVE1_INTEGRATION=PASS');
+} finally {
+  execFileSync('docker', ['compose', 'down', '-v', '--remove-orphans'], {
+    stdio: 'inherit', env,
+  });
+}

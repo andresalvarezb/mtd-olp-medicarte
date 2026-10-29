@@ -9,7 +9,7 @@ import {
 } from './helpers/auth';
 const databaseUrl =
   process.env.DATABASE_URL ??
-  'postgresql://authorization:authorization@localhost:15432/authorization_test_integration';
+  'postgresql://authorization:authorization@localhost:15432/authorization';
 
 const database = new Client({ connectionString: databaseUrl });
 let adminToken = '';

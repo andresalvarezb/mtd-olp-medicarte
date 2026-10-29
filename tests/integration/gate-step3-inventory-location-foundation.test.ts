@@ -8,7 +8,7 @@ import { ORGANIZATION_IDS } from './helpers/auth';
 const database = new Client({
   connectionString:
     process.env.DATABASE_URL ??
-    'postgresql://authorization:authorization@localhost:15432/authorization_test_integration',
+    'postgresql://authorization:authorization@localhost:15432/authorization',
 });
 
 const suffix = randomUUID().slice(0, 8).toUpperCase();
