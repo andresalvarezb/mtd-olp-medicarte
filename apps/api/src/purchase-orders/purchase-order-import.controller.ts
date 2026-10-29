@@ -1,6 +1,8 @@
 import {
   BadRequestException,
+  Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
   Post,
@@ -20,9 +22,20 @@ import { scopeFromProfile } from '../common/request-scope';
 import { AccessService } from '../identity/access.service';
 import type { AuthenticatedRequest } from '../types';
 
-import { PurchaseOrderImportService } from './purchase-order-import.service';
+import {
+  PurchaseOrderImportService,
+  type PurchaseOrderReassignmentInput,
+} from './purchase-order-import.service';
 
 const uuidSchema = z.string().uuid();
+
+const reassignmentBodySchema = z.object({
+  purchaseOrderCode: z.string().trim().min(1).max(255),
+  originAuthorizationKey: z.string().trim().min(1).max(255),
+  destinationAuthorizationKey: z.string().trim().min(1).max(255),
+  commercialCode: z.string().trim().min(1).max(255),
+  quantity: z.number().int().positive(),
+}).strict() satisfies z.ZodType<PurchaseOrderReassignmentInput>;
 
 const XLSX_CONTENT_TYPE =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -103,6 +116,35 @@ export class PurchaseOrderImportController {
 
     return this.importer.import(
       file,
+      actor,
+    );
+  }
+
+
+  @Post('reassign')
+  async reassign(
+    @Body()
+    body: unknown,
+    @Headers('x-organization-id')
+    organizationId: string | undefined,
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    const actor =
+      await this.scope(
+        organizationId,
+        request,
+      );
+
+    if (!actor.isFoundationAdmin) {
+      throw new ForbiddenException({
+        code: 'PURCHASE_ORDER_REASSIGNMENT_ADMIN_REQUIRED',
+        message: 'Solo un administrador de plataforma puede reasignar autorizaciones.',
+      });
+    }
+
+    return this.importer.reassignSingle(
+      reassignmentBodySchema.parse(body),
       actor,
     );
   }

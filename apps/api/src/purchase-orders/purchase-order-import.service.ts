@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
 } from '@nestjs/common';
@@ -160,6 +161,15 @@ type ImportRow = Readonly<{
   commercialCode: string | null;
 
   quantity: number | null;
+}>;
+
+
+export type PurchaseOrderReassignmentInput = Readonly<{
+  purchaseOrderCode: string;
+  originAuthorizationKey: string;
+  destinationAuthorizationKey: string;
+  commercialCode: string;
+  quantity: number;
 }>;
 
 
@@ -456,6 +466,53 @@ export class PurchaseOrderImportService {
   ) {}
 
 
+  async reassignSingle(
+    input: PurchaseOrderReassignmentInput,
+    actor: Scope,
+  ) {
+    if (!actor.isFoundationAdmin) {
+      throw new ForbiddenException({
+        code: 'PURCHASE_ORDER_REASSIGNMENT_ADMIN_REQUIRED',
+        message: 'Solo un administrador de plataforma puede reasignar autorizaciones.',
+      });
+    }
+
+    const workbook =
+      XLSX.read(
+        this.buildTemplate(),
+        { type: 'buffer' },
+      );
+
+    XLSX.utils.sheet_add_aoa(
+      workbook.Sheets['ORDENES_COMPRA']!,
+      [[
+        input.originAuthorizationKey,
+        input.destinationAuthorizationKey,
+        input.purchaseOrderCode,
+        input.commercialCode,
+        input.quantity,
+      ]],
+      { origin: 'A2' },
+    );
+
+    const buffer =
+      XLSX.write(
+        workbook,
+        { type: 'buffer', bookType: 'xlsx' },
+      ) as Buffer;
+
+    return this.import(
+      {
+        buffer,
+        originalname: 'reasignacion-autorizacion.xlsx',
+        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: buffer.length,
+      },
+      actor,
+    );
+  }
+
+
   buildTemplate(): Buffer {
     const workbook =
       XLSX.utils.book_new();
@@ -677,6 +734,19 @@ export class PurchaseOrderImportService {
     for (
       const row of rows
     ) {
+      if (
+        row.originAuthorizationKey &&
+        !actor.isFoundationAdmin
+      ) {
+        reject(
+          row,
+          'PURCHASE_ORDER_REASSIGNMENT_ADMIN_REQUIRED',
+          'Solo un administrador de plataforma puede reasignar autorizaciones.',
+        );
+
+        continue;
+      }
+
       if (
         !row.destinationAuthorizationKey
       ) {

@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 
 import * as XLSX from 'xlsx';
+import { purchaseOrderReassignmentFixture as fixture } from '../../../../tests/fixtures/purchase-order-reassignment';
 
 import {
   calculateDestinationPurchaseDeficit,
@@ -13,31 +14,7 @@ import {
 } from './purchase-order-import.service';
 
 
-const scope = {
-  organizationId:
-    '10000000-0000-4000-8000-000000000001',
-
-  organizationCode:
-    'MTD',
-
-  userId:
-    '10000000-0000-4000-8000-000000000002',
-
-  correlationId:
-    '10000000-0000-4000-8000-000000000003',
-
-  readSensitive:
-    true,
-
-  isFoundationAdmin:
-    true,
-
-  canCrossOrganizationOperationalExport:
-    true,
-
-  pointAccessKind:
-    'unrestricted',
-} as const;
+const scope = fixture.adminScope;
 
 
 function workbook(
@@ -135,6 +112,116 @@ function service() {
 describe(
   'PurchaseOrderImportService XLSX',
   () => {
+    it(
+      'prepara una sola fila REASIGNAR y delega al importador',
+      async () => {
+        const {
+          instance,
+        } =
+          service();
+
+        const expected = {
+          totalRows: 1,
+          acceptedRows: 1,
+          rejectedRows: 0,
+          createdOrders: 0,
+          rejectedWorkbookBase64: null,
+          results: [],
+        };
+
+        const importSpy =
+          vi.spyOn(instance, 'import')
+            .mockResolvedValue(expected);
+
+        const result =
+          await instance.reassignSingle(
+            {
+              purchaseOrderCode: fixture.purchaseOrder.code,
+              originAuthorizationKey: fixture.origin.authorizationKey,
+              destinationAuthorizationKey: fixture.destination.authorizationKey,
+              commercialCode: fixture.line.commercialCode,
+              quantity: fixture.origin.quantity,
+            },
+            scope,
+          );
+
+        expect(result).toBe(expected);
+        expect(importSpy).toHaveBeenCalledTimes(1);
+
+        const [file, actor] =
+          importSpy.mock.calls[0]!;
+
+        const book =
+          XLSX.read(file.buffer, { type: 'buffer' });
+
+        const matrix =
+          XLSX.utils.sheet_to_json<unknown[]>(
+            book.Sheets['ORDENES_COMPRA']!,
+            { header: 1 },
+          );
+
+        expect(matrix).toEqual([
+          [...fixture.headers],
+          [...fixture.row],
+        ]);
+        expect(actor).toBe(scope);
+      },
+    );
+
+
+    it(
+      'rechaza reasignaciones masivas para usuarios no administradores antes de consultar la base',
+      async () => {
+        const {
+          instance,
+          query,
+        } =
+          service();
+
+        const result =
+          await instance.import(
+            uploaded(
+              workbook([
+                [...fixture.headers],
+                [...fixture.row],
+              ]),
+            ),
+            fixture.nonAdminScope,
+          );
+
+        expect(result.rejectedRows).toBe(1);
+        expect(result.results[0]).toMatchObject({
+          errorCode: 'PURCHASE_ORDER_REASSIGNMENT_ADMIN_REQUIRED',
+        });
+        expect(query).not.toHaveBeenCalled();
+      },
+    );
+
+
+    it(
+      'deniega la reasignación individual antes de invocar el importador si no es administrador',
+      async () => {
+        const { instance } = service();
+        const importSpy = vi.spyOn(instance, 'import');
+
+        await expect(
+          instance.reassignSingle(
+            {
+              purchaseOrderCode: fixture.purchaseOrder.code,
+              originAuthorizationKey: fixture.origin.authorizationKey,
+              destinationAuthorizationKey: fixture.destination.authorizationKey,
+              commercialCode: fixture.line.commercialCode,
+              quantity: fixture.origin.quantity,
+            },
+            fixture.nonAdminScope,
+          ),
+        ).rejects.toMatchObject({ status: 403 });
+
+        expect(importSpy).not.toHaveBeenCalled();
+      },
+    );
+
+
     it(
       'genera exactamente las cinco columnas canónicas V3',
       () => {

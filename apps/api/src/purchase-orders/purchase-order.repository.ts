@@ -1863,6 +1863,56 @@ export class PurchaseOrderRepository {
         pol.id
     `);
 
+    const authorizationSourceResult = await this.database.db.execute<{
+      purchase_order_line_id: string;
+      authorization_key: string;
+      authorization_number: string;
+      source_quantity_snapshot: number;
+    }>(sql`
+      select
+        poas.purchase_order_line_id,
+        ai.authorization_key,
+        coalesce(
+          nullif(btrim(ai.numero_autorizacion), ''),
+          ai.authorization_key
+        ) as authorization_number,
+        poas.source_quantity_snapshot
+
+      from purchase_order_authorization_sources poas
+
+      join purchase_order_lines pol
+        on pol.id = poas.purchase_order_line_id
+
+      join authorization_items ai
+        on ai.id = poas.authorization_item_id
+
+      where pol.purchase_order_id = ${id}
+        and poas.released_at is null
+
+      order by
+        poas.purchase_order_line_id,
+        ai.authorization_key
+    `);
+
+    const authorizationSourcesByLine = new Map<
+      string,
+      Array<{
+        authorizationKey: string;
+        authorizationNumber: string;
+        quantity: number;
+      }>
+    >();
+
+    for (const source of authorizationSourceResult.rows) {
+      const sources = authorizationSourcesByLine.get(source.purchase_order_line_id) ?? [];
+      sources.push({
+        authorizationKey: source.authorization_key,
+        authorizationNumber: source.authorization_number,
+        quantity: Number(source.source_quantity_snapshot),
+      });
+      authorizationSourcesByLine.set(source.purchase_order_line_id, sources);
+    }
+
     const deliveryResult = await this.database.db.execute<{
       id: string;
       supplier_reference: string | null;
@@ -2185,6 +2235,9 @@ export class PurchaseOrderRepository {
 
         supplierUnitCost:
           line.supplier_unit_cost,
+
+        authorizationSources:
+          authorizationSourcesByLine.get(line.id) ?? [],
       };
     });
 
