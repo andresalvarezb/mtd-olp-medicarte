@@ -346,6 +346,29 @@ export function uploadPurchaseOrderImport(
     },
   );
 }
+
+
+export function reassignPurchaseOrderAuthorization(
+  organizationId: string,
+  input: Readonly<{
+    purchaseOrderCode: string;
+    originAuthorizationKey: string;
+    destinationAuthorizationKey: string;
+    commercialCode: string;
+    quantity: number;
+  }>,
+) {
+  return apiRequest<PurchaseOrderImportResult>(
+    '/purchase-orders/import/reassign',
+    {
+      method: 'POST',
+      organizationId,
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+
 export function returnSupplierPurchaseOrder(
   organizationId: string,
   id: string,
@@ -408,6 +431,12 @@ export type PurchaseOrderOperationalLine = Readonly<{
   compensarUnitRateSnapshot: string | null;
 
   supplierUnitCost: string | null;
+
+  authorizationSources: ReadonlyArray<{
+    authorizationKey: string;
+    authorizationNumber: string;
+    quantity: number;
+  }>;
 }>;
 
 export type PurchaseOrderOperationalDelivery = Readonly<{

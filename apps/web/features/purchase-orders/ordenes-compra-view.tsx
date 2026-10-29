@@ -646,6 +646,14 @@ export function PurchaseOrdersView() {
                     void uploadOc(event.target.files?.[0]);
                   }}
                 />
+
+                {activeOrganization?.code === 'MTD' &&
+                activeOrganization.isSystemAdmin === true &&
+                activeOrganization.roles.includes('MTD_ADMIN') ? (
+                  <p>
+                    Reasignación masiva (solo administradores de plataforma): use CLAVE_AUTORIZACION_ORIGEN, CLAVE_AUTORIZACION_DESTINO, OC, CODIGO_PRODUCTO y la cantidad completa 1:1. No procede si el origen tiene consumo, entrega o aplicación confirmada.
+                  </p>
+                ) : null}
               </>
             ) : null}
           </>

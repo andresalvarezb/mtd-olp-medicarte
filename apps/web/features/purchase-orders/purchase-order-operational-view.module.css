@@ -1,3 +1,72 @@
+.reassignmentBackdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(15 23 42 / 45%);
+}
+
+.reassignmentDialog {
+  width: min(100%, 480px);
+  padding: 22px;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 20px 50px rgb(15 23 42 / 20%);
+}
+
+.reassignmentDialog h2 {
+  margin: 0 0 12px;
+  color: #172033;
+  font-size: 18px;
+}
+
+.reassignmentDialog p {
+  color: #475569;
+  font-size: 13px;
+}
+
+.reassignmentField {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reassignmentField input {
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.reassignmentActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.authorizationSources {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  color: #475569;
+  font-size: 11px;
+}
+
+.authorizationSources > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .orderHeader {
   display: flex;
   align-items: flex-end;

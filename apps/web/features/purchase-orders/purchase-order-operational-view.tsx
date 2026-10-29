@@ -32,6 +32,7 @@ import {
   createPurchaseOrderDirectReceipt,
   reconcilePurchaseOrderAllocations,
   getPurchaseOrderOperationalDetail,
+  reassignPurchaseOrderAuthorization,
   type PurchaseOrderOperationalDetail,
   type PurchaseOrderOperationalLine,
 } from '@/lib/purchase-orders-api';
@@ -829,6 +830,12 @@ export function PurchaseOrderOperationalView() {
       'medicarte_receipts.manage',
     );
 
+  const canReassignAuthorization =
+    activeOrganization?.code === 'MTD' &&
+    activeOrganization.isSystemAdmin === true &&
+    activeOrganization.roles.includes('MTD_ADMIN') &&
+    hasPermission('purchase_orders.manage');
+
 
   const [
     detail,
@@ -857,6 +864,17 @@ export function PurchaseOrderOperationalView() {
     useState<string | null>(
       null,
     );
+
+  const [reassignmentTarget, setReassignmentTarget] = useState<{
+    commercialCode: string;
+    authorizationKey: string;
+    authorizationNumber: string;
+    quantity: number;
+  } | null>(null);
+
+  const [destinationAuthorizationKey, setDestinationAuthorizationKey] = useState('');
+
+  const [reassignmentBusy, setReassignmentBusy] = useState(false);
 
   const [
     accepting,
@@ -1016,6 +1034,53 @@ export function PurchaseOrderOperationalView() {
     },
     [realtimeRevision],
   );
+
+
+  async function submitAuthorizationReassignment() {
+    if (
+      !detail ||
+      !reassignmentTarget ||
+      !canReassignAuthorization ||
+      !destinationAuthorizationKey.trim()
+    ) {
+      return;
+    }
+
+    setReassignmentBusy(true);
+    setError(null);
+
+    try {
+      const result = await reassignPurchaseOrderAuthorization(
+        organizationId,
+        {
+          purchaseOrderCode: detail.purchaseOrderCode ?? '',
+          originAuthorizationKey: reassignmentTarget.authorizationKey,
+          destinationAuthorizationKey: destinationAuthorizationKey.trim(),
+          commercialCode: reassignmentTarget.commercialCode,
+          quantity: reassignmentTarget.quantity,
+        },
+      );
+
+      const row = result.results[0];
+      if (result.acceptedRows !== 1 || row?.status !== 'ACCEPTED') {
+        throw new Error(
+          row?.errorMessage ?? 'La reasignación fue rechazada por la plataforma.',
+        );
+      }
+
+      setReassignmentTarget(null);
+      setDestinationAuthorizationKey('');
+      await load(true);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'No fue posible reasignar la autorización.',
+      );
+    } finally {
+      setReassignmentBusy(false);
+    }
+  }
 
 
   async function acceptOrder() {
@@ -1475,6 +1540,58 @@ export function PurchaseOrderOperationalView() {
         </div>
       ) : null}
 
+      {reassignmentTarget && canReassignAuthorization ? (
+        <div className={styles.reassignmentBackdrop}>
+          <section
+            className={styles.reassignmentDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="authorization-reassignment-title"
+          >
+            <h2 id="authorization-reassignment-title">Reasignar autorización</h2>
+            <p>
+              OC {detail.purchaseOrderCode ?? 'Sin código'} · {reassignmentTarget.commercialCode}
+            </p>
+            <p>
+              Origen: {reassignmentTarget.authorizationNumber} ({reassignmentTarget.authorizationKey}) ·
+              {' '}{reassignmentTarget.quantity} unidades
+            </p>
+            <p>
+              La reasignación es atómica y 1:1. No procede si el origen ya tiene consumo, entrega o aplicación confirmada.
+            </p>
+            <label className={styles.reassignmentField}>
+              AUTO destino
+              <input
+                autoFocus
+                value={destinationAuthorizationKey}
+                onChange={(event) => setDestinationAuthorizationKey(event.target.value)}
+                disabled={reassignmentBusy}
+              />
+            </label>
+            <div className={styles.reassignmentActions}>
+              <button
+                type="button"
+                onClick={() => {
+                  setReassignmentTarget(null);
+                  setDestinationAuthorizationKey('');
+                  setError(null);
+                }}
+                disabled={reassignmentBusy}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitAuthorizationReassignment()}
+                disabled={reassignmentBusy || !destinationAuthorizationKey.trim()}
+              >
+                {reassignmentBusy ? 'Reasignando…' : 'Confirmar reasignación'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
 
       <header
         className={
@@ -1812,6 +1929,34 @@ export function PurchaseOrderOperationalView() {
                             line.productDescription ??
                             'Sin nombre'
                           }
+                          {line.authorizationSources.length > 0 ? (
+                            <div className={styles.authorizationSources}>
+                              {line.authorizationSources.map((source) => (
+                                <div key={source.authorizationKey}>
+                                  <span>
+                                    {source.authorizationNumber} ({source.authorizationKey}) · {source.quantity} unidades
+                                  </span>
+                                  {canReassignAuthorization ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setError(null);
+                                        setDestinationAuthorizationKey('');
+                                        setReassignmentTarget({
+                                          commercialCode: line.commercialCode,
+                                          authorizationKey: source.authorizationKey,
+                                          authorizationNumber: source.authorizationNumber,
+                                          quantity: source.quantity,
+                                        });
+                                      }}
+                                    >
+                                      Reasignar
+                                    </button>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                         </td>
 
                         <td>
