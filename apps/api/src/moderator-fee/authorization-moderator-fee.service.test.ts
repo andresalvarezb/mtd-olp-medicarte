@@ -42,6 +42,7 @@ const payment = {
 function fixture(
   authorized = true,
   initialExpectedAmountCop: string | null = '12500',
+  fulfillmentEffectiveDate: string | null = null,
 ) {
   let expectedAmountCop = initialExpectedAmountCop;
 
@@ -73,6 +74,7 @@ function fixture(
                 patient_document: '123456789',
                 patient_name: 'Paciente Test',
                 expected_amount_cop: expectedAmountCop,
+                fulfillment_effective_date: fulfillmentEffectiveDate,
               }]
             : [],
         });
@@ -143,6 +145,8 @@ function fixture(
     },
   };
 
+  const appendRow = vi.fn(() => Promise.resolve());
+
   return {
     service: new AuthorizationModeratorFeeService(
       database as never,
@@ -150,11 +154,12 @@ function fixture(
       { GOOGLE_SHEETS_MODERATOR_FEE_ID: '', GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: '' } as never,
       // SheetService mock: no-op
       {
-        appendRow: vi.fn(() => Promise.resolve()),
+        appendRow,
         getInvoiceUrl: vi.fn(() => Promise.resolve('https://drive.google.com/test-invoice.pdf')),
       } as never,
     ),
     events,
+    appendRow,
     sqlStatements,
     query,
     release,
@@ -165,6 +170,19 @@ function fixture(
 }
 
 describe('Recaudo de cuota moderadora', () => {
+  it.each([
+    ['2026-10-15', '2026-10-15'],
+    [null, null],
+  ])('envía al Sheet solo la fecha efectiva del fulfillment (%s)', async (fulfillmentDate, expectedDate) => {
+    const environment = fixture(true, '12500', fulfillmentDate);
+
+    await environment.service.register(authorizationId, payment, mtdScope);
+
+    expect(environment.appendRow).toHaveBeenCalledWith(
+      expect.objectContaining({ effectiveDate: expectedDate }),
+    );
+  });
+
   it('consulta estado SIN REGISTRO sin inventar pagos', async () => {
     const environment = fixture();
 

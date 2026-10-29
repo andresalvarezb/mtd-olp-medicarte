@@ -263,20 +263,20 @@ export class ModeratorFeeSheetService {
         range: `'${sheetName}'!A1:AZ`,
       });
 
-      const rows = res.data.values;
+      const rows: unknown[][] | null | undefined = res.data.values;
       if (!rows || rows.length < 2) {
         return null;
       }
 
-      const headers = rows[0] as string[];
+      const headers = rows[0] ?? [];
       const authColIdx = headers.findIndex((h) => {
-        if (!h) return false;
+        if (typeof h !== 'string' || !h) return false;
         const norm = h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         return norm === 'autorizacion';
       });
 
       const printColIdx = headers.findIndex((h) => {
-        if (!h) return false;
+        if (typeof h !== 'string' || !h) return false;
         const norm = h.trim().toLowerCase();
         return norm === 'print factura';
       });
@@ -294,9 +294,14 @@ export class ModeratorFeeSheetService {
       for (let i = rows.length - 1; i >= 1; i--) {
         const row = rows[i];
         if (!row) continue;
-        const rowAuth = (row[authColIdx] ?? '').trim().replace(/\.+$/, '').toLowerCase();
+        const authValue = row[authColIdx];
+        const rowAuth = (typeof authValue === 'string' ? authValue : '')
+          .trim()
+          .replace(/\.+$/, '')
+          .toLowerCase();
         if (rowAuth === targetAuth) {
-          const rawUrl = (row[printColIdx] ?? '').trim();
+          const urlValue = row[printColIdx];
+          const rawUrl = (typeof urlValue === 'string' ? urlValue : '').trim();
           if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
             return rawUrl;
           }
