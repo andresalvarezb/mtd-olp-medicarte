@@ -1,6 +1,7 @@
 # Desarrollo, ejecución y controles de calidad
 
-**Rama de referencia:** `develop` @ `7ced5792` (2026-10-17).
+**Corte de código:** checkout `feat/purchase-order-authorization-reassignment` @
+`3627564` (2026-10-29).
 
 ## Requisitos
 
@@ -72,8 +73,8 @@ pnpm db:migrate
 
 Ese comando necesita `DATABASE_URL` hacia la base que se desea migrar; **no**
 ejecutarlo por accidente contra producción. `scripts/local.sh up` ya incluye
-migración dentro de su servicio `dev`. El historial de control contiene 101
-entradas hasta `0101_authorization_annulment` al corte documental; esto no prueba
+migración dentro de su servicio `dev`. El historial de control contiene 103
+entradas hasta `0103_mtd_moderator_fee_permission` al corte documental; esto no prueba
 que hayan sido aplicadas a una base concreta.
 
 ## Calidad

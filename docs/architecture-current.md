@@ -1,7 +1,7 @@
-# Arquitectura operacional observada en `develop`
+# Arquitectura operacional observada en el checkout actual
 
-**Corte documental:** 2026-10-17. **Referencia:** `develop` @
-`7ced5792c08faf35e673e2f1c2ca4571892ab87a`.
+**Corte de código:** 2026-10-29. **Referencia:**
+`feat/purchase-order-authorization-reassignment` @ `3627564`.
 
 ## 1. Mapa técnico
 
@@ -113,9 +113,9 @@ específicas, pero no anula las demás validaciones de elegibilidad.
 ## 6. Integración y persistencia
 
 La secuencia de migraciones registrada en
-`packages/database/migrations/meta/_journal.json` contiene **101 entradas**,
-terminando en `0101_authorization_annulment` al corte documentado. No equivale a
-certificar que un entorno concreto haya aplicado las 101; verifique la tabla de
+`packages/database/migrations/meta/_journal.json` contiene **103 entradas**,
+terminando en `0103_mtd_moderator_fee_permission` al corte documentado. No equivale a
+certificar que un entorno concreto haya aplicado las 103; verifique la tabla de
 migraciones y el resultado del comando de migración de ese entorno.
 
 La reconciliación cuenta con API de ejecuciones, hallazgos, issues y políticas.

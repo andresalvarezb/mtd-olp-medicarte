@@ -4,9 +4,9 @@ Plataforma operacional para el ciclo de autorizaciones, compras, logística,
 recepciones, disponibilidad, atención y auditoría. El repositorio no define un
 nombre comercial oficial para la aplicación.
 
-> **Alcance de esta documentación:** lectura del código y los archivos de la rama
-> `develop` en el commit `7ced5792c08faf35e673e2f1c2ca4571892ab87a`
-> (17 de octubre de 2026). La presencia de una ruta o módulo en el código no
+> **Alcance de esta documentación:** lectura del código y los archivos del
+> checkout `feat/purchase-order-authorization-reassignment` en el commit
+> `3627564` (29 de octubre de 2026). La presencia de una ruta o módulo en el código no
 > constituye evidencia de una prueba de integración o de despliegue exitoso.
 
 ## Flujo operativo
@@ -77,9 +77,11 @@ bash scripts/local.sh logs dev
 bash scripts/local.sh down
 ```
 
-**No confunda** `docker-compose.local.yml` (desarrollo local) con
-`docker-compose.yml` (infraestructura usada por integración/CI). Sus nombres de
-base de datos y algunos puertos son diferentes.
+**No confunda** `docker-compose.local.yml` (desarrollo local, base
+`authorization_local`) con `docker-compose.yml` (CI, base `authorization`).
+`pnpm test:integration` usa esta última definición en un proyecto Compose
+aislado con puertos propios y base `authorization`. La alineación de CI y la
+integración está en este checkout; aún no forma parte de `develop`.
 
 ## Comprobaciones
 

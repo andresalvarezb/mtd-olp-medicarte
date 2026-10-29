@@ -1,8 +1,8 @@
 # AC-FIN-001 — Alcance MEDICARTE y auditoría financiera de alto costo
 
-**Estado:** implementación local validada; pendiente integración Git y despliegue.
-**Rama:** `feat/alto-costo-auditoria-financiero`.
-**Fecha de validación:** 2026-10-19.
+**Estado:** funcionalidad integrada en `develop`; despliegue no verificado.
+**Corte de código:** checkout `feat/purchase-order-authorization-reassignment` @ `3627564` (2026-10-29).
+**Validación histórica:** 2026-10-19, antes de PR #94.
 **Ámbito:** autorizaciones, MEDICARTE, MTD, recaudo de cuota moderadora, exportación XLSX y dashboard financiero.
 
 ## 1. Objetivo
@@ -71,6 +71,7 @@ Con prefijo global `/api/v1`:
 | --- | --- | --- |
 | GET | `/medicarte/authorizations/:id/moderator-fee` | Consultar estado e historial |
 | POST | `/medicarte/authorizations/:id/moderator-fee` | Registrar nuevo evento de recaudo |
+| GET | `/medicarte/authorizations/:id/moderator-fee/invoice-url` | Consultar la URL de factura registrada en Google Sheets |
 | GET | `/analytics/dashboard/financial-audit` | Consultar indicadores financieros desde MTD |
 
 Las operaciones requieren autenticación y contexto de organización. El dashboard financiero requiere las autorizaciones específicas de analítica económica y lectura de auditorías de aplicación; verificar el controlador antes de modificar los permisos.
@@ -94,7 +95,9 @@ Las verificaciones de cumplimiento de auditoría de facturación se mantienen se
 
 ## 3. Persistencia
 
-Migración: `0102_authorization_moderator_fee_events.sql`.
+Migraciones: `0102_authorization_moderator_fee_events.sql` crea los eventos de
+recaudo; `0103_mtd_moderator_fee_permission.sql` registra
+`moderator_fees.manage` y lo asigna inicialmente a `MTD_ADMIN`.
 
 Tabla: `authorization_moderator_fee_events`.
 
@@ -129,13 +132,20 @@ El registro del evento y la escritura de `audit_events` se ejecutan dentro de la
 
 ### Validaciones de aplicación
 
+Resultados de la validación local del 2026-10-19, anteriores a PR #94; no
+representan una certificación permanente de `develop` ni de CI:
+
 - TypeScript global: PASS.
-- ESLint global: PASS.
+- ESLint global: PASS en ese corte histórico.
 - Suite global `pnpm test`: PASS.
 - Compilación global `pnpm build`: PASS.
 - Next.js 16.3.3 con Turbopack: PASS, incluida compilación limpia e incremental.
 - Catálogo estático de base de datos: PASS, 14 archivos.
 - Integridad `git diff --check`: PASS.
+
+En el checkout `3627564`, `pnpm lint` volvió a pasar el 2026-10-29. El PR #94
+se fusionó en `develop`, pero las correcciones posteriores de A1 y A3 están
+en la rama de este checkout; este resultado no certifica el CI de `develop`.
 
 ### PostgreSQL real
 
@@ -156,11 +166,13 @@ La prueba de COMMIT real utilizó una base temporal clonada, eliminada después 
 
 ## 5. Limitaciones y pendientes
 
-- No se ha aplicado la migración `0102` en producción.
-- No se ha realizado despliegue.
+Al corte de validación del 2026-10-19:
+
+- No se había verificado la aplicación de la migración `0102` en producción.
+- No se había verificado un despliegue.
 - No se ha ejecutado en este cierre una prueba HTTP extremo a extremo autenticada con actores operativos reales.
 - Los escenarios PostgreSQL fueron verificados en entornos aislados; no sustituyen las pruebas de despliegue.
-- Debe realizarse revisión final del diff y documentarse el SHA del commit al publicar.
+- Debe documentarse el SHA y la evidencia del despliegue al publicarlo.
 - Debe revisarse la alineación entre el índice descendente SQL y Drizzle.
 
 ## 6. Archivos de referencia
@@ -173,13 +185,14 @@ La prueba de COMMIT real utilizó una base temporal clonada, eliminada después 
 - `apps/web/features/dashboard/financial-audit-dashboard-section.tsx`
 - `packages/contracts/src/moderator-fee.ts`
 - `packages/database/migrations/0102_authorization_moderator_fee_events.sql`
+- `packages/database/migrations/0103_mtd_moderator_fee_permission.sql`
 - `packages/database/src/schema.ts`
 
 ## 7. Condiciones para despliegue
 
 Antes de desplegar:
 
-1. Integrar y revisar el commit de la rama.
+1. Revisar el commit que se vaya a desplegar y su relación con `develop`.
 2. Confirmar variables, permisos y versión de PostgreSQL del entorno objetivo.
 3. Aplicar la migración mediante el procedimiento controlado del repositorio.
 4. Verificar el historial de migraciones en el entorno objetivo.

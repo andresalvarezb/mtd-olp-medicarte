@@ -1,6 +1,7 @@
 # Mapa de API y autenticación
 
-**Corte:** `develop` @ `7ced5792` (2026-10-17). Todas las rutas de esta guía
+**Corte:** checkout `feat/purchase-order-authorization-reassignment` @ `3627564`
+(2026-10-29). Todas las rutas de esta guía
 se leen con prefijo `/api/v1`, definido en `apps/api/src/main.ts`.
 
 La **fuente más precisa del contrato HTTP** es Swagger en
@@ -46,11 +47,12 @@ No exponer tokens ni información clínica en capturas, logs o ejemplos público
 | Inventario | `GET /inventory`, `GET /inventory/availability`, `GET /inventory/availability/export.xlsx` | `inventory/*controller.ts` |
 | Traslados | `GET/POST /inventory/transfers`, `POST /inventory/transfers/:id/dispatch`, `POST /inventory/transfers/:id/receive` | `inventory/stock-transfer.controller.ts` |
 | Atención | `POST /medicarte/authorizations/:id/fulfill` | `fulfillments/authorization-fulfillment.controller.ts` |
+| Cuota moderadora | `GET /medicarte/authorizations/:id/moderator-fee`, `POST /medicarte/authorizations/:id/moderator-fee`, `GET /medicarte/authorizations/:id/moderator-fee/invoice-url` | `moderator-fee/authorization-moderator-fee.controller.ts` |
 | Auditoría de facturación | `GET /authorization-billing-audits/authorization/:authorizationItemId`, `POST /authorization-billing-audits/:auditId/decision` | `audits/authorization-billing-audit.controller.ts` |
 | Auditoría masiva de facturación | `POST /authorization-billing-audits/bulk/jobs`, `POST /authorization-billing-audits/bulk/jobs/:id/confirm`, `GET /authorization-billing-audits/bulk/jobs/:id/result.xlsx` | `audits/authorization-billing-audit-bulk.controller.ts` |
 | Exportables | `GET /exportables/authorizations.xlsx`, `GET /exportables/purchase-orders.xlsx`, `GET /exportables/purchase-order-candidates.xlsx` | `exportables/exportables.controller.ts` |
 | MIPRES | `GET /mipres`, `GET /mipres/:id/history`, `POST /mipres/:id/decision` | `mipres/*controller.ts` |
-| Analítica | `GET /analytics/dashboard`, `GET /analytics/operational`, `GET /analytics/export.xlsx` | `analytics/analytics.controller.ts` |
+| Analítica | `GET /analytics/dashboard`, `GET /analytics/dashboard/financial-audit`, `GET /analytics/operational`, `GET /analytics/export.xlsx` | `analytics/analytics.controller.ts` |
 | Reconciliación | `GET/POST /reconciliation/runs`, `GET /reconciliation/issues`, `POST /reconciliation/operations/trigger` | `reconciliation/reconciliation.controller.ts` |
 | SSE | `GET /realtime/stream` | `realtime/realtime.controller.ts` |
 

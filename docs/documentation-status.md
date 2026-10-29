@@ -5,6 +5,9 @@
 **SHA base:** `7ced5792c08faf35e673e2f1c2ca4571892ab87a`
 **Fecha:** 2026-10-17
 
+Esta auditoría conserva el corte histórico indicado arriba. La actualización
+del checkout del 2026-10-29 aparece al final del documento.
+
 ## Evidencia consultada
 
 - `README.md`, `RESULTADOS_DEVELOP.md`, `.env*.example`, manifests pnpm.
@@ -29,7 +32,7 @@
 | Media | `RESULTADOS_DEVELOP.md` registra un Macro Paso 1 y una rama de trabajo anterior, no el estado de `develop` de octubre. | Conservar como informe histórico; dejar de presentarlo como resumen actual. |
 | Media | El CI permite `pull_request` y push a `master`/`main`, pero no push directo a `develop`. | Declararlo en la guía de verificación; no etiquetar los pushes como CI validado. |
 | Media | Los ADR/planes de `.agent` pueden confundirse con funcionalidad terminada. | Crear índice que separe diseño e implementación observada. |
-| Media | Las migraciones se enumeran hasta 0101, pero el estado real de cada base no aparece en Git. | Registrar '101 entradas en journal', sin afirmar 'aplicadas en producción'. |
+| Media | Al corte del 2026-10-17, el journal tenía 101 entradas hasta 0101; Git no prueba qué migraciones aplicó cada base. | Conservar este dato como evidencia histórica; el corte actual tiene 103 entradas hasta 0103. |
 
 ## Documentos existentes que deben conservarse
 
@@ -100,3 +103,15 @@ Documento:
 
 La evidencia de integración del código no sustituye validación
 PostgreSQL, concurrencia, UAT ni verificación de despliegue.
+
+## Actualización del checkout — 2026-10-29
+
+El checkout `feat/purchase-order-authorization-reassignment` @ `3627564`
+contiene 103 entradas en `_journal.json`; la última es
+`0103_mtd_moderator_fee_permission`. Las rutas de cuota moderadora y del
+dashboard financiero están registradas en los controladores del API.
+
+El PR #94 ya forma parte de `develop`. Las correcciones posteriores de lint e
+integración/CI están en este checkout, pendientes de integrarse en `develop`.
+`pnpm lint` pasó localmente en `3627564` el 2026-10-29; esto no certifica una
+ejecución de CI ni un despliegue.
