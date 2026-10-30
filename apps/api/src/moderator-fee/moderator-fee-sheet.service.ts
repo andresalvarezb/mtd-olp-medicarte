@@ -26,9 +26,6 @@ export type ModeratorFeeSheetRow = {
   /** Tipo de documento del paciente (CC, TI, CE, RC, etc.) */
   patientDocumentType: string | null;
 
-  /** Nombre del paciente */
-  patientName: string | null;
-
   /** Fecha efectiva (historial-entrega registrada) */
   effectiveDate: string | null;
 

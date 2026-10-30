@@ -12,6 +12,7 @@ import type { Scope } from '../common/request-scope';
 import {
   AuthorizationModeratorFeeService,
 } from './authorization-moderator-fee.service';
+import type { ModeratorFeeSheetRow } from './moderator-fee-sheet.service';
 
 const authorizationId =
   '30000000-0000-4000-8000-000000000001';
@@ -145,7 +146,9 @@ function fixture(
     },
   };
 
-  const appendRow = vi.fn(() => Promise.resolve());
+  const appendRow = vi.fn<(data: ModeratorFeeSheetRow) => Promise<void>>(
+    () => Promise.resolve(),
+  );
 
   return {
     service: new AuthorizationModeratorFeeService(
@@ -181,6 +184,7 @@ describe('Recaudo de cuota moderadora', () => {
     expect(environment.appendRow).toHaveBeenCalledWith(
       expect.objectContaining({ effectiveDate: expectedDate }),
     );
+    expect(environment.appendRow.mock.calls[0]?.[0]).not.toHaveProperty('patientName');
   });
 
   it('consulta estado SIN REGISTRO sin inventar pagos', async () => {

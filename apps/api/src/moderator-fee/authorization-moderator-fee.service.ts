@@ -706,7 +706,6 @@ export class AuthorizationModeratorFeeService {
         authorizationNumber: authorization.numero_autorizacion,
         patientDocument: authorization.patient_document,
         patientDocumentType: authorization.patient_document_type,
-        patientName: authorization.patient_name,
         effectiveDate: authorization.fulfillment_effective_date,
         professionalDocument: body.professionalDocument ?? body.reference ?? null,
         status: body.status,
