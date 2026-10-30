@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+import { purchaseOrderReassignmentFixture as fixture } from './purchase-order-reassignment.fixture';
 
 import type { Scope } from '../common/request-scope';
 import { PurchaseOrderRepository } from './purchase-order.repository';
 
-const PO_ID = '60000000-0000-4000-8000-000000000001';
-const LINE_ID = '70000000-0000-4000-8000-000000000001';
+const PO_ID = fixture.purchaseOrder.id;
+const LINE_ID = fixture.line.id;
 
 function queryResult<T>(rows: T[]) {
   return { rows };
@@ -20,7 +21,7 @@ describe('PurchaseOrderRepository.operationalDetail authorization sources', () =
       if (currentQuery === 0) {
         return queryResult([{
           id: PO_ID,
-          purchase_order_code: 'OC-1',
+          purchase_order_code: fixture.purchaseOrder.code,
           order_type: 'STANDARD',
           status: 'ISSUED',
           version: 1,
@@ -42,22 +43,22 @@ describe('PurchaseOrderRepository.operationalDetail authorization sources', () =
         ).join('');
         return queryResult([{
           purchase_order_line_id: LINE_ID,
-          authorization_key: 'AUTO-ACTIVA',
-          authorization_number: 'AUT-001',
-          source_quantity_snapshot: 4,
+          authorization_key: fixture.origin.authorizationKey,
+          authorization_number: fixture.origin.authorizationNumber,
+          source_quantity_snapshot: fixture.origin.quantity,
         }]);
       }
 
       if (currentQuery === 1) {
         return queryResult([{
           id: LINE_ID,
-          commercial_code: 'ABC',
+          commercial_code: fixture.line.commercialCode,
           product_description: 'Producto ABC',
           presentation: null,
           dispensing_point_id: null,
           dispensing_point_code: null,
           dispensing_point_name: null,
-          requested_quantity: 4,
+          requested_quantity: fixture.line.requestedQuantity,
           accepted_quantity: null,
           olp_managed_quantity: null,
           compensar_unit_rate_snapshot: null,
@@ -76,9 +77,9 @@ describe('PurchaseOrderRepository.operationalDetail authorization sources', () =
       db: { execute },
     } as never);
     const actor = {
-      organizationId: '80000000-0000-4000-8000-000000000001',
+      organizationId: fixture.organizationId,
       organizationCode: 'OLP',
-      userId: '90000000-0000-4000-8000-000000000001',
+      userId: fixture.adminUserId,
       correlationId: 'test',
       readSensitive: false,
       isFoundationAdmin: false,
@@ -90,9 +91,9 @@ describe('PurchaseOrderRepository.operationalDetail authorization sources', () =
 
     expect(detail?.lines[0]?.authorizationSources).toEqual([
       {
-        authorizationKey: 'AUTO-ACTIVA',
-        authorizationNumber: 'AUT-001',
-        quantity: 4,
+        authorizationKey: fixture.origin.authorizationKey,
+        authorizationNumber: fixture.origin.authorizationNumber,
+        quantity: fixture.origin.quantity,
       },
     ]);
     expect(sourceSql).toContain('poas.released_at is null');

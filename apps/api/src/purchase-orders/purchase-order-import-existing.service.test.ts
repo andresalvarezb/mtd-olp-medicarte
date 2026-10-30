@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 
 import * as XLSX from 'xlsx';
+import { purchaseOrderReassignmentFixture as fixture } from './purchase-order-reassignment.fixture';
 
 import {
   PurchaseOrderImportService,
@@ -1010,16 +1011,24 @@ describe(
           );
 
 
+        const singleResult = await instance.reassignSingle(
+          {
+            purchaseOrderCode: fixture.purchaseOrder.code,
+            originAuthorizationKey: fixture.origin.authorizationKey,
+            destinationAuthorizationKey: fixture.destination.authorizationKey,
+            commercialCode: fixture.line.commercialCode,
+            quantity: fixture.origin.quantity,
+          },
+          scope,
+        );
+
+        expect(singleResult.acceptedRows).toBe(1);
+        expect(singleResult.rejectedRows).toBe(0);
+
         const result =
           await instance.import(
             uploaded(
-              workbook([
-                'AUTO-ORIG',
-                'AUTO-DEST',
-                'OC-200',
-                'PROD-1',
-                2,
-              ]),
+              workbook(fixture.row),
             ),
             scope,
           );
