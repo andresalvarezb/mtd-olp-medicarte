@@ -42,12 +42,14 @@ const payment = {
 function fixture(
   authorized = true,
   initialExpectedAmountCop: string | null = '12500',
+  fulfillmentEffectiveDate: string | null = '2026-10-15',
 ) {
   let expectedAmountCop = initialExpectedAmountCop;
 
   const events: Array<Record<string, unknown>> = [];
   const sqlStatements: string[] = [];
   const release = vi.fn();
+  const appendRow = vi.fn(() => Promise.resolve());
 
   const query = vi.fn(
     (statement: string, params?: unknown[]) => {
@@ -73,6 +75,7 @@ function fixture(
                 patient_document: '123456789',
                 patient_name: 'Paciente Test',
                 expected_amount_cop: expectedAmountCop,
+                fulfillment_effective_date: fulfillmentEffectiveDate,
               }]
             : [],
         });
@@ -150,7 +153,7 @@ function fixture(
       { GOOGLE_SHEETS_MODERATOR_FEE_ID: '', GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: '' } as never,
       // SheetService mock: no-op
       {
-        appendRow: vi.fn(() => Promise.resolve()),
+        appendRow,
         getInvoiceUrl: vi.fn(() => Promise.resolve('https://drive.google.com/test-invoice.pdf')),
       } as never,
     ),
@@ -158,6 +161,7 @@ function fixture(
     sqlStatements,
     query,
     release,
+    appendRow,
     setExpectedAmountCop(value: string | null) {
       expectedAmountCop = value;
     },
@@ -185,6 +189,38 @@ describe('Recaudo de cuota moderadora', () => {
     expect(statement).toContain('patient_default_dispensing_points');
     expect(statement).toContain('purchase_order_authorization_sources');
     expect(statement).toContain('product_delivery_point_mappings');
+    expect(statement).toContain('authorization_fulfillments');
+    expect(statement).toContain('order by f.confirmed_at desc');
+    expect(statement).not.toContain('fecha_dispensacion');
+    expect(statement).not.toContain('fecha_programada');
+  });
+
+  it('envía a la hoja solo la fecha efectiva del fulfillment confirmado', async () => {
+    const environment = fixture(true, '12500', '2026-10-15');
+
+    await environment.service.register(
+      authorizationId,
+      payment,
+      mtdScope,
+    );
+
+    expect(environment.appendRow).toHaveBeenCalledWith(
+      expect.objectContaining({ effectiveDate: '2026-10-15' }),
+    );
+  });
+
+  it('conserva fecha efectiva nula cuando no existe atención confirmada', async () => {
+    const environment = fixture(true, '12500', null);
+
+    await environment.service.register(
+      authorizationId,
+      payment,
+      mtdScope,
+    );
+
+    expect(environment.appendRow).toHaveBeenCalledWith(
+      expect.objectContaining({ effectiveDate: null }),
+    );
   });
 
   it('no expone autorizaciones fuera del alcance', async () => {

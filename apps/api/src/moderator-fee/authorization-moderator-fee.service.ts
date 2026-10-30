@@ -34,7 +34,6 @@ type AuthorizationRow = QueryResultRow & {
   patient_name: string | null;
   expected_amount_cop: string | null;
   fulfillment_effective_date: string | null;
-  fallback_effective_date: string | null;
 };
 
 type EventRow = QueryResultRow & {
@@ -246,11 +245,7 @@ function authorizationSql(
         where f.authorization_item_id = i.id
         order by f.confirmed_at desc
         limit 1
-      ) as fulfillment_effective_date,
-      coalesce(
-        to_char(i.fecha_dispensacion, 'YYYY-MM-DD'),
-        to_char(i.fecha_programada, 'YYYY-MM-DD')
-      ) as fallback_effective_date
+      ) as fulfillment_effective_date
 
     from authorization_items i
 
@@ -712,10 +707,7 @@ export class AuthorizationModeratorFeeService {
         patientDocument: authorization.patient_document,
         patientDocumentType: authorization.patient_document_type,
         patientName: authorization.patient_name,
-        effectiveDate:
-          authorization.fulfillment_effective_date ??
-          authorization.fallback_effective_date ??
-          null,
+        effectiveDate: authorization.fulfillment_effective_date,
         professionalDocument: body.professionalDocument ?? body.reference ?? null,
         status: body.status,
         expectedAmountCop: authorization.expected_amount_cop,

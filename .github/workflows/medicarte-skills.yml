@@ -1,0 +1,26 @@
+name: Validate Medicarte agent skills
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'AGENTS.md'
+      - '.agent/skills/**'
+      - 'scripts/validate-medicarte-skills.mjs'
+      - 'docs/ai/medicarte-skills.md'
+  push:
+    branches: [develop]
+    paths:
+      - 'AGENTS.md'
+      - '.agent/skills/**'
+      - 'scripts/validate-medicarte-skills.mjs'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/validate-medicarte-skills.mjs
