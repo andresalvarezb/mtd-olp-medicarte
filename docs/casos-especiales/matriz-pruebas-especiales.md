@@ -109,6 +109,19 @@ Todos los siguientes casos son **PENDIENTES**, no pruebas ejecutadas. Para brech
 | TE-96 | Revocación grant de punto antes de mutar | Denegación al revalidar y sin saldo negativo | API + DB + auditoría / acta RF |
 | TE-97 | Usuario doble organización cambia X-Organization-Id | No mezcla datos/permisos entre organizaciones | API + DB + auditoría / acta RF |
 
+## Recaudo de cuota moderadora y factura (CE-85 a CE-88)
+
+| ID | Escenario | Resultado o control esperado | Evidencia mínima |
+| --- | --- | --- | --- |
+| TE-98 | MTD autorizado registra `COLLECTED` con importe completo | Nueva versión y auditoría; cuota correcta | API + eventos PG sintéticos |
+| TE-99 | MTD reintenta misma clave o usa versión obsoleta | Reintento idéntico sin duplicado; conflicto para contenido o versión incompatible | API + conteo/versiones PG |
+| TE-100 | MEDICARTE intenta registrar un recaudo | Denegación; sin evento financiero | HTTP + conteo PG |
+| TE-101 | MEDICARTE consulta una AUTO fuera de su punto/producto | Sin estado financiero ni URL de factura expuestos | HTTP + alcance de punto |
+| TE-102 | Falta ID de Sheet o credencial, o falla la escritura | Recaudo confirmado en PG; fallo de exportación registrado sin revertirlo | PG + log sin datos clínicos |
+| TE-103 | Factura externa aún no informa `Print factura` | `invoiceUrl: null`; mensaje de espera y reintento manual | API + UI con Sheet sintético |
+| TE-104 | `Print factura` aparece en la última fila de la AUTO | Solo URL HTTP(S) válida; apertura en otra pestaña | API + UI con URL sintética |
+| TE-105 | Usuario sin ambos permisos del dashboard financiero | Denegación de `GET /analytics/dashboard/financial-audit` | HTTP + permisos efectivos |
+
 ## Condiciones de cierre
 
 No declarar cobertura final hasta registrar para cada prueba: entorno, SHA, actor/organización, fixture, input, respuesta HTTP, consultas BD verificables, outbox/eventos, evidencia anonimizada, fecha, ejecutor y resultado PASS/FAIL. Ejecutar `pnpm test`, `pnpm test:integration` y smoke funcional; no asumir que tests unitarios prueban permisos o migraciones.

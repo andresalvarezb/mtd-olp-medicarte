@@ -1,6 +1,6 @@
 # Casos especiales y excepciones operativas
 
-**Proyecto:** MTD – OLP – MEDICARTE. **Rama:** `develop` **SHA de revisión original:** `6b611d80d5fbe920d3464baaca9424eb6ad2f387`. **Ampliación verificada:** `97ade0b87f1a6e87730c89bf718169df41254155` (17-10-2026). **Evidencia:** lectura estática del código remoto, no ejecución de API, bases ni worker. Los escenarios de prueba están **pendientes**, no aprobados.
+**Proyecto:** MTD – OLP – MEDICARTE. **Revisión original:** `develop` @ `6b611d80d5fbe920d3464baaca9424eb6ad2f387`; ampliación @ `97ade0b87f1a6e87730c89bf718169df41254155` (17-10-2026). **Cuota moderadora:** checkout `3627564` (29-10-2026). **Evidencia:** lectura estática del código; los escenarios de prueba están **pendientes**, no aprobados.
 
 Este índice complementa [el manual operativo](../manual-operativo.md) y [el catálogo general](../casos-de-uso.md); no reemplaza reglas históricas del [ADR-043](../adr/043-authorization-order-receipt-fulfillment-reassignment.md) ni los requerimientos aprobados.
 
@@ -18,6 +18,7 @@ Este índice complementa [el manual operativo](../manual-operativo.md) y [el cat
 | CE-64 a CE-69 | [Devoluciones, daños, pérdidas y merma](devoluciones-mermas-productos.md) | MTD, MEDICARTE, OLP |
 | CE-70 a CE-75 | [Precios, compensación y conciliación financiera](conciliacion-financiera-costos.md) | MTD, OLP, COMPENSAR |
 | CE-76 a CE-84 | [RBAC, roles, organizaciones y puntos](permisos-rbac-casos-cruzados.md) | MTD, administración |
+| CE-85 a CE-88 | [Recaudo de cuota moderadora y factura](recaudo-cuota-moderadora.md) | MTD, MEDICARTE, Google Sheets |
 | RF-01 a RF-10 | [Brechas funcionales priorizadas](pendientes-funcionales-priorizados.md) | Arquitectura, producto, operaciones |
 | Pruebas | [Matriz de escenarios negativos, históricos y concurrencia](matriz-pruebas-especiales.md) | QA / responsables |
 | Cobertura | [Inventario de pendientes y límites de certificación](cobertura-pendiente.md) | Arquitectura / producto |
@@ -48,8 +49,8 @@ flowchart TD
     F --> I[Publicar invalidaciones de lectura]
 ```
 
-**Fuentes representativas:** `apps/api/src/clinical/authorization-manual-edit.*`, `packages/domain/src/authorization-source-renewal.ts`, `apps/worker/src/inventory-expiration-release.ts`, `apps/api/src/audits/*`, `apps/worker/src/authorization-drive-support-sync.ts`, `packages/contracts/src/index.ts`.
+**Fuentes representativas:** `apps/api/src/clinical/authorization-manual-edit.*`, `packages/domain/src/authorization-source-renewal.ts`, `apps/worker/src/inventory-expiration-release.ts`, `apps/api/src/audits/*`, `apps/api/src/moderator-fee/*`, `apps/worker/src/authorization-drive-support-sync.ts`, `packages/contracts/src/index.ts`.
 
 ## Cobertura ampliada (CE-33 a CE-84)
 
-Esta segunda ampliación identifica **52 casos adicionales**; total acumulado **84 casos**. Los casos con etiqueta **REQUIERE DECISIÓN** son brechas, **no** módulos implantados. La matriz de pruebas se amplía a **97 casos por ejecutar**, sin resultados inventados.
+Esta segunda ampliación identifica **52 casos adicionales**; total acumulado en ese corte: **84 casos**. Los casos con etiqueta **REQUIERE DECISIÓN** son brechas, **no** módulos implantados. El checkout `3627564` añade CE-85 a CE-88 para cuota moderadora: el catálogo acumula **88 casos** y la matriz **105 pruebas por ejecutar**, sin resultados inventados.

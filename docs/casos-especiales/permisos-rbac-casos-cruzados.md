@@ -1,6 +1,6 @@
 # Permisos, organizaciones, puntos y combinaciones complejas (RBAC)
 
-**Corte de evidencia:** `develop` commit `97ade0b87f1a6e87730c89bf718169df41254155` (17-10-2026). **Clasificación:** `IMPLEMENTADO EN FUENTE` = código observado, no funcionalidad probada; `SIN FLUJO VERIFICADO` = no se identificó una operación específica entre controladores/contratos revisados; `REQUIERE DECISIÓN` = propuesta, no regla aprobada. **No se ejecutaron pruebas ni se accedió a producción.**
+**Corte original:** `develop` @ `97ade0b87f1a6e87730c89bf718169df41254155` (17-10-2026). **Cuota moderadora:** checkout `3627564` (29-10-2026). **Clasificación:** `IMPLEMENTADO EN FUENTE` = código observado, no funcionalidad probada; `SIN FLUJO VERIFICADO` = no se identificó una operación específica entre controladores/contratos revisados; `REQUIERE DECISIÓN` = propuesta, no regla aprobada. **No se ejecutaron pruebas operativas ni se accedió a producción.**
 
 ## Modelo de autorización comprobado
 
@@ -40,6 +40,9 @@ El backend exige identidad autenticada, `X-Organization-Id`, permiso concedido y
 | Roles y accesos | `users.manage` |
 | Analíticas / economía | `analytics.read` / `analytics.economics.read` |
 | Auditoría de facturación | `application_audits.read` / `application_audits.manage` (ver [auditoría](auditoria-facturacion.md)) |
+| Cuota moderadora: consulta y URL de factura | `authorizations.read`; MEDICARTE requiere además alcance operacional (ver [recaudo](recaudo-cuota-moderadora.md)) |
+| Cuota moderadora: registro | `moderator_fees.manage`, solo MTD en el servicio; asignación inicial a `MTD_ADMIN` |
+| Dashboard financiero | `analytics.economics.read` y `application_audits.read` |
 | Conciliación | `reconciliation.*`, `reconciliation_issues.*`, `reconciliation_operations.*`, `reconciliation_notifications.*`, según acción |
 
 ## Casos de alta prioridad

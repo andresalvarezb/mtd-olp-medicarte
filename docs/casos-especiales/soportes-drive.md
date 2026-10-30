@@ -1,6 +1,6 @@
 # CE-20 a CE-25 — Soportes documentales y Google Drive
 
-**Sistemas:** Drive, API NestJS, worker y PostgreSQL. **Fuentes:** `authorization-billing-audit-drive.service.ts`, `authorization-billing-audit.service.ts`, `apps/worker/src/authorization-drive-support-sync.ts`, `packages/config/src/index.ts`. La búsqueda es de **solo lectura** en Drive; el código revisado **no crea ni carga el PDF** en Drive.
+**Sistemas:** Drive, Sheets, API NestJS, worker y PostgreSQL. **Fuentes:** `authorization-billing-audit-drive.service.ts`, `authorization-billing-audit.service.ts`, `apps/worker/src/authorization-drive-support-sync.ts`, `apps/api/src/moderator-fee/moderator-fee-sheet.service.ts`, `packages/config/src/index.ts`. La búsqueda de soportes es de **solo lectura** en Drive; el código revisado **no crea ni carga el PDF** en Drive.
 
 ## CE-20 — Búsqueda manual durante la auditoría
 
@@ -31,3 +31,9 @@ En cada ciclo exitoso, la sincronización marca los soportes anteriores como aus
 Verificar, sin exponer secretos: `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE`, `GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_ID(S)`, permisos de lectura de la cuenta, `GOOGLE_DRIVE_AUDIT_SYNC_ENABLED`, `SCHEDULER_ENABLED`, acceso a Drive, indexación `fullText` y reloj del worker. Cuando no está configurado, API puede responder `AUTHORIZATION_BILLING_AUDIT_DRIVE_NOT_CONFIGURED`; cuando falla Drive, `AUTHORIZATION_BILLING_AUDIT_DRIVE_ERROR`.
 
 **Privacidad:** nunca insertar PDFs reales en repositorio, fixtures o logs; no exponer URL, fileId, documentos de identidad ni credenciales en ejemplos públicos; la existencia de URL de Drive no reemplaza control de permisos.
+
+## Segundo consumidor de credenciales: cuota moderadora en Sheets
+
+`ModeratorFeeSheetService` usa el mismo archivo indicado por `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE`, pero opera sobre Google Sheets, no sobre la búsqueda de PDFs de auditoría anterior. Tras guardar un evento de recaudo en PostgreSQL, intenta escribir una fila en el spreadsheet `GOOGLE_SHEETS_MODERATOR_FEE_ID` y la pestaña configurada; para ello solicita el alcance `spreadsheets`. La consulta posterior de la columna `Print factura` solicita `spreadsheets.readonly` y devuelve una URL solo a quien pueda consultar la autorización.
+
+La fila externa puede contener identificación y tipo de documento del paciente, número de autorización, documento profesional, fecha e importe. Autorizar a la cuenta de servicio únicamente en el spreadsheet previsto y restringir quién puede verlo. Un error de Sheets no revierte el recaudo ya confirmado en PostgreSQL; el API no genera el PDF ni lo carga a Drive. Ver [CE-85 a CE-88](recaudo-cuota-moderadora.md) y la [configuración local](../development-guide.md#google-sheets-opcional-para-cuota-moderadora).

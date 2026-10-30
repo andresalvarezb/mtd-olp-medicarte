@@ -5,6 +5,7 @@
 ## Estado actualizado de la ampliación — 2026-10-17
 
 Se realizó revisión específica de las excepciones previamente listadas en esta guía. Véase [índice CE-33 a CE-84](README.md) y [brechas RF-01 a RF-10](pendientes-funcionales-priorizados.md).
+El checkout `3627564` añade CE-85 a CE-88 para cuota moderadora y amplía la matriz a TE-105; esos escenarios siguen pendientes de ejecución.
 
 | Excepción | Cobertura documental actual | Límite de implementación/validación |
 | --- | --- | --- |
@@ -28,6 +29,7 @@ Se realizó revisión específica de las excepciones previamente listadas en est
 | Vencimiento automático | **Se documenta política sin liberación** | Acordar si negocio desea liberar al vencer; implicaría **nuevo requerimiento** |
 | Facturación | Individual/XLSX, soportes, estado definitivo | Validación con facturación operativa, retención y permisos |
 | Soportes Drive | Búsqueda, metadata, sincronización opcional | Indexación real, permisos Drive, cifrado y ciclo documental |
+| Recaudo de cuota moderadora y Sheets | Eventos, permisos, exportación externa y consulta de factura documentados | Validar con datos sintéticos el acceso al Sheet, la demora externa y la visibilidad MTD/MEDICARTE |
 | Auditoría aplicación/fulfillment | Contratos y rutas | Revisar en profundidad repositorio/servicios y regla de reintento |
 | Conciliación | Flujos, alertas y permisos base | Analizar cada regla, operación automática y consecuencias |
 | MIPRES / PBS / NO PBS | Referencias y separación de gates | Manual completo de evidencias, fallas externas y decisión manual |
@@ -43,11 +45,11 @@ Se realizó revisión específica de las excepciones previamente listadas en est
 3. **Stock directo vs ledger legacy:** recepción directa por OC y `receipts` ligados a `deliveries` tienen reglas distintas; no sumar dos representaciones sin reconciliación.
 4. **Soporte documental ≠ conformidad de auditoría:** un PDF hallado por nombre o texto requiere inspección humana y validaciones de contexto.
 5. **Decisiones `REVIEWED`:** no es correcto modificar decisiones de auditoría mediante SQL ad hoc; cambios requieren proceso formal de corrección/auditoría.
-6. **Rama móvil:** esta documentación observa `develop` al SHA indicado. Verificar cambios posteriores antes de promover afirmaciones.
+6. **Rama móvil:** la revisión original observa `develop` en 2026-10-17 y la ampliación financiera el checkout `3627564`. Verificar cambios posteriores antes de promover afirmaciones.
 
 ## Prioridades de documentación siguiente
 
-- **P0:** validar en ambiente de integración las 47 pruebas de casos especiales; conciliar diferencias con negocio antes de publicar manual certificado.
+- **P0:** validar en ambiente de integración las 105 pruebas propuestas de casos especiales; conciliar diferencias con negocio antes de publicar manual certificado.
 - **P0:** definir formalmente política de liberación por vencimiento: mantener reserva, reubicar mediante acción humana, o automatizarla con criterios de seguridad. La implementación actual **no libera**.
 - **P1:** manual MIPRES: estados, actualización/errores de dispensación, reversos, evidencia y semántica de PBS / NO PBS.
 - **P1:** manual de corrección posrecepción: OC entregada, recepción parcial, lotes, trazabilidad, excedentes, reuso y transferencias.
