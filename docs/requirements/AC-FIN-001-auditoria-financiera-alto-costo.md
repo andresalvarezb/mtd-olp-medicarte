@@ -149,8 +149,9 @@ El registro del evento y la escritura de `audit_events` se ejecutan dentro de la
 
 ### Validaciones de aplicación
 
-Resultados de la validación local del 2026-10-19, anteriores a PR #94; no
-representan una certificación permanente de `develop` ni de CI:
+Resultados históricos de la validación local del 2026-10-19, anteriores a
+PR #94 y correspondientes a aquella rama/fecha; no representan una
+certificación del checkout actual, de `develop` ni de CI:
 
 - TypeScript global: PASS.
 - ESLint global: PASS en ese corte histórico.
@@ -161,8 +162,26 @@ representan una certificación permanente de `develop` ni de CI:
 - Integridad `git diff --check`: PASS.
 
 En el checkout `3627564`, `pnpm lint` volvió a pasar el 2026-10-29. El PR #94
-se fusionó en `develop`, pero las correcciones posteriores de A1 y A3 están
-en la rama de este checkout; este resultado no certifica el CI de `develop`.
+se fusionó en `develop`. Ese resultado y los PASS del 19-10 son antecedentes
+históricos; no certifican el checkout actual ni CI remoto.
+
+### Verificación del checkout — 2026-10-30
+
+**SHA:** `3f72d81c78f5a1d43cd1f0310c3df2754c80ad30`.
+
+En `feat/moderator-fee-sheets-config-local` se ejecutaron `pnpm lint`,
+`pnpm typecheck`, `pnpm test`, `pnpm build` y `pnpm test:integration`; todos
+terminaron con PASS. La suite unitaria registró 359 pruebas. La integración
+PostgreSQL aislada registró 45 archivos y 525 pruebas PASS. También pasó el
+smoke HTTP con cuentas sintéticas: MTD, OLP y MEDICARTE recibieron 200 en sus
+lecturas autorizadas y la solicitud anónima recibió 401.
+
+El smoke cubre autenticación/permisos de lectura; no valida el flujo HTTP de
+recaudo de cuota moderadora ni la escritura a Sheets. La base fue temporal y
+se eliminó tras las verificaciones. Estos resultados no identifican qué
+migraciones tiene una base persistente o desplegada ni prueban un despliegue.
+Para la evidencia de alcance y límites, véase
+[`documentation-status.md`](../documentation-status.md#cierre-de-verificaciones-locales--2026-10-30).
 
 ### PostgreSQL real
 
@@ -183,7 +202,7 @@ La prueba de COMMIT real utilizó una base temporal clonada, eliminada después 
 
 ## 5. Limitaciones y pendientes
 
-Al corte de validación del 2026-10-19:
+Al corte histórico de validación del 2026-10-19:
 
 - No se había verificado la aplicación de la migración `0102` en producción.
 - No se había verificado un despliegue.

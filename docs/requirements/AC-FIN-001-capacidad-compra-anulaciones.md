@@ -169,6 +169,19 @@ Antes de certificar el cierre se requiere:
 La integración del PR #91 en develop no demuestra, por sí sola,
 que el cambio esté desplegado en producción.
 
+### Actualización de verificación local — 2026-10-30
+
+Checkout `feat/moderator-fee-sheets-config-local` @
+`3f72d81c78f5a1d43cd1f0310c3df2754c80ad30`: `pnpm lint`, `pnpm typecheck`,
+`pnpm test`, `pnpm build` y `pnpm test:integration` terminaron con PASS. La
+integración ejecutó 45 archivos y 525 pruebas en PostgreSQL 17 temporal. El
+smoke HTTP autenticado también pasó para MTD, OLP y MEDICARTE.
+
+Estos resultados son evidencia del checkout y de la base temporal. No
+certifican la base persistente/deploy del entorno de release ni sustituyen
+las pruebas específicas de concurrencia que deban ejecutarse contra ese
+entorno autorizado. Véase [estado de documentación](../documentation-status.md#cierre-de-verificaciones-locales--2026-10-30).
+
 ## 10. Referencias
 
 - docs/requirements/BR-AUTO-ANNUL-001-anulacion-autorizacion.md
