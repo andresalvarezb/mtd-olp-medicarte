@@ -65,6 +65,28 @@ específico. Es otro procedimiento; no debe tratarse como sinónimo del contened
 - `RECONCILIATION_SCHEDULER_ENABLED`: control independiente para programación de
   reconciliación.
 
+### Google Sheets opcional para cuota moderadora
+
+`ModeratorFeeSheetService` usa la cuenta de servicio indicada en
+`GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE`. Para habilitarlo localmente, guardar el JSON
+fuera de Git en `secrets/google-service-account.json`, otorgar acceso de Sheets
+solo al spreadsheet previsto al correo de esa cuenta y configurar en `.env.local`
+`GOOGLE_SHEETS_MODERATOR_FEE_ID` y, si se necesita, la pestaña
+`GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME`. El ejemplo local deja el ID vacío;
+sin ID o sin archivo de credenciales el recaudo se conserva en PostgreSQL,
+pero no se exporta a Sheets. El servicio `dev` ve el archivo por el montaje del
+repositorio; el perfil `api` monta el directorio de credenciales en modo de solo lectura. El contexto
+de construcción Docker excluye `secrets/`.
+
+El código usa `PRUEBAS` como pestaña predeterminada y el Compose principal
+configura `CUOTAS ALTO COSTO`; el Compose local usa `PRUEBAS` salvo que se cambie
+la variable. La escritura pide `spreadsheets` y la consulta de la URL de
+factura pide `spreadsheets.readonly`. Verificar que la cuenta tenga acceso al
+spreadsheet y que el archivo JSON sea legible dentro del contenedor. No copiar
+credenciales, identificaciones de pacientes ni URLs reales a documentación o
+fixtures. El proceso externo puede tardar aproximadamente un minuto en llenar
+`Print factura`; el usuario reintenta la consulta manualmente.
+
 ## Migraciones
 
 ```bash
