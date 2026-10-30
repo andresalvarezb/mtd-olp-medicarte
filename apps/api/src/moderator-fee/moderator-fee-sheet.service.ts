@@ -139,6 +139,8 @@ function getBogotaDates(now = new Date()): { firstDayOfMonth: string; today: str
 }
 
 function formatEffectiveDate(dateStr: string | null | undefined, fallback: string): string {
+  // Este fallback solo completa el formato exigido por la hoja. No representa
+  // una entrega, aplicación ni otra evidencia clínica u operacional.
   if (!dateStr) return fallback;
   const trimmed = dateStr.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
