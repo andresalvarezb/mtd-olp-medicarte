@@ -1,13 +1,19 @@
 # Mapa de API y autenticación
 
-**Corte:** checkout `feat/purchase-order-authorization-reassignment` @ `3627564`
-(2026-10-29). Todas las rutas de esta guía
-se leen con prefijo `/api/v1`, definido en `apps/api/src/main.ts`.
+**Corte verificado:** checkout `feat/moderator-fee-sheets-config-local` @
+`3f72d81c78f5a1d43cd1f0310c3df2754c80ad30` (2026-10-30). Todas las rutas de
+esta guía se leen con prefijo `/api/v1`, definido en `apps/api/src/main.ts`.
 
 La **fuente más precisa del contrato HTTP** es Swagger en
 `http://localhost:3001/api/v1/docs`, o `GET /api/v1/openapi.json` cuando
 el servicio está levantado. Este inventario no sustituye los esquemas Zod,
 los permisos de cada acción ni la descripción de respuestas.
+
+El OpenAPI del API activo en integración aislada en el corte indicado declaró
+187 rutas y 211 operaciones. El inventario completo generado está en
+[api-openapi-inventory.md](api-openapi-inventory.md). Las rutas de esta guía
+son ejemplos representativos; se contrastaron sus métodos y paths con ese
+OpenAPI. La verificación describe este checkout, no un despliegue.
 
 ## Sesión y permisos
 
