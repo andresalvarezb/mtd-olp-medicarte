@@ -252,6 +252,16 @@ const TEMPLATE_HEADERS = [
   'OC',
   'CODIGO_PRODUCTO',
   'CANTIDAD',
+  'FECHA_ASIGNACION',
+  'FECHA_FINAL_VIGENCIA',
+] as const;
+
+const PREVIOUS_TEMPLATE_HEADERS = [
+  'CLAVE_AUTORIZACION_ORIGEN',
+  'CLAVE_AUTORIZACION_DESTINO',
+  'OC',
+  'CODIGO_PRODUCTO',
+  'CANTIDAD',
 ] as const;
 
 const LEGACY_TEMPLATE_HEADERS = [
@@ -465,6 +475,8 @@ export class PurchaseOrderImportService {
       { wch: 22 },
       { wch: 24 },
       { wch: 12 },
+      { wch: 18 },
+      { wch: 22 },
     ];
 
     XLSX.utils.book_append_sheet(
@@ -2377,36 +2389,40 @@ export class PurchaseOrderImportService {
       );
 
     const currentHeaders =
-      headers.length ===
-        TEMPLATE_HEADERS.length
-      &&
-      TEMPLATE_HEADERS.every(
-        (
-          expected,
-          index,
-        ) =>
-          headers[index] ===
-          expected,
-      );
+      headers.length === TEMPLATE_HEADERS.length &&
+      TEMPLATE_HEADERS.slice(0, 5).every(
+        (expected, index) => headers[index] === expected,
+      ) &&
+      headers[5] === 'FECHA_ASIGNACION' &&
+      (headers[6] === 'FECHA_FINAL_VIGENCIA' ||
+        headers[6] === 'FECHA_FINALIZACION');
 
+    const previousHeaders =
+      headers.length === PREVIOUS_TEMPLATE_HEADERS.length &&
+      PREVIOUS_TEMPLATE_HEADERS.every(
+        (expected, index) => headers[index] === expected,
+      );
 
     const legacyHeaders =
-      headers.length ===
-        LEGACY_TEMPLATE_HEADERS.length
-      &&
+      headers.length === LEGACY_TEMPLATE_HEADERS.length &&
       LEGACY_TEMPLATE_HEADERS.every(
-        (
-          expected,
-          index,
-        ) =>
-          headers[index] ===
-          expected,
+        (expected, index) => headers[index] === expected,
       );
 
+    const legacyWithDatesHeaders =
+      headers.length === 7 &&
+      LEGACY_TEMPLATE_HEADERS.every(
+        (expected, index) => headers[index] === expected,
+      ) &&
+      headers[5] === 'FECHA_ASIGNACION' &&
+      (headers[6] === 'FECHA_FINAL_VIGENCIA' ||
+        headers[6] === 'FECHA_FINALIZACION');
 
     if (
       !currentHeaders &&
-      !legacyHeaders
+      !previousHeaders &&
+      !legacyHeaders &&
+      !legacyWithDatesHeaders
     ) {
       throw new BadRequestException({
         code:
@@ -2461,17 +2477,13 @@ export class PurchaseOrderImportService {
        */
       for (
         let column = 0;
-        column <
-        TEMPLATE_HEADERS.length;
+        column < headers.length;
         column += 1
       ) {
-        raw[
-          TEMPLATE_HEADERS[
-            column
-          ]!
-        ] =
-          values[column] ??
-          null;
+        const headerName = headers[column];
+        if (headerName) {
+          raw[headerName] = values[column] ?? null;
+        }
       }
 
       rows.push({
@@ -2482,44 +2494,32 @@ export class PurchaseOrderImportService {
 
         originAuthorizationKey:
           normalizeText(
-            raw[
-              'CLAVE_AUTORIZACION_ORIGEN'
-            ],
+            raw['CLAVE_AUTORIZACION_ORIGEN'] ?? raw['AUTO_ORIGEN'],
           ),
 
         destinationAuthorizationKey:
           normalizeText(
-            raw[
-              'CLAVE_AUTORIZACION_DESTINO'
-            ],
+            raw['CLAVE_AUTORIZACION_DESTINO'] ?? raw['AUTO_DESTINO'],
           ),
 
         authorizationKey:
           normalizeText(
-            raw[
-              'CLAVE_AUTORIZACION_DESTINO'
-            ],
+            raw['CLAVE_AUTORIZACION_DESTINO'] ?? raw['AUTO_DESTINO'],
           ),
 
         purchaseOrderCode:
           normalizeText(
-            raw[
-              'OC'
-            ],
+            raw['OC'],
           ),
 
         commercialCode:
           normalizeText(
-            raw[
-              'CODIGO_PRODUCTO'
-            ],
+            raw['CODIGO_PRODUCTO'],
           ),
 
         quantity:
           positiveInteger(
-            raw[
-              'CANTIDAD'
-            ],
+            raw['CANTIDAD'],
           ),
       });
     }
@@ -6166,6 +6166,14 @@ export class PurchaseOrderImportService {
 
               CANTIDAD:
                 row.quantity,
+
+              FECHA_ASIGNACION:
+                row.raw['FECHA_ASIGNACION'] ?? null,
+
+              FECHA_FINAL_VIGENCIA:
+                row.raw['FECHA_FINAL_VIGENCIA'] ??
+                row.raw['FECHA_FINALIZACION'] ??
+                null,
 
               RESULTADO:
                 'RECHAZADO',

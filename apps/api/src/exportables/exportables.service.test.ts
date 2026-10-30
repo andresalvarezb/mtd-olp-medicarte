@@ -322,6 +322,55 @@ describe(
         );
       },
     );
+    it(
+      'incluye FECHA_ASIGNACION y FECHA_FINAL_VIGENCIA en la exportación de candidatas a OC',
+      async () => {
+        const query = vi.fn().mockResolvedValue({
+          rows: [
+            {
+              authorization_key: 'KEY-001|PROD-1',
+              numero_autorizacion: 'KEY-001',
+              codigo_medicamento: 'PROD-1',
+              cantidad: 10,
+              fecha_asignacion: '2026-10-01',
+              fecha_final_vigencia: '2026-11-15',
+            },
+          ],
+        });
+
+        const service = new ExportablesService({
+          pool: { query },
+        } as never);
+
+        const exported = await service.purchaseOrderCandidates(scope);
+        expect(exported.filename).toBe('AUTO-para-generar-OC.xlsx');
+
+        const workbook = XLSX.read(exported.content, { type: 'buffer' });
+        const sheet = workbook.Sheets['ORDENES_COMPRA'];
+        expect(sheet).toBeDefined();
+
+        const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet!, { header: 1 });
+        expect(matrix[0]).toEqual([
+          'CLAVE_AUTORIZACION_ORIGEN',
+          'CLAVE_AUTORIZACION_DESTINO',
+          'OC',
+          'CODIGO_PRODUCTO',
+          'CANTIDAD',
+          'FECHA_ASIGNACION',
+          'FECHA_FINAL_VIGENCIA',
+        ]);
+
+        expect(matrix[1]).toEqual([
+          '',
+          'KEY-001|PROD-1',
+          '',
+          'PROD-1',
+          10,
+          '2026-10-01',
+          '2026-11-15',
+        ]);
+      },
+    );
   },
 );
 

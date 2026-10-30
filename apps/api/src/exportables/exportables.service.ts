@@ -80,6 +80,10 @@ type CandidateRow =
     codigo_medicamento: string;
 
     cantidad: number;
+
+    fecha_asignacion?: string | null;
+
+    fecha_final_vigencia?: string | null;
   }>;
 
 
@@ -419,6 +423,8 @@ export class ExportablesService {
               ai.authorization_key,
               ai.numero_autorizacion,
               ai.codigo_medicamento,
+              ai.source_data ->> 'FECHA_ASIGNACION' as raw_assignment_date,
+              ai.source_data ->> 'FECHA_FINAL_VIGENCIA' as raw_expiration_date,
 
               case
                 when
@@ -749,7 +755,23 @@ export class ExportablesService {
             numero_autorizacion,
             codigo_medicamento,
             purchase_balance.remaining_quantity
-              as cantidad
+              as cantidad,
+            coalesce(
+              to_char(
+                e.assignment_date,
+                'YYYY-MM-DD'
+              ),
+              e.raw_assignment_date,
+              ''
+            ) as fecha_asignacion,
+            coalesce(
+              to_char(
+                e.expiration_date,
+                'YYYY-MM-DD'
+              ),
+              e.raw_expiration_date,
+              ''
+            ) as fecha_final_vigencia
 
           from evaluated e
 
@@ -963,6 +985,8 @@ export class ExportablesService {
             'OC',
             'CODIGO_PRODUCTO',
             'CANTIDAD',
+            'FECHA_ASIGNACION',
+            'FECHA_FINAL_VIGENCIA',
           ],
 
           ...result.rows.map(
@@ -978,6 +1002,10 @@ export class ExportablesService {
               Number(
                 row.cantidad,
               ),
+
+              row.fecha_asignacion ?? '',
+
+              row.fecha_final_vigencia ?? '',
             ],
           ),
         ],
@@ -1004,6 +1032,14 @@ export class ExportablesService {
         {
           wch:
             14,
+        },
+        {
+          wch:
+            18,
+        },
+        {
+          wch:
+            22,
         },
       ];
 
