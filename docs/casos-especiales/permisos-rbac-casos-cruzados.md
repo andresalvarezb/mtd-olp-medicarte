@@ -45,6 +45,15 @@ El backend exige identidad autenticada, `X-Organization-Id`, permiso concedido y
 | Dashboard financiero | `analytics.economics.read` y `application_audits.read` |
 | Conciliación | `reconciliation.*`, `reconciliation_issues.*`, `reconciliation_operations.*`, `reconciliation_notifications.*`, según acción |
 
+El permiso `moderator_fees.manage` controla quién registra el recaudo en la API;
+si se configura un spreadsheet y una credencial con acceso, el servidor intenta
+exportar los datos de la fila a Sheets después del registro. Los permisos RBAC
+de la aplicación no gobiernan el acceso posterior a la hoja ni al archivo de
+factura enlazado. La documentación disponible no define la base legal, quién
+gobierna el destino o su política de retención; se debe confirmar con el área
+responsable. Véase
+[AC-FIN-001](../requirements/AC-FIN-001-auditoria-financiera-alto-costo.md#231-salida-de-datos-a-google-sheets-y-gobernanza-pendiente).
+
 ## Casos de alta prioridad
 
 1. Permiso `manage` sin permiso `read`: verificar decisiones de backend y navegación por separado.

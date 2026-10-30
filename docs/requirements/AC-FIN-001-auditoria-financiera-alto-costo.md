@@ -63,6 +63,23 @@ Un reintento histórico idéntico puede devolver la proyección vigente, aunque 
 
 Los controles se aplican en backend. Ocultar o mostrar un formulario no sustituye la autorización del servidor.
 
+### 2.3.1. Salida de datos a Google Sheets y gobernanza pendiente
+
+La exportación opcional del recaudo sale de MEDICARTE/MTD hacia el spreadsheet
+configurado en `GOOGLE_SHEETS_MODERATOR_FEE_ID`. Tras confirmar el evento en
+PostgreSQL, la API intenta escribir número de autorización, identificación y
+tipo de documento del paciente, documento del profesional, fechas e importe.
+El nombre del paciente no se exporta y la columna `FACTURA` se envía vacía;
+un proceso externo puede completar después `Print factura`.
+
+El ID queda vacío por defecto. Configurarlo habilita esta salida, pero este
+requerimiento no establece su base legal, quién gobierna el spreadsheet, su
+alcance de acceso, ni las reglas o el plazo de retención y eliminación. La
+documentación disponible no permite afirmar cuál es la política aplicable ni
+si hacen falta cambios en la aplicación. El área responsable debe confirmar
+esos puntos para el destino que se configure; la configuración técnica por sí
+sola no documenta esa decisión.
+
 ### 2.4. API
 
 Con prefijo global `/api/v1`:

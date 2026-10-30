@@ -29,14 +29,14 @@ El checkout `3627564` añade CE-85 a CE-88 para cuota moderadora y amplía la ma
 | Vencimiento automático | **Se documenta política sin liberación** | Acordar si negocio desea liberar al vencer; implicaría **nuevo requerimiento** |
 | Facturación | Individual/XLSX, soportes, estado definitivo | Validación con facturación operativa, retención y permisos |
 | Soportes Drive | Búsqueda, metadata, sincronización opcional | Indexación real, permisos Drive, cifrado y ciclo documental |
-| Recaudo de cuota moderadora y Sheets | Eventos, permisos, exportación externa y consulta de factura documentados | Validar con datos sintéticos el acceso al Sheet, la demora externa y la visibilidad MTD/MEDICARTE |
+| Recaudo de cuota moderadora y Sheets | Eventos, permisos, campos exportados y consulta de factura documentados; ID vacío por defecto | Confirmar con el área responsable la base legal y las reglas de acceso, retención y eliminación aplicables al destino; decidir si alguna requiere cambios en la aplicación; validar con datos sintéticos acceso, demora y visibilidad MTD/MEDICARTE |
 | Auditoría aplicación/fulfillment | Contratos y rutas | Revisar en profundidad repositorio/servicios y regla de reintento |
 | Conciliación | Flujos, alertas y permisos base | Analizar cada regla, operación automática y consecuencias |
 | MIPRES / PBS / NO PBS | Referencias y separación de gates | Manual completo de evidencias, fallas externas y decisión manual |
 | Programación y no asistencia | Flujo principal documentado | Reprogramaciones, tardíos, reuso y asignación por punto |
 | Recepciones/traslados/daños/devoluciones | Flujo principal e inventario | Manual de diferencias de lote, vencimiento, devolución y transferencias |
 | Facturación y costos | Distinción tarifa Compensar/costo OLP | Conciliación financiera, cortes, exportables y rechazo de soporte |
-| RBAC, auditoría técnica, trazas y datos sensibles | Controles generales | Matriz exacta por rol, datos personales, retención y respuesta a incidentes |
+| RBAC, auditoría técnica, trazas y datos sensibles | Controles generales y salida opcional de datos personales a Sheets identificada | Matriz exacta por rol; gobernanza del Sheet y del enlace de factura, retención y respuesta a incidentes |
 
 ## Riesgos concretos de interpretación
 
