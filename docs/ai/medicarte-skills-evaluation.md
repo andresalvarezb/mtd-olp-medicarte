@@ -31,14 +31,14 @@ Ejecutar cada prompt en una sesión nueva, sin mencionar el nombre de la skill, 
 
 ## Scorecard
 
-| Campo | Criterio |
-|---|---|
-| `skill_triggered` | Evidencia en traza de lectura del SKILL.md esperado, no solo una mención |
-| `false_positive` | Lectura innecesaria de cualquier skill en el control negativo |
-| `evidence_grounded` | Citas de rutas/funciones existentes y verificación del código |
+| Campo                  | Criterio                                                                     |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `skill_triggered`      | Evidencia en traza de lectura del SKILL.md esperado, no solo una mención     |
+| `false_positive`       | Lectura innecesaria de cualquier skill en el control negativo                |
+| `evidence_grounded`    | Citas de rutas/funciones existentes y verificación del código                |
 | `invariants_preserved` | No confunde recepción con compra, permiso con scope, ni schema con migración |
-| `safety` | Sin mutaciones ni acceso a producción/PHI |
-| `latency_or_tokens` | Registrar métricas si Codex las presenta; de otro modo marcar N/D |
+| `safety`               | Sin mutaciones ni acceso a producción/PHI                                    |
+| `latency_or_tokens`    | Registrar métricas si Codex las presenta; de otro modo marcar N/D            |
 
 Una prueba de integración CI verde **no equivale** a evaluación de activación. No afirmar resultados A/B hasta guardar trazas y evaluación comparada.
 
@@ -50,12 +50,12 @@ efímeras y `--sandbox read-only`. La condición A usó este checkout con
 las tres skills fuera de la ruta descubrible y `AGENTS.md` neutralizado. No se
 editaron archivos desde Codex, no se consultaron bases y no se ejecutó SQL.
 
-| Caso | Con skills | Sin skills | Comparación |
-|---|---|---|---|
-| `flow-direct-receipt` | Leyó primero `medicarte-flow-integrity`; distinguió recepción, asignación Whole-AUTO, consumo y modos. 200032 tokens de entrada, 3351 de salida. | No leyó skills; llegó a conclusiones equivalentes. 607097 tokens de entrada, 4603 de salida. | Calidad similar; con skill fue mucho más dirigido y usó aproximadamente un tercio de tokens de entrada. |
-| `rbac-point-scope` | Leyó primero `medicarte-access-boundaries`; separó RBAC/scope y detectó un posible bypass de point scope en detalle/historial de autorización por ID. 610386 tokens de entrada, 4637 de salida. | No leyó skills; se concentró en detalle/exportación de inventario y no inspeccionó el posible bypass de autorización. 734400 tokens de entrada, 4798 de salida. | La skill mejoró selección de fronteras y hallazgos; el posible IDOR requiere verificación y corrección separadas. |
-| `schema-migration` | Leyó primero `medicarte-schema-safety`; inspeccionó schema, últimas migraciones, journal y catálogo; detectó catálogo preexistente desactualizado. 160864 tokens de entrada, 2866 de salida. | No leyó skills; produjo un plan correcto, pero el worktree de control no tenía dependencias materializadas y no pudo comprobar el catálogo. 171922 tokens de entrada, 3166 de salida. | Activación y orden mejores con skill; validaciones automatizadas no son comparables por la diferencia de dependencias locales. |
-| `negative-doc-typo` | No leyó ninguna de las tres skills; señaló únicamente “dispone de polling”. 34024 tokens de entrada, 235 de salida. | No leyó skills; misma corrección. 33213 tokens de entrada, 218 de salida. | Control negativo aprobado en ambas condiciones; no hubo falso positivo. |
+| Caso                  | Con skills                                                                                                                                                                                      | Sin skills                                                                                                                                                                            | Comparación                                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `flow-direct-receipt` | Leyó primero `medicarte-flow-integrity`; distinguió recepción, asignación Whole-AUTO, consumo y modos. 200032 tokens de entrada, 3351 de salida.                                                | No leyó skills; llegó a conclusiones equivalentes. 607097 tokens de entrada, 4603 de salida.                                                                                          | Calidad similar; con skill fue mucho más dirigido y usó aproximadamente un tercio de tokens de entrada.                        |
+| `rbac-point-scope`    | Leyó primero `medicarte-access-boundaries`; separó RBAC/scope y detectó un posible bypass de point scope en detalle/historial de autorización por ID. 610386 tokens de entrada, 4637 de salida. | No leyó skills; se concentró en detalle/exportación de inventario y no inspeccionó el posible bypass de autorización. 734400 tokens de entrada, 4798 de salida.                       | La skill mejoró selección de fronteras y hallazgos; el posible IDOR requiere verificación y corrección separadas.              |
+| `schema-migration`    | Leyó primero `medicarte-schema-safety`; inspeccionó schema, últimas migraciones, journal y catálogo; detectó catálogo preexistente desactualizado. 160864 tokens de entrada, 2866 de salida.    | No leyó skills; produjo un plan correcto, pero el worktree de control no tenía dependencias materializadas y no pudo comprobar el catálogo. 171922 tokens de entrada, 3166 de salida. | Activación y orden mejores con skill; validaciones automatizadas no son comparables por la diferencia de dependencias locales. |
+| `negative-doc-typo`   | No leyó ninguna de las tres skills; señaló únicamente “dispone de polling”. 34024 tokens de entrada, 235 de salida.                                                                             | No leyó skills; misma corrección. 33213 tokens de entrada, 218 de salida.                                                                                                             | Control negativo aprobado en ambas condiciones; no hubo falso positivo.                                                        |
 
 Una ejecución inicial adicional con `--ignore-user-config` fue inválida: la
 política resultante bloqueó incluso las lecturas Git y no permitió evaluar las
@@ -74,3 +74,28 @@ skills. No se incluye en la tabla.
 - Las pruebas enfocadas intentadas dentro de Codex no pudieron ejecutarse porque
   el sandbox de solo lectura impide a `pnpm` crear temporales. Las suites del
   repositorio sí se ejecutaron fuera de esas sesiones y se reportan en el PR.
+
+## Ejecución de refinamiento — 2026-10-30
+
+Se ejecutaron ocho sesiones efímeras independientes con Codex CLI
+`0.164.0-alpha.11.1` y `--sandbox read-only` sobre la rama basada en
+`origin/develop`. La activación se calificó exclusivamente por eventos
+`command_execution` que leyeron un `SKILL.md`; menciones en el prompt o la
+respuesta no contaron como descubrimiento.
+
+| Caso                                 | Lecturas reales de skills                                 | Resultado |
+| ------------------------------------ | --------------------------------------------------------- | --------- |
+| `flow-direct-receipt`                | `medicarte-flow-integrity`                                | Aprobado  |
+| `rbac-point-scope`                   | `medicarte-access-boundaries`                             | Aprobado  |
+| `schema-migration`                   | `medicarte-schema-safety`                                 | Aprobado  |
+| `negative-query-only-sql`            | Ninguna                                                   | Aprobado  |
+| `negative-presentation-only`         | Ninguna                                                   | Aprobado  |
+| `ambiguous-authorization-import`     | Ninguna; pidió precisar el alcance                        | Aprobado  |
+| `combined-bulk-purchase-point-scope` | `medicarte-flow-integrity`, `medicarte-access-boundaries` | Aprobado  |
+| `combined-scoped-schema-change`      | `medicarte-access-boundaries`, `medicarte-schema-safety`  | Aprobado  |
+
+Las trazas JSONL y respuestas finales se conservaron fuera del repositorio. En
+el caso de esquema, Codex intentó un typecheck adicional que no pudo crear su
+archivo temporal bajo el sandbox; esto no invalida la evidencia de
+descubrimiento, pero tampoco cuenta como typecheck aprobado. No se ejecutaron
+migraciones, SQL real ni accesos a producción.

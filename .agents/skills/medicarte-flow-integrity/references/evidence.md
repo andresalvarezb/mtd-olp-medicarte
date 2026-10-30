@@ -8,4 +8,10 @@
 - `apps/api/src/fulfillments/authorization-fulfillment-inventory-mode.test.ts`
 - `apps/api/src/purchase-orders/purchase-order-import-direct.service.test.ts`
 
-Buscar además consumidores y contratos del símbolo modificado con `rg`; esta lista no reemplaza el análisis de impacto.
+## Casos condicionales
+
+- Imports de OC: revisar `purchase-order-import.service.ts`, controller y pruebas `purchase-order-import-*.test.ts`; comprobar identidad, reintentos y enlaces a autorizaciones.
+- Imports de consumo: revisar `authorization-fulfillment-import.service.ts` y su prueba; confirmar que importar no invente recepción o inventario.
+- Conciliaciones: revisar `apps/api/src/reconciliation/` y separar diagnóstico, reparación, idempotencia y registro de auditoría.
+
+Buscar consumidores y contratos con `rg -n "<símbolo>" apps packages tests`. Ejecutar pruebas enfocadas con `pnpm --filter @authorization/api test -- <ruta.test.ts>` y, si cambian contratos o varios módulos, `pnpm typecheck`. Esta lista orienta; no reemplaza el análisis de impacto.

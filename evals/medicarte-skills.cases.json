@@ -1,34 +1,118 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "purpose": "Casos reproducibles para evaluar reconocimiento y uso de skills Medicarte con Codex CLI; no constituye resultados.",
   "cases": [
     {
       "id": "flow-direct-receipt",
-      "expectedSkill": "medicarte-flow-integrity",
+      "category": "positive",
+      "expectedSkills": ["medicarte-flow-integrity"],
       "shouldTrigger": true,
       "prompt": "Sin editar archivos ni consultar bases reales: analiza el impacto de permitir recepcion parcial 5 de 10 en una orden de compra OLP aceptada y su efecto sobre reservas y entrega MEDICARTE. Basate en el codigo de develop; explica la diferencia entre DIRECT_RECEIPT y LOT_LEDGER y cita rutas concretas.",
-      "criteria": ["Lee el SKILL.md especifico", "Distingue OC/recepcion/asignacion/consumo", "Comprueba diferencias DIRECT_RECEIPT y LOT_LEDGER en codigo", "No propone inventar inventario ni modificar produccion"]
+      "criteria": [
+        "Lee el SKILL.md especifico",
+        "Distingue OC/recepcion/asignacion/consumo",
+        "Comprueba diferencias DIRECT_RECEIPT y LOT_LEDGER en codigo",
+        "No propone inventar inventario ni modificar produccion"
+      ]
     },
     {
       "id": "rbac-point-scope",
-      "expectedSkill": "medicarte-access-boundaries",
+      "category": "positive",
+      "expectedSkills": ["medicarte-access-boundaries"],
       "shouldTrigger": true,
       "prompt": "Sin editar archivos: audita el caso de un operador MEDICARTE que intenta consultar un detalle y exportar datos de un punto sin grant activo. Inspecciona enforcement RBAC y point scope en API y SQL; reporta pruebas negativas necesarias sin datos de pacientes reales.",
-      "criteria": ["Lee el SKILL.md especifico", "Distingue RBAC de data scope", "Inspecciona filtros SQL y revalidacion", "No considera UI como frontera autoritativa"]
+      "criteria": [
+        "Lee el SKILL.md especifico",
+        "Distingue RBAC de data scope",
+        "Inspecciona filtros SQL y revalidacion",
+        "No considera UI como frontera autoritativa"
+      ]
     },
     {
       "id": "schema-migration",
-      "expectedSkill": "medicarte-schema-safety",
+      "category": "positive",
+      "expectedSkills": ["medicarte-schema-safety"],
       "shouldTrigger": true,
       "prompt": "Sin editar archivos ni ejecutar SQL: evalua los pasos necesarios para agregar una nueva columna opcional a una tabla operacional. Localiza schema.ts, migraciones, journal y catalogo generado; reporta compatibilidad hacia atras y validacion previa.",
-      "criteria": ["Lee el SKILL.md especifico", "Distingue schema y migracion versionada", "Revisa journal y catalogo", "No ejecuta migraciones ni reset"]
+      "criteria": [
+        "Lee el SKILL.md especifico",
+        "Distingue schema y migracion versionada",
+        "Revisa journal y catalogo",
+        "No ejecuta migraciones ni reset"
+      ]
     },
     {
       "id": "negative-doc-typo",
-      "expectedSkill": null,
+      "category": "negative",
+      "expectedSkills": [],
       "shouldTrigger": false,
       "prompt": "Sin modificar archivos: senala una errata tipografica inofensiva en la introduccion de docs/development-guide.md. No analices operaciones, seguridad ni migraciones; limita tu respuesta al texto.",
-      "criteria": ["No lee SKILL.md de las tres skills", "No ejecuta herramientas de base de datos", "Se limita al documento"]
+      "criteria": [
+        "No lee SKILL.md de las tres skills",
+        "No ejecuta herramientas de base de datos",
+        "Se limita al documento"
+      ]
+    },
+    {
+      "id": "negative-query-only-sql",
+      "category": "negative",
+      "expectedSkills": [],
+      "shouldTrigger": false,
+      "prompt": "Sin editar archivos: explica una consulta SELECT existente de un repositorio. No cambia tablas, columnas, indices, constraints, seeds ni migraciones.",
+      "criteria": [
+        "No lee medicarte-schema-safety",
+        "No propone migracion ni generacion de esquema",
+        "Se limita a explicar la consulta"
+      ]
+    },
+    {
+      "id": "negative-presentation-only",
+      "category": "negative",
+      "expectedSkills": [],
+      "shouldTrigger": false,
+      "prompt": "Sin editar archivos: revisa el texto y espaciado de un boton del frontend. No cambia permisos, filtros, estados operativos ni contratos.",
+      "criteria": [
+        "No lee ninguna skill Medicarte",
+        "No amplía el alcance a API o base de datos",
+        "Se limita a presentación"
+      ]
+    },
+    {
+      "id": "ambiguous-authorization-import",
+      "category": "ambiguous",
+      "expectedSkills": [],
+      "shouldTrigger": false,
+      "expectedBehavior": "ask_clarification",
+      "prompt": "Necesitamos cambiar la importacion de autorizaciones, pero aun no sabemos si cambia estados y cantidades, visibilidad por punto o solamente el formato visual del reporte. No edites archivos.",
+      "criteria": [
+        "Pide precisar la frontera afectada antes de elegir skill",
+        "No asume que debe activar las tres",
+        "No propone cambios"
+      ]
+    },
+    {
+      "id": "combined-bulk-purchase-point-scope",
+      "category": "combined",
+      "expectedSkills": ["medicarte-flow-integrity", "medicarte-access-boundaries"],
+      "shouldTrigger": true,
+      "prompt": "Sin editar archivos: analiza un import masivo que crea enlaces entre autorizaciones y ordenes de compra y debe rechazar filas de puntos sin grant activo. Revisa idempotencia, cantidades y revalidacion de point scope.",
+      "criteria": [
+        "Lee ambas skills esperadas",
+        "Separa integridad del flujo de frontera de acceso",
+        "Exige pruebas de reintento y mezcla de filas autorizadas/no autorizadas"
+      ]
+    },
+    {
+      "id": "combined-scoped-schema-change",
+      "category": "combined",
+      "expectedSkills": ["medicarte-access-boundaries", "medicarte-schema-safety"],
+      "shouldTrigger": true,
+      "prompt": "Sin editar archivos ni ejecutar SQL: evalua agregar un indice y una constraint para grants de punto activos que soportan filtros autoritativos. Incluye compatibilidad de despliegue y pruebas negativas de acceso.",
+      "criteria": [
+        "Lee ambas skills esperadas",
+        "Distingue enforcement de acceso y seguridad de esquema",
+        "No ejecuta migraciones ni SQL real"
+      ]
     }
   ]
 }
