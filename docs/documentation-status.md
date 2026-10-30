@@ -5,8 +5,8 @@
 **SHA base:** `7ced5792c08faf35e673e2f1c2ca4571892ab87a`
 **Fecha:** 2026-10-17
 
-Esta auditoría conserva el corte histórico indicado arriba. La actualización
-del checkout del 2026-10-29 aparece al final del documento.
+Esta auditoría conserva el corte histórico indicado arriba. Las actualizaciones
+de checkout del 2026-10-29 y 2026-10-30 aparecen al final del documento.
 
 ## Evidencia consultada
 
@@ -115,3 +115,48 @@ El PR #94 ya forma parte de `develop`. Las correcciones posteriores de lint e
 integración/CI están en este checkout, pendientes de integrarse en `develop`.
 `pnpm lint` pasó localmente en `3627564` el 2026-10-29; esto no certifica una
 ejecución de CI ni un despliegue.
+
+## Cierre de verificaciones locales — 2026-10-30
+
+Checkout inspeccionado: `feat/moderator-fee-sheets-config-local` @
+`3f72d81c78f5a1d43cd1f0310c3df2754c80ad30`. La lista pendiente de la auditoría
+inicial queda como antecedente fechado; el estado comprobado en este checkout es:
+
+| Verificación | Estado | Evidencia y límites | Fecha | SHA del checkout |
+| --- | --- | --- | --- | --- |
+| Inventario HTTP | PASS | OpenAPI del API activo en integración aislada: 187 rutas, 211 operaciones. Se contrastaron métodos y paths representativos de [api-guide.md](api-guide.md); inventario completo en [api-openapi-inventory.md](api-openapi-inventory.md). | 2026-10-30 | `3f72d81c78f5a1d43cd1f0310c3df2754c80ad30` |
+| Calidad local | PASS | `pnpm lint`, `pnpm typecheck`, `pnpm test` y `pnpm build`; 359 pruebas unitarias PASS. `pnpm test` pudo usar tareas Turbo en caché; la suite se ejecutó también sin caché y pasó. El build se repitió fuera del sandbox tras un `EPERM` al iniciar TypeScript. | 2026-10-30 | `3f72d81c78f5a1d43cd1f0310c3df2754c80ad30` |
+| PostgreSQL e integración | PASS aislado; PENDIENTE persistente | `pnpm test:integration`: 45 archivos, 525 pruebas PASS en PostgreSQL 17 temporal, con migraciones aplicadas. Falta identificar y consultar la base persistente del entorno de release, con acceso autorizado, para conocer migraciones y SHA desplegado; no se consultó producción. | 2026-10-30 | `3f72d81c78f5a1d43cd1f0310c3df2754c80ad30` |
+| Notas 15/16-10 de ADR-043 | Código presente; despliegue NO verificado | La lógica de asignación y locks descrita se observa en el servicio/repositorio actual; hay cobertura unitaria relacionada y pasó la suite de integración. Se conserva «NO desplegada» como anotación histórica del 16-10. No se afirma certificación independiente de cada invariante ni despliegue actual. | 2026-10-30 | `3f72d81c78f5a1d43cd1f0310c3df2754c80ad30` |
+| CI en `develop` | PASS configuración | `.github/workflows/ci.yml` contiene `develop`, `master` y `main` para push, y conserva `pull_request`. No se consultó GitHub Actions ni se afirma una ejecución remota. | 2026-10-30 | `3f72d81c78f5a1d43cd1f0310c3df2754c80ad30` |
+| Smoke HTTP autenticado | PASS | Cuentas sintéticas: MTD `GET /planning-periods` → 200; OLP `GET /supplier/purchase-orders` → 200; MEDICARTE `GET /inventory` → 200; sin token `GET /planning-periods` → 401. Los tres cuerpos contienen `items` tipo array. No se usaron ni registraron tokens o datos clínicos. | 2026-10-30 | `3f72d81c78f5a1d43cd1f0310c3df2754c80ad30` |
+
+### Contexto de los resultados
+
+- El PASS de AC-FIN-001 del 2026-10-19 permanece como evidencia histórica de
+  aquella rama/fecha; no se atribuye al checkout actual. Véase
+  [evidencia AC-FIN-001](requirements/AC-FIN-001-auditoria-financiera-alto-costo.md).
+- El smoke prueba autenticación, permisos de lectura y forma básica de respuesta
+  para actores sintéticos. No ejecuta recaudo, importación, compra, recepción,
+  fulfillment, concurrencia ni XLSX.
+- El SHA indicado identifica el checkout base probado; los archivos de
+  documentación, CI y smoke de esta actualización están en el árbol de trabajo
+  y no forman parte de ese commit hasta que se registren en Git.
+- No se observaron fallos de `lint`, typecheck, unitarias o integración que
+  requirieran cambios correctivos de código en este corte.
+
+### Revisión de las notas de ADR-043
+
+- **15-10:** el importador actual mantiene separadas la asignación de stock
+  recibido y la ampliación de compra para una OC existente. La lógica
+  `ASSIGN_AVAILABLE` y la conservación de `requested_quantity` están en
+  `apps/api/src/purchase-orders/purchase-order-import.service.ts`; hay cobertura
+  relacionada en `purchase-order-import-existing.service.test.ts` y
+  `purchase-order-import-rules.service.test.ts`.
+- **16-10:** el código actual contempla entradas modernas `quantity-only` y
+  locks por OC/producto en los flujos de disponibilidad/importación
+  (`apps/api/src/inventory/inventory-availability.repository.ts` y
+  `apps/api/src/purchase-orders/purchase-order-import.service.ts`). El PASS de
+  la suite local no certifica cada invariante bajo concurrencia en una base
+  persistente. La frase «NO desplegada» se conserva como estado registrado el
+  16-10; el despliegue del código actual queda sin verificar.
