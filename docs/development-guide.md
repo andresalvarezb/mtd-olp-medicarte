@@ -68,19 +68,25 @@ específico. Es otro procedimiento; no debe tratarse como sinónimo del contened
 ### Google Sheets opcional para cuota moderadora
 
 `ModeratorFeeSheetService` usa la cuenta de servicio indicada en
-`GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE`. Para habilitarlo localmente, guardar el JSON
-fuera de Git en `secrets/google-service-account.json`, otorgar acceso de Sheets
+`GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE`. Para habilitarlo localmente, crear `secrets/`
+y guardar el JSON fuera de Git en `secrets/google-service-account.json`, otorgar acceso de Sheets
 solo al spreadsheet previsto al correo de esa cuenta y configurar en `.env.local`
 `GOOGLE_SHEETS_MODERATOR_FEE_ID` y, si se necesita, la pestaña
 `GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME`. El ejemplo local deja el ID vacío;
 sin ID o sin archivo de credenciales el recaudo se conserva en PostgreSQL,
 pero no se exporta a Sheets. El servicio `dev` ve el archivo por el montaje del
 repositorio; el perfil `api` monta el directorio de credenciales en modo de solo lectura. El contexto
-de construcción Docker excluye `secrets/`.
+de construcción Docker excluye `secrets/`; Git también lo ignora. Compose puede
+crear el directorio del host si falta, pero eso no crea el JSON ni impide que
+arranque la API. Si se configura un ID y falta el archivo, `appendRow` registra
+una advertencia al intentar exportar y la consulta de factura devuelve `null`.
+El servicio busca primero la ruta configurada (también relativa al directorio
+de trabajo); si no existe, prueba `secrets/google-service-account.json` como
+fallback. Revisar ambos lugares antes de habilitar un spreadsheet real.
 
-El código usa `PRUEBAS` como pestaña predeterminada y el Compose principal
-configura `CUOTAS ALTO COSTO`; el Compose local usa `PRUEBAS` salvo que se cambie
-la variable. La escritura pide `spreadsheets` y la consulta de la URL de
+El código y ambos Compose dejan vacío el ID y usan `PRUEBAS` como pestaña
+predeterminada. Para usar otra pestaña o un spreadsheet real hay que
+configurarlos explícitamente. La escritura pide `spreadsheets` y la consulta de la URL de
 factura pide `spreadsheets.readonly`. Verificar que la cuenta tenga acceso al
 spreadsheet y que el archivo JSON sea legible dentro del contenedor. No copiar
 credenciales, identificaciones de pacientes ni URLs reales a documentación o
