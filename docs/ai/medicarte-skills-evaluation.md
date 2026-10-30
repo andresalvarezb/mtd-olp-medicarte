@@ -1,5 +1,12 @@
 # Evaluación controlada de las skills Medicarte (pendiente de ejecución real)
 
+> Nota histórica: las ejecuciones del 30 de octubre de 2026 anteriores al cambio de nombre
+> conservan los identificadores usados en sus trazas. Sus equivalencias actuales son
+> `medicarte-flow-integrity` → `purchase-fulfillment-integrity`,
+> `medicarte-access-boundaries` → `rbac-point-scope` y
+> `medicarte-schema-safety` → `drizzle-schema-safety`. Esos resultados no se atribuyen
+> retroactivamente a los nombres nuevos.
+
 ## Preparación y aislamiento
 
 - Usar una rama de trabajo descendiente de `origin/develop`, sin cambios locales previos.
@@ -13,7 +20,7 @@
 Desde la raíz del repositorio, confirmar que existen los tres archivos `.agents/skills/*/SKILL.md`. Ejecutar una solicitud explícita de lectura, en **solo lectura**, por ejemplo:
 
 ```bash
-codex exec --sandbox read-only --json 'Utiliza $medicarte-flow-integrity para identificar tres invariantes comprobables de recepción y consumo. Solo analiza, no modifiques archivos.' > codex-explicit.jsonl
+codex exec --sandbox read-only --json 'Utiliza $purchase-fulfillment-integrity para identificar tres invariantes comprobables de recepción y consumo. Solo analiza, no modifiques archivos.' > codex-explicit.jsonl
 ```
 
 Guardar el JSONL fuera de Git. La lectura o mención explícita de `SKILL.md` en la traza es evidencia de uso; la mera respuesta correcta sin una traza que demuestre lectura no prueba descubrimiento automático.
@@ -99,3 +106,23 @@ el caso de esquema, Codex intentó un typecheck adicional que no pudo crear su
 archivo temporal bajo el sandbox; esto no invalida la evidencia de
 descubrimiento, pero tampoco cuenta como typecheck aprobado. No se ejecutaron
 migraciones, SQL real ni accesos a producción.
+
+## Verificación posterior al cambio de nombres — 2026-10-30
+
+Se ejecutaron cinco sesiones efímeras independientes con Codex CLI
+`0.165.0-alpha.1.2` y `--sandbox read-only` sobre el árbol de trabajo del PR
+#98. La activación se calificó únicamente por comandos que leyeron el nuevo
+`SKILL.md`; las menciones encontradas al buscar esta documentación histórica no
+contaron como activación.
+
+| Caso               | Lecturas reales de skills        | Resultado |
+| ------------------ | -------------------------------- | --------- |
+| Flujo de compra    | `purchase-fulfillment-integrity` | Aprobado  |
+| RBAC y point scope | `rbac-point-scope`               | Aprobado  |
+| Cambio de esquema  | `drizzle-schema-safety`          | Aprobado  |
+| Control SQL        | Ninguna                          | Aprobado  |
+| Control UI         | Ninguna                          | Aprobado  |
+
+Las cinco sesiones finalizaron con código 0. Las trazas JSONL se conservaron
+fuera del repositorio. No se editaron archivos desde Codex, no se ejecutaron
+migraciones o SQL y no se accedió a producción ni a datos reales.

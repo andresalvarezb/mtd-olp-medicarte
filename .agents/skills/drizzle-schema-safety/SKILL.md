@@ -1,5 +1,5 @@
 ---
-name: medicarte-schema-safety
+name: drizzle-schema-safety
 description: Coordina cambios persistentes de estructura o datos de referencia versionados en PostgreSQL/Drizzle de Medicarte. Úsala para schema.ts, migraciones, constraints, índices, seeds versionados o catálogo; no para consultas SQL sin cambio de esquema, lógica de repositorio aislada ni correcciones manuales de datos.
 ---
 

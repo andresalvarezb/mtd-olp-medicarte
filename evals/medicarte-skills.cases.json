@@ -5,7 +5,7 @@
     {
       "id": "flow-direct-receipt",
       "category": "positive",
-      "expectedSkills": ["medicarte-flow-integrity"],
+      "expectedSkills": ["purchase-fulfillment-integrity"],
       "shouldTrigger": true,
       "prompt": "Sin editar archivos ni consultar bases reales: analiza el impacto de permitir recepcion parcial 5 de 10 en una orden de compra OLP aceptada y su efecto sobre reservas y entrega MEDICARTE. Basate en el codigo de develop; explica la diferencia entre DIRECT_RECEIPT y LOT_LEDGER y cita rutas concretas.",
       "criteria": [
@@ -18,7 +18,7 @@
     {
       "id": "rbac-point-scope",
       "category": "positive",
-      "expectedSkills": ["medicarte-access-boundaries"],
+      "expectedSkills": ["rbac-point-scope"],
       "shouldTrigger": true,
       "prompt": "Sin editar archivos: audita el caso de un operador MEDICARTE que intenta consultar un detalle y exportar datos de un punto sin grant activo. Inspecciona enforcement RBAC y point scope en API y SQL; reporta pruebas negativas necesarias sin datos de pacientes reales.",
       "criteria": [
@@ -31,7 +31,7 @@
     {
       "id": "schema-migration",
       "category": "positive",
-      "expectedSkills": ["medicarte-schema-safety"],
+      "expectedSkills": ["drizzle-schema-safety"],
       "shouldTrigger": true,
       "prompt": "Sin editar archivos ni ejecutar SQL: evalua los pasos necesarios para agregar una nueva columna opcional a una tabla operacional. Localiza schema.ts, migraciones, journal y catalogo generado; reporta compatibilidad hacia atras y validacion previa.",
       "criteria": [
@@ -60,7 +60,7 @@
       "shouldTrigger": false,
       "prompt": "Sin editar archivos: explica una consulta SELECT existente de un repositorio. No cambia tablas, columnas, indices, constraints, seeds ni migraciones.",
       "criteria": [
-        "No lee medicarte-schema-safety",
+        "No lee drizzle-schema-safety",
         "No propone migracion ni generacion de esquema",
         "Se limita a explicar la consulta"
       ]
@@ -93,7 +93,7 @@
     {
       "id": "combined-bulk-purchase-point-scope",
       "category": "combined",
-      "expectedSkills": ["medicarte-flow-integrity", "medicarte-access-boundaries"],
+      "expectedSkills": ["purchase-fulfillment-integrity", "rbac-point-scope"],
       "shouldTrigger": true,
       "prompt": "Sin editar archivos: analiza un import masivo que crea enlaces entre autorizaciones y ordenes de compra y debe rechazar filas de puntos sin grant activo. Revisa idempotencia, cantidades y revalidacion de point scope.",
       "criteria": [
@@ -105,7 +105,7 @@
     {
       "id": "combined-scoped-schema-change",
       "category": "combined",
-      "expectedSkills": ["medicarte-access-boundaries", "medicarte-schema-safety"],
+      "expectedSkills": ["rbac-point-scope", "drizzle-schema-safety"],
       "shouldTrigger": true,
       "prompt": "Sin editar archivos ni ejecutar SQL: evalua agregar un indice y una constraint para grants de punto activos que soportan filtros autoritativos. Incluye compatibilidad de despliegue y pruebas negativas de acceso.",
       "criteria": [

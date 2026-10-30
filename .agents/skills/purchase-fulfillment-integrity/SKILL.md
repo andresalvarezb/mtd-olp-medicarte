@@ -1,5 +1,5 @@
 ---
-name: medicarte-flow-integrity
+name: purchase-fulfillment-integrity
 description: Protege estados, cantidades y enlaces en la cadena autorización → orden → recepción → inventario → consumo de Medicarte. Úsala cuando una tarea cambie esa trazabilidad, imports que la construyen o conciliaciones que la reparan; no para presentación aislada, controles de acceso sin impacto operativo ni cambios exclusivos de esquema.
 ---
 

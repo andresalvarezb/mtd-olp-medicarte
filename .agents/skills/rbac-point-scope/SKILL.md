@@ -1,5 +1,5 @@
 ---
-name: medicarte-access-boundaries
+name: rbac-point-scope
 description: Revisa autorización y visibilidad de datos Medicarte por RBAC, organización y punto. Úsala cuando cambien identidad, scopes, filtros autoritativos, recursos por id o mutaciones/batches con alcance; no para UI aislada, reglas de cantidades sin efecto de acceso ni cambios exclusivos de esquema.
 ---
 

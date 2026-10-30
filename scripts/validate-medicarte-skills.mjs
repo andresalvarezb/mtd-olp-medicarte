@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const skills = [
+const skills = ['drizzle-schema-safety', 'purchase-fulfillment-integrity', 'rbac-point-scope'];
+const retiredSkills = [
   'medicarte-access-boundaries',
   'medicarte-flow-integrity',
   'medicarte-schema-safety',
@@ -73,8 +74,23 @@ for (const [label, source] of [
   if (!source.includes('.agents/skills')) failures.push(`${label} debe referirse a .agents/skills`);
 }
 const previous = path.join(root, '.agent', 'skills');
-if (fs.existsSync(previous) && fs.readdirSync(previous).some((entry) => skills.includes(entry))) {
+if (
+  fs.existsSync(previous) &&
+  fs.readdirSync(previous).some((entry) => [...skills, ...retiredSkills].includes(entry))
+) {
   failures.push('Hay skills duplicadas en .agent/skills y .agents/skills');
+}
+for (const retired of retiredSkills) {
+  const retiredPath = `.agents/skills/${retired}`;
+  if (fs.existsSync(path.join(root, retiredPath)))
+    failures.push(`Ruta retirada todavía presente: ${retiredPath}`);
+  for (const [label, source] of [
+    ['AGENTS.md', rootInstructions],
+    ['docs/ai/medicarte-skills.md', guide],
+    ['evals/medicarte-skills.cases.json', checkFile('evals/medicarte-skills.cases.json')],
+  ]) {
+    if (source.includes(retired)) failures.push(`${label} sigue referenciando ${retired}`);
+  }
 }
 if (!workflow.includes('branches: [develop]'))
   failures.push('El workflow de skills debe dirigirse a develop');
