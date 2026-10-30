@@ -5,6 +5,11 @@ on:
   push:
     branches: [develop, master, main]
 
+# A newer PR commit supersedes the previous run; never cancel develop pushes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   quality-and-gate-f1:
     runs-on: ubuntu-latest
@@ -17,18 +22,56 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: docker compose up -d --wait postgres redis
-      - run: pnpm db:migrate
+      - name: Verify CI scope classifier
+        run: bash scripts/test-ci-scope.sh
+      - name: Determine CI scope
+        id: scope
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # Always run full CI on pushes and when the PR base cannot be verified.
+          if [[ "$GITHUB_EVENT_NAME" != 'pull_request' || ! "${PR_BASE_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'full=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"; then
+            echo 'full=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # --no-renames checks both sides of a move (e.g. application -> docs).
+          if ! git diff --no-renames --name-only -z "$PR_BASE_SHA" HEAD > "$RUNNER_TEMP/ci-changes.bin"; then
+            echo 'full=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          scope="$(bash scripts/ci-scope.sh < "$RUNNER_TEMP/ci-changes.bin")"
+          echo "$scope" >> "$GITHUB_OUTPUT"
+          echo "CI scope: $scope"
+      - name: Validate documentation and agent skills
+        if: steps.scope.outputs.full == 'false'
+        run: node scripts/validate-medicarte-skills.mjs
+      - if: steps.scope.outputs.full != 'false'
+        run: pnpm install --frozen-lockfile
+      - if: steps.scope.outputs.full != 'false'
+        run: pnpm build
+      - if: steps.scope.outputs.full != 'false'
+        run: pnpm lint
+      - if: steps.scope.outputs.full != 'false'
+        run: pnpm typecheck
+      - if: steps.scope.outputs.full != 'false'
+        run: pnpm test
+      - if: steps.scope.outputs.full != 'false'
+        run: docker compose up -d --wait postgres redis
+      - if: steps.scope.outputs.full != 'false'
+        run: pnpm db:migrate
         env:
           DATABASE_URL: postgresql://authorization:authorization@localhost:15432/authorization_test_integration
-      - run: docker compose up -d --build --wait api worker web
-      - run: pnpm test:integration
-      - if: always()
+      - if: steps.scope.outputs.full != 'false'
+        run: docker compose up -d --build --wait api worker web
+      - if: steps.scope.outputs.full != 'false'
+        run: pnpm test:integration
+      - if: always() && steps.scope.outputs.full != 'false'
         run: docker compose logs
-      - if: always()
+      - if: always() && steps.scope.outputs.full != 'false'
         run: docker compose down -v
