@@ -9,3 +9,5 @@ dist
 coverage
 **/*.tsbuildinfo
 .env*
+secrets/
+**/*service-account*.json

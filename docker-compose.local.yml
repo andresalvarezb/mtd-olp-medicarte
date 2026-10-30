@@ -150,6 +150,10 @@ services:
 
       RECONCILIATION_SCHEDULER_ENABLED: "false"
 
+      GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: ${GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE:-/workspace/secrets/google-service-account.json}
+      GOOGLE_SHEETS_MODERATOR_FEE_ID: ${GOOGLE_SHEETS_MODERATOR_FEE_ID:-}
+      GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME: ${GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME:-PRUEBAS}
+
     ports:
       - "${BIND_HOST:-127.0.0.1}:${API_HOST_PORT:-3001}:3001"
 
@@ -174,6 +178,9 @@ services:
 
       mipres-mock:
         condition: service_started
+
+    volumes:
+      - ./secrets:/workspace/secrets:ro
 
 
   worker:
@@ -317,6 +324,10 @@ services:
       SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
       OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
       RECONCILIATION_SCHEDULER_ENABLED: "false"
+
+      GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: ${GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE:-/workspace/secrets/google-service-account.json}
+      GOOGLE_SHEETS_MODERATOR_FEE_ID: ${GOOGLE_SHEETS_MODERATOR_FEE_ID:-}
+      GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME: ${GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME:-PRUEBAS}
 
       MIPRES_BASE_URL: http://mipres-mock:8090
       MIPRES_NIT: ${MIPRES_NIT:-900123456}
