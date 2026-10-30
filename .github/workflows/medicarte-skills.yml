@@ -5,14 +5,14 @@ on:
     branches: [develop]
     paths:
       - 'AGENTS.md'
-      - '.agent/skills/**'
+      - '.agents/skills/**'
       - 'scripts/validate-medicarte-skills.mjs'
       - 'docs/ai/medicarte-skills.md'
   push:
     branches: [develop]
     paths:
       - 'AGENTS.md'
-      - '.agent/skills/**'
+      - '.agents/skills/**'
       - 'scripts/validate-medicarte-skills.mjs'
 
 jobs:
