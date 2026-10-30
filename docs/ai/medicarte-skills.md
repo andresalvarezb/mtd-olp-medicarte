@@ -1,6 +1,6 @@
 # Skills de agentes específicas de Medicarte
 
-Las skills locales viven en `.agent/skills` y capturan procedimientos que requieren conocimiento del código, ADR y pruebas de este repositorio. No añaden reglas de Medicarte al toolkit central `codex-skill-engineering`.
+Las skills locales viven en `.agents/skills` y capturan procedimientos que requieren conocimiento del código, ADR y pruebas de este repositorio. No añaden reglas de Medicarte al toolkit central `codex-skill-engineering`.
 
 | Skill                         | Activación                                                             |
 | ----------------------------- | ---------------------------------------------------------------------- |

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Casos reproducibles para evaluar reconocimiento y uso de skills Medicarte con Codex CLI; no constituye resultados.",
+  "cases": [
+    {
+      "id": "flow-direct-receipt",
+      "expectedSkill": "medicarte-flow-integrity",
+      "shouldTrigger": true,
+      "prompt": "Sin editar archivos ni consultar bases reales: analiza el impacto de permitir recepcion parcial 5 de 10 en una orden de compra OLP aceptada y su efecto sobre reservas y entrega MEDICARTE. Basate en el codigo de develop; explica la diferencia entre DIRECT_RECEIPT y LOT_LEDGER y cita rutas concretas.",
+      "criteria": ["Lee el SKILL.md especifico", "Distingue OC/recepcion/asignacion/consumo", "Comprueba diferencias DIRECT_RECEIPT y LOT_LEDGER en codigo", "No propone inventar inventario ni modificar produccion"]
+    },
+    {
+      "id": "rbac-point-scope",
+      "expectedSkill": "medicarte-access-boundaries",
+      "shouldTrigger": true,
+      "prompt": "Sin editar archivos: audita el caso de un operador MEDICARTE que intenta consultar un detalle y exportar datos de un punto sin grant activo. Inspecciona enforcement RBAC y point scope en API y SQL; reporta pruebas negativas necesarias sin datos de pacientes reales.",
+      "criteria": ["Lee el SKILL.md especifico", "Distingue RBAC de data scope", "Inspecciona filtros SQL y revalidacion", "No considera UI como frontera autoritativa"]
+    },
+    {
+      "id": "schema-migration",
+      "expectedSkill": "medicarte-schema-safety",
+      "shouldTrigger": true,
+      "prompt": "Sin editar archivos ni ejecutar SQL: evalua los pasos necesarios para agregar una nueva columna opcional a una tabla operacional. Localiza schema.ts, migraciones, journal y catalogo generado; reporta compatibilidad hacia atras y validacion previa.",
+      "criteria": ["Lee el SKILL.md especifico", "Distingue schema y migracion versionada", "Revisa journal y catalogo", "No ejecuta migraciones ni reset"]
+    },
+    {
+      "id": "negative-doc-typo",
+      "expectedSkill": null,
+      "shouldTrigger": false,
+      "prompt": "Sin modificar archivos: senala una errata tipografica inofensiva en la introduccion de docs/development-guide.md. No analices operaciones, seguridad ni migraciones; limita tu respuesta al texto.",
+      "criteria": ["No lee SKILL.md de las tres skills", "No ejecuta herramientas de base de datos", "Se limita al documento"]
+    }
+  ]
+}

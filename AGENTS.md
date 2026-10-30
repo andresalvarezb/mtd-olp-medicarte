@@ -4,7 +4,7 @@
 
 - La rama base operativa es `develop`. Las ramas de trabajo y los pull requests deben incluir `origin/develop` y apuntar a `develop`, nunca a `master` ni `main`.
 - Antes de editar, revisar `git status --short --branch`, remoto y ancestro. No descartar cambios locales ni operar contra producción.
-- Las reglas específicas viven en `.agent/skills/`; el toolkit `codex-skill-engineering` debe permanecer agnóstico de Medicarte.
+- Las reglas específicas viven en `.agents/skills/`; el toolkit `codex-skill-engineering` debe permanecer agnóstico de Medicarte.
 
 ## Skills obligatorias por alcance
 
