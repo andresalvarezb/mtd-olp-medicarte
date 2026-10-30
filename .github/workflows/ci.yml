@@ -8,6 +8,8 @@ on:
 jobs:
   quality-and-gate-f1:
     runs-on: ubuntu-latest
+    env:
+      POSTGRES_DB: authorization_test_integration
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
