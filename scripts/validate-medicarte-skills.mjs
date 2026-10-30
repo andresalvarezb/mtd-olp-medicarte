@@ -4,7 +4,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const skills = ['drizzle-schema-safety', 'purchase-fulfillment-integrity', 'rbac-point-scope'];
+const skills = [
+  'drizzle-schema-safety',
+  'purchase-fulfillment-integrity',
+  'rbac-point-scope',
+  'requirements-documentation',
+  'requirements-implementation',
+];
+const evidenceSkills = new Set([
+  'drizzle-schema-safety',
+  'purchase-fulfillment-integrity',
+  'rbac-point-scope',
+]);
 const retiredSkills = [
   'medicarte-access-boundaries',
   'medicarte-flow-integrity',
@@ -37,7 +48,7 @@ function checkEvidence(relative) {
 for (const skill of skills) {
   const dir = `.agents/skills/${skill}`;
   const source = checkFile(`${dir}/SKILL.md`);
-  const evidence = checkFile(`${dir}/references/evidence.md`);
+  const evidence = evidenceSkills.has(skill) ? checkFile(`${dir}/references/evidence.md`) : '';
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
   if (!match) failures.push(`${dir}/SKILL.md: falta frontmatter YAML`);
   else {
@@ -46,7 +57,7 @@ for (const skill of skills) {
     if (name !== skill) failures.push(`${dir}: name debe coincidir con el directorio`);
     if (!description || description.length < 20) failures.push(`${dir}: description incompleta`);
   }
-  if (!source.includes('references/evidence.md'))
+  if (evidenceSkills.has(skill) && !source.includes('references/evidence.md'))
     failures.push(`${dir}: SKILL.md no enlaza evidence.md`);
   for (const m of evidence.matchAll(
     /`((?:\.agent\/adr\/|apps\/|packages\/|docs\/|\.github\/)[^`\r\n]+)`/g,
@@ -61,7 +72,8 @@ const guide = checkFile('docs/ai/medicarte-skills.md');
 const workflow = checkFile('.github/workflows/medicarte-skills.yml');
 for (const skill of skills) {
   if (!rootInstructions.includes(skill)) failures.push(`AGENTS.md no referencia ${skill}`);
-  if (!guide.includes(skill)) failures.push(`docs/ai/medicarte-skills.md no referencia ${skill}`);
+  if (evidenceSkills.has(skill) && !guide.includes(skill))
+    failures.push(`docs/ai/medicarte-skills.md no referencia ${skill}`);
 }
 if (!rootInstructions.includes('develop')) failures.push('AGENTS.md no declara develop');
 for (const [label, source] of [
