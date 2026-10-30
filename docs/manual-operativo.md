@@ -1,6 +1,6 @@
 # Manual operativo — MTD, OLP y MEDICARTE
 
-**Rama de referencia:** `develop` · **Corte de código:** `7ced5792c08faf35e673e2f1c2ca4571892ab87a` · **Fecha:** 2026-10-17.
+**Corte de código:** checkout `3627564` · **Fecha de ampliación:** 2026-10-29. Los flujos originales se documentaron a partir de `develop` en 2026-10-17.
 
 ## Propósito y límites
 
@@ -20,7 +20,7 @@ Este índice reúne flujos de trabajo y casos de uso verificados por **inspecci�
 
 ## Excepciones operativas
 
-Ver el [índice de casos especiales](casos-especiales/README.md): edición de vigencia/producto/cantidad, política de no liberación por vencimiento, anulación, soportes Google Drive, auditorías de facturación, auditorías de atención y reconciliación. Estas reglas complementan, pero no sustituyen, el flujo normal de MTD, OLP y MEDICARTE.
+Ver el [índice de casos especiales](casos-especiales/README.md): edición de vigencia/producto/cantidad, política de no liberación por vencimiento, anulación, soportes Google Drive, auditorías de facturación, [recaudo de cuota moderadora y factura](casos-especiales/recaudo-cuota-moderadora.md), auditorías de atención y reconciliación. Estas reglas complementan, pero no sustituyen, el flujo normal de MTD, OLP y MEDICARTE.
 
 ## Flujo extremo a extremo
 
@@ -53,6 +53,7 @@ flowchart TD
 | Compromiso de proveedor | OLP | OC emitida | Aceptación, fecha comprometida y gestión de cantidades | MEDICARTE |
 | Recepción física | MEDICARTE | OC aceptada y cantidades recibidas | Recepción por línea; saldo pendiente | MEDICARTE |
 | Atención paciente | MEDICARTE | AUTO elegible, OC compatible y cantidad efectivamente recibida | Entrega/aplicación confirmada | Auditoría |
+| Recaudo financiero | MTD | Cuota esperada de la AUTO y estado del recaudo | Evento inmutable y auditoría; exportación posterior a Sheets | MTD / MEDICARTE consulta |
 | Conciliación y control | Roles habilitados | Registros OC/recepción/consumo y evidencias | Hallazgos, issues, decisiones | Responsables asignados |
 
 La matriz expresa la **responsabilidad conceptual**. La habilitación concreta siempre se determina mediante permisos RBAC y organización del usuario (no solo el nombre del actor), con restricciones adicionales por punto.
@@ -66,6 +67,7 @@ La matriz expresa la **responsabilidad conceptual**. La habilitación concreta s
 - Reasignar reserva no revierte una entrega/aplicación ya realizada.
 - Habilitación, vigencia, estado de asignación y progreso de atención son **estados diferentes**.
 - API aplica aislamiento de organización, permisos y ámbito de puntos; SSE solo invalida lectura y no constituye una escritura clínica.
+- Registrar cuota moderadora no confirma entrega/aplicación; una factura externa puede aparecer después del recaudo y se consulta por separado.
 
 Véase [arquitectura](architecture-current.md), [ADR-043](adr/043-authorization-order-receipt-fulfillment-reassignment.md) y [ADR-044](adr/044-realtime-operational-invalidation.md). El enlace canónico de ADR-043 es `docs/adr/043-authorization-order-receipt-fulfillment-reassignment.md`.
 

@@ -1,6 +1,6 @@
 # Flujo de trabajo — MEDICARTE
 
-**Rama/corte:** `develop` @ `7ced5792` · 2026-10-17. **Responsabilidades centrales:** programación operativa, recepción física de producto y entrega/aplicación al paciente; no emitir compras en nombre de MTD ni confirmar compromisos de OLP.
+**Base original:** `develop` @ `7ced5792` · 2026-10-17. **Ampliación financiera:** checkout `3627564` · 2026-10-29. **Responsabilidades centrales:** programación operativa, recepción física de producto y entrega/aplicación al paciente; no emitir compras en nombre de MTD ni confirmar compromisos de OLP.
 
 ## MED-PROG-01 — Programación y punto de atención
 
@@ -54,6 +54,12 @@ Cada `receivedQuantity` es un **entero positivo**. Una línea repetida dentro de
 **Verificaciones previas:** autenticación/point scope; AUTO vigente, habilitada y no anulada; OC/producto compatibles; cantidad disponible por recepción real y reserva; saldo no consumido; no superar autorizada ni disponibilidad. Algunas condiciones generan `409`, por ejemplo `AUTHORIZATION_FULFILLMENT_INSUFFICIENT_OC_POOL`, `INSUFFICIENT_INVENTORY`, `OC_NOT_ELIGIBLE`, `ALREADY_CLOSED`, `PARTIAL_ASSIGNMENT`.
 
 **Salida:** fulfillment confirmado, cantidades y referencias a OC. Los consumos confirmados no son reasignables; no es correcto registrar anulación si ya hubo entrega o aplicación.
+
+## MED-FIN-01 — Consultar recaudo y factura
+
+MEDICARTE puede consultar `GET /api/v1/medicarte/authorizations/:id/moderator-fee` y `GET .../:id/moderator-fee/invoice-url` con `authorizations.read`, siempre que la autorización sea visible para su organización, producto y punto. El panel muestra cuota esperada, importe recaudado e historial; la URL de factura se abre en otra pestaña cuando el proceso externo la agrega a Sheets. Si todavía no aparece, se reintenta manualmente más tarde.
+
+MEDICARTE no registra el recaudo: `POST .../:id/moderator-fee` queda reservado a MTD con `moderator_fees.manage`. Consultar o ver la factura no equivale a confirmar una entrega o aplicación. Véase [CE-85 a CE-88](casos-especiales/recaudo-cuota-moderadora.md).
 
 ## MED-FECHA-01 — Carga de fechas de dispensación
 

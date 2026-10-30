@@ -1,6 +1,6 @@
 # Catálogo de casos de uso operacionales
 
-**Corte:** `develop` @ `7ced5792`. Los siguientes casos tienen rutas/código observables, pero sus resultados deben certificarse contra API/DB con identidades sintéticas. **Implementado** = entrada registrada en código; **no equivale a funcionalidad desplegada**.
+**Corte ampliado:** checkout `3627564` (2026-10-29). Los siguientes casos tienen rutas/código observables, pero sus resultados deben certificarse contra API/DB con identidades sintéticas. **Implementado** = entrada registrada en código; **no equivale a funcionalidad desplegada**.
 
 ## Convenciones del catálogo
 
@@ -29,6 +29,9 @@
 | UC-MED-01 | MEDICARTE | Recepción física directa | OC aceptada, líneas/cantidad real | Recibo y conciliación de asignaciones | `POST /medicarte/purchase-orders/:id/receipts` |
 | UC-MED-02 | MEDICARTE | Entrega o aplicación | AUTO, OC, tipo, fecha, cantidad | Fulfillment confirmado | `POST /medicarte/authorizations/:id/fulfill` |
 | UC-MED-03 | MEDICARTE | Cargar fecha de dispensación | XLSX propio | Fechas actualizadas, no consumo físico | `POST /authorizations/dispensation/import` |
+| UC-FIN-01 | MTD/MEDICARTE | Consultar recaudo e historial | AUTO visible, permiso de lectura | Estado financiero vigente e historial | `GET /medicarte/authorizations/:id/moderator-fee` |
+| UC-FIN-02 | MTD | Registrar o corregir recaudo | Importe, fecha, versión e idempotencia | Evento financiero y auditoría | `POST /medicarte/authorizations/:id/moderator-fee` |
+| UC-FIN-03 | MTD/MEDICARTE | Consultar factura disponible | AUTO visible y fila en Sheets | URL de factura o `null` | `GET /medicarte/authorizations/:id/moderator-fee/invoice-url` |
 | UC-INV-01 | Actor autorizado | Consultar disponibilidad | Producto/OC/punto | Proyección de saldo y exportable | `GET /inventory/availability` |
 | UC-INV-02 | Actor autorizado | Traslado de inventario | Lotes y puntos | Despacho/recepción de traslado | `/inventory/transfers` |
 | UC-AUD-01 | Auditoría/MTD | Auditoría de facturación | AUTO, evidencia y decisión | Decisiones auditadas | `/authorization-billing-audits` |
@@ -67,4 +70,4 @@
 
 ## Casos especiales complementarios
 
-Se mantiene un catálogo versionado [CE-01 a CE-32](casos-especiales/README.md), con restricciones de edición de vigencia, producto/cantidad, liberación de reservas, auditoría de facturación, soporte Drive, auditorías de atención y conciliación. Las pruebas de esos casos figuran en [TE-01 a TE-47](casos-especiales/matriz-pruebas-especiales.md) y están **pendientes de ejecución**.
+El [catálogo de casos especiales](casos-especiales/README.md) cubre CE-01 a CE-88, incluido el [recaudo de cuota moderadora](casos-especiales/recaudo-cuota-moderadora.md). Su [matriz TE-01 a TE-105](casos-especiales/matriz-pruebas-especiales.md) permanece **pendiente de ejecución**.

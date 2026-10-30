@@ -1,6 +1,6 @@
 # Matriz de aceptación operativa — MTD / OLP / MEDICARTE
 
-**Estado:** casos de certificación **propuestos**, no resultados `PASS`. **Rama estudiada:** `develop` @ `7ced5792`. Ejecutar en base aislada con datos sintéticos; registrar SHA, ambiente, timestamp, request/correlationId (sin tokens), before/after de PostgreSQL y resultado esperado/real.
+**Estado:** casos de certificación **propuestos**, no resultados `PASS`. **Base original:** `develop` @ `7ced5792`; **ampliación financiera:** checkout `3627564` (2026-10-29). Ejecutar en base aislada con datos sintéticos; registrar SHA, ambiente, timestamp, request/correlationId (sin tokens), before/after de PostgreSQL y resultado esperado/real.
 
 ## Checklist de certificación
 
@@ -28,6 +28,10 @@
 | T-MED-04 | Entrega/aplicación por 6 tras recepción de 5 | Conflicto, nada consumido | Error + líneas fulfillment + saldo | PENDIENTE |
 | T-MED-05 | Entrega por 2; luego anular AUTO | Anulación rechazada por consumo | `409`, fulfillment preservado | PENDIENTE |
 | T-MED-06 | AUTO sin consumo con reserva 6 → anular | Marca inmutable, 6 liberadas y OC histórica intacta | sourceData, allocations, poas | PENDIENTE |
+| T-FIN-01 | MTD registra cuota completa con versión vigente | Evento y auditoría; sin fulfillment ni cambio de OC | API + eventos PG sintéticos | PENDIENTE |
+| T-FIN-02 | MEDICARTE consulta recaudo visible e intenta registrarlo | Lectura permitida según punto; POST denegado | HTTP + alcance + eventos PG | PENDIENTE |
+| T-FIN-03 | Factura aún pendiente y luego disponible en Sheets | Primero `invoiceUrl: null`; después URL HTTP(S) de la fila más reciente | API + UI + Sheet sintético | PENDIENTE |
+| T-FIN-04 | Sheet sin configuración o con fallo | Recaudo conserva COMMIT; fallo externo sin datos clínicos en evidencia | PG + log anonimizado | PENDIENTE |
 | T-SEC-01 | MTD ejecuta endpoint solo OLP | 403, OC sin cambios | respuesta y snapshot | PENDIENTE |
 | T-SEC-02 | OLP ejecuta fulfillment solo MEDICARTE | 403, sin consumo | respuesta y snapshot | PENDIENTE |
 | T-SEC-03 | Usuario con point scope ajeno consulta datos | Sin acceso indebido | 403/no visibilidad, logs redacted | PENDIENTE |

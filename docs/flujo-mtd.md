@@ -1,6 +1,6 @@
 # Flujo de trabajo — MTD
 
-**Alcance:** AT, AUTO, OC y gobierno del proceso. **Base:** `develop` @ `7ced5792` (17-10-2026). `IMPLEMENTADO EN CÓDIGO` no significa `PROBADO EN PRODUCCIÓN`.
+**Alcance:** AT, AUTO, OC y gobierno del proceso. **Base original:** `develop` @ `7ced5792` (17-10-2026); **ampliación financiera:** checkout `3627564` (29-10-2026). `IMPLEMENTADO EN CÓDIGO` no significa `PROBADO EN PRODUCCIÓN`.
 
 ## MTD-AT-01 — Cargar y actualizar el Anexo Tarifario
 
@@ -102,6 +102,12 @@ No use estos valores como claves reales. La columna destino puede resolverse des
 - Ejecutar reconciliación en un entorno autorizado y registrar issues sin modificar históricos por fuera de flujos soportados.
 
 **Comprobación antes de dar por cerrado un día:** archivos aceptados/rechazados, totales OC, compromiso OLP, recepción acumulada y diferencias abiertas; cualquier `409`/`403` requiere clasificación, no reintentos ciegos.
+
+## MTD-FIN-01 — Registrar recaudo y consultar factura
+
+Con `authorizations.read`, MTD consulta el estado y el historial en `GET /api/v1/medicarte/authorizations/:id/moderator-fee`. Para registrar `COLLECTED` o `NOT_COLLECTED` necesita `moderator_fees.manage`, asignado inicialmente a `MTD_ADMIN`. El formulario usa importe completo de la cuota esperada, fecha de recaudo, versión esperada y clave de idempotencia; una corrección añade un evento nuevo sin sobrescribir el anterior.
+
+El registro se confirma primero en PostgreSQL y después se intenta enviar a Google Sheets. Un fallo de Sheets no deshace el evento financiero. La factura se consulta con `GET .../:id/moderator-fee/invoice-url`; si el proceso externo aún no escribió `Print factura`, la interfaz muestra una espera aproximada de un minuto y permite reintentar manualmente. Consulte [CE-85 a CE-88](casos-especiales/recaudo-cuota-moderadora.md) para permisos, límites y escenarios.
 
 **Archivos fuente:** `apps/api/src/tariff-annex/*`, `bulk-imports/*`, `purchase-orders/*`, `clinical/*`; contratos en `packages/contracts/src/index.ts`; UI en `apps/web/features/purchase-orders` y `apps/web/features/authorizations`.
 
