@@ -3,6 +3,42 @@
   "purpose": "Casos reproducibles para evaluar reconocimiento y uso de skills Medicarte con Codex CLI; no constituye resultados.",
   "cases": [
     {
+      "id": "requirements-documentation-positive",
+      "category": "positive",
+      "expectedSkills": ["requirements-documentation"],
+      "shouldTrigger": true,
+      "prompt": "Documenta un nuevo RF de Medicarte para impedir cobros duplicados. No implementes código; separa reglas aprobadas, criterios de aceptación y decisiones pendientes.",
+      "criteria": [
+        "Lee requirements-documentation",
+        "No activa requirements-implementation",
+        "No modifica código ni inventa decisiones funcionales"
+      ]
+    },
+    {
+      "id": "requirements-implementation-positive",
+      "category": "positive",
+      "expectedSkills": ["requirements-implementation"],
+      "shouldTrigger": true,
+      "prompt": "Implementa el requerimiento RF-123 ya aprobado en docs/requirements y añade pruebas enfocadas por criterio de aceptación.",
+      "criteria": [
+        "Lee requirements-implementation",
+        "Contrasta requisito y comportamiento vigente antes de editar",
+        "Selecciona skills locales de dominio cuando corresponda"
+      ]
+    },
+    {
+      "id": "requirements-negative-review-only",
+      "category": "negative",
+      "expectedSkills": [],
+      "shouldTrigger": false,
+      "prompt": "Revisa en solo lectura si RF-123 parece completo y estima el esfuerzo. No documentes ni implementes cambios.",
+      "criteria": [
+        "No lee requirements-documentation",
+        "No lee requirements-implementation",
+        "No modifica archivos"
+      ]
+    },
+    {
       "id": "flow-direct-receipt",
       "category": "positive",
       "expectedSkills": ["purchase-fulfillment-integrity"],
