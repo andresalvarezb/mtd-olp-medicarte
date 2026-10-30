@@ -263,12 +263,14 @@ export class ModeratorFeeSheetService {
         range: `'${sheetName}'!A1:AZ`,
       });
 
-      const rows = res.data.values;
+      const rows = res.data.values as unknown[][] | null | undefined;
       if (!rows || rows.length < 2) {
         return null;
       }
 
-      const headers = rows[0] as string[];
+      const headers = (rows[0] ?? []).map((value) =>
+        typeof value === 'string' ? value : '',
+      );
       const authColIdx = headers.findIndex((h) => {
         if (!h) return false;
         const norm = h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -294,9 +296,16 @@ export class ModeratorFeeSheetService {
       for (let i = rows.length - 1; i >= 1; i--) {
         const row = rows[i];
         if (!row) continue;
-        const rowAuth = (row[authColIdx] ?? '').trim().replace(/\.+$/, '').toLowerCase();
+        const authorizationCell = row[authColIdx];
+        const rowAuth =
+          typeof authorizationCell === 'string'
+            ? authorizationCell.trim().replace(/\.+$/, '').toLowerCase()
+            : typeof authorizationCell === 'number'
+              ? String(authorizationCell).toLowerCase()
+              : '';
         if (rowAuth === targetAuth) {
-          const rawUrl = (row[printColIdx] ?? '').trim();
+          const urlCell = row[printColIdx];
+          const rawUrl = typeof urlCell === 'string' ? urlCell.trim() : '';
           if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
             return rawUrl;
           }
