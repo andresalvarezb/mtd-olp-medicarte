@@ -1,7 +1,7 @@
 # Mapa de base de datos — MTD / OLP / MEDICARTE
 
 > Referencia de lectura rápida para desarrollo, análisis funcional, auditoría y agentes de código.
-> **Corte verificado en origen:** `develop` @ `abdf41106a151862b27668180e37c0499101634d` (2026-10-17).
+> **Corte de código del mapa manual:** checkout `3627564` (2026-10-29). Los artefactos generados se contrastan con `schema.ts` mediante `--check`.
 > **Fuente de verdad de diseño:** [`packages/database/src/schema.ts`](../../packages/database/src/schema.ts) y [`packages/database/migrations/`](../../packages/database/migrations/).
 > **Fuente de verdad de cada ambiente:** catálogo de PostgreSQL **y** migraciones realmente aplicadas. Un esquema Drizzle no demuestra el estado de producción.
 
@@ -22,9 +22,12 @@
 | Entrega/aplicación confirmada | `authorization_fulfillments`, `authorization_fulfillment_lines` | `inventory_authorization_allocations`, `inventory_lots` |
 | Reprogramación/inasistencia | `patient_schedule_history`, `patient_schedule_outcomes` | `patient_schedule_outcome_lines` |
 | Auditoría de facturación | `authorization_billing_audits` | `authorization_billing_audit_evidence` |
+| Recaudo de cuota moderadora | `authorization_moderator_fee_events` | `authorization_items`, `users`, `organizations` |
 | Incidencias conciliación | `reconciliation_issues`, `reconciliation_findings` | `reconciliation_runs`, `reconciliation_issue_events` |
 
 La relación **OC ≠ recibido ≠ reserva ≠ consumo** es crítica. Consultar [mapa operativo](mapa-operativo.md) antes de formular consultas que suman cantidades.
+
+La migración 0102 crea `authorization_moderator_fee_events`, visible en `diagramas/otros.mmd`. La 0103 inserta `moderator_fees.manage` en `permissions` y lo asigna inicialmente a `MTD_ADMIN`; no crea otra tabla. El catálogo estático no demuestra qué migraciones se aplicaron en cada entorno.
 
 ## Referencias disponibles
 
@@ -32,7 +35,7 @@ La relación **OC ≠ recibido ≠ reserva ≠ consumo** es crítica. Consultar 
 - [Consultas de metadatos SQL](consultas-metadatos.sql): lectura de tablas, columnas, claves, índices y checks **sin acceder a datos de pacientes**.
 - `catalogo-generado.md` (**generado**): diccionario completo de columnas, PK, FK, checks e índices definidos en Drizzle.
 - `schema-index.json` (**generado**): índice ligero y estructurado para herramientas/agentes.
-- `diagramas/*.mmd` (**generados**): diagramas separados por dominios, para evitar un ERD de 87 tablas ilegible.
+- `diagramas/*.mmd` (**generados**): diagramas separados por dominios, para evitar un ERD de 88 tablas ilegible.
 
 ## Generar y consultar en Git Bash
 
@@ -80,4 +83,4 @@ El resultado señala tablas o columnas ausentes respecto de Drizzle. No sustituy
 
 > Antes de buscar por todo el repositorio, lee `docs/base-de-datos/README.md`, busca la entidad en `schema-index.json` (o ejecuta `node scripts/db-schema-catalog.mjs --table <tabla>`), revisa las relaciones y sus columnas clave y **solo entonces** inspecciona el servicio/repositorio y los tests correspondientes. Si `--check` falla, regenera antes de confiar en el catálogo. No infieras disponibilidad física a partir de cantidades de OC.
 
-**Limitación:** durante la creación inicial se inspeccionó estáticamente el schema de `develop`, con **87 tablas Drizzle**. No se accedió a una instancia de PostgreSQL para afirmar cuántas tablas existen realmente en producción o qué migraciones están aplicadas allí.
+**Limitación:** el índice generado del checkout contiene **88 tablas Drizzle**. La cifra procede de inspección estática del esquema; no se accedió a PostgreSQL para afirmar cuántas tablas existen realmente en producción o qué migraciones están aplicadas allí.
