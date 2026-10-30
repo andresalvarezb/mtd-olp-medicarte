@@ -8,12 +8,17 @@ on:
       - '.agents/skills/**'
       - 'scripts/validate-medicarte-skills.mjs'
       - 'docs/ai/medicarte-skills.md'
+      - 'docs/ai/medicarte-skills-evaluation.md'
+      - 'evals/medicarte-skills.cases.json'
   push:
     branches: [develop]
     paths:
       - 'AGENTS.md'
       - '.agents/skills/**'
       - 'scripts/validate-medicarte-skills.mjs'
+      - 'docs/ai/medicarte-skills.md'
+      - 'docs/ai/medicarte-skills-evaluation.md'
+      - 'evals/medicarte-skills.cases.json'
 
 jobs:
   validate:
