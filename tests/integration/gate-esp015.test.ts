@@ -118,19 +118,38 @@ async function json<T>(response: Response): Promise<T> {
 
 async function waitForBulkImportTerminalState(jobId: string, token: string): Promise<Job> {
   const deadline = Date.now() + 10_000;
+  const terminalStates = new Set([
+    'COMPLETED',
+    'PARTIALLY_COMPLETED',
+    'FAILED',
+    'CANCELLED',
+    'INVALID',
+  ]);
   let last: Job | undefined;
 
   while (Date.now() < deadline) {
     const response = await api('GET', `/bulk-imports/${jobId}`, undefined, token);
     expect(response.status).toBe(200);
     last = await json<Job>(response);
-    if (last.status !== 'PROCESSING') return last;
+    if (terminalStates.has(last.status)) return last;
 
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
+  const snapshot = await database.query(
+    `select row_number, validation_status, execution_status,
+            error_code, execution_error_code, attempt_count,
+            (claim_token is not null) as has_claim, claim_expires_at
+     from bulk_import_rows
+     where job_id = $1
+     order by row_number`,
+    [jobId],
+  );
   throw new Error(
-    `Bulk import ${jobId} did not reach a terminal state within 10000ms; last state: ${JSON.stringify(last)}`,
+    `Bulk import ${jobId} did not reach a terminal state within 10000ms; ${JSON.stringify({
+      job: last,
+      rows: snapshot.rows,
+    })}`,
   );
 }
 
