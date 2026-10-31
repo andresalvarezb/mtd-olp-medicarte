@@ -35,15 +35,15 @@ MODELO, PUNTO_APLICACION_PREDETERMINADO
 
 **Entrada:** XLSX de **Descargar plantilla**, con hoja `Autorizaciones` y hoja `METADATA` (`templateVersion=ESP014_AUTHORIZATIONS_V1`, `importType=AUTHORIZATIONS`). El contrato impone **28 encabezados**; no elimine columnas de la plantilla ni cambie metadatos. Columnas especialmente relevantes:
 
-| Campo | Interpretación |
-| --- | --- |
-| `NUMERO_AUTORIZACION` + `CODIGO_COMERCIAL` | Identidad operacional de la AUTO y del producto |
-| `CANTIDAD` | Cantidad autorizada original |
-| `FECHA_ASIGNACION` | Fecha de contexto/planeación |
-| `FECHA_FINAL_VIGENCIA` | Vigencia hasta la cual se evalúa la operación |
-| `ESTADO_AUTORIZACION` | Estado recibido desde la fuente |
+| Campo                                            | Interpretación                                             |
+| ------------------------------------------------ | ---------------------------------------------------------- |
+| `NUMERO_AUTORIZACION` + `CODIGO_COMERCIAL`       | Identidad operacional de la AUTO y del producto            |
+| `CANTIDAD`                                       | Cantidad autorizada original                               |
+| `FECHA_ASIGNACION`                               | Fecha de contexto/planeación                               |
+| `FECHA_FINAL_VIGENCIA`                           | Vigencia hasta la cual se evalúa la operación              |
+| `ESTADO_AUTORIZACION`                            | Estado recibido desde la fuente                            |
 | `TIPO_IDENTIFICACION`, `IDENTIFICACION_PACIENTE` | Identidad clínica; evitar divulgar en evidencias de prueba |
-| `NUMERO_PRESCRIPCION` | Referencia cuando existe y corresponde |
+| `NUMERO_PRESCRIPCION`                            | Referencia cuando existe y corresponde                     |
 
 **Pasos:**
 
@@ -70,11 +70,11 @@ CLAVE_AUTORIZACION_ORIGEN,CLAVE_AUTORIZACION_DESTINO,OC,CODIGO_PRODUCTO,CANTIDAD
 
 **La acción se infiere del contenido, no se envía una columna ACCION:**
 
-| OC en sistema | Clave origen | Significado |
-| --- | --- | --- |
-| No existe | Vacía | **Crear** nueva OC para la AUTO destino |
-| Existe | Vacía | **Asignar** cantidad disponible a esa OC existente |
-| Existe | Informada | **Reasignar** desde AUTO origen hacia AUTO destino |
+| OC en sistema | Clave origen | Significado                                        |
+| ------------- | ------------ | -------------------------------------------------- |
+| No existe     | Vacía        | **Crear** nueva OC para la AUTO destino            |
+| Existe        | Vacía        | **Asignar** cantidad disponible a esa OC existente |
+| Existe        | Informada    | **Reasignar** desde AUTO origen hacia AUTO destino |
 
 - La clave destino, OC, código y cantidad entera positiva son obligatorios; el importador no permite repetir `AUTO_DESTINO + OC` dentro del mismo archivo.
 - La misma AUTO puede repartir su saldo de compra entre varias OC, bajo los límites de cobertura. Ejemplo conceptual: autorizada 10 → OC-A 4 y OC-B 6. Requiere validar realmente elegibilidad y saldo.
@@ -116,3 +116,19 @@ No use estos valores como claves reales. La columna destino puede resolverse des
 7. Confirmar que no se modificaron las recepciones ni el solicitado de OC.
 
 Ver [AC-FIN-001](requirements/AC-FIN-001-capacidad-compra-anulaciones.md).
+
+## MTD-RECAUDO-01 — Recaudo único de cuota moderadora
+
+MTD registra el 100 % de la cuota moderadora una sola vez por autorización;
+MEDICARTE solo consulta el estado financiero. Antes de la primera entrega o
+aplicación se exige producto asignado y reserva activa; después de un
+cumplimiento parcial o completo se permite el recaudo total. El registro no
+modifica inventario, reservas ni cumplimientos.
+
+Cada autorización aprobada corresponde a un producto y N unidades. El servicio
+serializa el registro sobre su fila, exige una atención confirmada o una reserva
+activa con saldo, rechaza autorizaciones anuladas y considera cerrada la
+obligación si existe cualquier `COLLECTED` histórico. Los números históricos
+asociados a más de un producto se bloquean para conciliación; no se infiere una
+identidad financiera global. Ver
+[RF-MTD-RECAUDO-001](requirements/RF-MTD-RECAUDO-001-recaudo-unico-cuota-moderadora.md).
