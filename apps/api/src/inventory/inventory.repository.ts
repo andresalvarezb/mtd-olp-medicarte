@@ -482,23 +482,23 @@ export class InventoryRepository {
     if (filters.dispensingPointId)
       conditions.push(sql`l.dispensing_point_id=${filters.dispensingPointId}`);
     if (filters.lotNumber) conditions.push(sql`l.lot_number=${filters.lotNumber}`);
-    if (filters.expiration === 'expired') conditions.push(sql`l.expiration_date < current_date`);
+    if (filters.expiration === 'expired') conditions.push(sql`l.expiration_date < (now() at time zone 'America/Bogota')::date`);
     if (filters.expiration === 'upcoming')
       conditions.push(
-        sql`l.expiration_date >= current_date AND l.expiration_date <= current_date + 30`,
+        sql`l.expiration_date >= (now() at time zone 'America/Bogota')::date AND l.expiration_date <= (now() at time zone 'America/Bogota')::date + 30`,
       );
-    if (filters.expiration === 'current') conditions.push(sql`l.expiration_date >= current_date`);
+    if (filters.expiration === 'current') conditions.push(sql`l.expiration_date >= (now() at time zone 'America/Bogota')::date`);
     if (filters.usable !== undefined)
       conditions.push(
         filters.usable
-          ? sql`l.expiration_date >= current_date`
-          : sql`l.expiration_date < current_date`,
+          ? sql`l.expiration_date >= (now() at time zone 'America/Bogota')::date`
+          : sql`l.expiration_date < (now() at time zone 'America/Bogota')::date`,
       );
     const result = await this.database.db
       .execute(sql`select l.id,l.commercial_code,l.dispensing_point_id,dp.code dispensing_point_code,dp.name dispensing_point_name,l.lot_number,l.expiration_date::text,
       coalesce(sum(m.quantity_delta),0)::int physical_balance,
-      case when l.expiration_date < current_date then 0 else coalesce(sum(m.quantity_delta),0)::int end usable_balance,
-      l.expiration_date < current_date expired
+      case when l.expiration_date < (now() at time zone 'America/Bogota')::date then 0 else coalesce(sum(m.quantity_delta),0)::int end usable_balance,
+      l.expiration_date < (now() at time zone 'America/Bogota')::date expired
       from inventory_lots l join dispensing_points dp on dp.id=l.dispensing_point_id left join inventory_movements m on m.inventory_lot_id=l.id
       where ${sql.join(conditions, sql` and `)} group by l.id,dp.id
       order by l.commercial_code,l.expiration_date,l.lot_number`);
@@ -512,8 +512,8 @@ export class InventoryRepository {
     const result = await this.database.db
       .execute(sql`select l.id,l.commercial_code,l.dispensing_point_id,dp.code dispensing_point_code,dp.name dispensing_point_name,l.lot_number,l.expiration_date::text,
       coalesce(sum(m.quantity_delta),0)::int physical_balance,
-      case when l.expiration_date < current_date then 0 else coalesce(sum(m.quantity_delta),0)::int end usable_balance,
-      l.expiration_date < current_date expired
+      case when l.expiration_date < (now() at time zone 'America/Bogota')::date then 0 else coalesce(sum(m.quantity_delta),0)::int end usable_balance,
+      l.expiration_date < (now() at time zone 'America/Bogota')::date expired
       from inventory_lots l join dispensing_points dp on dp.id=l.dispensing_point_id left join inventory_movements m on m.inventory_lot_id=l.id
       where l.id=${id} and ${visible} group by l.id,dp.id`);
     return result.rows[0] ? lotView(result.rows[0]) : null;

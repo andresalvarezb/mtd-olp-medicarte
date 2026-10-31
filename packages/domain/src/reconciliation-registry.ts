@@ -589,7 +589,8 @@ export const RECONCILIATION_RULES: readonly ReconciliationRuleDefinition[] = [
     category: 'OBSERVATION',
     defaultSeverity: 'INFO',
     description: 'Existe inventario físico expirado con usableBalance 0.',
-    applicability: 'inventory_lots con expiration_date < current_date y physicalBalance > 0',
+    applicability:
+      'inventory_lots con expiration_date < fecha calendario de America/Bogota y physicalBalance > 0',
     sourceTables: ['inventory_lots', 'inventory_movements'],
     expectedInvariant: 'Condición operacional válida; no es corrupción',
     findingEvidence: '{inventoryLotId, physicalBalance, expirationDate}',

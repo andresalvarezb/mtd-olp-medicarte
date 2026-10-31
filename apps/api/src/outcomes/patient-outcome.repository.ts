@@ -98,8 +98,7 @@ export class PatientOutcomeRepository {
           throw new Error('PATIENT_OUTCOME_PRODUCT_MISMATCH');
         if (lot.dispensing_point_id !== schedule.dispensing_point_id)
           throw new Error('PATIENT_OUTCOME_POINT_MISMATCH');
-        if (lot.expiration_date < new Date().toISOString().slice(0, 10))
-          throw new Error('PATIENT_OUTCOME_EXPIRED_STOCK');
+        if (lot.expiration_date < scheduleToday()) throw new Error('PATIENT_OUTCOME_EXPIRED_STOCK');
         const balance = (
           await tx.execute<{
             balance: number;
