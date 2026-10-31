@@ -116,6 +116,24 @@ async function json<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function waitForBulkImportTerminalState(jobId: string, token: string): Promise<Job> {
+  const deadline = Date.now() + 10_000;
+  let last: Job | undefined;
+
+  while (Date.now() < deadline) {
+    const response = await api('GET', `/bulk-imports/${jobId}`, undefined, token);
+    expect(response.status).toBe(200);
+    last = await json<Job>(response);
+    if (last.status !== 'PROCESSING') return last;
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  throw new Error(
+    `Bulk import ${jobId} did not reach a terminal state within 10000ms; last state: ${JSON.stringify(last)}`,
+  );
+}
+
 async function codeOf(response: Response): Promise<string | null> {
   return (await json<{ code?: string }>(response)).code ?? null;
 }
@@ -918,7 +936,11 @@ describe('Gate ESP-015 — alcance operacional por punto', () => {
     expect((await putPoints(scopeAUserId, [pointA])).status).toBe(200);
     const confirmed = await api('POST', `/bulk-imports/${ready.id}/confirm`, {}, scopeAToken);
     expect(confirmed.status).toBe(200);
-    const result = await json<Job>(confirmed);
+    const confirmation = await json<Job>(confirmed);
+    const result =
+      confirmation.status === 'PROCESSING'
+        ? await waitForBulkImportTerminalState(ready.id, scopeAToken)
+        : confirmation;
     if (result.succeededRows !== 1 || result.failedRows !== 1) {
       const snapshot = await database.query(
         `select row_number, validation_status, execution_status,
@@ -929,12 +951,14 @@ describe('Gate ESP-015 — alcance operacional por punto', () => {
          order by row_number`,
         [ready.id],
       );
-      throw new Error(`ESP015_DB_DIAGNOSTICO ${JSON.stringify({
-        jobStatus: result.status,
-        succeededRows: result.succeededRows,
-        failedRows: result.failedRows,
-        rows: snapshot.rows,
-      })}`);
+      throw new Error(
+        `ESP015_DB_DIAGNOSTICO ${JSON.stringify({
+          jobStatus: result.status,
+          succeededRows: result.succeededRows,
+          failedRows: result.failedRows,
+          rows: snapshot.rows,
+        })}`,
+      );
     }
     expect(result.succeededRows).toBe(1);
     expect(result.failedRows).toBe(1);

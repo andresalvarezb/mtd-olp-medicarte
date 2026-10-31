@@ -11,7 +11,7 @@
     "dev": "turbo dev --parallel",
     "lint": "eslint apps --max-warnings=0 && eslint packages --max-warnings=0 && eslint tests --max-warnings=0",
     "typecheck": "turbo typecheck",
-    "test": "turbo test && node scripts/check-legacy-operational-usage.mjs",
+    "test": "turbo test && node scripts/check-legacy-operational-usage.mjs && node --test scripts/integration-safety.test.mjs",
     "test:legacy-scan": "node scripts/check-legacy-operational-usage.mjs",
     "reconciliation:run": "pnpm --filter @authorization/api reconciliation:run",
     "integration:setup": "node scripts/setup-integration.mjs",
