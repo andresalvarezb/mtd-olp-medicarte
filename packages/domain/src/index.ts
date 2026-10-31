@@ -4,7 +4,10 @@ export {
   isAuthorizationAnnulled,
 } from './authorization-annulment';
 export type { AuthorizationAnnulmentBlock } from './authorization-annulment';
-export { AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY, decideAuthorization16Renewal } from './authorization-source-renewal';
+export {
+  AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY,
+  decideAuthorization16Renewal,
+} from './authorization-source-renewal';
 export type { Authorization16RenewalDecision } from './authorization-source-renewal';
 export type ActorContext = Readonly<{
   userId: string;
@@ -12,7 +15,12 @@ export type ActorContext = Readonly<{
   correlationId: string;
 }>;
 
-export { MIPRES_VIGENCIA_RULE_VERSION, currentBogotaDate, evaluateMipresVigencia } from './mipres';
+export {
+  MIPRES_VIGENCIA_RULE_VERSION,
+  currentBogotaDate,
+  evaluateMipresVigencia,
+  isInventoryExpirationDateUsable,
+} from './mipres';
 
 export {
   MIPRES_MANUAL_DECISIONS,

@@ -6,6 +6,7 @@ import type {
   UpdateStockTransferRequest,
 } from '@authorization/contracts';
 import type { Scope } from '../common/request-scope';
+import { isInventoryExpirationDateUsable } from '@authorization/domain';
 import { applyTransferPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 import { PointAccessDeniedError } from '@authorization/domain';
 import { DATABASE } from '../tokens';
@@ -162,7 +163,7 @@ export class StockTransferRepository {
         const expiration = balances.rows.find(
           (item) => item.id === line.source_inventory_lot_id,
         )!.expiration_date;
-        if (expiration < new Date().toISOString().slice(0, 10))
+        if (!isInventoryExpirationDateUsable(expiration))
           throw new Error('STOCK_TRANSFER_EXPIRED_STOCK');
         if (line.quantity > balance) throw new Error('STOCK_TRANSFER_INSUFFICIENT_BALANCE');
         remaining.set(line.source_inventory_lot_id, balance - line.quantity);
@@ -413,7 +414,7 @@ export class StockTransferRepository {
   }
   private async findOn(conn: Tx | Database['db'], id: string, scope: Scope) {
     const result = await conn.execute<TransferViewRow>(
-      sql`select st.*,sp.code source_code,sp.name source_name,dp.code destination_code,dp.name destination_name,sl.id line_id,sl.source_inventory_lot_id,sl.commercial_code,sl.lot_number,sl.expiration_date::text,sl.quantity,coalesce((select sum(m.quantity_delta) from inventory_movements m where m.inventory_lot_id=sl.source_inventory_lot_id),0)::int source_physical,coalesce((select sum(m.quantity_delta) from inventory_movements m where m.inventory_lot_id=sl.source_inventory_lot_id and m.inventory_lot_id in (select id from inventory_lots where expiration_date >= current_date)),0)::int source_usable,coalesce((select sum(m.quantity_delta) from inventory_movements m join inventory_lots dl on dl.id=m.inventory_lot_id where m.movement_type in ('RECEIPT','TRANSFER_IN') and dl.dispensing_point_id=st.destination_dispensing_point_id and dl.commercial_code=sl.commercial_code and dl.lot_number=sl.lot_number and dl.expiration_date=sl.expiration_date),0)::int destination_physical from stock_transfers st join dispensing_points sp on sp.id=st.source_dispensing_point_id join dispensing_points dp on dp.id=st.destination_dispensing_point_id left join stock_transfer_lines sl on sl.stock_transfer_id=st.id where st.id=${id} and ${this.transferVisible(scope)} order by sl.id`,
+      sql`select st.*,sp.code source_code,sp.name source_name,dp.code destination_code,dp.name destination_name,sl.id line_id,sl.source_inventory_lot_id,sl.commercial_code,sl.lot_number,sl.expiration_date::text,sl.quantity,coalesce((select sum(m.quantity_delta) from inventory_movements m where m.inventory_lot_id=sl.source_inventory_lot_id),0)::int source_physical,coalesce((select sum(m.quantity_delta) from inventory_movements m where m.inventory_lot_id=sl.source_inventory_lot_id and m.inventory_lot_id in (select id from inventory_lots where expiration_date >= (now() at time zone 'America/Bogota')::date)),0)::int source_usable,coalesce((select sum(m.quantity_delta) from inventory_movements m join inventory_lots dl on dl.id=m.inventory_lot_id where m.movement_type in ('RECEIPT','TRANSFER_IN') and dl.dispensing_point_id=st.destination_dispensing_point_id and dl.commercial_code=sl.commercial_code and dl.lot_number=sl.lot_number and dl.expiration_date=sl.expiration_date),0)::int destination_physical from stock_transfers st join dispensing_points sp on sp.id=st.source_dispensing_point_id join dispensing_points dp on dp.id=st.destination_dispensing_point_id left join stock_transfer_lines sl on sl.stock_transfer_id=st.id where st.id=${id} and ${this.transferVisible(scope)} order by sl.id`,
     );
     if (!result.rows[0]) return null;
     const first = result.rows[0];
