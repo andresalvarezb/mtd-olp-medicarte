@@ -13,6 +13,9 @@ coverage/
 
 !.env.local.example
 
+# Progreso efímero de agentes (nunca versionar checkpoints locales).
+.codex/work-progress/
+
 # PostgreSQL local: nunca versionar datos binarios, respaldos o credenciales.
 **/pgdata/
 **/*.dump
