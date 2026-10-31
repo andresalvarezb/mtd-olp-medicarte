@@ -31,6 +31,10 @@ test('uses one Compose project for CI setup, logs and cleanup', () => {
 
   assert.ok(composeProject);
   assert.equal(integrationProject, composeProject);
+  const integrationStep = workflow.indexOf('run: pnpm test:integration');
+  assert.ok(integrationStep > 0);
+  assert.doesNotMatch(workflow.slice(0, integrationStep), /run: docker compose .*\bup\b/);
+  assert.doesNotMatch(workflow.slice(0, integrationStep), /run: pnpm db:migrate/);
 });
 
 test('crea un proyecto por ejecución dentro del namespace de integración', () => {
