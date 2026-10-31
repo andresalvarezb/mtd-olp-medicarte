@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       POSTGRES_DB: authorization_test_integration
+      COMPOSE_PROJECT_NAME: mtd-olp-medicarte-integration-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      INTEGRATION_COMPOSE_PROJECT_NAME: mtd-olp-medicarte-integration-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -72,6 +74,6 @@ jobs:
       - if: steps.scope.outputs.full != 'false'
         run: pnpm test:integration
       - if: always() && steps.scope.outputs.full != 'false'
-        run: docker compose logs
+        run: docker compose --project-name "$COMPOSE_PROJECT_NAME" --file docker-compose.yml logs
       - if: always() && steps.scope.outputs.full != 'false'
-        run: docker compose down -v
+        run: docker compose --project-name "$COMPOSE_PROJECT_NAME" --file docker-compose.yml down -v --remove-orphans
