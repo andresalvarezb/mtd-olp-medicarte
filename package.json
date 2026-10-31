@@ -19,7 +19,14 @@
     "format:check": "prettier --check .",
     "db:generate": "pnpm --filter @authorization/database db:generate",
     "db:migrate": "pnpm --filter @authorization/database db:migrate",
-    "db:reset": "pnpm --filter @authorization/database db:reset --yes"
+    "db:reset": "pnpm --filter @authorization/database db:reset --yes",
+    "db:test:start": "node scripts/test-db.mjs start",
+    "db:test:stop": "node scripts/test-db.mjs stop",
+    "db:test:verify": "node scripts/test-db.mjs verify",
+    "db:test:migrate": "node scripts/test-db.mjs migrate",
+    "db:test:seed": "node scripts/test-db.mjs seed",
+    "db:test:check": "node scripts/test-db.mjs check",
+    "db:test:setup": "node scripts/test-db.mjs setup"
   },
   "devDependencies": {
     "@eslint/js": "9.34.0",

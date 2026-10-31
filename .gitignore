@@ -13,5 +13,15 @@ coverage/
 
 !.env.local.example
 
+# PostgreSQL local: nunca versionar datos binarios, respaldos o credenciales.
+**/pgdata/
+**/*.dump
+**/*.backup
+**/*.bak
+**/*.sql.gz
+**/*.tar.gz
+infra/test-db/*.env
+!infra/test-db/.env.test.example
+
 secrets/
 *service-account*.json
