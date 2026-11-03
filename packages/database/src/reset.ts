@@ -86,12 +86,24 @@ async function main(): Promise<void> {
   }
   const parsed = new URL(databaseUrl);
   const integrationPort = process.env.POSTGRES_HOST_PORT ?? '15432';
+  const integrationProject = process.env.COMPOSE_PROJECT_NAME ?? '';
+  const validProjectName =
+    /^mtd-olp-medicarte-integration-(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|ci-[0-9]+-[0-9]+)$/.test(
+      integrationProject,
+    );
 
   if (
+    parsed.protocol !== 'postgresql:' ||
     parsed.hostname !== 'localhost' ||
     parsed.port !== integrationPort ||
-    parsed.pathname !== '/authorization' ||
-    process.env.COMPOSE_PROJECT_NAME !== `authorization-integration-${integrationPort}` ||
+    parsed.pathname !== '/authorization_test_integration' ||
+    parsed.username !== 'authorization' ||
+    parsed.password !== 'authorization' ||
+    parsed.search !== '' ||
+    parsed.hash !== '' ||
+    process.env.POSTGRES_DB !== 'authorization_test_integration' ||
+    process.env.INTEGRATION_COMPOSE_PROJECT_NAME !== integrationProject ||
+    !validProjectName ||
     process.env.INTEGRATION_DB_RESET !== '1'
   ) {
     throw new Error('Refusing reset: only the isolated TEST/INTEGRATION project may be reset');

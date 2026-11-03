@@ -46,6 +46,18 @@ export function currentBogotaDate(now: Date = new Date()): string {
   }).format(now);
 }
 
+/**
+ * Compara una fecha calendario de lote con el día actual de Colombia.
+ * `expirationDate` es utilizable durante toda su fecha y queda vencida al día
+ * calendario siguiente, independientemente de la zona horaria del proceso.
+ */
+export function isInventoryExpirationDateUsable(
+  expirationDate: string,
+  now: Date = new Date(),
+): boolean {
+  return expirationDate >= currentBogotaDate(now);
+}
+
 export type MipresVigenciaEvaluation = Readonly<{
   outcome: MipresQueryOutcome;
   hasCurrent: boolean;

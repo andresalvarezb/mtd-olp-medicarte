@@ -6,15 +6,15 @@ const integrationPort =
 
 const databaseUrl =
   process.env.DATABASE_URL ??
-  `postgresql://authorization:authorization@localhost:${integrationPort}/authorization`;
+  `postgresql://authorization:authorization@localhost:${integrationPort}/authorization_test_integration`;
 const parsed = new URL(databaseUrl);
 if (
   parsed.hostname !== 'localhost' ||
   parsed.port !== integrationPort ||
-  parsed.pathname !== '/authorization'
+  parsed.pathname !== '/authorization_test_integration'
 ) {
   throw new Error(
-    'Integration tests require the isolated authorization database',
+    'Integration tests require the isolated authorization_test_integration database',
   );
 }
 process.env.DATABASE_URL = databaseUrl;
@@ -25,7 +25,7 @@ process.env.AUTH_DEV_ADMIN_PASSWORD ??= 'foundation-admin';
 const client = new Client({ connectionString: databaseUrl });
 await client.connect();
 const identity = await client.query<{ database: string }>('select current_database() as database');
-if (identity.rows[0]?.database !== 'authorization') {
+if (identity.rows[0]?.database !== 'authorization_test_integration') {
   throw new Error('Integration database identity guard failed');
 }
 await client.end();

@@ -884,7 +884,7 @@ export const RECONCILIATION_RULE_IMPLEMENTATIONS: readonly ExecutableRule[] = [
     });
     const applicable = `
       select lot.id from inventory_lots lot
-      where lot.expiration_date < current_date and ${scoped}`;
+      where lot.expiration_date < (now() at time zone 'America/Bogota')::date and ${scoped}`;
     const violations = `
       select 'inventory_lot'::varchar as entity_type, lot.id as entity_id,
              null::varchar as related_entity_type, null::uuid as related_entity_id,
@@ -902,7 +902,7 @@ export const RECONCILIATION_RULE_IMPLEMENTATIONS: readonly ExecutableRule[] = [
             from inventory_movements m
            where m.inventory_lot_id = lot.id
         ) bal on true
-       where lot.expiration_date < current_date and ${scoped} and bal.physical_balance > 0`;
+       where lot.expiration_date < (now() at time zone 'America/Bogota')::date and ${scoped} and bal.physical_balance > 0`;
     return detect(ctx, applicable, params.values, violations, params.values);
   }),
   mtd('REC-TRF-001', async (ctx) => {

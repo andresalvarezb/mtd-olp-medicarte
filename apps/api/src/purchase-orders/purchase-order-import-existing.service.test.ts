@@ -72,6 +72,8 @@ function workbook(
         'OC',
         'CODIGO_PRODUCTO',
         'CANTIDAD',
+        'FECHA_ASIGNACION',
+        'FECHA_FINAL_VIGENCIA',
       ],
       [...row],
     ]),

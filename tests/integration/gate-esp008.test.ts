@@ -491,8 +491,11 @@ describe('Gate ESP-008 - operational inventory ledger', () => {
     const zero = await fixture({
       lines: [{ code: product, lot: code('ZERO'), expiration: '2099-01-01' }],
     });
-    const todayDate = (await database.query<{ today: string }>(`select current_date::text today`))
-      .rows[0]!.today;
+    const todayDate = (
+      await database.query<{ today: string }>(
+        `select (now() at time zone 'America/Bogota')::date::text today`,
+      )
+    ).rows[0]!.today;
     const today = await fixture({
       lines: [{ code: product, lot: code('TODAY'), expiration: todayDate }],
     });

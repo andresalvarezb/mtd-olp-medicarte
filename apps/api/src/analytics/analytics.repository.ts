@@ -272,9 +272,9 @@ export class AnalyticsRepository {
         ),
         inventory as (
           select coalesce(sum(m.quantity_delta), 0)::int current_on_hand_quantity,
-                 coalesce(sum(case when l.expiration_date < current_date then 0 else m.quantity_delta end), 0)::int usable_balance,
-                 coalesce(sum(case when l.expiration_date < current_date then m.quantity_delta else 0 end), 0)::int expired_physical_quantity,
-                 coalesce(sum(case when l.expiration_date >= current_date and l.expiration_date <= current_date + 30
+                 coalesce(sum(case when l.expiration_date < (now() at time zone 'America/Bogota')::date then 0 else m.quantity_delta end), 0)::int usable_balance,
+                 coalesce(sum(case when l.expiration_date < (now() at time zone 'America/Bogota')::date then m.quantity_delta else 0 end), 0)::int expired_physical_quantity,
+                 coalesce(sum(case when l.expiration_date >= (now() at time zone 'America/Bogota')::date and l.expiration_date <= (now() at time zone 'America/Bogota')::date + 30
                    then m.quantity_delta else 0 end), 0)::int upcoming_expiration_quantity
           from inventory_lots l
           left join inventory_movements m on m.inventory_lot_id = l.id
@@ -1249,9 +1249,9 @@ export class AnalyticsRepository {
       select l.id, l.commercial_code, l.dispensing_point_id, dp.code dispensing_point_code,
              dp.name dispensing_point_name, l.lot_number, l.expiration_date::text,
              coalesce(sum(m.quantity_delta), 0)::int physical_balance,
-             case when l.expiration_date < current_date then 0 else coalesce(sum(m.quantity_delta), 0)::int end usable_balance,
-             l.expiration_date < current_date expired,
-             l.expiration_date >= current_date and l.expiration_date <= current_date + 30 upcoming_expiration
+             case when l.expiration_date < (now() at time zone 'America/Bogota')::date then 0 else coalesce(sum(m.quantity_delta), 0)::int end usable_balance,
+             l.expiration_date < (now() at time zone 'America/Bogota')::date expired,
+             l.expiration_date >= (now() at time zone 'America/Bogota')::date and l.expiration_date <= (now() at time zone 'America/Bogota')::date + 30 upcoming_expiration
       from inventory_lots l
       join dispensing_points dp on dp.id = l.dispensing_point_id
       left join inventory_movements m on m.inventory_lot_id = l.id

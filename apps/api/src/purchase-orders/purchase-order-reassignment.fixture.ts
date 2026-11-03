@@ -42,6 +42,8 @@ export const purchaseOrderReassignmentFixture = {
     'OC',
     'CODIGO_PRODUCTO',
     'CANTIDAD',
+    'FECHA_ASIGNACION',
+    'FECHA_FINAL_VIGENCIA',
   ] as const,
   row: [
     'AUTO-ORIG',
@@ -49,6 +51,8 @@ export const purchaseOrderReassignmentFixture = {
     'OC-200',
     'PROD-1',
     2,
+    '',
+    '',
   ] as const,
   adminScope: {
     organizationId: ORGANIZATION_ID,

@@ -21,6 +21,7 @@ import {
   POINT_ACCESS_DENIED,
   foundationJobSchema,
   meResponseSchema,
+  markPatientNotAppliedRequestSchema,
   replaceOperationalPointScopeRequestSchema,
   legacyAuthorizationHistoryResponseSchema,
   loginRequestSchema,
@@ -37,6 +38,32 @@ import {
 } from './index';
 
 describe('foundation contracts', () => {
+  it('rejects duplicate lots in non-reusable outcome lines', () => {
+    const valid = markPatientNotAppliedRequestSchema.safeParse({
+      expectedScheduleRevision: 1,
+      noveltyCode: 'PATIENT_NO_SHOW',
+      occurredOn: '2026-10-31',
+      preparedProductDisposition: 'NON_REUSABLE',
+      nonReusableLines: [
+        { inventoryLotId: '10000000-0000-4000-8000-000000000001', quantity: 1 },
+        { inventoryLotId: '10000000-0000-4000-8000-000000000002', quantity: 1 },
+      ],
+    });
+    const result = markPatientNotAppliedRequestSchema.safeParse({
+      expectedScheduleRevision: 1,
+      noveltyCode: 'PATIENT_NO_SHOW',
+      occurredOn: '2026-10-31',
+      preparedProductDisposition: 'NON_REUSABLE',
+      nonReusableLines: [
+        { inventoryLotId: '10000000-0000-4000-8000-000000000001', quantity: 1 },
+        { inventoryLotId: '10000000-0000-4000-8000-000000000001', quantity: 1 },
+      ],
+    });
+
+    expect(valid.success).toBe(true);
+    expect(result.success).toBe(false);
+  });
+
   it('requires a versioned event', () => {
     expect(() => foundationJobSchema.parse({ name: 'foundation.event' })).toThrow();
   });

@@ -34,6 +34,10 @@ type AuthorizationRow = QueryResultRow & {
   patient_name: string | null;
   expected_amount_cop: string | null;
   fulfillment_effective_date: string | null;
+  authorization_item_count: string;
+  has_confirmed_fulfillment: boolean;
+  has_active_reservation: boolean;
+  annulled_at: Date | string | null;
 };
 
 type EventRow = QueryResultRow & {
@@ -207,22 +211,15 @@ function iso(value: Date | string): string {
   return new Date(value).toISOString();
 }
 
-function nullableIso(
-  value: Date | string | null,
-): string | null {
+function nullableIso(value: Date | string | null): string | null {
   return value === null ? null : iso(value);
 }
 
-function nullableText(
-  value: string | null | undefined,
-): string | null {
+function nullableText(value: string | null | undefined): string | null {
   return value?.trim() || null;
 }
 
-function authorizationSql(
-  scope: Scope,
-  forUpdate: boolean,
-): string {
+function authorizationSql(scope: Scope, forUpdate: boolean): string {
   return `
     select
       i.id,
@@ -239,6 +236,30 @@ function authorizationSql(
       ) as patient_document_type,
       i.source_data->>'NOMBRE_PACIENTE' as patient_name,
       i.source_data->>'VALOR_CUOTA_MODERADORA' as expected_amount_cop,
+      i.annulled_at,
+      (
+        select count(*)::text
+        from authorization_items sibling
+        where sibling.numero_autorizacion = i.numero_autorizacion
+      ) as authorization_item_count,
+      exists (
+        select 1
+        from authorization_fulfillments confirmed_fulfillment
+        where confirmed_fulfillment.authorization_item_id = i.id
+          and confirmed_fulfillment.quantity > 0
+      ) as has_confirmed_fulfillment,
+      exists (
+        select 1
+        from inventory_authorization_allocations active_reservation
+        where active_reservation.authorization_item_id = i.id
+          and active_reservation.status in ('ALLOCATED', 'PARTIALLY_CONSUMED')
+          and greatest(
+            active_reservation.allocated_quantity
+              - active_reservation.consumed_quantity
+              - active_reservation.released_quantity,
+            0
+          ) > 0
+      ) as has_active_reservation,
       (
         select to_char(f.effective_date, 'YYYY-MM-DD')
         from authorization_fulfillments f
@@ -251,30 +272,18 @@ function authorizationSql(
 
     where i.id = $1::uuid
 
-    ${
-      scope.organizationCode === 'MEDICARTE'
-        ? MEDICARTE_VISIBILITY(forUpdate)
-        : ''
-    }
+    ${scope.organizationCode === 'MEDICARTE' ? MEDICARTE_VISIBILITY(forUpdate) : ''}
 
     ${forUpdate ? 'for update of i' : ''}
   `;
 }
 
-function authorizationParams(
-  id: string,
-  scope: Scope,
-): unknown[] {
+function authorizationParams(id: string, scope: Scope): unknown[] {
   if (scope.organizationCode === 'MTD') {
     return [id];
   }
 
-  return [
-    id,
-    scope.organizationId,
-    scope.userId,
-    scope.pointAccessKind !== 'explicit',
-  ];
+  return [id, scope.organizationId, scope.userId, scope.pointAccessKind !== 'explicit'];
 }
 
 @Injectable()
@@ -290,10 +299,7 @@ export class AuthorizationModeratorFeeService {
   ) {}
 
   private assertRead(scope: Scope): void {
-    if (
-      scope.organizationCode !== 'MTD' &&
-      scope.organizationCode !== 'MEDICARTE'
-    ) {
+    if (scope.organizationCode !== 'MTD' && scope.organizationCode !== 'MEDICARTE') {
       throw new ForbiddenException({
         code: 'MODERATOR_FEE_ORGANIZATION_DENIED',
         message: 'Organización no autorizada para consultar recaudos.',
@@ -344,51 +350,38 @@ export class AuthorizationModeratorFeeService {
     if (!authorization) {
       throw new NotFoundException({
         code: 'MODERATOR_FEE_AUTHORIZATION_NOT_FOUND',
-        message:
-          'La autorización no existe o está fuera del alcance del usuario.',
+        message: 'La autorización no existe o está fuera del alcance del usuario.',
       });
     }
 
     return authorization;
   }
 
-  private async history(
-    client: QueryClient,
-    id: string,
-  ): Promise<EventRow[]> {
-    const result = await client.query<EventRow>(
-      HISTORY_SQL,
-      [id],
-    );
+  private async history(client: QueryClient, id: string): Promise<EventRow[]> {
+    const result = await client.query<EventRow>(HISTORY_SQL, [id]);
 
     return result.rows;
   }
 
-  private response(
-    authorization: AuthorizationRow,
-    events: EventRow[],
-  ): ModeratorFeeResponse {
+  private response(authorization: AuthorizationRow, events: EventRow[]): ModeratorFeeResponse {
     const latest = events[0];
 
     return {
       authorizationItemId: authorization.id,
 
-      expectedAmountCop:
-        authorization.expected_amount_cop,
+      expectedAmountCop: authorization.expected_amount_cop,
 
       status: latest?.status ?? 'NOT_RECORDED',
 
       amountCop: latest?.amount_cop ?? null,
 
-      collectedAt:
-        latest ? nullableIso(latest.collected_at) : null,
+      collectedAt: latest ? nullableIso(latest.collected_at) : null,
 
       version: latest ? Number(latest.version) : 0,
 
-      lastRegisteredAt:
-        latest ? iso(latest.created_at) : null,
+      lastRegisteredAt: latest ? iso(latest.created_at) : null,
 
-      history: events.map(event => ({
+      history: events.map((event) => ({
         id: event.id,
 
         version: Number(event.version),
@@ -410,10 +403,7 @@ export class AuthorizationModeratorFeeService {
     };
   }
 
-  async detail(
-    authorizationItemId: string,
-    scope: Scope,
-  ): Promise<ModeratorFeeResponse> {
+  async detail(authorizationItemId: string, scope: Scope): Promise<ModeratorFeeResponse> {
     this.assertRead(scope);
 
     const authorization = await this.authorization(
@@ -423,10 +413,7 @@ export class AuthorizationModeratorFeeService {
       false,
     );
 
-    const events = await this.history(
-      this.database.pool,
-      authorizationItemId,
-    );
+    const events = await this.history(this.database.pool, authorizationItemId);
 
     return this.response(authorization, events);
   }
@@ -444,9 +431,7 @@ export class AuthorizationModeratorFeeService {
       false,
     );
 
-    const invoiceUrl = await this.sheetService.getInvoiceUrl(
-      authorization.numero_autorizacion,
-    );
+    const invoiceUrl = await this.sheetService.getInvoiceUrl(authorization.numero_autorizacion);
 
     return { invoiceUrl };
   }
@@ -458,15 +443,9 @@ export class AuthorizationModeratorFeeService {
   ): Promise<ModeratorFeeResponse> {
     this.assertManage(scope);
 
-    const collectedAt =
-      body.status === 'COLLECTED'
-        ? iso(body.collectedAt)
-        : null;
+    const collectedAt = body.status === 'COLLECTED' ? iso(body.collectedAt) : null;
 
-    if (
-      collectedAt !== null &&
-      new Date(collectedAt).getTime() > Date.now()
-    ) {
+    if (collectedAt !== null && new Date(collectedAt).getTime() > Date.now()) {
       throw new BadRequestException({
         code: 'MODERATOR_FEE_FUTURE_COLLECTION',
         message: 'La fecha de recaudo no puede ser futura.',
@@ -482,30 +461,19 @@ export class AuthorizationModeratorFeeService {
       await client.query('BEGIN');
 
       // Bloqueo por AUTO, serializa los cambios concurrentes.
-      const authorization = await this.authorization(
-        client,
-        authorizationItemId,
-        scope,
-        true,
-      );
+      const authorization = await this.authorization(client, authorizationItemId, scope, true);
 
       // Consultar los eventos antes de calcular el importe vigente:
       // un reintento debe conservar el importe del evento original.
-      const events = await this.history(
-        client,
-        authorizationItemId,
-      );
+      const events = await this.history(client, authorizationItemId);
 
-      const previousAttempt = events.find(
-        event => event.idempotency_key === body.idempotencyKey,
-      );
+      const previousAttempt = events.find((event) => event.idempotency_key === body.idempotencyKey);
 
       if (previousAttempt) {
         const amountMatches =
           body.status === 'COLLECTED'
             ? body.amountCop === undefined ||
-              Number(body.amountCop).toFixed(2) ===
-                previousAttempt.amount_cop
+              Number(body.amountCop).toFixed(2) === previousAttempt.amount_cop
             : previousAttempt.amount_cop === null;
 
         const samePayload =
@@ -518,8 +486,7 @@ export class AuthorizationModeratorFeeService {
         if (!samePayload) {
           throw new ConflictException({
             code: 'MODERATOR_FEE_IDEMPOTENCY_CONFLICT',
-            message:
-              'La clave de idempotencia ya se utilizó con información diferente.',
+            message: 'La clave de idempotencia ya se utilizó con información diferente.',
           });
         }
 
@@ -528,12 +495,34 @@ export class AuthorizationModeratorFeeService {
         return this.response(authorization, events);
       }
 
+      if (Number(authorization.authorization_item_count) !== 1) {
+        throw new ConflictException({
+          code: 'MODERATOR_FEE_AUTHORIZATION_IDENTITY_AMBIGUOUS',
+          message:
+            'El número de autorización está asociado a más de un producto histórico y requiere conciliación antes del recaudo.',
+        });
+      }
+
+      if (body.status === 'COLLECTED') {
+        if (authorization.annulled_at !== null) {
+          throw new ConflictException({
+            code: 'MODERATOR_FEE_AUTHORIZATION_CANCELLED',
+            message: 'No se puede recaudar una autorización anulada.',
+          });
+        }
+
+        if (!authorization.has_confirmed_fulfillment && !authorization.has_active_reservation) {
+          throw new ConflictException({
+            code: 'MODERATOR_FEE_NOT_ELIGIBLE',
+            message:
+              'El recaudo exige una atención confirmada o una asignación con reserva activa.',
+          });
+        }
+      }
+
       // El reintento idempotente se resolvió previamente.
       // No permitir un segundo cobro sobre una cuota ya recaudada.
-      if (
-        events[0]?.status === 'COLLECTED' &&
-        body.status === 'COLLECTED'
-      ) {
+      if (events.some((event) => event.status === 'COLLECTED') && body.status === 'COLLECTED') {
         throw new ConflictException({
           code: 'MODERATOR_FEE_ALREADY_COLLECTED',
           message: 'La cuota moderadora ya fue recaudada completamente.',
@@ -547,10 +536,7 @@ export class AuthorizationModeratorFeeService {
       if (body.status === 'COLLECTED') {
         const expected = authorization.expected_amount_cop?.trim() ?? '';
 
-        if (
-          !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(expected) ||
-          Number(expected) <= 0
-        ) {
+        if (!/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(expected) || Number(expected) <= 0) {
           throw new BadRequestException({
             code: 'MODERATOR_FEE_EXPECTED_AMOUNT_INVALID',
             message:
@@ -560,22 +546,16 @@ export class AuthorizationModeratorFeeService {
 
         amountCop = Number(expected).toFixed(2);
 
-        if (
-          body.amountCop !== undefined &&
-          Number(body.amountCop).toFixed(2) !== amountCop
-        ) {
+        if (body.amountCop !== undefined && Number(body.amountCop).toFixed(2) !== amountCop) {
           throw new BadRequestException({
             code: 'MODERATOR_FEE_AMOUNT_MISMATCH',
-            message:
-              'El importe informado no coincide con la cuota definida en la autorización.',
+            message: 'El importe informado no coincide con la cuota definida en la autorización.',
           });
         }
       }
 
       const previous = events[0];
-      const currentVersion = previous
-        ? Number(previous.version)
-        : 0;
+      const currentVersion = previous ? Number(previous.version) : 0;
 
       if (body.expectedVersion !== currentVersion) {
         throw new ConflictException({
@@ -692,10 +672,7 @@ export class AuthorizationModeratorFeeService {
         ],
       );
 
-      const updatedEvents = await this.history(
-        client,
-        authorizationItemId,
-      );
+      const updatedEvents = await this.history(client, authorizationItemId);
 
       await client.query('COMMIT');
 

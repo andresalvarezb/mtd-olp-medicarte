@@ -609,7 +609,22 @@ export const markPatientNotAppliedRequestSchema = z.object({
   occurredOn: z.string().date(),
   observation: z.string().trim().min(1).max(1000).optional(),
   preparedProductDisposition: preparedProductDispositionSchema,
-  nonReusableLines: z.array(nonReusableOutcomeLineRequestSchema).default([]),
+  nonReusableLines: z
+    .array(nonReusableOutcomeLineRequestSchema)
+    .default([])
+    .superRefine((lines, context) => {
+      const seenLots = new Set<string>();
+      lines.forEach((line, index) => {
+        if (seenLots.has(line.inventoryLotId)) {
+          context.addIssue({
+            code: 'custom',
+            path: [index, 'inventoryLotId'],
+            message: 'Each inventory lot can appear only once',
+          });
+        }
+        seenLots.add(line.inventoryLotId);
+      });
+    }),
 });
 export type MarkPatientNotAppliedRequest = z.infer<typeof markPatientNotAppliedRequestSchema>;
 

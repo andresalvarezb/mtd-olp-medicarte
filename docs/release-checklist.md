@@ -66,9 +66,27 @@ El avance se preparó sobre el commit base local `b13a1ea` y comprende:
   sintéticas, backup/restore, reconciliación y rollback. Es una guía sin
   ejecución: no existe evidencia de despliegue ni restore drill en staging.
 
-Este avance todavía no tiene CI asociada a un SHA candidato ni evidencia de
-staging. Ninguno de estos cambios cierra un hallazgo ni reemplaza CI o
-certificación aislada.
+### Validación local posterior a integración — 2026-11-03
+
+Antes de crear el commit de integración con `develop`, se ejecutaron estos
+gates sobre el árbol local:
+
+- `pnpm audit --prod --audit-level=high`: PASS, sin vulnerabilidades conocidas.
+- `pnpm build`: PASS, 8 paquetes del workspace.
+- `pnpm lint`: PASS.
+- `pnpm exec turbo typecheck --force`: PASS, 13 tareas sin caché.
+- `pnpm test`: PASS, 739 pruebas Vitest en API, dominio, Web y paquetes; pasan
+  también los escáneres legacy y 8 pruebas Node de seguridad de integración.
+- `pnpm test:integration`: PASS, 46 suites y 526 pruebas contra PostgreSQL 17 y
+  Redis efímeros, con migraciones reales y limpieza confirmada de recursos.
+- El YAML pasó el esquema JSON público actual de Render con cero errores. La
+  validación semántica del CLI respondió `401 Unauthorized`; falta acceso al
+  workspace Render autorizado.
+
+GitHub CI aún debe ejecutarse sobre el SHA limpio del commit de integración.
+No se desplegó en Render. Las pruebas locales no verifican configuración viva,
+MIPRES, Drive o Sheets externos, backup/restore ni reconciliación en staging.
+Ninguno de estos resultados cierra AUD-P0-02/03/04 ni reemplaza certificación.
 
 ## 2. Bloqueadores P0 abiertos
 
@@ -77,7 +95,7 @@ certificación aislada.
 | AUD-P0-01 | **PENDIENTE CI/SHA** | El corte original reportó 4 críticas y 27 altas. El árbol local posterior pasó auditoría y gates P0.1; falta CI Node 22 para un SHA limpio. |
 | AUD-P0-02 | **ABIERTO — FALTA STAGING** | Blueprint y matriz local preparados; faltan Dashboard/configuración viva, permisos y pruebas sintéticas por servicio. Sentry/OTel siguen pendientes de decisión operativa. |
 | AUD-P0-03 | **ABIERTO — FALTA APROBACIÓN** | Registro de RF-01 a RF-04 preparado; faltan decisiones firmadas y luego implementación/UAT, o exclusiones explícitas del release. |
-| AUD-P0-04 | **ABIERTO — FALTA CERTIFICACIÓN** | Runbook preparado; no se ejecutaron despliegue persistente, migraciones de staging, backup/restore, integraciones ni reconciliación. |
+| AUD-P0-04 | **ABIERTO — FALTA CERTIFICACIÓN** | Runbook preparado y suite sintética local aprobada; faltan despliegue persistente, migraciones en staging, backup/restore e integraciones externas/reconciliación en staging. |
 
 El bloqueo inmediato registrado por W0-01 fue AUD-P0-01 en el corte histórico.
 Su remediación local no autoriza producción mientras falten CI sobre SHA limpio,
@@ -91,12 +109,12 @@ producción.
 
 | Gate                                                      | Estado                    | Evidencia o pendiente                                                                                      |
 | --------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Instalación con `pnpm install --frozen-lockfile`          | NO VERIFICADO             | No consta en la evidencia del corte; debe ejecutarse sobre el SHA candidato.                               |
-| `pnpm audit --prod`                                       | **FAIL**                  | 4 críticas y 27 altas, además de moderadas y bajas. Se exige remediación o excepción formal vigente.       |
+| Instalación con `pnpm install --frozen-lockfile`          | PASS LOCAL                | Instalación limpia en el build de integración con Node 22; lockfile vigente.                                |
+| `pnpm audit --prod`                                       | PASS LOCAL POSTERIOR      | Sin vulnerabilidades conocidas; el corte histórico reportó 4 críticas y 27 altas.                           |
 | `pnpm lint`                                               | PASS LOCAL                | Ejecutado sin warnings ESLint.                                                                             |
 | `pnpm format:check`                                       | **FAIL**                  | 299 archivos no cumplen Prettier.                                                                          |
-| Typecheck sin caché                                       | NO VERIFICADO             | El typecheck local pasó, pero Turbo sirvió el resultado desde caché; el gate exige ejecución sin caché.    |
-| Pruebas unitarias sin caché                               | PASS LOCAL                | 724 pruebas; una suite HTTP de 10 casos pasó fuera del sandbox por `listen EPERM`.                         |
+| Typecheck sin caché                                       | PASS LOCAL                | `pnpm exec turbo typecheck --force`: 13 tareas exitosas, cero caché.                                        |
+| Pruebas unitarias                                         | PASS LOCAL                | 739 pruebas Vitest, escáner legacy y 8 pruebas Node de seguridad de integración.                            |
 | Pruebas de integración                                    | PASS LOCAL AISLADO        | 46 archivos y 526 pruebas con PostgreSQL 17, Redis y migraciones reales en entorno temporal.               |
 | Cobertura y umbrales                                      | NO VERIFICADO             | No existe configuración de cobertura cuantitativa ni umbrales.                                             |
 | Build de API, Web y Worker                                | PASS LOCAL                | Los tres artefactos compilaron; Web requirió ejecución fuera del sandbox.                                  |
@@ -104,7 +122,7 @@ producción.
 | Catálogo de base de datos                                 | PASS LOCAL                | Prueba del generador y comprobación de 14 archivos sin drift.                                              |
 | Journal y migraciones sin drift                           | PENDIENTE                 | Existe un `0079` huérfano y no se consultaron los historiales de las bases persistentes.                   |
 | Esquema JSON de `render.yaml`                             | PASS LOCAL                | El 2026-11-03 el esquema público actual validó el YAML local con cero errores.                              |
-| Validación semántica de Render                            | NO VERIFICADO             | Render CLI v2.26.0 respondió 401 Unauthorized; falta validar contra el workspace autorizado.                |
+| Validación semántica de Render                            | NO VERIFICADO             | Render CLI respondió 401 Unauthorized; falta validar contra el workspace autorizado.                        |
 | Configuración viva igual a la matriz esperada             | NO VERIFICADO             | No se inspeccionaron variables, secretos ni migraciones de servicios persistentes.                         |
 | Backup, restauración y reconciliación                     | NO VERIFICADO             | Falta política certificada y restore drill con validaciones y tiempos.                                     |
 | MIPRES, Sheets y Drive: éxito y degradación               | NO VERIFICADO             | No se ejecutaron pruebas reales; deben usarse integraciones y datos sintéticos controlados.                |
