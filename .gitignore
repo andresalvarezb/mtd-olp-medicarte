@@ -28,3 +28,6 @@ infra/test-db/*.env
 
 secrets/
 *service-account*.json
+
+# Grafo generado por Graphify.
+graphify-out/
