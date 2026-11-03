@@ -61,15 +61,15 @@ PostgreSQL, Redis, un mock de MIPRES y el servicio `dev` con recarga de código.
 API, Web y Worker. Revise **antes de iniciar** los valores de `.env.local`:
 los usuarios y contraseñas de ejemplo son exclusivamente para ambientes aislados.
 
-| Servicio | Dirección local predeterminada |
-| --- | --- |
-| Web | <http://localhost:3002> |
-| API/health | <http://localhost:3001/api/v1/health> |
-| Swagger | <http://localhost:3001/api/v1/docs> |
+| Servicio     | Dirección local predeterminada              |
+| ------------ | ------------------------------------------- |
+| Web          | <http://localhost:3002>                     |
+| API/health   | <http://localhost:3001/api/v1/health>       |
+| Swagger      | <http://localhost:3001/api/v1/docs>         |
 | OpenAPI JSON | <http://localhost:3001/api/v1/openapi.json> |
-| PostgreSQL | `127.0.0.1:15432` |
-| Redis | `127.0.0.1:16379` |
-| Mock MIPRES | `127.0.0.1:18090` |
+| PostgreSQL   | `127.0.0.1:15432`                           |
+| Redis        | `127.0.0.1:16379`                           |
+| Mock MIPRES  | `127.0.0.1:18090`                           |
 
 ```bash
 bash scripts/local.sh status
@@ -128,6 +128,7 @@ no equivale a una comprobación ejecutada por la actualización de estos archivo
 
 ## Documentación
 
+- [Checklist de liberación — corte actual bloqueado](docs/release-checklist.md)
 - [Arquitectura y límites de dominio](docs/architecture-current.md)
 - [Guía de desarrollo y verificación](docs/development-guide.md)
 - [Mapa de API y seguridad](docs/api-guide.md)

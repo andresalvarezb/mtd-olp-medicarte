@@ -2102,7 +2102,7 @@ export const reconciliationFindingResponseSchema = z.object({
   planningPeriodId: z.string().uuid().nullable(),
   commercialCode: z.string().nullable(),
   message: z.string(),
-  evidence: z.record(z.unknown()),
+  evidence: z.record(z.string(), z.unknown()),
   fingerprint: z.string(),
   truncated: z.boolean(),
   recommendedAction: z.string(),
@@ -2229,7 +2229,7 @@ export const reconciliationIssueEventResponseSchema = z.object({
   actorUserId: z.string().uuid().nullable(),
   reconciliationRunId: z.string().uuid().nullable(),
   findingId: z.string().uuid().nullable(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
   createdAt: isoDateTimeSchema,
 });
 export type ReconciliationIssueEventResponse = z.infer<
@@ -2452,7 +2452,7 @@ export const reconciliationNotificationResponseSchema = z.object({
   dedupKey: z.string(),
   status: reconciliationNotificationStatusSchema,
   channel: reconciliationNotificationChannelSchema,
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
   attemptCount: z.number().int().nonnegative(),
   readAt: isoDateTimeSchema.nullable(),
   sentAt: isoDateTimeSchema.nullable(),

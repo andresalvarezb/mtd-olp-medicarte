@@ -14,12 +14,12 @@
     "db:reset": "tsx src/reset.ts"
   },
   "dependencies": {
-    "drizzle-orm": "0.44.5",
+    "drizzle-orm": "0.45.4",
     "pg": "8.16.3"
   },
   "devDependencies": {
     "@types/pg": "8.15.5",
-    "drizzle-kit": "0.31.4",
+    "drizzle-kit": "0.31.11",
     "tsx": "4.20.5",
     "typescript": "5.9.2",
     "vitest": "3.2.4"

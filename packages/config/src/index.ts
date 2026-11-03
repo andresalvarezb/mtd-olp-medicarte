@@ -97,7 +97,7 @@ const driveAuditSyncConfigSchema = {
         (value) =>
           value === 'true',
       )
-      .default('false'),
+      .default(false),
 
   GOOGLE_DRIVE_AUDIT_SYNC_SCOPE:
     z.enum([
@@ -148,7 +148,7 @@ const reconciliationOperationsConfigSchema = {
   RECONCILIATION_SCHEDULER_ENABLED: z
     .enum(['true', 'false'])
     .transform((value) => value === 'true')
-    .default('false'),
+    .default(false),
   RECONCILIATION_SCHEDULER_TICK_MS: z.coerce.number().int().min(100).default(60_000),
   RECONCILIATION_OPERATION_LEASE_SECONDS: z.coerce.number().int().min(10).max(3600).default(120),
   RECONCILIATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
@@ -179,7 +179,7 @@ export const workerConfigSchema = commonSchema.extend({
   SCHEDULER_ENABLED: z
     .enum(['true', 'false'])
     .transform((value) => value === 'true')
-    .default('true'),
+    .default(true),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(100).default(1000),
 });
 

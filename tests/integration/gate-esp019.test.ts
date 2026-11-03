@@ -1054,7 +1054,7 @@ describe('Gate ESP-019 — Operación programada y alertamiento controlado', () 
   it('62-64. Environment safety: scheduler disabled flag in dev/test', () => {
     const configSource = source('packages/config/src/index.ts');
     expect(configSource).toContain('RECONCILIATION_SCHEDULER_ENABLED');
-    expect(configSource).toContain("default('false')");
+    expect(configSource).toContain('.default(false)');
     expect(configSource).toContain('RECONCILIATION_OPERATION_LEASE_SECONDS');
     expect(configSource).toContain('RECONCILIATION_MAX_ATTEMPTS');
   });
