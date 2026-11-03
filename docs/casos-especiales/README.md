@@ -20,6 +20,7 @@ Este índice complementa [el manual operativo](../manual-operativo.md) y [el cat
 | CE-76 a CE-84 | [RBAC, roles, organizaciones y puntos](permisos-rbac-casos-cruzados.md) | MTD, administración |
 | CE-85 a CE-88 | [Recaudo de cuota moderadora y factura](recaudo-cuota-moderadora.md) | MTD, MEDICARTE, Google Sheets |
 | RF-01 a RF-10 | [Brechas funcionales priorizadas](pendientes-funcionales-priorizados.md) | Arquitectura, producto, operaciones |
+| AUD-P0-03 / RF-01 a RF-04 | [Registro de decisiones funcionales P0](../decisiones-funcionales-p0.md) | MTD, OLP, Medicarte, Inventario y Finanzas |
 | Pruebas | [Matriz de escenarios negativos, históricos y concurrencia](matriz-pruebas-especiales.md) | QA / responsables |
 | Cobertura | [Inventario de pendientes y límites de certificación](cobertura-pendiente.md) | Arquitectura / producto |
 

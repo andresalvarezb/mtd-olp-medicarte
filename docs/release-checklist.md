@@ -46,14 +46,38 @@ AUD-P0-01 permanece pendiente de cierre hasta asociar los gates a un SHA limpio
 y obtener el resultado de CI configurado con Node 22. Esta evidencia local no
 libera el sistema ni sustituye la aprobación del responsable.
 
+### Preparación local de AUD-P0-02/03/04 — 2026-11-03
+
+El avance se preparó sobre el commit base local `b13a1ea` y comprende:
+
+- **AUD-P0-02:** `render.yaml` declara MIPRES también en API, las claves de Drive
+  y Sheets por servicio y los toggles acordados. La
+  [matriz de runtime](render-runtime-configuration.md) documenta los valores
+  manuales y la limitación de `sync: false` en servicios existentes. La
+  configuración viva de Render y las integraciones siguen sin verificar.
+- **AUD-P0-03:** el
+  [registro de decisiones funcionales](decisiones-funcionales-p0.md) prepara
+  alternativas, efectos de inventario/facturación, controles y firmas para
+  RF-01 a RF-04. No hay aprobaciones registradas ni cambios de producto; todas
+  las RF permanecen abiertas.
+- **AUD-P0-04:** el
+  [runbook de certificación de staging](runbooks/certificacion-staging.md)
+  define captura de SHA/imágenes, migraciones, variables, jobs, integraciones
+  sintéticas, backup/restore, reconciliación y rollback. Es una guía sin
+  ejecución: no existe evidencia de despliegue ni restore drill en staging.
+
+Este avance todavía no tiene CI asociada a un SHA candidato ni evidencia de
+staging. Ninguno de estos cambios cierra un hallazgo ni reemplaza CI o
+certificación aislada.
+
 ## 2. Bloqueadores P0 abiertos
 
 | Hallazgo  | Estado                       | Motivo y evidencia resumida                                                                                                                         |
 | --------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | AUD-P0-01 | **PENDIENTE CI/SHA** | El corte original reportó 4 críticas y 27 altas. El árbol local posterior pasó auditoría y gates P0.1; falta CI Node 22 para un SHA limpio. |
-| AUD-P0-02 | **ABIERTO — BLOQUEA CIERRE** | El Blueprint no expresa completamente MIPRES, Google Sheets/Drive, telemetría y reconciliación. El estado de los servicios vivos no fue verificado. |
-| AUD-P0-03 | **ABIERTO — BLOQUEA CIERRE** | RF-01 a RF-04 requieren decisiones funcionales antes de implementar o excluir explícitamente esos alcances del release.                             |
-| AUD-P0-04 | **ABIERTO — BLOQUEA CIERRE** | No se certificaron despliegue, migraciones, configuración, datos, jobs, backups, alertas ni recuperación en un entorno persistente.                 |
+| AUD-P0-02 | **ABIERTO — FALTA STAGING** | Blueprint y matriz local preparados; faltan Dashboard/configuración viva, permisos y pruebas sintéticas por servicio. Sentry/OTel siguen pendientes de decisión operativa. |
+| AUD-P0-03 | **ABIERTO — FALTA APROBACIÓN** | Registro de RF-01 a RF-04 preparado; faltan decisiones firmadas y luego implementación/UAT, o exclusiones explícitas del release. |
+| AUD-P0-04 | **ABIERTO — FALTA CERTIFICACIÓN** | Runbook preparado; no se ejecutaron despliegue persistente, migraciones de staging, backup/restore, integraciones ni reconciliación. |
 
 El bloqueo inmediato registrado por W0-01 fue AUD-P0-01 en el corte histórico.
 Su remediación local no autoriza producción mientras falten CI sobre SHA limpio,
@@ -61,8 +85,9 @@ los demás bloqueadores y los gates obligatorios.
 
 ## 3. Gates obligatorios
 
-Los estados siguientes reproducen la evidencia disponible en la fecha de corte.
-`PASS LOCAL` no equivale a certificación de despliegue o producción.
+Los estados incorporan la evidencia histórica del corte y las actualizaciones
+locales fechadas. `PASS LOCAL` no equivale a certificación de despliegue o
+producción.
 
 | Gate                                                      | Estado                    | Evidencia o pendiente                                                                                      |
 | --------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -78,8 +103,8 @@ Los estados siguientes reproducen la evidencia disponible en la fecha de corte.
 | Build y validación de imágenes                            | NO VERIFICADO             | No consta construcción, SBOM ni escaneo de las imágenes en la evidencia del corte.                         |
 | Catálogo de base de datos                                 | PASS LOCAL                | Prueba del generador y comprobación de 14 archivos sin drift.                                              |
 | Journal y migraciones sin drift                           | PENDIENTE                 | Existe un `0079` huérfano y no se consultaron los historiales de las bases persistentes.                   |
-| Esquema JSON de `render.yaml`                             | PASS LOCAL                | Cero errores contra el esquema público de Render.                                                          |
-| Validación semántica de Render                            | NO VERIFICADO             | `render blueprints validate` respondió 401; requiere autenticación y workspace autorizado.                 |
+| Esquema JSON de `render.yaml`                             | PASS LOCAL                | El 2026-11-03 el esquema público actual validó el YAML local con cero errores.                              |
+| Validación semántica de Render                            | NO VERIFICADO             | Render CLI v2.26.0 respondió 401 Unauthorized; falta validar contra el workspace autorizado.                |
 | Configuración viva igual a la matriz esperada             | NO VERIFICADO             | No se inspeccionaron variables, secretos ni migraciones de servicios persistentes.                         |
 | Backup, restauración y reconciliación                     | NO VERIFICADO             | Falta política certificada y restore drill con validaciones y tiempos.                                     |
 | MIPRES, Sheets y Drive: éxito y degradación               | NO VERIFICADO             | No se ejecutaron pruebas reales; deben usarse integraciones y datos sintéticos controlados.                |

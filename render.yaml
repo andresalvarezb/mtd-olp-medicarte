@@ -64,6 +64,20 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: WEB_ORIGIN
         value: https://authorization-web.onrender.com
+      - key: MIPRES_BASE_URL
+        value: https://wsmipres.sispro.gov.co/WSSUMMIPRESNOPBS
+      - key: MIPRES_NIT
+        sync: false
+      - key: MIPRES_INITIAL_TOKEN
+        sync: false
+      - key: RECONCILIATION_SCHEDULER_ENABLED
+        value: 'false'
+      - key: GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE
+        value: /etc/secrets/google-service-account.json
+      - key: GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_IDS
+        sync: false
+      - key: GOOGLE_SHEETS_MODERATOR_FEE_ID
+        sync: false
 
   - type: worker
     name: authorization-worker
@@ -89,11 +103,17 @@ services:
           property: connectionString
       - key: SCHEDULER_ENABLED
         value: 'true'
+      - key: GOOGLE_DRIVE_AUDIT_SYNC_ENABLED
+        value: 'false'
       - key: MIPRES_BASE_URL
         value: https://wsmipres.sispro.gov.co/WSSUMMIPRESNOPBS
       - key: MIPRES_NIT
         sync: false
       - key: MIPRES_INITIAL_TOKEN
+        sync: false
+      - key: GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE
+        value: /etc/secrets/google-service-account.json
+      - key: GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_IDS
         sync: false
 
   - type: keyvalue
