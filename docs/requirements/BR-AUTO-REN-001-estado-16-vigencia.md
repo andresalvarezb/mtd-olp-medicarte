@@ -20,20 +20,25 @@ La autorización importada inicialmente en estado fuente 16 puede actualizar su 
 
 ## Uso de reservas y compra pendiente después del vencimiento (ampliación 2026-11-03)
 
-La reserva de una AUTO vencida permanece durante los cinco días posteriores a
-su fecha final. Entrega y aplicación se rechazan mientras la vigencia actual
-esté vencida; ampliar la fecha permite volver a operar solo si también se
-cumplen habilitación clínica, saldo autorizado, asignación física, producto,
-punto y demás validaciones. La fecha de aplicación tampoco puede superar la
-vigencia actual.
+La fecha final es inclusiva y una autorización vencida puede recibir atención
+durante los días calendario 1 a 5 posteriores. Desde el día 6, la continuidad
+depende de evidencia de atención confirmada y del saldo autorizado y físico
+disponible, conforme a
+[BR-AUTO-EXP-001](BR-AUTO-EXP-001-gracia-continuidad-atencion.md).
 
-Desde el día 6, el worker libera el saldo no consumido y las fuentes activas de
-OC. Una renovación posterior no restaura automáticamente esas reservas ni
-recupera capacidad comprometida a otra AUTO. Si queda capacidad de compra
-pendiente en una línea de OC sin recibir, MTD puede volver a elegir manualmente
-la AUTO renovada en la importación de OC existente con `AUTO_ORIGEN` vacío. El
-importador crea una fuente activa nueva solo si vigencia, producto, punto y
-saldos de OC/punto/línea lo permiten; no crea inventario ni allocation física.
+Sin atención confirmada, el worker libera desde el día 6 el saldo no consumido
+y las fuentes activas de OC, sin esperar al cierre del mes. Con atención
+confirmada, conserva el saldo reservado y el vínculo activo. Una recepción
+posterior de esa misma OC activa puede completar progresivamente la reserva
+según los límites de [BR-AUTO-EXP-001](BR-AUTO-EXP-001-gracia-continuidad-atencion.md).
+Una renovación posterior no restaura
+automáticamente reservas o fuentes liberadas ni recupera capacidad comprometida
+a otra AUTO.
+
+La elegibilidad para nuevas relaciones de OC vencidas también termina al quinto
+día de gracia. Una relación manual posterior tras renovación solo procede bajo
+las validaciones de compra existentes; no restaura la fila ni la allocation
+liberada y no crea inventario ni allocation hasta que exista una recepción real.
 
 Las filas fuente liberadas se conservan con su `id` y evidencia originales.
 Una nueva fuente activa para la misma pareja línea–AUTO tiene otro `id`; la

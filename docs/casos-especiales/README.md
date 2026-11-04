@@ -25,7 +25,7 @@ Este índice complementa [el manual operativo](../manual-operativo.md) y [el cat
 ## Reglas de interpretación
 
 1. **Persistido ≠ habilitado ≠ comprado ≠ recibido ≠ reservado ≠ consumido ≠ auditado.** Son registros y validaciones distintos.
-2. **Vencimiento de AUTO y vencimiento físico de lote son eventos distintos.** La reserva de una AUTO vencida se conserva durante cinco días, pero no permite entrega o aplicación hasta renovar vigencia. Desde el día 6 el worker libera el saldo no consumido y termina la fuente activa de OC; una renovación posterior no restaura esos saldos. La liberación comercial no ajusta el inventario físico del lote (ver CE-08 y CE-12A).
+2. **Vencimiento de AUTO y vencimiento físico de lote son eventos distintos.** La fecha final es inclusiva; durante los días 1 a 5 se permite atención con los controles existentes. Desde el día 6 el worker libera reservas y fuentes activas únicamente si no hay atención confirmada. Si la hay, conserva saldo y vínculo para continuar sin crear reservas nuevas después de gracia. La liberación no ajusta ni inventa inventario físico (ver [BR-AUTO-EXP-001](../requirements/BR-AUTO-EXP-001-gracia-continuidad-atencion.md), CE-08 y CE-12A).
 3. Las mutaciones de autorización se ejecutan con `expectedVersion` para evitar sobrescrituras concurrentes.
 4. Una edición **no** debe reescribir evidencia de OC donde OLP o MEDICARTE ya intervinieron.
 5. La existencia de soporte **no** equivale a una auditoría aprobada; la ausencia de soporte **no** debe sustituir la decisión humana.

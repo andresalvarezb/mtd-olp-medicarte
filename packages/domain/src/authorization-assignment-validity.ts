@@ -1,4 +1,5 @@
 import { normalizeAuthorizationOperationalDate } from './authorization-operational-window';
+import { evaluateAuthorizationFulfillmentWindow } from './authorization-fulfillment-window';
 
 export type AuthorizationAssignmentValidityStatus =
   | 'VIGENTE'
@@ -71,11 +72,19 @@ export function evaluateAuthorizationAssignmentValidity(input: Readonly<{
   if (!assignmentDate) return invalid('INVALID_ASSIGNMENT_DATE');
   if (!expirationDate) return invalid('INVALID_EXPIRATION_DATE');
 
-  // Durante el mes de vencimiento la AUTO sigue siendo elegible para compra,
-  // incluso si la asignación pertenece a un mes anterior. La atención conserva
-  // su propia validación diaria de vencimiento.
+  const fulfillmentWindow = evaluateAuthorizationFulfillmentWindow({
+    expirationDate,
+    todayBogota: input.todayBogota,
+    hasConfirmedAttention: false,
+    remainingAuthorizedQuantity: 1,
+  });
+
+  // Una nueva relación comercial solo puede crearse durante la vigencia o
+  // los cinco días de gracia. Vínculos ya activos se conservan por su propio
+  // historial y el worker decide su liberación con evidencia de atención.
   const expirationInCurrentMonth =
-    expirationDate.slice(0, 7) === input.todayBogota.slice(0, 7);
+    expirationDate.slice(0, 7) === input.todayBogota.slice(0, 7) &&
+    fulfillmentWindow.eligibleForNewReservation;
   if (!expirationInCurrentMonth && expirationDate < input.todayBogota) {
     return invalid('EXPIRED');
   }

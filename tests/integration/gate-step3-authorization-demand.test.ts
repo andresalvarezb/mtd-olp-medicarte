@@ -327,13 +327,17 @@ beforeAll(async () => {
     assignmentDate: OUTSIDE_HORIZON_ASSIGNMENT,
   });
 
-  // La asignación ocurrió en un mes anterior y la AUTO continúa
-  // vigente: Macro 3A debe incluirla igualmente en la demanda de compra.
+  // Una asignación anterior con vencimiento dentro del mes actual sigue
+  // siendo elegible para OC según BR-AUTO-OC-001, aunque ya venció.
   authBId = await insertAuthorization({
     label: 'B1',
     commercialCode: CODE_B,
     quantity: 4,
     assignmentDate: '2000-01-01',
+    expirationDate: plusDays(
+      TODAY_BOGOTA,
+      Number(TODAY_BOGOTA.slice(8, 10)) > 1 ? -1 : 0,
+    ),
   });
 
   blockedId = await insertAuthorization({
@@ -366,7 +370,11 @@ beforeAll(async () => {
     label: 'EXPIRED',
     commercialCode: CODE_EXPIRED,
     quantity: 9,
-    expirationDate: '2000-01-01',
+    assignmentDate: plusDays(CURRENT_MONTH_ASSIGNMENT, -1),
+    expirationDate: plusDays(
+      TODAY_BOGOTA,
+      Number(TODAY_BOGOTA.slice(8, 10)) > 1 ? -1 : 0,
+    ),
   });
 
   noTariffId = await insertAuthorization({

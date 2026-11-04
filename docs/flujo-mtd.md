@@ -54,7 +54,7 @@ MODELO, PUNTO_APLICACION_PREDETERMINADO
 5. Descargar **filas rechazadas** (`GET /api/v1/bulk-imports/:id/rejected.xlsx`) o resultado, corregir en la fuente, y recargar/reintentar según el estado. `retry-failed` está disponible solo para estados permitidos.
 6. Consultar la AUTO en `/autorizaciones/consulta`. Confirmar habilitación, vigencia, cobertura, validación AT, cantidades y permisos de operación por separado.
 
-**Salida:** AUTO conservada o actualizada con trazabilidad de carga y estado operacional calculado; **no** se asignan medicamentos físicos con el cargue. Importar una autorización vencida, con cantidad insuficiente o no presente en AT puede conservar su registro, pero no habilitar compra/atención. La entrega y la aplicación requieren que la vigencia actual cubra el día de operación; una reserva retenida durante la gracia no habilita atención hasta ampliar la vigencia y superar las demás validaciones.
+**Salida:** AUTO conservada o actualizada con trazabilidad de carga y estado operacional calculado; **no** se asignan medicamentos físicos con el cargue. Importar una autorización vencida, con cantidad insuficiente o no presente en AT puede conservar su registro, pero no habilitar compra/atención. La fecha final es inclusiva; se permite entrega y aplicación durante los cinco días posteriores y, desde el día 6, solo continuar una atención confirmada con saldo autorizado y reservado. Ver [BR-AUTO-EXP-001](requirements/BR-AUTO-EXP-001-gracia-continuidad-atencion.md).
 
 **Casos particulares:** recarga con mismos datos (comportamiento sin cambios esperado); cambio de vigencia/estado 16 → 5 sujeto a [BR-AUTO-REN-001](requirements/BR-AUTO-REN-001-estado-16-vigencia.md); anulación irreversible para AUTO sin entrega/aplicación con [BR-AUTO-ANNUL-001](requirements/BR-AUTO-ANNUL-001-anulacion-autorizacion.md). No presentar estas excepciones como recuperación libre de consumo.
 
@@ -64,8 +64,9 @@ MODELO, PUNTO_APLICACION_PREDETERMINADO
 
 La vigencia de AUTO para ofrecerlas y asignarlas como destino de OC sigue la
 regla calendario de [BR-AUTO-OC-001](requirements/BR-AUTO-OC-001-vigencia-para-asignacion.md).
-Una AUTO vencida puede ser `VIGENTE` para OC durante su mes de vencimiento;
-entrega y aplicación siguen bloqueadas hasta ampliar la fecha final. El estado
+Una AUTO vencida puede ser `VIGENTE` para una nueva OC solo hasta el quinto día
+posterior al vencimiento; la continuidad después de ese día depende de atención
+confirmada y reserva existente según [BR-AUTO-EXP-001](requirements/BR-AUTO-EXP-001-gracia-continuidad-atencion.md). El estado
 `ESTADO_VIGENCIA` de los archivos de OC expresa exclusivamente vigencia para OC.
 La exportación `AUTO-para-generar-OC.xlsx` mantiene sus siete encabezados y
 solo incluye candidatas vigentes. `ordenes-compra.xlsx` agrega la clasificación
@@ -129,10 +130,10 @@ Ver [AC-FIN-001](requirements/AC-FIN-001-capacidad-compra-anulaciones.md).
 
 ## MTD-OC-03 — Reutilización tras vencimiento
 
-1. El worker conserva la reserva durante los cinco días posteriores al vencimiento. Desde el día 6 libera el saldo físico no consumido; marca las fuentes activas de OC como liberadas cuando además terminó el mes de vencimiento, sin borrar su evidencia.
+1. El worker conserva la reserva durante los cinco días posteriores al vencimiento. Desde el día 6, sin atención confirmada, libera el saldo físico pendiente y las fuentes activas de OC sin esperar al fin de mes; con atención confirmada conserva ambos para continuidad. Una recepción física posterior de esa misma OC activa puede completar progresivamente la reserva sin superar el snapshot comercial, el saldo autorizado sin reservar ni el inventario recibido disponible.
 2. Confirmar que la AUTO ya superó la gracia y que la OC sigue activa. La liberación no modifica lo solicitado ni lo recibido.
 3. Descargar PURCHASE_ORDERS_V3 y cargar una fila para la OC existente con `CLAVE_AUTORIZACION_ORIGEN` (`AUTO_ORIGEN`) vacía, `CLAVE_AUTORIZACION_DESTINO` (`AUTO_DESTINO`) vigente, código de producto y cantidad. Puede ser la misma AUTO si MTD amplió su vigencia; la selección es manual.
-4. Para una OC aún no recibida, el importador usa `ASSIGN_PENDING_COMMITMENT` si la línea tiene saldo. Valida nuevamente vigencia para OC, producto, punto y capacidad por OC/línea. Una AUTO ya vencida no recibe una reserva física nueva ni transferida. No se crea inventario ni cambia la cantidad de la OC.
+4. Para una OC aún no recibida, el importador usa `ASSIGN_PENDING_COMMITMENT` si la línea tiene saldo. Valida nuevamente vigencia para OC, producto, punto y capacidad por OC/línea. Una AUTO ya vencida no recibe un vínculo comercial nuevo ni una transferencia. La excepción de reserva progresiva tras día 5 solo aplica a una fuente activa, contra recepción física posterior de esa misma OC. No se crea inventario ni cambia la cantidad comercial de la OC.
 5. Revisar `acceptedRows`/`rejectedRows` y confirmar la nueva fuente activa con `id` propio y la conservación de la fuente liberada.
 
 La renovación no recupera una allocation liberada ni capacidad que ya se comprometió a otra AUTO. El stock solo podrá asignarse y consumirse después de una recepción física válida. No se reasignan cantidades consumidas.

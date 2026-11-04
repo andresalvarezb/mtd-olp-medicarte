@@ -1,4 +1,5 @@
 import {
+  evaluateAuthorizationFulfillmentWindow,
   evaluateAuthorizationOperationalWindow,
   evaluateScheduleAuthorizationEligibility,
   parseAuthorizationExpiration,
@@ -19,6 +20,12 @@ export type PatientApplicationAuthorizationInput = Readonly<{
   expirationDate: string | null | undefined;
 
   todayBogota: string;
+
+  hasConfirmedAttention: boolean;
+
+  remainingAuthorizedQuantity: number;
+
+  requestedQuantity: number;
 
   applicationDate?: string | undefined;
 }>;
@@ -82,11 +89,18 @@ export function evaluatePatientApplicationAuthorization(
     };
   }
 
+  const fulfillmentWindow = evaluateAuthorizationFulfillmentWindow({
+    expirationDate: input.expirationDate,
+    todayBogota: input.todayBogota,
+    hasConfirmedAttention: input.hasConfirmedAttention,
+    remainingAuthorizedQuantity: input.remainingAuthorizedQuantity,
+  });
+
   if (
-    operationalWindow.status === 'EXPIRED'
-    || (input.applicationDate !== undefined
-      && operationalWindow.expirationDate !== null
-      && input.applicationDate > operationalWindow.expirationDate)
+    !fulfillmentWindow.eligible
+    || input.requestedQuantity <= 0
+    || input.requestedQuantity > input.remainingAuthorizedQuantity
+    || (input.applicationDate !== undefined && input.applicationDate > input.todayBogota)
   ) {
     return {
       eligible: false,

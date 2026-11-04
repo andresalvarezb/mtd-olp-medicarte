@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { offsetBogotaDate, todayBogota } from './helpers/bogota-test-date';
 import {
   ORGANIZATION_IDS,
   adminLogin,
@@ -17,7 +18,9 @@ const db = new Client({
 });
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 const suffix = randomUUID().slice(0, 8).toUpperCase();
-const scheduleDate = '2041-07-15';
+const scheduleDate = todayBogota;
+const periodStart = offsetBogotaDate(todayBogota, -1);
+const periodEnd = offsetBogotaDate(todayBogota, 30);
 let adminToken = '';
 let auditorToken = '';
 let operatorToken = '';
@@ -95,6 +98,7 @@ async function schedule(quantity = 1, code = `ESP012-${randomUUID()}`) {
         JSON.stringify({
           IDENTIFICACION_PACIENTE: `DOC-${suffix}`,
           NOMBRE_PACIENTE: 'Paciente ESP-012',
+          CANTIDAD: String(quantity),
           FECHA_ASIGNACION: '2000-01-01',
           FECHA_FINAL_VIGENCIA: '2099-12-31',
         }),
@@ -241,14 +245,22 @@ beforeAll(async () => {
     roleCode: 'COMPENSAR_VIEWER',
   });
   const existingPeriod = await db.query<{ id: string }>(
-    `select id from planning_periods where start_date='2041-07-01' and end_date='2041-07-31' limit 1`,
+    `select id from planning_periods where start_date=$1 and end_date=$2 limit 1`,
+    [periodStart, periodEnd],
   );
   periodId =
     existingPeriod.rows[0]?.id ??
     (
       await db.query<{ id: string }>(
-        `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by) values ('2041-07-01','2041-07-31','2040-01-01T00:00:00Z','2040-01-02T00:00:00Z','2041-08-01',$1,$1) returning id`,
-        [userId],
+        `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by) values ($1,$2,$3,$4,$5,$6,$6) returning id`,
+        [
+          periodStart,
+          periodEnd,
+          `${periodStart}T00:00:00Z`,
+          `${periodStart}T00:00:00Z`,
+          periodEnd,
+          userId,
+        ],
       )
     ).rows[0]!.id;
   periodCreated = existingPeriod.rows.length === 0;

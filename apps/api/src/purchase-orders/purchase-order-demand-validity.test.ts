@@ -10,7 +10,7 @@ describe('creación de OC desde demanda consolidada', () => {
     ['fecha-invalida', false],
   ] as const)('revalida la fecha final %s antes de crear la OC', async (expirationDate, accepted) => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-11-07T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-11-06T12:00:00Z'));
 
     const execute = vi.fn()
       .mockResolvedValueOnce({ rows: [{ consolidated_at: '2026-11-01' }] })

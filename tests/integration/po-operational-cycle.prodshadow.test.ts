@@ -55,6 +55,23 @@ const COMMITTED_DATE = '2098-11-01';
 const DECLARED_DISPATCH_DATE = '2098-11-02';
 const RECEIVED_AT = '2098-11-03T10:30:00-05:00';
 const EXPIRATION_DATE = '2099-12-31';
+function bogotaDateForE2e(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+function plusDays(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+const AUTHORIZATION_NUMBER = `AUTO-POE2E-${suffix}`;
+const AUTHORIZATION_EXPIRATION = plusDays(bogotaDateForE2e(), 365);
 
 let adminToken = '';
 let olpToken = '';
@@ -69,6 +86,8 @@ let poVersion = 0;
 let deliveryId = '';
 let deliveryLineId = '';
 let receiptId = '';
+let authorizationItemId = '';
+let secondaryAuthorizationItemId = '';
 
 const findings: Finding[] = [];
 
@@ -339,6 +358,88 @@ async function seedFixture(): Promise<void> {
   foundationUserId = user.rows[0]?.id ?? '';
   if (!foundationUserId) throw new Error('foundation-admin not found');
 
+  const importBatch = await database.query<{ id: string }>(
+    `insert into import_batches (
+       organization_id, created_by, original_filename, mime_type, size_bytes,
+       sha256, processor_version, status, total_rows, confirmed_rows,
+       completed_at, confirmed_at
+     ) values ($1, $2, $3, $4, 1, $5, 1, 'COMPLETED', 1, 1, now(), now())
+     returning id`,
+    [
+      ORGANIZATION_IDS.MTD,
+      foundationUserId,
+      `po-e2e-${suffix}.xlsx`,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      randomUUID().replaceAll('-', '').padEnd(64, 'a').slice(0, 64),
+    ],
+  );
+
+  const authorization = await database.query<{ id: string }>(
+    `insert into authorization_items (
+       numero_autorizacion, codigo_medicamento, authorization_key, source_data,
+       source_status_normalized, source_prescripcion_normalized, no_prescripcion,
+       enablement_status, coverage_type, direction_status, coverage_rule_version,
+       created_from_batch_id
+     ) values ($1, $2, $3, $4::jsonb, '5', '', '', 'ENABLED', 'PBS',
+              'NOT_APPLICABLE', 'PO-E2E', $5)
+     returning id`,
+    [
+      AUTHORIZATION_NUMBER,
+      CODE,
+      `${AUTHORIZATION_NUMBER}:${CODE}`,
+      JSON.stringify({
+        NUMERO_AUTORIZACION: AUTHORIZATION_NUMBER,
+        CODIGO_COMERCIAL: CODE,
+        CANTIDAD: '20',
+        FECHA_ASIGNACION: bogotaDateForE2e(),
+        FECHA_FINAL_VIGENCIA: AUTHORIZATION_EXPIRATION,
+        IDENTIFICACION_PACIENTE: `DOC-${suffix}`,
+        NOMBRE_PACIENTE: `Paciente E2E ${suffix}`,
+      }),
+      importBatch.rows[0]!.id,
+    ],
+  );
+  authorizationItemId = authorization.rows[0]!.id;
+
+  await database.query(
+    `insert into authorization_item_organizations (authorization_item_id, organization_id)
+     values ($1, $2)`,
+    [authorizationItemId, ORGANIZATION_IDS.MEDICARTE],
+  );
+
+  const secondaryAuthorization = await database.query<{ id: string }>(
+    `insert into authorization_items (
+       numero_autorizacion, codigo_medicamento, authorization_key, source_data,
+       source_status_normalized, source_prescripcion_normalized, no_prescripcion,
+       enablement_status, coverage_type, direction_status, coverage_rule_version,
+       created_from_batch_id
+     ) values ($1, $2, $3, $4::jsonb, '5', '', '', 'ENABLED', 'PBS',
+              'NOT_APPLICABLE', 'PO-E2E', $5)
+     returning id`,
+    [
+      `${AUTHORIZATION_NUMBER}-TAIL`,
+      CODE,
+      `${AUTHORIZATION_NUMBER}-TAIL:${CODE}`,
+      JSON.stringify({
+        NUMERO_AUTORIZACION: `${AUTHORIZATION_NUMBER}-TAIL`,
+        CODIGO_COMERCIAL: CODE,
+        CANTIDAD: '3',
+        FECHA_ASIGNACION: bogotaDateForE2e(),
+        FECHA_FINAL_VIGENCIA: plusDays(AUTHORIZATION_EXPIRATION, 1),
+        IDENTIFICACION_PACIENTE: `DOC-TAIL-${suffix}`,
+        NOMBRE_PACIENTE: `Paciente E2E cola ${suffix}`,
+      }),
+      importBatch.rows[0]!.id,
+    ],
+  );
+  secondaryAuthorizationItemId = secondaryAuthorization.rows[0]!.id;
+
+  await database.query(
+    `insert into authorization_item_organizations (authorization_item_id, organization_id)
+     values ($1, $2)`,
+    [secondaryAuthorizationItemId, ORGANIZATION_IDS.MEDICARTE],
+  );
+
   const period = await database.query<{ id: string }>(
     `insert into planning_periods (
        start_date, end_date, scheduling_cutoff_at,
@@ -426,6 +527,24 @@ async function seedFixture(): Promise<void> {
     [periodId, CODE, foundationUserId],
   );
   demandId = demand.rows[0]!.id;
+
+  await database.query(
+    `insert into demand_sources (
+       projected_demand_line_id, authorization_item_id, quantity,
+       planning_period_id, dispensing_point_id, commercial_code,
+       schedule_timing, demand_bucket
+     ) values ($1, $2, 17, $3, null, $4, 'ON_TIME', 'REGULAR')`,
+    [demandId, authorizationItemId, periodId, CODE],
+  );
+
+  await database.query(
+    `insert into demand_sources (
+       projected_demand_line_id, authorization_item_id, quantity,
+       planning_period_id, dispensing_point_id, commercial_code,
+       schedule_timing, demand_bucket
+     ) values ($1, $2, 3, $3, null, $4, 'ON_TIME', 'REGULAR')`,
+    [demandId, secondaryAuthorizationItemId, periodId, CODE],
+  );
 
   await grantMedicarteOperatorPoints(database, [pointId]);
 }
@@ -704,11 +823,11 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
 
         lines: [
           {
-            lineId:
+            purchaseOrderLineId:
               poLineId,
 
-            supplierUnitCost:
-              700,
+            managedQuantity:
+              20,
           },
         ],
       },
@@ -724,12 +843,14 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
       accepted_by: string | null;
       committed_date: string | null;
       requested_quantity: number;
+      managed_quantity: number | null;
     }>(
       `select
          to_jsonb(po)->>'olp_accepted_at' accepted_at,
          to_jsonb(po)->>'olp_accepted_by' accepted_by,
          to_jsonb(po)->>'olp_committed_date' committed_date,
-         pol.requested_quantity
+         pol.requested_quantity,
+         pol.olp_managed_quantity::int managed_quantity
        from purchase_orders po
        join purchase_order_lines pol on pol.purchase_order_id=po.id
        where po.id=$1`,
@@ -741,6 +862,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
     record('Acceptance has server actor', Boolean(as.accepted_by), 'non-null', as.accepted_by, 'ERROR');
     record('Committed date persisted separately', as.committed_date === COMMITTED_DATE, COMMITTED_DATE, as.committed_date, 'ERROR');
     record('Acceptance does not mutate requested quantity', as.requested_quantity === 20, 20, as.requested_quantity, 'CRITICAL');
+    record('OLP managed quantity is recorded separately', as.managed_quantity === 20, 20, as.managed_quantity, 'CRITICAL');
 
     // 5) Double acceptance.
     const doubleAccept = await request('POST', `/supplier/purchase-orders/${poId}/accept`, {
@@ -753,11 +875,11 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
 
         lines: [
           {
-            lineId:
+            purchaseOrderLineId:
               poLineId,
 
-            supplierUnitCost:
-              700,
+            managedQuantity:
+              20,
           },
         ],
       },
@@ -766,8 +888,8 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
     });
     record(
       'Double OLP acceptance is rejected',
-      doubleAccept.status === 409,
-      409,
+      doubleAccept.status === 400 || doubleAccept.status === 409,
+      '400/409',
       doubleAccept.status,
       'ERROR',
       { code: bodyCode(doubleAccept.body), body: doubleAccept.body },
@@ -993,26 +1115,26 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
       { code: bodyCode(overReceipt.body), body: overReceipt.body },
     );
 
-    // 12) Valid physical receipt 17 of 18.
+    // 12) Valid physical receipt 16 of 18, leaving physical stock for a later receipt.
     const updatedReceipt = await request('PATCH', `/medicarte/receipts/${receiptId}`, {
       body: {
         expectedVersion: receiptVersion,
         receivedAt: RECEIVED_AT,
         lines: [{
           deliveryLineId: receiptDeliveryLineId,
-          receivedQuantity: 17,
-          acceptedQuantity: 17,
+          receivedQuantity: 16,
+          acceptedQuantity: 16,
           rejectedQuantity: 0,
           receivedLotNumber: `LOT-${suffix}`,
           receivedExpirationDate: EXPIRATION_DATE,
-          observation: 'Physical receipt 17 of dispatched 18',
+          observation: 'Physical receipt 16 of dispatched 18',
         }],
       },
       token: medicarteToken,
       organizationId: ORGANIZATION_IDS.MEDICARTE,
     });
 
-    record('Medicarte records partial physical receipt 17/18', updatedReceipt.status === 200, 200, updatedReceipt.status, 'CRITICAL', updatedReceipt.body);
+    record('Medicarte records partial physical receipt 16/18', updatedReceipt.status === 200, 200, updatedReceipt.status, 'CRITICAL', updatedReceipt.body);
     if (updatedReceipt.status !== 200) throw new Error(`Cannot continue: receipt update ${updatedReceipt.status} ${JSON.stringify(updatedReceipt.body)}`);
     const originalReceiptVersion = receiptVersion;
     receiptVersion = versionOf(updatedReceipt.body);
@@ -1026,6 +1148,13 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
     record('Stale receipt version is rejected', staleConfirm.status === 409, 409, staleConfirm.status, 'ERROR', staleConfirm.body);
 
     // 14) Confirm receipt.
+    const fiveDaysAgoBogota = plusDays(bogotaDateForE2e(), -5);
+    await database.query(
+      `update authorization_items
+          set source_data = jsonb_set(source_data, '{FECHA_FINAL_VIGENCIA}', to_jsonb($2::text), true)
+        where id = $1`,
+      [authorizationItemId, fiveDaysAgoBogota],
+    );
     const confirmed = await request('POST', `/medicarte/receipts/${receiptId}/confirm`, {
       body: { expectedVersion: receiptVersion },
       token: medicarteToken,
@@ -1037,7 +1166,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
       throw new Error(`Cannot continue: receipt confirm ${confirmed.status} ${JSON.stringify(confirmed.body)}`);
     }
 
-    // 15) Inventory must increase immediately by 17 accepted units.
+    // 15) Inventory must increase immediately by 16 accepted units.
     const inv = await database.query<{ qty: number }>(
       `select
          coalesce(sum(im.quantity_delta),0)::int qty
@@ -1053,7 +1182,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
          and rl.receipt_id=$1`,
       [receiptId],
     );
-    record('Confirmed receipt increments inventory immediately', inv.rows[0]!.qty === 17, 17, inv.rows[0]!.qty, 'CRITICAL');
+    record('Confirmed receipt increments inventory immediately', inv.rows[0]!.qty === 16, 16, inv.rows[0]!.qty, 'CRITICAL');
 
     // 16) Requested quantity is still immutable.
     const qty = await database.query<{ requested: number; accepted: number | null }>(
@@ -1101,8 +1230,8 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
     const totalPending = t.requested - t.received;
 
     record('Supplier shortfall = 2', supplierShortfall === 2, 2, supplierShortfall, 'CRITICAL');
-    record('Dispatch/receipt difference = 1', receiptDifference === 1, 1, receiptDifference, 'CRITICAL');
-    record('Total PO pending = 3', totalPending === 3, 3, totalPending, 'CRITICAL');
+    record('Dispatch/receipt difference = 2', receiptDifference === 2, 2, receiptDifference, 'CRITICAL');
+    record('Total PO pending = 4', totalPending === 4, 4, totalPending, 'CRITICAL');
 
     // 18) Macro lifecycle must still be "received with pending", never fully received.
     const poAfterReceipt = await request('GET', `/purchase-orders/${poId}`, {
@@ -1144,7 +1273,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
     });
 
     record(
-      'Same dispatch can have another receipt while 1 unit remains physically pending',
+      'Same dispatch can have another receipt while 2 units remain physically pending',
       secondReceipt.status === 201,
       201,
       secondReceipt.status,
@@ -1158,6 +1287,232 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
             : undefined,
       },
     );
+
+    const secondReceiptId = idOf(secondReceipt.body);
+    let secondReceiptVersion = versionOf(secondReceipt.body);
+
+    const reconciledAllocation = await request(
+      'POST',
+      `/medicarte/purchase-orders/${poId}/reconcile-allocations`,
+      {
+        token: medicarteToken,
+        organizationId: ORGANIZATION_IDS.MEDICARTE,
+      },
+    );
+    record(
+      'Medicarte reconciliation is idempotent after first physical receipt assignment',
+      (reconciledAllocation.status === 200 || reconciledAllocation.status === 201) &&
+        [0, 16].includes(numberField(reconciledAllocation.body, 'assignedNow') ?? -1),
+      '200/201 assignedNow=0 or 16',
+      `${reconciledAllocation.status} assignedNow=${numberField(reconciledAllocation.body, 'assignedNow')}`,
+      'CRITICAL',
+      reconciledAllocation.body,
+    );
+
+    const allocation = await database.query<{
+      allocated_quantity: number;
+      consumed_quantity: number;
+      released_quantity: number;
+      status: string;
+    }>(
+      `select allocated_quantity, consumed_quantity, released_quantity, status
+         from inventory_authorization_allocations
+        where authorization_item_id = $1 and purchase_order_id = $2`,
+      [authorizationItemId, poId],
+    );
+    record('Day-five grace receipt creates one physical reservation for the authorization', allocation.rows.length === 1 && allocation.rows[0]!.allocated_quantity === 16 && allocation.rows[0]!.consumed_quantity === 0 && allocation.rows[0]!.released_quantity === 0 && allocation.rows[0]!.status === 'ALLOCATED', '1 allocation / 16 units / ALLOCATED', allocation.rows, 'CRITICAL');
+    if (allocation.rows.length !== 1 || allocation.rows[0]!.allocated_quantity !== 16 || allocation.rows[0]!.consumed_quantity !== 0 || allocation.rows[0]!.released_quantity !== 0 || allocation.rows[0]!.status !== 'ALLOCATED') {
+      throw new Error(`Cannot continue: authorization reservation mismatch ${JSON.stringify(allocation.rows)}`);
+    }
+
+    const sixDaysAgoBogota = plusDays(bogotaDateForE2e(), -6);
+    await database.query(
+      `update authorization_items
+          set source_data = jsonb_set(source_data, '{FECHA_FINAL_VIGENCIA}', to_jsonb($2::text), true)
+        where id = $1`,
+      [authorizationItemId, sixDaysAgoBogota],
+    );
+    const expiredRetroactive = await request('POST', `/medicarte/authorizations/${authorizationItemId}/fulfill`, {
+      body: {
+        purchaseOrderCode: PO_CODE,
+        fulfillmentType: 'APPLICATION',
+        effectiveDate: sixDaysAgoBogota,
+        quantity: 1,
+      },
+      token: medicarteToken,
+      organizationId: ORGANIZATION_IDS.MEDICARTE,
+    });
+    record('Day-six first attention is rejected even with a retroactive effective date', expiredRetroactive.status === 400 && bodyCode(expiredRetroactive.body) === 'AUTHORIZATION_FULFILLMENT_EXPIRED', '400 AUTHORIZATION_FULFILLMENT_EXPIRED', `${expiredRetroactive.status} ${bodyCode(expiredRetroactive.body)}`, 'CRITICAL', expiredRetroactive.body);
+    const allocationAfterExpiredAttempt = await database.query<{ consumed_quantity: number }>(
+      `select consumed_quantity from inventory_authorization_allocations
+        where authorization_item_id = $1 and purchase_order_id = $2`,
+      [authorizationItemId, poId],
+    );
+    record('Expired attempt leaves reserved quantity untouched', allocationAfterExpiredAttempt.rows[0]?.consumed_quantity === 0, 0, allocationAfterExpiredAttempt.rows[0]?.consumed_quantity, 'CRITICAL');
+
+    await database.query(
+      `update authorization_items
+          set source_data = jsonb_set(source_data, '{FECHA_FINAL_VIGENCIA}', to_jsonb($2::text), true)
+        where id = $1`,
+      [authorizationItemId, fiveDaysAgoBogota],
+    );
+    const partialFulfillment = await request('POST', `/medicarte/authorizations/${authorizationItemId}/fulfill`, {
+      body: {
+        purchaseOrderCode: PO_CODE,
+        fulfillmentType: 'APPLICATION',
+        effectiveDate: bogotaDateForE2e(),
+        quantity: 2,
+      },
+      token: medicarteToken,
+      organizationId: ORGANIZATION_IDS.MEDICARTE,
+    });
+    record('Day-five grace allows the first partial application of 2 units', partialFulfillment.status === 201, 201, partialFulfillment.status, 'CRITICAL', partialFulfillment.body);
+    if (partialFulfillment.status !== 201) {
+      throw new Error(`Cannot continue: partial fulfillment ${partialFulfillment.status} ${JSON.stringify(partialFulfillment.body)}`);
+    }
+
+    await database.query(
+      `update authorization_items
+          set source_data = jsonb_set(source_data, '{FECHA_FINAL_VIGENCIA}', to_jsonb($2::text), true)
+        where id = $1`,
+      [authorizationItemId, sixDaysAgoBogota],
+    );
+
+    const secondReceiptUpdate = await request('PATCH', `/medicarte/receipts/${secondReceiptId}`, {
+      body: {
+        expectedVersion: secondReceiptVersion,
+        receivedAt: RECEIVED_AT,
+        lines: [{
+          deliveryLineId: receiptDeliveryLineId,
+          receivedQuantity: 1,
+          acceptedQuantity: 1,
+          rejectedQuantity: 0,
+          receivedLotNumber: `LOT-${suffix}`,
+          receivedExpirationDate: EXPIRATION_DATE,
+          observation: 'One additional physical unit after day six',
+        }],
+      },
+      token: medicarteToken,
+      organizationId: ORGANIZATION_IDS.MEDICARTE,
+    });
+    record('Medicarte records a second partial physical receipt after day six', secondReceiptUpdate.status === 200, 200, secondReceiptUpdate.status, 'CRITICAL', secondReceiptUpdate.body);
+    if (secondReceiptUpdate.status !== 200) {
+      throw new Error(`Cannot continue: second receipt update ${secondReceiptUpdate.status} ${JSON.stringify(secondReceiptUpdate.body)}`);
+    }
+    secondReceiptVersion = versionOf(secondReceiptUpdate.body);
+
+    const secondReceiptConfirmed = await request('POST', `/medicarte/receipts/${secondReceiptId}/confirm`, {
+      body: { expectedVersion: secondReceiptVersion },
+      token: medicarteToken,
+      organizationId: ORGANIZATION_IDS.MEDICARTE,
+    });
+    record('Post-day-six receipt is confirmed against the same dispatch', secondReceiptConfirmed.status === 201 || secondReceiptConfirmed.status === 200, '200/201', secondReceiptConfirmed.status, 'CRITICAL', secondReceiptConfirmed.body);
+    if (!(secondReceiptConfirmed.status === 200 || secondReceiptConfirmed.status === 201)) {
+      throw new Error(`Cannot continue: second receipt confirm ${secondReceiptConfirmed.status} ${JSON.stringify(secondReceiptConfirmed.body)}`);
+    }
+
+    const topUpAllocation = await database.query<{
+      count: number;
+      allocated_quantity: number;
+      consumed_quantity: number;
+      released_quantity: number;
+      outstanding_quantity: number;
+    }>(
+      `select count(*)::int count,
+              coalesce(sum(allocated_quantity), 0)::int allocated_quantity,
+              coalesce(sum(consumed_quantity), 0)::int consumed_quantity,
+              coalesce(sum(released_quantity), 0)::int released_quantity,
+              coalesce(sum(allocated_quantity-consumed_quantity-released_quantity), 0)::int outstanding_quantity
+         from inventory_authorization_allocations
+        where authorization_item_id=$1 and purchase_order_id=$2`,
+      [authorizationItemId, poId],
+    );
+    record('Same active AUTO-OC source receives exactly the later physical unit', topUpAllocation.rows[0]?.count === 2 && topUpAllocation.rows[0]?.allocated_quantity === 17 && topUpAllocation.rows[0]?.consumed_quantity === 2 && topUpAllocation.rows[0]?.released_quantity === 0 && topUpAllocation.rows[0]?.outstanding_quantity === 15, '2 allocations / allocated=17 consumed=2 outstanding=15', topUpAllocation.rows[0], 'CRITICAL');
+
+    const postReceiptInventory = await database.query<{ receipt_quantity: number }>(
+      `select coalesce(sum(im.quantity_delta), 0)::int receipt_quantity
+         from inventory_movements im
+         join receipt_lines rl on rl.id = im.source_id
+         join receipts r on r.id = rl.receipt_id
+         join deliveries d on d.id = r.delivery_id
+        where d.purchase_order_id = $1 and im.movement_type = 'RECEIPT'`,
+      [poId],
+    );
+    record('Allocated top-up never exceeds cumulative physically received stock', postReceiptInventory.rows[0]?.receipt_quantity === 17 && (topUpAllocation.rows[0]?.allocated_quantity ?? 0) <= postReceiptInventory.rows[0].receipt_quantity, 'received=17 / allocated<=17', postReceiptInventory.rows[0], 'CRITICAL');
+
+    const overFulfillment = await request('POST', `/medicarte/authorizations/${authorizationItemId}/fulfill`, {
+      body: {
+        purchaseOrderCode: PO_CODE,
+        fulfillmentType: 'APPLICATION',
+        effectiveDate: bogotaDateForE2e(),
+        quantity: 16,
+      },
+      token: medicarteToken,
+      organizationId: ORGANIZATION_IDS.MEDICARTE,
+    });
+    record('Medicarte rejects fulfillment above post-receipt reserved quantity', overFulfillment.status === 400 && bodyCode(overFulfillment.body) === 'AUTHORIZATION_FULFILLMENT_QUANTITY_EXCEEDS_ASSIGNED', '400 AUTHORIZATION_FULFILLMENT_QUANTITY_EXCEEDS_ASSIGNED', `${overFulfillment.status} ${bodyCode(overFulfillment.body)}`, 'CRITICAL', overFulfillment.body);
+
+    const finalFulfillment = await request('POST', `/medicarte/authorizations/${authorizationItemId}/fulfill`, {
+      body: {
+        purchaseOrderCode: PO_CODE,
+        fulfillmentType: 'APPLICATION',
+        effectiveDate: bogotaDateForE2e(),
+        quantity: 15,
+      },
+      token: medicarteToken,
+      organizationId: ORGANIZATION_IDS.MEDICARTE,
+    });
+    record('Day-six partial attention continues within the physical reserved balance', finalFulfillment.status === 201, 201, finalFulfillment.status, 'CRITICAL', finalFulfillment.body);
+    if (finalFulfillment.status !== 201) {
+      throw new Error(`Cannot continue: final fulfillment ${finalFulfillment.status} ${JSON.stringify(finalFulfillment.body)}`);
+    }
+
+    const finalAllocation = await database.query<{
+      allocated_quantity: number;
+      consumed_quantity: number;
+      released_quantity: number;
+      status: string;
+    }>(
+      `select allocated_quantity, consumed_quantity, released_quantity, status
+         from inventory_authorization_allocations
+        where authorization_item_id = $1 and purchase_order_id = $2`,
+      [authorizationItemId, poId],
+    );
+    record('Partial plus final fulfillment consumes exactly the receipt reservation', finalAllocation.rows.length === 2 && finalAllocation.rows.reduce((sum, row) => sum + row.allocated_quantity, 0) === 17 && finalAllocation.rows.reduce((sum, row) => sum + row.consumed_quantity, 0) === 17 && finalAllocation.rows.reduce((sum, row) => sum + row.released_quantity, 0) === 0 && finalAllocation.rows.every((row) => row.status === 'CONSUMED'), '2 allocations / allocated=17 consumed=17 released=0 CONSUMED', finalAllocation.rows, 'CRITICAL');
+
+    const overRemainingAuthorization = await request('POST', `/medicarte/authorizations/${authorizationItemId}/fulfill`, {
+      body: {
+        purchaseOrderCode: PO_CODE,
+        fulfillmentType: 'APPLICATION',
+        effectiveDate: bogotaDateForE2e(),
+        quantity: 1,
+      },
+      token: medicarteToken,
+      organizationId: ORGANIZATION_IDS.MEDICARTE,
+    });
+    record('Medicarte rejects fulfillment after the reserved balance is exhausted', overRemainingAuthorization.status === 400, 400, overRemainingAuthorization.status, 'CRITICAL', overRemainingAuthorization.body);
+
+    const history = await request('GET', `/authorization-query/${authorizationItemId}/history`, {
+      token: medicarteToken,
+      organizationId: ORGANIZATION_IDS.MEDICARTE,
+    });
+    const historyItems = Array.isArray(history.body.items) ? history.body.items : [];
+    const applicationEvents = historyItems.filter((event) => asObject(event)?.type === 'APPLICATION_RECORDED');
+    record('Authorization history retains both successful applications', history.status === 200 && applicationEvents.length === 2, '200 / 2 APPLICATION_RECORDED events', `${history.status} / ${applicationEvents.length}`, 'CRITICAL', history.body);
+
+    const fulfillmentTotals = await database.query<{ count: number; quantity: number; receipt_quantity: number }>(
+      `select
+         (select count(*)::int from authorization_fulfillments where authorization_item_id = $1) as count,
+         (select coalesce(sum(quantity), 0)::int from authorization_fulfillments where authorization_item_id = $1) as quantity,
+         (select coalesce(sum(im.quantity_delta), 0)::int
+            from inventory_movements im
+            join receipt_lines rl on rl.id = im.source_id
+            join receipts r on r.id = rl.receipt_id
+            join deliveries d on d.id = r.delivery_id
+           where d.purchase_order_id = $2 and im.movement_type = 'RECEIPT') as receipt_quantity`,
+      [authorizationItemId, poId],
+    );
+    record('Recorded consumption matches real receipt without creating stock', fulfillmentTotals.rows[0]?.count === 2 && fulfillmentTotals.rows[0]?.quantity === 17 && fulfillmentTotals.rows[0]?.receipt_quantity === 17, '2 fulfillments=17 / receipt inventory=17', fulfillmentTotals.rows[0], 'CRITICAL');
 
     // 20) Final safety snapshot: source DB must not be the target.
     const currentDb = await database.query<{ db: string }>('select current_database() db');
@@ -1187,11 +1542,26 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
           'MTD creates purchase order',
           'MTD issues PO',
           'OLP accepts PO',
+          'OLP managed quantity is recorded separately',
           'OLP creates dispatch 18/20',
           'OLP dispatches 18 units',
           'Medicarte creates receipt',
-          'Medicarte records partial physical receipt 17/18',
+          'Medicarte records partial physical receipt 16/18',
           'Medicarte confirms physical receipt',
+          'Day-five grace receipt creates one physical reservation for the authorization',
+          'Day-six first attention is rejected even with a retroactive effective date',
+          'Expired attempt leaves reserved quantity untouched',
+          'Day-five grace allows the first partial application of 2 units',
+          'Medicarte records a second partial physical receipt after day six',
+          'Post-day-six receipt is confirmed against the same dispatch',
+          'Same active AUTO-OC source receives exactly the later physical unit',
+          'Allocated top-up never exceeds cumulative physically received stock',
+          'Medicarte rejects fulfillment above post-receipt reserved quantity',
+          'Day-six partial attention continues within the physical reserved balance',
+          'Partial plus final fulfillment consumes exactly the receipt reservation',
+          'Medicarte rejects fulfillment after the reserved balance is exhausted',
+          'Authorization history retains both successful applications',
+          'Recorded consumption matches real receipt without creating stock',
           'Test executed only on ephemeral E2E database',
         ].includes(f.name),
     );

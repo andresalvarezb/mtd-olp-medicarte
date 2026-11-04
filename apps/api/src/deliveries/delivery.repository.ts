@@ -240,7 +240,7 @@ export class DeliveryRepository {
 
   private async findByIdOn(conn: Tx | Database['db'], id: string, scope: Scope) {
     const rows = await conn.execute<DeliveryRow>(
-      sql`select d.id, d.purchase_order_id, po.purchase_order_code, d.supplier_reference, d.status, d.dispatched_at, d.dispatched_by, d.declared_dispatch_date, d.version, d.created_at, d.updated_at, dl.id as line_id, dl.purchase_order_line_id, dl.commercial_code, dl.dispensing_point_id, dp.code as dispensing_point_code, dp.name as dispensing_point_name, dl.quantity, dl.lot_number, dl.expiration_date, pol.product_description, pol.presentation, pol.accepted_quantity, coalesce((select sum(dl2.quantity) from delivery_lines dl2 join deliveries d2 on d2.id = dl2.delivery_id where dl2.purchase_order_line_id = dl.purchase_order_line_id and d2.status in ('DISPATCHED','RECEIVED')), 0)::int as dispatched_quantity from deliveries d join purchase_orders po on po.id = d.purchase_order_id join delivery_lines dl on dl.delivery_id = d.id join purchase_order_lines pol on pol.id = dl.purchase_order_line_id join dispensing_points dp on dp.id = dl.dispensing_point_id where d.id = ${id} and ${this.scopeFilter(scope)} order by dl.id`,
+      sql`select d.id, d.purchase_order_id, po.purchase_order_code, d.supplier_reference, d.status, d.dispatched_at, d.dispatched_by, d.declared_dispatch_date, d.version, d.created_at, d.updated_at, dl.id as line_id, dl.purchase_order_line_id, dl.commercial_code, dl.dispensing_point_id, dp.code as dispensing_point_code, dp.name as dispensing_point_name, dl.quantity, dl.lot_number, dl.expiration_date, pol.product_description, pol.presentation, coalesce(pol.olp_managed_quantity, pol.accepted_quantity) as accepted_quantity, coalesce((select sum(dl2.quantity) from delivery_lines dl2 join deliveries d2 on d2.id = dl2.delivery_id where dl2.purchase_order_line_id = dl.purchase_order_line_id and d2.status in ('DISPATCHED','RECEIVED')), 0)::int as dispatched_quantity from deliveries d join purchase_orders po on po.id = d.purchase_order_id join delivery_lines dl on dl.delivery_id = d.id join purchase_order_lines pol on pol.id = dl.purchase_order_line_id join dispensing_points dp on dp.id = dl.dispensing_point_id where d.id = ${id} and ${this.scopeFilter(scope)} order by dl.id`,
     );
     const first = rows.rows[0];
     if (!first) return null;
@@ -308,7 +308,7 @@ export class DeliveryRepository {
           committed_quantity: number;
         }>(sql`
           select
-            pol.accepted_quantity,
+            coalesce(pol.olp_managed_quantity, pol.accepted_quantity) as accepted_quantity,
 
             coalesce(
               (
@@ -386,7 +386,7 @@ export class DeliveryRepository {
       commercial_code: string;
       dispensing_point_id: string;
     }>(
-      sql`select pol.id, pol.accepted_quantity, pol.commercial_code, pol.dispensing_point_id from purchase_order_lines pol join purchase_orders po on po.id = pol.purchase_order_id join dispensing_points dp on dp.id = pol.dispensing_point_id where pol.purchase_order_id = ${orderId} and pol.id in (${sql.join(
+      sql`select pol.id, coalesce(pol.olp_managed_quantity, pol.accepted_quantity) as accepted_quantity, pol.commercial_code, pol.dispensing_point_id from purchase_order_lines pol join purchase_orders po on po.id = pol.purchase_order_id join dispensing_points dp on dp.id = pol.dispensing_point_id where pol.purchase_order_id = ${orderId} and pol.id in (${sql.join(
         lineIds.map((id) => sql`${id}`),
         sql`, `,
       )}) and ${this.scopeFilter(scope)} order by pol.id for update of pol`,
@@ -416,7 +416,7 @@ export class DeliveryRepository {
 
   private async deriveOrderStatus(tx: Tx, orderId: string, userId: string) {
     const totals = await tx.execute<{ accepted: number; dispatched: number }>(
-      sql`select coalesce(sum(pol.accepted_quantity), 0)::int accepted, coalesce((select sum(dl.quantity) from delivery_lines dl join deliveries d on d.id = dl.delivery_id where d.purchase_order_id = ${orderId} and d.status in ('DISPATCHED','RECEIVED')), 0)::int dispatched from purchase_order_lines pol where pol.purchase_order_id = ${orderId}`,
+      sql`select coalesce(sum(coalesce(pol.olp_managed_quantity, pol.accepted_quantity, 0)), 0)::int accepted, coalesce((select sum(dl.quantity) from delivery_lines dl join deliveries d on d.id = dl.delivery_id where d.purchase_order_id = ${orderId} and d.status in ('DISPATCHED','RECEIVED')), 0)::int dispatched from purchase_order_lines pol where pol.purchase_order_id = ${orderId}`,
     );
     const total = totals.rows[0]!;
     const status = total.dispatched >= total.accepted ? 'FULLY_DISPATCHED' : 'PARTIALLY_DISPATCHED';

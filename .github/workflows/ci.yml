@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [develop, master, main]
+    branches: [develop, master, main, fix/ci-expired-e2e-20261104]
 
 # A newer PR commit supersedes the previous run; never cancel develop pushes.
 concurrency:
@@ -65,6 +65,8 @@ jobs:
         run: pnpm test
       - if: steps.scope.outputs.full != 'false'
         run: pnpm test:integration
+      - if: steps.scope.outputs.full != 'false'
+        run: node scripts/run-authorization-expiration-e2e.mjs
       - if: always() && steps.scope.outputs.full != 'false'
         run: docker compose --project-name "$COMPOSE_PROJECT_NAME" --file docker-compose.yml logs
       - if: always() && steps.scope.outputs.full != 'false'

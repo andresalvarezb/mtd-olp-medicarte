@@ -6,8 +6,9 @@
 vencimiento está implementada en la rama de trabajo. Certificación de base de
 datos y despliegue pendientes.
 
-**Ampliación 2026-11-03:** cubre también la liberación automática por
-vencimiento desde el día 6. La migración `0105_purchase_order_source_history`
+**Ampliación 2026-11-04:** el vencimiento libera desde el día 6 solo cuando no
+existe atención confirmada; ver [BR-AUTO-EXP-001](BR-AUTO-EXP-001-gracia-continuidad-atencion.md).
+La migración `0105_purchase_order_source_history`
 define el soporte para una nueva fuente activa después de conservar la fuente
 liberada; debe aplicarse coordinadamente antes de aceptar escrituras nuevas.
 
@@ -26,9 +27,12 @@ inventario físico de compromisos de compra aún no recibidos.
 
 1. Una AUTO con cualquier cantidad entregada o aplicada no puede anularse.
 2. La anulación libera las reservas no consumidas y las fuentes activas.
-3. Desde el día 6 posterior al vencimiento, el worker libera el saldo no
-   consumido y marca las fuentes activas de OC como liberadas con actor
-   `SYSTEM`; durante los cinco días de gracia conserva ambas reservas.
+3. Desde el día 6 posterior al vencimiento y sin atención confirmada, el worker
+   libera el saldo físico pendiente y las fuentes activas de OC con actor
+   `SYSTEM`, sin esperar al cierre del mes. Si existe atención confirmada,
+   conserva el saldo y el vínculo activo para continuidad. Una recepción
+   posterior de esa misma OC activa puede completar progresivamente la reserva
+   conforme a BR-AUTO-EXP-001.
 4. Las fuentes liberadas permanecen como filas históricas inmutables con su
    cantidad snapshot, fecha y actor de liberación.
 5. La OC conserva su identidad, cantidades solicitadas y recepciones.
@@ -162,7 +166,7 @@ físicamente cuando alcanza la cantidad completa. La capacidad de
 compra no recibida se gestiona por separado.
 
 Caso C: AUTO que ya estuvo asociada a una línea liberada.
-Si la AUTO fue liberada por vencimiento y se renovó, MTD puede seleccionarla
+Si la AUTO fue liberada por vencimiento sin atención y se renovó, MTD puede seleccionarla
 con `AUTO_ORIGEN` vacía para una línea pendiente sin recibir, si producto,
 punto y capacidad siguen siendo compatibles. Se conserva la fila liberada y
 se crea otra fuente activa con `id` distinto. Sin renovación o sin capacidad,

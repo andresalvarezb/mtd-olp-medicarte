@@ -16,6 +16,12 @@ const base = {
   expirationDate: '2031-12-31',
 
   todayBogota: TODAY,
+
+  hasConfirmedAttention: false,
+
+  remainingAuthorizedQuantity: 10,
+
+  requestedQuantity: 2,
 };
 
 describe('patient application authorization eligibility', () => {
@@ -55,17 +61,16 @@ describe('patient application authorization eligibility', () => {
     });
   });
 
-  it('blocks expired authorization until validity is extended', () => {
+  it('allows a first application during the first five calendar days after expiry', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
 
-        expirationDate: '2031-03-01',
+        expirationDate: '2031-03-05',
       }),
     ).toEqual({
-      eligible: false,
-
-      code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
+      eligible: true,
+      code: null,
     });
   });
 
@@ -83,6 +88,38 @@ describe('patient application authorization eligibility', () => {
 
       code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
     });
+  });
+
+  it('blocks a first application from day six even when its date is retroactive', () => {
+    expect(
+      evaluatePatientApplicationAuthorization({
+        ...base,
+        expirationDate: '2031-03-01',
+        applicationDate: '2031-03-01',
+      }),
+    ).toMatchObject({ eligible: false, code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE' });
+  });
+
+  it('allows continuation after day five when a prior confirmed attention exists', () => {
+    expect(
+      evaluatePatientApplicationAuthorization({
+        ...base,
+        expirationDate: '2031-03-01',
+        todayBogota: '2031-03-30',
+        applicationDate: '2031-03-30',
+        hasConfirmedAttention: true,
+      }),
+    ).toEqual({ eligible: true, code: null });
+  });
+
+  it('blocks an application that exceeds the remaining authorized quantity', () => {
+    expect(
+      evaluatePatientApplicationAuthorization({
+        ...base,
+        remainingAuthorizedQuantity: 1,
+        requestedQuantity: 2,
+      }),
+    ).toMatchObject({ eligible: false });
   });
 
   it('blocks missing assignment date', () => {
@@ -232,9 +269,9 @@ describe('patient application authorization eligibility', () => {
       evaluatePatientApplicationAuthorization({
         ...base,
 
-        expirationDate: '2031-04-20',
+        expirationDate: '2031-03-10',
 
-        applicationDate: '2031-04-20',
+        applicationDate: '2031-03-10',
       }),
     ).toEqual({
       eligible: true,

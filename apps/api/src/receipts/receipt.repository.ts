@@ -2,8 +2,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
 import {
+  currentBogotaDate,
   derivePurchaseOrderReceiptStatus,
   deriveReceiptConformity,
+  evaluateAuthorizationFulfillmentWindow,
   validateReceiptQuantities,
 } from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
@@ -1108,10 +1110,11 @@ export class ReceiptRepository {
    *    authorization_key ASC
    *    authorization_item_id ASC
    *
-   * 3. Una AUTO se asigna completa o no se asigna.
+   * 3. Una recepción puede cubrir parcialmente la AUTO cuando el saldo
+   *    físico sea menor que su capacidad comprometida.
    *
-   * 4. Una recepción posterior únicamente cubre AUTO
-   *    todavía pendientes.
+   * 4. Una recepción posterior puede completar progresivamente la misma
+   *    fuente AUTO–OC activa, sin volver a asignar unidades comprometidas.
    *
    * 5. NO usa lotes ni fecha de vencimiento física
    *    del medicamento.
@@ -1126,6 +1129,19 @@ export class ReceiptRepository {
   ) {
     const receiptId =
       options.receiptId ?? null;
+    const todayBogota = currentBogotaDate();
+
+    // Serializar recepciones y conciliaciones de la misma OC. El worker usa
+    // el mismo lock de fila antes de decidir liberar sus fuentes activas.
+    const lockedOrder = await tx.execute<{ id: string }>(sql`
+      select id
+      from purchase_orders
+      where id = ${purchaseOrderId}
+      for update
+    `);
+    if (lockedOrder.rows.length !== 1) {
+      throw new Error('PURCHASE_ORDER_RECONCILIATION_NOT_FOUND');
+    }
     /*
      * Identificar pools recibidos.
      *
@@ -1703,9 +1719,10 @@ export class ReceiptRepository {
        * purchase_order_authorization_sources es la autoridad
        * de la relación material entre la OC y sus AUTO.
        *
-       * Una recepción NO discrimina la relación logística por
-       * estado clínico, habilitación, vencimiento, fulfillment
-       * o aplicación posterior de la AUTO.
+       * La relación comercial activa de OC se conserva. Después
+       * de la gracia, una atención confirmada permite completar
+       * progresivamente esa misma fuente solo contra recepción
+       * física real y dentro de sus límites comprometidos.
        *
        * source_quantity_snapshot protege la cantidad
        * comprometida cuando se creó la OC.
@@ -1784,7 +1801,7 @@ export class ReceiptRepository {
                          ''
                        )
                      )
-                     ~ '^[1-9][0-9]*$'
+                     ~ '^[0-9]+$'
 
                 then least(
                   source_snapshot.snapshot_quantity,
@@ -1930,46 +1947,7 @@ export class ReceiptRepository {
             and candidate.expiration_date
                 is not null
 
-            /*
-             * La relación OC -> AUTO es la autoridad para
-             * materializar la reserva al confirmar recepción.
-             *
-             * El vencimiento, la habilitación y los eventos de
-             * fulfillment/aplicación no reescriben
-             * retrospectivamente esa relación de compra.
-             *
-             * La protección contra duplicar una reserva activa
-             * se mantiene mediante
-             * inventory_authorization_allocations.
-             */
-
-            and not exists (
-              select
-                1
-
-              from
-                inventory_authorization_allocations iaa
-
-              where
-                iaa.authorization_item_id =
-                  candidate.authorization_item_id
-
-                and iaa.purchase_order_id =
-                  ${purchaseOrderId}
-
-                and iaa.commercial_code =
-                  ${pool.commercial_code}
-
-                and iaa.dispensing_point_id =
-                  ${dispensingPointId}
-
-                and (
-                  iaa.allocated_quantity
-                  -
-                  iaa.released_quantity
-                ) >
-                0
-            )
+            /* Existing active AUTO–OC sources remain the authority. */
 
           order by
             /*
@@ -1991,12 +1969,7 @@ export class ReceiptRepository {
         `);
 
 
-      /*
-       * Whole-AUTO allocation.
-       *
-       * Si una AUTO necesita 2 y queda solo 1,
-       * no se parte. Se evalúa la siguiente AUTO.
-       */
+      /* La reserva puede ser parcial y queda limitada por el pool físico. */
       const planned:
         Array<{
           authorizationItemId:
@@ -2024,9 +1997,9 @@ export class ReceiptRepository {
         const candidate of
         candidates.rows
       ) {
-        // Serializar recepción y anulación de esta AUTO.
-        // La comprobación se realiza después de adquirir
-        // el lock, dentro de la misma transacción.
+        // Releer evidencia y cantidades después de bloquear la AUTO. Esto
+        // permite decidir la excepción del día 6 con evidencia confirmada
+        // y serializa el saldo autorizado entre recepciones de OCs distintas.
         const eligibleAuthorization = await tx.execute<{ id: string }>(sql`
           select id
           from authorization_items
@@ -2035,17 +2008,106 @@ export class ReceiptRepository {
             and annulled_at is null
             and source_status_normalized <> 'ANULADA'
             and not (source_data ? '__mtdAnnulment')
-          for share
+          for update
         `);
 
         if (eligibleAuthorization.rows.length !== 1) {
           continue;
         }
 
-        const quantity =
-          Number(
-            candidate.required_quantity,
-          );
+        const authorizationAllocationState = await tx.execute<{
+          authorization_quantity: number;
+          fulfilled_quantity: number;
+          reserved_quantity: number;
+          purchase_order_committed_quantity: number;
+        }>(sql`
+          select
+            case
+              when btrim(coalesce(ai.source_data->>'CANTIDAD', '')) ~ '^[0-9]+$'
+                then (ai.source_data->>'CANTIDAD')::int
+              else ${candidate.required_quantity}
+            end::int as authorization_quantity,
+            greatest(
+              coalesce((
+                select sum(af.quantity)::int
+                from authorization_fulfillments af
+                where af.authorization_item_id = ai.id
+                  and af.quantity > 0
+                  and af.confirmed_at is not null
+              ), 0),
+              coalesce((
+                select sum(pal.quantity)::int
+                from patient_applications pa
+                join patient_application_lines pal
+                  on pal.patient_application_id = pa.id
+                where pa.authorization_item_id = ai.id
+                  and pa.status = 'CONFIRMED'
+                  and pa.confirmed_by is not null
+                  and pa.confirmed_at is not null
+                  and pal.quantity > 0
+              ), 0),
+              coalesce((
+                select sum(iaa.consumed_quantity)::int
+                from inventory_authorization_allocations iaa
+                where iaa.authorization_item_id = ai.id
+                  and iaa.consumed_quantity > 0
+              ), 0)
+            )::int as fulfilled_quantity,
+            coalesce((
+              select sum(greatest(
+                iaa.allocated_quantity - iaa.consumed_quantity - iaa.released_quantity,
+                0
+              ))::int
+              from inventory_authorization_allocations iaa
+              where iaa.authorization_item_id = ai.id
+            ), 0)::int as reserved_quantity,
+            coalesce((
+              select sum(greatest(
+                iaa.allocated_quantity - iaa.released_quantity,
+                0
+              ))::int
+              from inventory_authorization_allocations iaa
+              where iaa.authorization_item_id = ai.id
+                and iaa.purchase_order_id = ${purchaseOrderId}
+                and iaa.commercial_code = ${pool.commercial_code}
+                and iaa.dispensing_point_id = ${dispensingPointId}
+            ), 0)::int as purchase_order_committed_quantity
+          from authorization_items ai
+          where ai.id = ${candidate.authorization_item_id}
+        `);
+        const authorizationState = authorizationAllocationState.rows[0];
+        if (!authorizationState) continue;
+
+        const authorizationQuantity = Number(authorizationState.authorization_quantity);
+        const fulfilledQuantity = Number(authorizationState.fulfilled_quantity);
+        const remainingAuthorizedQuantity = Math.max(
+          authorizationQuantity - fulfilledQuantity,
+          0,
+        );
+        const reservationWindow = evaluateAuthorizationFulfillmentWindow({
+          expirationDate: candidate.expiration_date,
+          todayBogota,
+          hasConfirmedAttention: fulfilledQuantity > 0,
+          remainingAuthorizedQuantity,
+        });
+
+        if (!reservationWindow.eligibleForNewReservation) continue;
+
+        const remainingPurchaseCommitment = Math.max(
+          Number(candidate.required_quantity) -
+            Number(authorizationState.purchase_order_committed_quantity),
+          0,
+        );
+        const unreservedAuthorizedQuantity = Math.max(
+          remainingAuthorizedQuantity - Number(authorizationState.reserved_quantity),
+          0,
+        );
+
+        const quantity = Math.min(
+          remainingPurchaseCommitment,
+          unreservedAuthorizedQuantity,
+          available,
+        );
 
         if (
           !Number.isInteger(
@@ -2053,13 +2115,6 @@ export class ReceiptRepository {
           ) ||
           quantity <=
             0
-        ) {
-          continue;
-        }
-
-        if (
-          quantity >
-          available
         ) {
           continue;
         }
@@ -2254,7 +2309,7 @@ export class ReceiptRepository {
       allocationOrganizationId,
 
       wholeAuthorization:
-        true,
+        false,
 
       receivedNow,
 

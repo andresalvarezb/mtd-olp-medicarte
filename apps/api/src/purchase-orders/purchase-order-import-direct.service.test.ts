@@ -133,10 +133,10 @@ describe(
   () => {
     afterEach(() => vi.useRealTimers());
     it(
-      'distribuye AUTO vencida en el mes entre OC1=4 y OC2=6 sin reserva física',
+      'distribuye AUTO vencida dentro de la gracia entre OC1=4 y OC2=6 sin reserva física',
       async () => {
         vi.useFakeTimers();
-        vi.setSystemTime(new Date('2026-11-07T12:00:00Z'));
+        vi.setSystemTime(new Date('2026-11-06T12:00:00Z'));
         let assignmentRaw = '2026-10-01';
         let expirationRaw = '2026-11-01';
         const poolQueries:

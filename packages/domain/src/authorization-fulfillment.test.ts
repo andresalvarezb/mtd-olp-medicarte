@@ -20,6 +20,9 @@ const base = {
   todayBogota:
     '2026-09-30',
 
+  hasConfirmedAttention:
+    false,
+
   requestedQuantity:
     2,
 
@@ -54,15 +57,64 @@ describe(
 
 
     it(
-      'rechaza aplicación con vigencia vencida aunque conserve reserva',
+      'permite iniciar atención durante los cinco días de gracia',
       () => {
         expect(
           () =>
             assertAuthorizationFulfillment({
               ...base,
-              validityEndDate: '2026-09-15',
+              validityEndDate: '2026-09-25',
+              todayBogota: '2026-09-30',
             }),
-        ).toThrowError(/Amplíe la vigencia/);
+        ).not.toThrow();
+      },
+    );
+
+
+    it(
+      'rechaza una operación retroactiva para una autorización vencida hoy',
+      () => {
+        expect(
+          () =>
+            assertAuthorizationFulfillment({
+              ...base,
+              effectiveDate: '2026-09-10',
+              validityEndDate: '2026-09-15',
+              todayBogota: '2026-09-30',
+            }),
+        ).toThrowError(/sexto día/);
+      },
+    );
+
+
+    it(
+      'permite continuar atención después del día cinco si ya existía atención confirmada',
+      () => {
+        expect(() =>
+          assertAuthorizationFulfillment({
+            ...base,
+            validityEndDate: '2026-09-15',
+            todayBogota: '2026-10-15',
+            effectiveDate: '2026-10-15',
+            hasConfirmedAttention: true,
+          }),
+        ).not.toThrow();
+      },
+    );
+
+
+    it(
+      'does not allow a retroactive first attention to bypass the day-six block',
+      () => {
+        expect(() =>
+          assertAuthorizationFulfillment({
+            ...base,
+            validityEndDate: '2026-09-15',
+            todayBogota: '2026-09-30',
+            effectiveDate: '2026-09-14',
+            hasConfirmedAttention: false,
+          }),
+        ).toThrowError(/sexto día/);
       },
     );
 

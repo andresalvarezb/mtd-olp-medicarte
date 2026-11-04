@@ -96,6 +96,8 @@ let authorizationItemId = '';
 
 let allocationId = '';
 
+let sourceBatchId = '';
+
 let receiptId = '';
 
 
@@ -294,6 +296,7 @@ async function inventory() {
 
 async function setExpiration(
   offsetDays: number,
+  targetId = authorizationItemId,
 ) {
   await database.query(
     `
@@ -317,7 +320,7 @@ async function setExpiration(
           $1
     `,
     [
-      authorizationItemId,
+      targetId,
 
       compactDate(
         plusDays(
@@ -327,6 +330,102 @@ async function setExpiration(
       ),
     ],
   );
+}
+
+
+async function createAttendedAuthorization(
+  today: string,
+  options: {
+    suffix: string;
+    authorizationQuantity: number;
+    allocatedQuantity: number;
+    consumedQuantity: number;
+  },
+) {
+  const { suffix, authorizationQuantity, allocatedQuantity, consumedQuantity } = options;
+  const authorizationNumber = `${AUTO_NUMBER}-${suffix}`;
+  const authorizationKey = `${AUTHORIZATION_KEY}:${suffix}`;
+  const authorization = await database.query<{ id: string }>(
+    `
+      INSERT INTO authorization_items (
+        numero_autorizacion, codigo_medicamento, authorization_key,
+        source_data, source_status_normalized, enablement_status,
+        coverage_type, direction_status, operation_status, process_status,
+        coverage_rule_version, orden_compra, tariff_membership_status,
+        created_from_batch_id, updated_by
+      )
+      VALUES (
+        $1, $2, $3, $4::jsonb, '5', 'ENABLED', 'PBS', 'NOT_APPLICABLE',
+        'READY_TO_DISPENSE', 'PENDIENTE_DISPENSACION', 'E2E-EXPIRATION-1',
+        $5, 'LISTED', $6, $7
+      )
+      RETURNING id
+    `,
+    [
+      authorizationNumber,
+      PRODUCT,
+      authorizationKey,
+      JSON.stringify({
+        CANTIDAD: String(authorizationQuantity),
+        FECHA_ASIGNACION: compactDate(plusDays(today, -20)),
+        FECHA_FINAL_VIGENCIA: compactDate(plusDays(today, -6)),
+      }),
+      PO_CODE,
+      sourceBatchId,
+      foundationUserId,
+    ],
+  );
+  const authorizationItemId = authorization.rows[0]!.id;
+
+  await database.query(
+    `INSERT INTO authorization_item_organizations (authorization_item_id, organization_id) VALUES ($1, $2)`,
+    [authorizationItemId, ORGANIZATION_IDS.MTD],
+  );
+  await database.query(
+    `INSERT INTO purchase_order_authorization_sources (
+       purchase_order_line_id, authorization_item_id, source_quantity_snapshot,
+       provenance, evidence_at
+     ) VALUES ($1, $2, $3, 'LEGACY_DIRECT_ASSIGNMENT', NOW())`,
+    [purchaseOrderLineId, authorizationItemId, authorizationQuantity],
+  );
+
+  const batch = await database.query<{ id: string }>(
+    `INSERT INTO inventory_allocation_batches (
+       organization_id, source, status, total_rows, valid_rows, invalid_rows,
+       allocated_quantity, correlation_id, created_by, confirmed_by, confirmed_at
+     ) VALUES ($1, 'UI', 'CONFIRMED', 1, 1, 0, $2, $3, $4, $4, NOW()) RETURNING id`,
+    [ORGANIZATION_IDS.MTD, allocatedQuantity, randomUUID(), foundationUserId],
+  );
+  const allocation = await database.query<{ id: string }>(
+    `INSERT INTO inventory_authorization_allocations (
+       batch_id, organization_id, authorization_item_id, purchase_order_id,
+       commercial_code, dispensing_point_id, allocated_quantity,
+       consumed_quantity, released_quantity, status, authorization_version,
+       created_by, updated_by
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, 1, $10, $10)
+     RETURNING id`,
+    [
+      batch.rows[0]!.id,
+      ORGANIZATION_IDS.MTD,
+      authorizationItemId,
+      purchaseOrderId,
+      PRODUCT,
+      pointId,
+      allocatedQuantity,
+      consumedQuantity,
+      consumedQuantity === allocatedQuantity ? 'CONSUMED' : 'PARTIALLY_CONSUMED',
+      foundationUserId,
+    ],
+  );
+  await database.query(
+    `INSERT INTO authorization_fulfillments (
+       organization_id, authorization_item_id, fulfillment_type,
+       effective_date, quantity, source, confirmed_by, confirmed_at
+     ) VALUES ($1, $2, 'APPLICATION', $3::date, $4, 'UI', $5, NOW())`,
+    [ORGANIZATION_IDS.MEDICARTE, authorizationItemId, today, consumedQuantity, foundationUserId],
+  );
+
+  return { authorizationItemId, allocationId: allocation.rows[0]!.id };
 }
 
 
@@ -472,7 +571,7 @@ beforeAll(
         ],
       );
 
-    const sourceBatchId =
+    sourceBatchId =
       sourceBatch.rows[0]!.id;
 
 
@@ -574,7 +673,7 @@ beforeAll(
             'LEGACY_AUTHORIZATION',
             'Producto Expiration E2E',
             $3,
-            10,
+            20,
             'LEGACY_UNRESOLVED'
           )
 
@@ -736,7 +835,7 @@ beforeAll(
             NOW(),
             NOW(),
             $2,
-            'E2E automatic expiration release'
+            'E2E automatic expiration release: initial partial receipt 15/20'
           )
 
           RETURNING id
@@ -766,8 +865,8 @@ beforeAll(
           $1,
           $2,
           'RECEIVED_COMPLETE',
-          10,
-          'E2E automatic expiration release'
+          15,
+          'E2E automatic expiration release: initial partial receipt 15/20'
         )
       `,
       [
@@ -874,6 +973,7 @@ beforeAll(
 
     allocationId =
       allocation.rows[0]!.id;
+
   },
   30_000,
 );
@@ -910,7 +1010,7 @@ describe(
             'receivedQuantity',
           ),
         ).toBe(
-          10,
+          15,
         );
 
         expect(
@@ -928,7 +1028,7 @@ describe(
             'availableQuantity',
           ),
         ).toBe(
-          5,
+          10,
         );
 
 
@@ -1206,7 +1306,7 @@ describe(
             'receivedQuantity',
           ),
         ).toBe(
-          10,
+          15,
         );
 
         expect(
@@ -1233,7 +1333,7 @@ describe(
             'availableQuantity',
           ),
         ).toBe(
-          10,
+          15,
         );
 
 
@@ -1271,7 +1371,7 @@ describe(
           receipt.rows[0]
             ?.received,
         ).toBe(
-          10,
+          15,
         );
 
 
@@ -1384,6 +1484,127 @@ describe(
         ).toBe(
           1,
         );
+
+        const partial = await createAttendedAuthorization(today, {
+          suffix: 'PARTIAL',
+          authorizationQuantity: 10,
+          allocatedQuantity: 5,
+          consumedQuantity: 2,
+        });
+        const complete = await createAttendedAuthorization(today, {
+          suffix: 'COMPLETE',
+          authorizationQuantity: 5,
+          allocatedQuantity: 5,
+          consumedQuantity: 5,
+        });
+        const protectedSweep = await runInventoryExpirationReleaseSweep(sweepDatabase, today);
+
+        expect(protectedSweep).toMatchObject({
+          expiredAuthorizations: 0,
+          releasedAllocations: 0,
+          releasedQuantity: 0,
+          releasedPurchaseOrderSources: 0,
+        });
+
+        const partialAllocation = await database.query<{
+          allocated_quantity: number;
+          consumed_quantity: number;
+          released_quantity: number;
+          status: string;
+        }>(
+          `SELECT allocated_quantity, consumed_quantity, released_quantity, status
+           FROM inventory_authorization_allocations WHERE id = $1`,
+          [partial.allocationId],
+        );
+        expect(partialAllocation.rows[0]).toMatchObject({
+          allocated_quantity: 5,
+          consumed_quantity: 2,
+          released_quantity: 0,
+          status: 'PARTIALLY_CONSUMED',
+        });
+
+        const partialSource = await database.query<{ released_at: string | null }>(
+          `SELECT released_at::text FROM purchase_order_authorization_sources
+           WHERE authorization_item_id = $1`,
+          [partial.authorizationItemId],
+        );
+        expect(partialSource.rows[0]?.released_at).toBeNull();
+
+        const lateReceipt = await database.query<{ id: string }>(
+          `INSERT INTO purchase_order_receipts (
+             purchase_order_id, received_at, confirmed_at, confirmed_by, observation
+           ) VALUES ($1, NOW(), NOW(), $2, 'E2E post-grace physical top-up')
+           RETURNING id`,
+          [purchaseOrderId, foundationUserId],
+        );
+        await database.query(
+          `INSERT INTO purchase_order_receipt_lines (
+             receipt_id, purchase_order_line_id, outcome, received_quantity, observation
+           ) VALUES ($1, $2, 'RECEIVED_COMPLETE', 5, 'E2E post-grace physical top-up')`,
+          [lateReceipt.rows[0]!.id, purchaseOrderLineId],
+        );
+
+        const lateReconciliation = await request(
+          'POST',
+          `/medicarte/purchase-orders/${purchaseOrderId}/reconcile-allocations`,
+        );
+        expect([200, 201]).toContain(lateReconciliation.status);
+
+        const continuedAllocations = await database.query<{
+          count: number;
+          allocated_quantity: number;
+          consumed_quantity: number;
+          released_quantity: number;
+          outstanding_quantity: number;
+        }>(
+          `SELECT COUNT(*)::int count,
+                  COALESCE(SUM(allocated_quantity), 0)::int allocated_quantity,
+                  COALESCE(SUM(consumed_quantity), 0)::int consumed_quantity,
+                  COALESCE(SUM(released_quantity), 0)::int released_quantity,
+                  COALESCE(SUM(allocated_quantity - consumed_quantity - released_quantity), 0)::int outstanding_quantity
+           FROM inventory_authorization_allocations
+           WHERE authorization_item_id = $1 AND purchase_order_id = $2`,
+          [partial.authorizationItemId, purchaseOrderId],
+        );
+        expect(continuedAllocations.rows[0]).toEqual({
+          count: 2,
+          allocated_quantity: 10,
+          consumed_quantity: 2,
+          released_quantity: 0,
+          outstanding_quantity: 8,
+        });
+
+        const completeAllocations = await database.query<{ count: number; allocated_quantity: number }>(
+          `SELECT COUNT(*)::int count, COALESCE(SUM(allocated_quantity), 0)::int allocated_quantity
+           FROM inventory_authorization_allocations
+           WHERE authorization_item_id = $1 AND purchase_order_id = $2`,
+          [complete.authorizationItemId, purchaseOrderId],
+        );
+        expect(completeAllocations.rows[0]).toEqual({ count: 1, allocated_quantity: 5 });
+
+        const retryReconciliation = await request(
+          'POST',
+          `/medicarte/purchase-orders/${purchaseOrderId}/reconcile-allocations`,
+        );
+        expect([200, 201]).toContain(retryReconciliation.status);
+        expect(retryReconciliation.body.assignedNow).toBe(0);
+
+        const allocationsAfterRetry = await database.query<{ count: number; quantity: number }>(
+          `SELECT COUNT(*)::int count, COALESCE(SUM(allocated_quantity), 0)::int quantity
+           FROM inventory_authorization_allocations
+           WHERE authorization_item_id = $1 AND purchase_order_id = $2`,
+          [partial.authorizationItemId, purchaseOrderId],
+        );
+        expect(allocationsAfterRetry.rows[0]).toEqual({ count: 2, quantity: 10 });
+
+        const releasedAuthorizationAllocations = await database.query<{ total: number; active: number }>(
+          `SELECT COUNT(*)::int total,
+                  COUNT(*) FILTER (WHERE status IN ('ALLOCATED','PARTIALLY_CONSUMED'))::int active
+           FROM inventory_authorization_allocations
+           WHERE authorization_item_id = $1`,
+          [authorizationItemId],
+        );
+        expect(releasedAuthorizationAllocations.rows[0]).toEqual({ total: 1, active: 0 });
       },
       60_000,
     );

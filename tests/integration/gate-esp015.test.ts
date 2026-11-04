@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import { Client } from 'pg';
 import * as XLSX from 'xlsx';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { BULK_IMPORT_ROW_CLAIM_LEASE_SECONDS } from '@authorization/domain';
+import { offsetBogotaDate, todayBogota } from './helpers/bogota-test-date';
 import {
   ORGANIZATION_IDS,
   adminLogin,
@@ -24,9 +26,9 @@ const DOC = `DOC-015-${suffix}`;
 const POINT_A_CODE = `ESP15-A-${suffix}`;
 const POINT_B_CODE = `ESP15-B-${suffix}`;
 const POINT_INACTIVE_CODE = `ESP15-X-${suffix}`;
-const PERIOD = { from: '2051-03-01', to: '2051-03-31' };
-const DATE_A = '2051-03-10';
-const DATE_B = '2051-03-11';
+const DATE_A = todayBogota;
+const DATE_B = offsetBogotaDate(todayBogota, 1);
+const PERIOD = { from: offsetBogotaDate(todayBogota, -1), to: offsetBogotaDate(todayBogota, 30) };
 const HEADER = [
   'AUTORIZACION',
   'DOCUMENTO',
@@ -117,7 +119,7 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 async function waitForBulkImportTerminalState(jobId: string, token: string): Promise<Job> {
-  const timeoutMs = 30_000;
+  const timeoutMs = (BULK_IMPORT_ROW_CLAIM_LEASE_SECONDS + 30) * 1_000;
   const deadline = Date.now() + timeoutMs;
   let last: Job | undefined;
 
@@ -127,7 +129,7 @@ async function waitForBulkImportTerminalState(jobId: string, token: string): Pro
     last = await json<Job>(response);
     if (last.status !== 'PROCESSING') return last;
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
 
   throw new Error(
@@ -257,8 +259,8 @@ async function fixtureDelivery(pointId: string): Promise<{
   );
   await database.query(
     `insert into purchase_order_lines (id,purchase_order_id,commercial_code,product_description,presentation,dispensing_point_id,requested_quantity,accepted_quantity,requested_delivery_date,compensar_unit_rate_snapshot,supplier_unit_cost,projected_demand_line_id,projected_demand_revision,demand_bucket)
-     values ($1,$2,$3,'ESP15 product','presentation',$4,5,5,'2051-03-20','10.00','10.00',$5,1,'REGULAR')`,
-    [lineId, orderId, CODE, pointId, randomUUID()],
+     values ($1,$2,$3,'ESP15 product','presentation',$4,5,5,$5,'10.00','10.00',$6,1,'REGULAR')`,
+    [lineId, orderId, CODE, pointId, offsetBogotaDate(todayBogota, 10), randomUUID()],
   );
   await database.query(
     `insert into deliveries (id,purchase_order_id,status,dispatched_at,created_by,updated_by)
@@ -377,9 +379,16 @@ beforeAll(async () => {
       `insert into planning_periods
         (start_date, end_date, scheduling_cutoff_at, purchase_order_deadline_at,
          expected_delivery_date, created_by, updated_by)
-       values ($1,$2,'2051-03-28T23:59:00-05:00','2051-03-29T23:59:00-05:00','2051-03-30',$3,$3)
+       values ($1,$2,$3,$4,$5,$6,$6)
        returning id`,
-      [PERIOD.from, PERIOD.to, foundationUserId],
+      [
+        PERIOD.from,
+        PERIOD.to,
+        `${offsetBogotaDate(todayBogota, 20)}T23:59:00-05:00`,
+        `${offsetBogotaDate(todayBogota, 21)}T23:59:00-05:00`,
+        offsetBogotaDate(todayBogota, 22),
+        foundationUserId,
+      ],
     )
   ).rows[0]!.id;
   itemA = await insertAuthorization(`ESP015-A-${suffix}`);
@@ -893,90 +902,96 @@ describe('Gate ESP-015 — alcance operacional por punto', () => {
     expect([200, 201]).toContain(ok.status);
   });
 
-  it('26-29. bulk preview y confirm revalidan scope con éxito parcial', async () => {
-    const authPreviewA = `ESP015-P1-${suffix}`;
-    const authPreviewB = `ESP015-P2-${suffix}`;
-    await insertAuthorization(authPreviewA);
-    await insertAuthorization(authPreviewB);
-    const preview = await upload(
-      workbook([
-        HEADER,
-        row(authPreviewA, DATE_A, POINT_A_CODE),
-        row(authPreviewB, DATE_B, POINT_B_CODE),
-      ]),
-      `esp015-preview-${suffix}.xlsx`,
-      scopeAToken,
-    );
-    expect(preview.status).toBe(202);
-    const previewJob = await json<Job>(preview);
-    expect(previewJob.validRows).toBe(1);
-    expect(previewJob.invalidRows).toBe(1);
-    const previewRows = await json<{ items: Row[] }>(
-      await api('GET', `/bulk-imports/${previewJob.id}/rows?filter=ALL`, undefined, scopeAToken),
-    );
-    expect(previewRows.items.find((item) => item.rowNumber === 2)?.validationStatus).toBe('VALID');
-    expect(previewRows.items.find((item) => item.rowNumber === 3)?.errorCode).toBe(
-      'POINT_ACCESS_DENIED',
-    );
-    const authConfirmA = `ESP015-C1-${suffix}`;
-    const authConfirmB = `ESP015-C2-${suffix}`;
-    await insertAuthorization(authConfirmA);
-    await insertAuthorization(authConfirmB);
-    expect((await putPoints(scopeAUserId, [pointA, pointB])).status).toBe(200);
-    const ready = await json<Job>(
-      await upload(
+  it(
+    '26-29. bulk preview y confirm revalidan scope con éxito parcial',
+    async () => {
+      const authPreviewA = `ESP015-P1-${suffix}`;
+      const authPreviewB = `ESP015-P2-${suffix}`;
+      await insertAuthorization(authPreviewA);
+      await insertAuthorization(authPreviewB);
+      const preview = await upload(
         workbook([
           HEADER,
-          row(authConfirmA, DATE_A, POINT_A_CODE),
-          row(authConfirmB, DATE_B, POINT_B_CODE),
+          row(authPreviewA, DATE_A, POINT_A_CODE),
+          row(authPreviewB, DATE_B, POINT_B_CODE),
         ]),
-        `esp015-confirm-${suffix}.xlsx`,
+        `esp015-preview-${suffix}.xlsx`,
         scopeAToken,
-      ),
-    );
-    expect((await putPoints(scopeAUserId, [pointA])).status).toBe(200);
-    const confirmed = await api('POST', `/bulk-imports/${ready.id}/confirm`, {}, scopeAToken);
-    expect(confirmed.status).toBe(200);
-    const confirmation = await json<Job>(confirmed);
-    const result =
-      confirmation.status === 'PROCESSING'
-        ? await waitForBulkImportTerminalState(ready.id, scopeAToken)
-        : confirmation;
-    if (result.succeededRows !== 1 || result.failedRows !== 1) {
-      const snapshot = await database.query(
-        `select row_number, validation_status, execution_status,
+      );
+      expect(preview.status).toBe(202);
+      const previewJob = await json<Job>(preview);
+      expect(previewJob.validRows).toBe(1);
+      expect(previewJob.invalidRows).toBe(1);
+      const previewRows = await json<{ items: Row[] }>(
+        await api('GET', `/bulk-imports/${previewJob.id}/rows?filter=ALL`, undefined, scopeAToken),
+      );
+      expect(previewRows.items.find((item) => item.rowNumber === 2)?.validationStatus).toBe(
+        'VALID',
+      );
+      expect(previewRows.items.find((item) => item.rowNumber === 3)?.errorCode).toBe(
+        'POINT_ACCESS_DENIED',
+      );
+      const authConfirmA = `ESP015-C1-${suffix}`;
+      const authConfirmB = `ESP015-C2-${suffix}`;
+      await insertAuthorization(authConfirmA);
+      await insertAuthorization(authConfirmB);
+      expect((await putPoints(scopeAUserId, [pointA, pointB])).status).toBe(200);
+      const ready = await json<Job>(
+        await upload(
+          workbook([
+            HEADER,
+            row(authConfirmA, DATE_A, POINT_A_CODE),
+            row(authConfirmB, DATE_B, POINT_B_CODE),
+          ]),
+          `esp015-confirm-${suffix}.xlsx`,
+          scopeAToken,
+        ),
+      );
+      expect((await putPoints(scopeAUserId, [pointA])).status).toBe(200);
+      const confirmed = await api('POST', `/bulk-imports/${ready.id}/confirm`, {}, scopeAToken);
+      expect(confirmed.status).toBe(200);
+      const confirmation = await json<Job>(confirmed);
+      const result =
+        confirmation.status === 'PROCESSING'
+          ? await waitForBulkImportTerminalState(ready.id, scopeAToken)
+          : confirmation;
+      if (result.succeededRows !== 1 || result.failedRows !== 1) {
+        const snapshot = await database.query(
+          `select row_number, validation_status, execution_status,
                 error_code, execution_error_code, attempt_count,
                 (claim_token is not null) as has_claim, claim_expires_at
          from bulk_import_rows
          where job_id = $1
          order by row_number`,
-        [ready.id],
+          [ready.id],
+        );
+        throw new Error(
+          `ESP015_DB_DIAGNOSTICO ${JSON.stringify({
+            jobStatus: result.status,
+            succeededRows: result.succeededRows,
+            failedRows: result.failedRows,
+            rows: snapshot.rows,
+          })}`,
+        );
+      }
+      expect(result.succeededRows).toBe(1);
+      expect(result.failedRows).toBe(1);
+      const executed = await json<{ items: Row[] }>(
+        await api('GET', `/bulk-imports/${ready.id}/rows?filter=ALL`, undefined, scopeAToken),
       );
-      throw new Error(
-        `ESP015_DB_DIAGNOSTICO ${JSON.stringify({
-          jobStatus: result.status,
-          succeededRows: result.succeededRows,
-          failedRows: result.failedRows,
-          rows: snapshot.rows,
-        })}`,
-      );
-    }
-    expect(result.succeededRows).toBe(1);
-    expect(result.failedRows).toBe(1);
-    const executed = await json<{ items: Row[] }>(
-      await api('GET', `/bulk-imports/${ready.id}/rows?filter=ALL`, undefined, scopeAToken),
-    );
-    const failed = executed.items.find((item) => item.rowNumber === 3);
-    expect(failed?.executionStatus).toBe('FAILED');
-    expect(failed?.errorCode).toBe('POINT_ACCESS_DENIED');
-    const schedulesB = await database.query<{ n: number }>(
-      `select count(*)::int n from patient_schedules ps
+      const failed = executed.items.find((item) => item.rowNumber === 3);
+      expect(failed?.executionStatus).toBe('FAILED');
+      expect(failed?.errorCode).toBe('POINT_ACCESS_DENIED');
+      const schedulesB = await database.query<{ n: number }>(
+        `select count(*)::int n from patient_schedules ps
        join authorization_items ai on ai.id = ps.authorization_item_id
        where ai.numero_autorizacion = $1`,
-      [authConfirmB],
-    );
-    expect(schedulesB.rows[0]!.n).toBe(0);
-  });
+        [authConfirmB],
+      );
+      expect(schedulesB.rows[0]!.n).toBe(0);
+    },
+    (BULK_IMPORT_ROW_CLAIM_LEASE_SECONDS + 45) * 1_000,
+  );
 
   it('30-34. admin MTD grant/revoke, self-grant/OLP/Compensar 403 y audit trail', async () => {
     const manage = await putPoints(scopeAUserId, [pointA]);

@@ -67,4 +67,15 @@ describe('authorization purchase eligibility', () => {
       }),
     ).toMatchObject({ eligible: false, reason: 'SOURCE_STATUS_BLOCKED' });
   });
+
+  it('does not allow a new purchase link after the fifth day even if expiration is in the current month', () => {
+    expect(
+      evaluateAuthorizationPurchaseEligibility({
+        sourceStatus: '5',
+        assignmentDate: '2026-10-01',
+        expirationDate: '2026-11-24',
+        todayBogota: '2026-11-30',
+      }),
+    ).toMatchObject({ eligible: false, reason: 'EXPIRED' });
+  });
 });
