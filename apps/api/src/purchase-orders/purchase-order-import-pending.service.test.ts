@@ -188,9 +188,9 @@ function setup(options: {
 describe('Asignación de compromiso de compra pendiente', () => {
   afterEach(() => vi.useRealTimers());
 
-  it('vincula una AUTO vencida del mes a compra pendiente sin reservar inventario recibido', async () => {
+  it('vincula una AUTO dentro de la gracia a compra pendiente sin reservar inventario recibido', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-11-07T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-11-06T12:00:00Z'));
     const { instance, clientQuery } = setup({
       requested: 5,
       received: 2,
