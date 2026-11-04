@@ -38,7 +38,7 @@ function result<Row extends Record<string, unknown>>(
 
 function databaseFor(
   expirationRaw: string,
-  options: { contendOnce?: boolean } = {},
+  options: { contendOnce?: boolean; noAllocations?: boolean } = {},
 ) {
   const calls: Array<{
     sql: string;
@@ -104,6 +104,7 @@ function databaseFor(
           normalized.startsWith('select')
           && normalized.includes('from inventory_authorization_allocations')
         ) {
+          if (options.noAllocations) return result([]);
           return result([{
             id: ALLOCATION_ID,
             organization_id: ORGANIZATION_ID,
@@ -313,6 +314,48 @@ describe(
         ).toBe(false);
       },
     );
+
+    it('libera la reserva física el día 6 y conserva la fuente durante el mes', async () => {
+      const fixture = databaseFor('20261101');
+      const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2026-11-07');
+
+      expect(outcome).toMatchObject({
+        releasedAllocations: 1,
+        releasedQuantity: 2,
+        releasedPurchaseOrderSources: 0,
+        clearedAuthorizations: 0,
+      });
+      expect(fixture.calls.some((call) =>
+        call.sql.startsWith('update purchase_order_authorization_sources'))).toBe(false);
+    });
+
+    it('no repite una liberación vacía mientras el vínculo sigue vigente para OC', async () => {
+      const fixture = databaseFor('20261101', { noAllocations: true });
+      const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2026-11-07');
+      expect(outcome.expiredAuthorizations).toBe(0);
+      expect(outcome.releasedPurchaseOrderSources).toBe(0);
+      expect(fixture.calls.some((call) => call.sql.startsWith('insert into audit_events'))).toBe(false);
+    });
+
+    it('libera el vínculo al cambiar de mes si la gracia ya terminó', async () => {
+      const fixture = databaseFor('20261101');
+      const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2026-12-01');
+      expect(outcome.releasedPurchaseOrderSources).toBe(1);
+    });
+
+    it('conserva el vínculo tras cambiar de mes mientras sigue la gracia', async () => {
+      const fixture = databaseFor('20261130');
+      const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2026-12-01');
+      expect(outcome.releasedPurchaseOrderSources).toBe(0);
+      expect(outcome.releasedAllocations).toBe(0);
+    });
+
+    it('libera el vínculo al terminar la gracia después de cambiar de año', async () => {
+      const fixture = databaseFor('20261231');
+      const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2027-01-06');
+      expect(outcome.releasedAllocations).toBe(1);
+      expect(outcome.releasedPurchaseOrderSources).toBe(1);
+    });
 
     it('cede ante un lock ocupado y reintenta en el siguiente barrido', async () => {
       const fixture = databaseFor('20261028', { contendOnce: true });

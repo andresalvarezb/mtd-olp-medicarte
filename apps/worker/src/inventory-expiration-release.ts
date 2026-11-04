@@ -171,8 +171,9 @@ function subtractCalendarDays(
 
 
 /*
- * Libera las reservas físicas no consumidas y los vínculos activos de compra
- * desde el sexto día posterior al vencimiento. Las filas históricas de OC,
+ * Libera las reservas físicas no consumidas desde el sexto día posterior al
+ * vencimiento. Libera los vínculos de compra cuando además terminó el mes de
+ * vencimiento. Las filas históricas de OC,
  * asignaciones, recepciones y consumos se conservan.
  */
 export async function runInventoryExpirationReleaseSweep(
@@ -526,10 +527,12 @@ export async function runInventoryExpirationReleaseSweep(
           ],
         );
 
+      const releasePurchaseSources =
+        lockedExpiration.slice(0, 7) < todayBogota.slice(0, 7);
+
       if (
         allocations.rows.length === 0
-        &&
-        sources.rows.length === 0
+        && (sources.rows.length === 0 || !releasePurchaseSources)
       ) {
         await client.query('ROLLBACK');
         continue;
@@ -652,6 +655,7 @@ export async function runInventoryExpirationReleaseSweep(
 
       if (
         sources.rows.length > 0
+        && releasePurchaseSources
       ) {
         const sourceIds =
           sources.rows.map(
