@@ -421,3 +421,4 @@ export type {
 } from './authorization-fulfillment';
 
 export * from './authorization-operational-window';
+export * from './authorization-fulfillment-window';

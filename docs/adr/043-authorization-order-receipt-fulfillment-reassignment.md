@@ -2,7 +2,7 @@
 
 Estado: documentación de AS-IS, decisiones de negocio y TO-BE
 Fecha: 2026-09-24
-Actualización operativa: 2026-11-03
+Actualización operativa: 2026-11-04
 
 ## Propósito y alcance
 
@@ -24,17 +24,17 @@ flowchart LR
     F --> G[Consumo físico]
 ```
 
-El flujo objetivo cuando vence una AUTO sin consumo es:
+El flujo objetivo cuando vence una AUTO es:
 
 ```mermaid
 flowchart LR
-   A[AUTO asignada] --> B[Vence sin consumo]
+   A[AUTO asignada] --> B[Vence]
    B --> C[Conservar reserva durante cinco días]
-   C --> D[Desde el día 6 liberar saldo físico]
-   D --> E[Al terminar el mes liberar fuente activa de OC]
-   E --> H[Compra pendiente disponible]
-   H --> F[Seleccionar manualmente AUTO_DESTINO compatible]
-   F --> G[Asignar mediante import de OC y auditar]
+   C -->|Sin atención confirmada al día 6| D[Desde el día 6 liberar saldo físico y fuente activa OC]
+   C -->|Atención confirmada| E[Conservar saldo reservado y fuente activa]
+   E --> F[Continuar con saldo autorizado y reservado]
+   D --> H[Compra pendiente disponible para operación válida]
+   H --> I[Selección manual compatible bajo reglas vigentes]
 ```
 
 El modelo de cantidades es:
@@ -215,25 +215,13 @@ flujo de consumo hasta que exista evidencia física compatible.
 
 ### DECISIÓN VIGENTE
 
-El vencimiento de una autorización es una condición
-de inhabilitación operacional.
-
-Una AUTO vencida:
-
-- permanece visible para consulta y trazabilidad;
-- no puede registrar entrega;
-- no puede registrar aplicación;
-- conserva temporalmente la reserva ya materializada;
-- puede ser AUTO_DESTINO para compra durante su mes de vencimiento, si cumple
-  [BR-AUTO-OC-001](../requirements/BR-AUTO-OC-001-vigencia-para-asignacion.md);
-  no recibe una reserva física nueva o transferida mientras esté vencida.
-
-La reserva retenida solo puede usarse para entrega o aplicación cuando la
-vigencia haya sido ampliada hasta cubrir el día de operación y se cumplan las
-demás condiciones de habilitación.
-
-La expiración no elimina la relación histórica entre
-la AUTO y la orden de compra.
+Aplicar [BR-AUTO-EXP-001](../requirements/BR-AUTO-EXP-001-gracia-continuidad-atencion.md).
+La fecha final es inclusiva; los días 1 a 5 posteriores permiten entrega o
+aplicación con las demás validaciones. Desde el día 6, una AUTO sin atención
+confirmada no puede iniciar atención y libera reserva pendiente y fuentes
+activas de OC sin esperar al cierre del mes. Con atención confirmada, conserva
+el saldo ya reservado y la fuente activa para permitir continuidad cuantificada.
+La expiración no elimina la relación histórica entre la AUTO y la OC.
 
 ### GRACIA DE CINCO DÍAS
 
@@ -242,15 +230,15 @@ El día de vencimiento inicia el período de gracia.
 Durante los días 1 a 5 posteriores al vencimiento,
 la allocation activa permanece asociada a la AUTO.
 
-Durante esta gracia no se permite entrega ni aplicación.
-La reserva retenida solo puede consumirse después de ampliar
-`FECHA_FINAL_VIGENCIA` y cumplir los demás requisitos de habilitación.
+Durante esta gracia se permite entrega o aplicación hasta los saldos
+autorizados y reservados, si se cumplen las demás validaciones. Una recepción
+real puede crear una reserva vinculada a una fuente activa.
 
 Si la allocation no tiene consumo previo, puede
 transferirse mediante una reasignación explícita y
 atómica hacia una AUTO_DESTINO válida.
 
-A partir del día 6, cuando:
+A partir del día 6, cuando no existe atención confirmada, si:
 
 FECHA_FINAL_VIGENCIA < HOY - 5
 
@@ -262,10 +250,13 @@ allocated_quantity
 
 La allocation histórica no se elimina.
 
-El worker marca como liberadas las fuentes activas de OC de la AUTO cuando,
-además de cumplirse la gracia, terminó el mes de vencimiento. La fila histórica y
-source_quantity_snapshot permanecen intactos; el
-actor automático queda registrado como SYSTEM.
+El worker libera también las fuentes activas de OC sin esperar al cierre del
+mes. La fila histórica y source_quantity_snapshot permanecen intactos; el
+actor automático queda registrado como SYSTEM. Si existe atención confirmada,
+el worker no libera la reserva ni el vínculo activo. Según la regla aprobada
+posteriormente en BR-AUTO-EXP-001, una recepción física posterior de esa misma
+OC activa puede crear un top-up dentro de los límites del snapshot comercial,
+saldo autorizado y pool recibido; no reactiva una fuente liberada.
 La liberación no modifica cantidades solicitadas,
 recibidas ni consumidas. La compra pendiente puede
 asignarse manualmente a una AUTO elegible mediante
@@ -387,12 +378,12 @@ previamente. Una unidad ya entregada/aplicada nunca puede reasignarse.
 - `MEDICARTE_RECIBIDO >= CONSUMIDO`.
 - Nunca `CONSUMIDO > RECIBIDO`.
 - Actualizar una AUTO no modifica el snapshot histórico de una OC.
-- La evidencia AUTO → OC permanece cuando la AUTO vence; el vínculo está activo
-  durante la gracia y el mes de vencimiento; queda como fuente liberada histórica
-  cuando se cumplen ambos plazos.
+- La evidencia AUTO → OC permanece cuando la AUTO vence; la fuente activa se
+  conserva tras el día 5 si existe atención confirmada y se libera desde ese día
+  si no existe atención, sin esperar al fin de mes.
 - Una unidad reservada y no consumida solo puede pasar a otra AUTO mediante reasignación explícita y atómica.
 - Una unidad consumida no puede reasignarse.
-- El vencimiento conserva la reserva durante cinco días; desde el día 6 libera el saldo no consumido. La fuente activa de OC se libera cuando también terminó el mes de vencimiento, manteniendo su evidencia histórica.
+- El vencimiento conserva la reserva durante cinco días; desde el día 6 sin atención confirmada libera el saldo no consumido y la fuente activa OC. Con atención confirmada se conservan ambas para continuidad cuantificada, manteniendo su evidencia histórica.
 
 ## Modelo temporal y trazabilidad mínima
 
@@ -416,7 +407,7 @@ reasignación.
 | Disponibilidad | `InventoryAvailabilityRepository` usa `inventory_authorization_allocations` y carga UI/XLSX | Sigue siendo una segunda asignación técnica; TO-BE la deja fuera de la responsabilidad de asignar AUTO |
 | Fulfillment automático | `ensureAutomaticAllocation()` crea allocations desde el snapshot de OC | El contrato backend actual todavía materializa asignación al atender; debe alinearse con la asignación lógica nacida en la OC |
 | Recepción histórica | `recordConfirmedReceipt()` sí crea lotes y movimientos `RECEIPT` | Conviven dos arquitecturas y la quantity-only no tiene la misma evidencia física |
-| Retención/reasignación | `reconcileIneligibleTx()` no libera reservas; el worker de expiración libera allocations desde el día 6 y fuentes activas cuando además termina el mes de vencimiento. La transferencia a una AUTO_DESTINO vive en `PurchaseOrderImportService` | El vencimiento libera el saldo físico no consumido al día 6 y el vínculo de OC al cumplirse ambos plazos; la selección de destino permanece manual. Otros cambios administrativos no liberan reservas automáticamente |
+| Retención/reasignación | `reconcileIneligibleTx()` no libera reservas; el worker libera allocation y fuente activa desde el día 6 solo sin atención confirmada. La transferencia a una AUTO_DESTINO vive en `PurchaseOrderImportService` | La continuidad parcial conserva el saldo existente; BR-AUTO-EXP-001 permite después un top-up físico solo por recepción de la misma OC y fuente aún activa |
 | Concurrencia de consumo | Fulfillment usa transacción, locks de autorización/allocation/punto y valida lotes | El TO-BE exige además una reserva/consumo atómico que no elija AUTO propietaria por anticipado en escasez |
 
 Los GAPs de recepción, asignación y consumo de la tabla no se presentan como
@@ -519,7 +510,7 @@ de integración PostgreSQL real, concurrencia entre importador/UI y
 conciliación sobre OC 9198/9218/9230, sin intervenir producción.
 
 
-## 2026-11-03 — Vencimiento, liberación y reutilización de OC pendiente
+## 2026-11-03 — Vencimiento, liberación y reutilización de OC pendiente (regla reemplazada el 2026-11-04)
 
 - Una AUTO vencida conserva su reserva física y la fuente activa de OC durante
   los cinco días posteriores. Entrega y aplicación quedan bloqueadas hasta
@@ -541,3 +532,21 @@ conciliación sobre OC 9198/9218/9230, sin intervenir producción.
 - El cambio de clave se despliega aplicando `0104`, deteniendo escrituras de
   OC, aplicando `0105_purchase_order_source_history`, desplegando API y worker
   compatibles y reanudando las escrituras después.
+
+## 2026-11-04 — Gracia y continuidad con atención parcial confirmada
+
+- El día de vencimiento es inclusivo. Durante los días calendario 1 a 5 se
+  permite atención bajo los controles y saldos autorizados/reservados.
+- Desde el día 6, el worker libera reserva física pendiente y fuentes activas
+  OC únicamente cuando no existe atención confirmada, sin esperar al cierre
+  del mes. Con atención confirmada conserva saldo y vínculo activo. La decisión
+  aprobada después permite completar progresivamente la reserva ante una
+  recepción física posterior de esa misma OC activa, dentro de los límites
+  comerciales, autorizados y físicos; no revive fuentes liberadas.
+- La consulta de evidencia considera fulfillment confirmado, aplicación
+  histórica confirmada y consumo positivo en allocations. El saldo atendido se
+  agrega con `greatest`, no sumando evidencia duplicada.
+- La fecha de `authorization_dispensations` no contiene cantidad y no acredita
+  por sí sola un saldo parcial. Su tratamiento requiere reconciliación; ver
+  [BR-AUTO-EXP-001](../requirements/BR-AUTO-EXP-001-gracia-continuidad-atencion.md).
+- La liberación, auditoría e invalidaciones permanecen dentro de la transacción.

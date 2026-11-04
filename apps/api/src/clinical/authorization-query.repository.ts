@@ -25,6 +25,8 @@ import {
   toIsoTimestamp,
 } from '../common/date-time';
 
+import { evaluateAuthorizationFulfillmentWindow } from '@authorization/domain';
+
 import {
   DATABASE,
 } from '../tokens';
@@ -925,6 +927,8 @@ export class AuthorizationQueryRepository {
             where
               af_progress.authorization_item_id =
                 i.id
+
+              and af_progress.confirmed_at is not null
           ),
           0
         ),
@@ -952,6 +956,10 @@ export class AuthorizationQueryRepository {
 
               and pa_progress.status =
                 'CONFIRMED'
+
+              and pa_progress.confirmed_by is not null
+
+              and pa_progress.confirmed_at is not null
           ),
           0
         ),
@@ -5500,6 +5508,13 @@ export class AuthorizationQueryRepository {
         today,
       });
 
+    const fulfillmentWindow = evaluateAuthorizationFulfillmentWindow({
+      expirationDate: row.validity_end_date,
+      todayBogota: today,
+      hasConfirmedAttention: fulfilledQuantity > 0,
+      remainingAuthorizedQuantity,
+    });
+
     const initialValidationStatus =
       resolveAuthorizationInitialValidationStatus({
         enablementStatus:
@@ -5643,6 +5658,9 @@ export class AuthorizationQueryRepository {
       initialValidationStatus,
 
       validityStatus,
+
+      expiryAttentionStatus:
+        fulfillmentWindow.status,
 
       lifecycleEnablement,
 

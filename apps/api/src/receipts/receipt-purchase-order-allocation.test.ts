@@ -81,47 +81,19 @@ describe(
     );
 
     it(
-      'no discrimina las AUTO fuente por estado habilitacion vencimiento fulfillment o aplicacion',
+      'permits a post-grace physical top-up only for an attended AUTO with an active source',
       () => {
-        const start =
-          source.indexOf(
-            'const candidates =',
-          );
+        const gate = source.indexOf('evaluateAuthorizationFulfillmentWindow({');
+        const reject = source.indexOf('!reservationWindow.eligibleForNewReservation', gate);
+        const insert = source.slice(reject).search(/insert\s+into\s+inventory_authorization_allocations/i);
 
-        const end =
-          source.indexOf(
-            'Whole-AUTO allocation.',
-            start,
-          );
-
-        expect(start).toBeGreaterThan(-1);
-        expect(end).toBeGreaterThan(start);
-
-        const candidateSql =
-          source.slice(
-            start,
-            end,
-          );
-
-        expect(candidateSql).not.toContain(
-          "ai.source_status_normalized =",
-        );
-
-        expect(candidateSql).not.toContain(
-          "ai.enablement_status =",
-        );
-
-        expect(candidateSql).not.toContain(
-          'from\n                patient_applications',
-        );
-
-        expect(candidateSql).not.toContain(
-          'from\n                authorization_fulfillments',
-        );
-
-        expect(candidateSql).not.toContain(
-          'candidate.expiration_date >=',
-        );
+        expect(gate).toBeGreaterThan(-1);
+        expect(reject).toBeGreaterThan(gate);
+        expect(insert).toBeGreaterThan(-1);
+        expect(source).toContain('currentBogotaDate()');
+        expect(source).toContain('hasConfirmedAttention: fulfilledQuantity > 0');
+        expect(source).toContain('and poas.released_at is null');
+        expect(source).toContain('remainingAuthorizedQuantity');
       },
     );
 
@@ -139,31 +111,24 @@ describe(
     );
 
     it(
-      'mantiene Whole-AUTO y no parte una necesidad mayor al saldo disponible',
+      'permite asignación parcial acotada por compromiso, saldo autorizado e inventario físico',
       () => {
-        expect(source).toMatch(
-          /quantity\s*>\s*available/,
-        );
-
-        expect(source).toContain(
-          'continue;',
-        );
+        expect(source).toContain('remainingPurchaseCommitment');
+        expect(source).toContain('unreservedAuthorizedQuantity');
+        expect(source).toMatch(/const quantity = Math\.min\([\s\S]{0,180}available,/);
+        expect(source).toMatch(/wholeAuthorization:\s*false/);
       },
     );
 
     it(
-      'evita materializar nuevamente una allocation activa de la misma AUTO OC producto y punto',
+      'permite completar progresivamente la misma fuente activa sin exceder su snapshot',
       () => {
         const start =
           source.indexOf(
             'const candidates =',
           );
 
-        const end =
-          source.indexOf(
-            'Whole-AUTO allocation.',
-            start,
-          );
+        const end = source.indexOf('order by', start);
 
         const candidateSql =
           source.slice(
@@ -171,25 +136,12 @@ describe(
             end,
           );
 
-        expect(candidateSql).toContain(
-          'inventory_authorization_allocations',
-        );
-
-        expect(candidateSql).toContain(
-          'iaa.authorization_item_id',
-        );
-
-        expect(candidateSql).toContain(
-          'iaa.purchase_order_id',
-        );
-
-        expect(candidateSql).toContain(
-          'iaa.commercial_code',
-        );
-
-        expect(candidateSql).toContain(
-          'iaa.dispensing_point_id',
-        );
+        expect(candidateSql).toContain('source_quantity_snapshot');
+        expect(candidateSql).toContain('poas.released_at is null');
+        expect(candidateSql).not.toMatch(/not\s+exists[\s\S]{0,220}inventory_authorization_allocations/i);
+        expect(source).toContain('purchase_order_committed_quantity');
+        expect(source).toContain('iaa.purchase_order_id = ${purchaseOrderId}');
+        expect(source).toMatch(/from\s+inventory_authorization_allocations[\s\S]{0,260}authorization_item_id = ai\.id/);
       },
     );
 

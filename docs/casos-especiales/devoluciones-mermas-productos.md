@@ -9,7 +9,7 @@
 | Rechazo durante recepción legacy | `rejectedQuantity`, `nonconformityReason`, `DAMAGED_PRODUCT`, `PACKAGING_ISSUE`, lote/vencimiento | Que se creó una orden de devolución al proveedor |
 | No aplicación con producto preparado no reutilizable | Movimiento `inventory_movements` con `movement_type='NON_REUSABLE'` y cantidad negativa, ligado a una línea de resultado | Que el hecho equivale a baja contable, destrucción sanitaria o devolución física |
 | Traslado despachado con avería en tránsito | Estados y movimientos de salida/entrada por traslado | Que existe recepción parcial o reverso de traslado expuesto |
-| Producto vencido almacenado | Validación de vencimiento en uso/traslado. El vencimiento de AUTO conserva la reserva durante cinco días y desde el día 6 libera el saldo asignado no consumido | Que la liberación de una reserva AUTO ajuste el stock físico o sustituya un proceso de baja de lote |
+| Producto vencido almacenado | Validación de vencimiento en uso/traslado. La reserva AUTO sigue [BR-AUTO-EXP-001](../requirements/BR-AUTO-EXP-001-gracia-continuidad-atencion.md): desde el día 6 libera sin atención confirmada y se conserva con atención parcial | Que la liberación de una reserva AUTO ajuste el stock físico o sustituya un proceso de baja de lote |
 
 | ID | Caso | Tratamiento documental | Estado |
 | --- | --- | --- | --- |

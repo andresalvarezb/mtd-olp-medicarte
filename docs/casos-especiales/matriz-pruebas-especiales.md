@@ -109,10 +109,17 @@ Todos los siguientes casos son **PENDIENTES**, no pruebas ejecutadas. Para brech
 | TE-96 | Revocación grant de punto antes de mutar | Denegación al revalidar y sin saldo negativo | API + DB + auditoría / acta RF |
 | TE-97 | Usuario doble organización cambia X-Organization-Id | No mezcla datos/permisos entre organizaciones | API + DB + auditoría / acta RF |
 | TE-98 | Worker ejecutado de nuevo tras liberar una AUTO | No repetir liberación, auditoría ni invalidación de la fuente ya terminada | source/allocations/outbox/auditoría |
-| TE-99 | AUTO vencida dentro de gracia intenta entrega o aplicación | Rechazo hasta ampliar vigencia, aunque conserve reserva | API, vigencia, saldo reservado |
-| TE-100 | Renovar AUTO durante gracia y cumplir demás gates | Entrega/aplicación permitida según saldo y requisitos vigentes | before/after, fulfillment/application |
-| TE-101 | Renovar después del día 6 | No restaura reservas ni fuente OC liberadas | sources/allocations antes/después |
-| TE-102 | Revincular manualmente la misma AUTO a la misma línea OC pendiente y no recibida | Acepta nueva fuente activa con `AUTO_ORIGEN` vacío; preserva intacta la fuente liberada y no crea stock | importación, fuentes, línea OC, inventario |
+| TE-99 | AUTO vence hoy; fecha final inclusiva | Atención permitida si quedan cantidades autorizadas y reservadas | API, vigencia, saldo reservado |
+| TE-100 | AUTO vencida hace 1 o 5 días, sin atención previa | Primera entrega/aplicación permitida durante gracia | API, cantidades, historial |
+| TE-101 | Día 6 sin atención, con reserva y fuente activa | Bloquea atención; libera reserva y fuente en la misma transacción sin esperar al cierre del mes | sources/allocations/auditoría |
+| TE-102 | Día 6 con atención parcial confirmada | Conserva saldo y fuente; permite continuar solo con cantidad autorizada y reservada | before/after, fulfillment/application |
+| TE-103 | Recepción después de liberar por vencimiento | No reconstruye allocation para la fuente liberada | recepción, fuentes, allocations |
+| TE-104 | Atención confirmada en evidencia histórica | Protege continuidad; no duplica consumo entre aplicaciones y allocations | historial y cantidades agregadas |
+| TE-105 | AUTO con 10 autorizadas, 4 atendidas y 6 reservadas | Conserva y permite consumir hasta 6; rechaza 7 o más | fulfillment, allocation, saldo |
+| TE-106 | AUTO totalmente atendida o sin saldo físico reservado | Rechaza consumo adicional y conserva historial | API, inventory, history |
+| TE-107 | Cambio de mes/año y límite Bogotá 23:59/00:00 | Aplica el día 5 y 6 por fecha calendario `America/Bogota` | helper, worker, API |
+| TE-108 | Nueva asignación de OC después del día 5 mientras la AUTO siga vencida | Rechaza nuevo vínculo; no altera vínculos históricos activos de AUTO con atención | export/import OC, sources |
+| TE-109 | Renovar después de liberar por día 6 y revincular manualmente a línea pendiente sin recepción | No restaura la fuente ni allocation anterior; nueva fuente manual solo si conserva capacidad y demás validaciones | importación, sources, línea OC, inventario |
 | TE-103 | Revinculación cuando la capacidad ya está comprometida a otra AUTO | Rechaza sin exceder capacidad ni reasignar automáticamente | capacidad/sources/allocations |
 | TE-104 | Worker encuentra edición manual con locks ocupados | Omite y revierte solo ese caso; procesa otros y reintenta en siguiente barrido | transacciones, logs, estado del caso independiente |
 | TE-105 | Consulta histórica con dos fuentes sucesivas para la pareja línea/AUTO | Cantidad agregada una sola vez según estado/semántica de cada fuente | consulta, fuentes, total conciliado |

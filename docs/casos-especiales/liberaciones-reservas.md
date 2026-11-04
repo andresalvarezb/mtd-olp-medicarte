@@ -1,14 +1,14 @@
 # CE-08 a CE-13 — Vencimientos, liberaciones y reservas
 
-**Política vigente:** runInventoryExpirationReleaseSweep libera reservas físicas desde el sexto día posterior al vencimiento. Libera el vínculo activo de compra cuando además termina el mes de vencimiento. Conserva fuentes y allocations como historial; no borra recepciones ni consumos.
+**Política vigente:** consultar [BR-AUTO-EXP-001](../requirements/BR-AUTO-EXP-001-gracia-continuidad-atencion.md). En Bogotá, la fecha final es inclusiva; los días 1 a 5 permiten atención. Desde el día 6, `runInventoryExpirationReleaseSweep` libera la reserva física pendiente y el vínculo activo OC únicamente si no existe atención confirmada. Con atención confirmada se conserva el saldo restante y el vínculo. Las fuentes y allocations permanecen como historial; no se borran recepciones ni consumos.
 
 ## CE-08 — Una autorización alcanza `EXPIRED`
 
-Durante los cinco días posteriores al vencimiento, la reserva física y el vínculo activo AUTO→OC permanecen. La reserva retenida no permite entrega ni aplicación mientras la vigencia siga vencida; primero debe ampliarse `FECHA_FINAL_VIGENCIA` y deben cumplirse las demás validaciones. Desde el sexto día, el worker libera `allocated_quantity - consumed_quantity - released_quantity`. Mantiene el vínculo activo mientras el vencimiento pertenezca al mes actual de Bogotá. Cuando ya pasaron los cinco días de gracia y terminó ese mes, marca las fuentes activas de OC como liberadas (`released_by_type=SYSTEM`). Mantiene `source_quantity_snapshot`, cantidades de OC, recepciones y consumos. El vínculo liberado queda visible como historial y la compra pendiente puede vincularse de nuevo solo por acción manual.
+Durante los días calendario 1 a 5 posteriores al vencimiento se permite iniciar o continuar entrega/aplicación, si pasan los demás controles y existe saldo autorizado y reservado. Una recepción real puede crear una reserva durante esa ventana. Desde el día 6, el worker consulta evidencia moderna e histórica: sin atención confirmada libera `allocated_quantity - consumed_quantity - released_quantity` y las fuentes activas AUTO→OC (`released_by_type=SYSTEM`), sin importar si cambió el mes. Con atención confirmada conserva reservas, consumos y fuentes activas. Una recepción física posterior de esa misma OC activa puede crear un top-up, limitado al snapshot de compra aún no comprometido, saldo autorizado sin reservar y pool físico recibido sin asignar. No se reactiva una fuente liberada ni se crea una relación comercial nueva. Mantiene cantidades comerciales, recepciones y consumos; la fuente liberada queda visible como historial.
 
 **Proceso worker:** con SCHEDULER_ENABLED=true, al iniciar y cada **5 minutos** ejecuta runInventoryExpirationReleaseSweep. Usa advisory y row locks, registra auditoría con actor SYSTEM e invalida AUTHORIZATIONS, PURCHASE_ORDERS, INVENTORY y DASHBOARD. Las liberaciones son idempotentes; una segunda ejecución no vuelve a aumentar released_quantity ni crea auditoría duplicada.
 
-**No interpretar** EXPIRED -> stock disponible durante la gracia. Una AUTO con consumo previo conserva esas cantidades consumidas; solo se libera el saldo pendiente.
+**No interpretar** una reserva liberada como existencia nueva. Un producto recibido después de la liberación no se reserva automáticamente para esa fuente. Una atención confirmada no aumenta el autorizado ni el stock; solo protege el saldo existente.
 
 ## CE-09 — Anular autorización sin atención confirmada
 
@@ -42,9 +42,10 @@ La recepción directa Medicarte (`POST /api/v1/medicarte/purchase-orders/:id/rec
 
 | Evento | Cambia reserva | Cambia OC histórica | Incrementa inventario físico | Dispara invalidación |
 | --- | --- | --- | --- | --- |
-| Día 1 a 5 después del vencimiento | No | No | No | Sí, vistas AUTO/dashboard |
-| Desde el día 6, dentro del mes de vencimiento | Sí, saldo no consumido | Conserva el vínculo activo | No crea inventario; reservas físicas liberadas vuelven a disponibilidad | Sí |
-| Día 6 o posterior, terminado el mes de vencimiento | Sí, si queda saldo | Marca fuentes activas liberadas y conserva historial | No crea inventario | Sí |
+| Día 1 a 5 después del vencimiento | Se conserva; recepción real puede crear reserva | Conserva el vínculo activo | Solo recepción real | Sí, vistas AUTO/dashboard |
+| Día 6 sin atención confirmada, cualquier mes | Libera el saldo pendiente | Libera fuentes activas y conserva historial | No crea inventario; unidades físicas liberadas vuelven a disponibilidad | Sí |
+| Día 6 o posterior con atención confirmada y recepción posterior de la misma OC | Conserva saldo pendiente y permite top-up dentro de los límites autorizados, comprometidos y físicos | Conserva fuente activa | Idempotente: lo recibido y asignado no se reserva otra vez | Sí |
+| Día 6 o posterior sin nueva recepción o con autorización completa | Conserva solo saldo existente; no asigna unidades inexistentes o ya atendidas | Conserva fuente activa si existe atención confirmada | Sin top-up | Sí |
 | Anulación sin atención | Sí, libera saldo | Conserva OC, marca fuente liberada | No | Sí |
 | Cambio de producto | Sí, libera no consumido | Solo reconcilia OC exclusivamente MTD elegible | No | Sí |
 | Reducción de cantidad | Sí, solo exceso | Solo en caso MTD elegible | No | Sí |
@@ -55,11 +56,14 @@ La recepción directa Medicarte (`POST /api/v1/medicarte/purchase-orders/:id/rec
 
 ## CE-12A — Compromisos pendientes después de liberación
 
-Una fuente liberada por anulación o por vencimiento después de la gracia y del cierre del mes se conserva como evidencia histórica.
-Durante los cinco días de gracia, la reserva sigue asociada a la AUTO, pero
-entrega y aplicación exigen ampliar primero su vigencia. Después de la
-liberación, una renovación no recupera automáticamente la reserva ni una
-capacidad de OC que ya se comprometió a otra AUTO.
+Una fuente liberada por anulación o, sin atención confirmada, desde el día 6
+por vencimiento se conserva como evidencia histórica. Durante los cinco días
+de gracia la reserva puede utilizarse para atención si se cumplen los demás
+controles. Una AUTO con atención confirmada después del día 5 mantiene su
+reserva existente y vínculo activo; una recepción física posterior de esa
+misma OC activa puede completarla progresivamente dentro de los límites
+comerciales, autorizados y físicos. La política para crear una relación
+comercial nueva después de ese día continúa bloqueada.
 
 El importador de OC existentes permite vincular compra todavía pendiente a una
 AUTO destino compatible, sin fabricar inventario. Si la AUTO vencida se renovó,

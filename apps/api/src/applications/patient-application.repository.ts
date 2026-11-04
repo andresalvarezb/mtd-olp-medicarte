@@ -34,6 +34,8 @@ type Schedule = {
   authorization_number: string;
   patient_document: string | null;
   patient_name: string | null;
+  authorization_quantity: number;
+  fulfilled_quantity: number;
   authorization_assignment_on: string | null;
   authorization_expires_on: string | null;
   enablement_status: string;
@@ -328,8 +330,17 @@ export class PatientApplicationRepository {
     const rows = await this.database.db
       .execute<Schedule>(sql`select ps.id,ps.revision,ps.authorization_item_id,ps.commercial_code,ai.codigo_medicamento authorization_commercial_code,ps.dispensing_point_id,ps.scheduled_date::text,ps.quantity,ps.status,
       ai.numero_autorizacion authorization_number,coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE',ai.source_data->>'NUM_DOCUMENTO') patient_document,ai.source_data->>'NOMBRE_PACIENTE' patient_name,
-      ai.source_data->>'FECHA_ASIGNACION' authorization_assignment_on,ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,ai.enablement_status,ai.coverage_type,ai.direction_status,ai.mipres_manual_decision
+      ai.source_data->>'FECHA_ASIGNACION' authorization_assignment_on,ai.source_data->>'FECHA_FINAL_VIGENCIA' authorization_expires_on,ai.enablement_status,ai.coverage_type,ai.direction_status,ai.mipres_manual_decision,
+      case when btrim(coalesce(ai.source_data->>'CANTIDAD','')) ~ '^[0-9]+$' then (ai.source_data->>'CANTIDAD')::int else 0 end authorization_quantity,
+      progress.fulfilled_quantity
       from patient_schedules ps join authorization_items ai on ai.id=ps.authorization_item_id join dispensing_points dp on dp.id=ps.dispensing_point_id
+      cross join lateral (
+        select greatest(
+          coalesce((select sum(af.quantity)::int from authorization_fulfillments af where af.authorization_item_id=ai.id and af.confirmed_at is not null),0),
+          coalesce((select sum(pal.quantity)::int from patient_applications pa join patient_application_lines pal on pal.patient_application_id=pa.id where pa.authorization_item_id=ai.id and pa.status='CONFIRMED' and pa.confirmed_by is not null and pa.confirmed_at is not null),0),
+          coalesce((select sum(iaa.consumed_quantity)::int from inventory_authorization_allocations iaa where iaa.authorization_item_id=ai.id),0)
+        )::int fulfilled_quantity
+      ) progress
       where ps.status in ('SCHEDULED','RESCHEDULED') and not exists (select 1 from patient_applications pa where pa.patient_schedule_id=ps.id and pa.status in ('DRAFT','CONFIRMED'))
       and (${['MTD', 'MEDICARTE'].includes(scope.organizationCode)} or dp.organization_id=${scope.organizationId})
       and ${applyPointScope(sql`ps.dispensing_point_id`, scope)} order by ps.scheduled_date,ps.id limit 500`);
@@ -345,6 +356,12 @@ export class PatientApplicationRepository {
           assignmentDate: row.authorization_assignment_on,
           expirationDate: row.authorization_expires_on,
           todayBogota,
+          hasConfirmedAttention: row.fulfilled_quantity > 0,
+          remainingAuthorizedQuantity: Math.max(
+            row.authorization_quantity - row.fulfilled_quantity,
+            0,
+          ),
+          requestedQuantity: row.quantity,
         });
 
         return result.eligible;
@@ -392,6 +409,22 @@ export class PatientApplicationRepository {
     await tx.execute(
       sql`select id from authorization_items where id=${row.authorization_item_id} for update`,
     );
+    const progress = await tx.execute<{
+      authorization_quantity: number;
+      fulfilled_quantity: number;
+    }>(sql`
+      select
+        case when btrim(coalesce(ai.source_data->>'CANTIDAD','')) ~ '^[0-9]+$' then (ai.source_data->>'CANTIDAD')::int else 0 end authorization_quantity,
+        greatest(
+          coalesce((select sum(af.quantity)::int from authorization_fulfillments af where af.authorization_item_id=ai.id and af.confirmed_at is not null),0),
+          coalesce((select sum(pal.quantity)::int from patient_applications pa join patient_application_lines pal on pal.patient_application_id=pa.id where pa.authorization_item_id=ai.id and pa.status='CONFIRMED' and pa.confirmed_by is not null and pa.confirmed_at is not null),0),
+          coalesce((select sum(iaa.consumed_quantity)::int from inventory_authorization_allocations iaa where iaa.authorization_item_id=ai.id),0)
+        )::int fulfilled_quantity
+      from authorization_items ai
+      where ai.id=${row.authorization_item_id}
+    `);
+    row.authorization_quantity = Number(progress.rows[0]?.authorization_quantity ?? 0);
+    row.fulfilled_quantity = Number(progress.rows[0]?.fulfilled_quantity ?? 0);
     return row;
   }
 
@@ -417,6 +450,12 @@ export class PatientApplicationRepository {
       assignmentDate: schedule.authorization_assignment_on,
       expirationDate: schedule.authorization_expires_on,
       todayBogota: scheduleToday(),
+      hasConfirmedAttention: schedule.fulfilled_quantity > 0,
+      remainingAuthorizedQuantity: Math.max(
+        schedule.authorization_quantity - schedule.fulfilled_quantity,
+        0,
+      ),
+      requestedQuantity: schedule.quantity,
       applicationDate,
     });
 

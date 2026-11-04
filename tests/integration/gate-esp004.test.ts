@@ -71,9 +71,28 @@ const provenanceBatchIds: string[] = [];
 const authorizationIds: string[] = [];
 const scheduleIds: string[] = [];
 
-function expirationInDays(days: number): string {
-  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+function bogotaDateForGate(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
 }
+
+function plusDays(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+const TODAY_BOGOTA = bogotaDateForGate();
+const CURRENT_MONTH_ASSIGNMENT = `${TODAY_BOGOTA.slice(0, 7)}-01`;
+const PREVIOUS_MONTH_ASSIGNMENT = plusDays(CURRENT_MONTH_ASSIGNMENT, -1);
+const CURRENT_MONTH_EXPIRATION = plusDays(
+  TODAY_BOGOTA,
+  Number(TODAY_BOGOTA.slice(8, 10)) > 1 ? -1 : 0,
+);
 
 async function apiCall(
   method: string,
@@ -101,6 +120,7 @@ async function insertAuthorizationItem(input: {
   label: string;
   commercialCode: string;
   quantity: number;
+  assignmentDate?: string;
   enablementStatus?: 'ENABLED' | 'BLOCKED_SOURCE_STATUS';
   coverageType?: 'PBS' | 'NO_PBS';
   expirationDate?: string;
@@ -191,11 +211,9 @@ async function insertAuthorizationItem(input: {
         CODIGO_COMERCIAL: input.commercialCode,
         CANTIDAD: String(input.quantity),
 
-        // Intencionalmente fuera del período 2036:
-        // la compra no depende de FECHA_ASIGNACION.
-        FECHA_ASIGNACION: '2000-01-01',
+        FECHA_ASIGNACION: input.assignmentDate ?? CURRENT_MONTH_ASSIGNMENT,
 
-        FECHA_FINAL_VIGENCIA: input.expirationDate ?? expirationInDays(30),
+        FECHA_FINAL_VIGENCIA: input.expirationDate ?? plusDays(TODAY_BOGOTA, 30),
 
         IDENTIFICACION_PACIENTE: `DOC-${input.label}-${suffix}`,
 
@@ -608,7 +626,8 @@ beforeAll(async () => {
     label: 'EXPIRED',
     commercialCode: CODE_EXPIRED,
     quantity: 9,
-    expirationDate: '2000-01-01',
+    assignmentDate: PREVIOUS_MONTH_ASSIGNMENT,
+    expirationDate: CURRENT_MONTH_EXPIRATION,
   });
 
   noTariffId = await insertAuthorizationItem({

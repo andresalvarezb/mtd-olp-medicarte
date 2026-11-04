@@ -40,21 +40,22 @@ describe('authorization assignment validity for purchase orders', () => {
     });
   });
 
-  it('accepts a previous assignment month after expiry within the current month', () => {
-    expect(evaluate('2026-10-01', '2026-11-01', '2026-11-30')).toMatchObject({
+  it('accepts a previous assignment month through the fifth grace day in the current month', () => {
+    expect(evaluate('2026-10-01', '2026-11-25', '2026-11-30')).toMatchObject({
       eligible: true,
       status: 'VIGENTE',
       managementMonth: '2026-10',
     });
-    expect(evaluate('2026-10-01', '2026-11-01', '2026-12-01')).toMatchObject({
+
+    expect(evaluate('2026-10-01', '2026-11-24', '2026-11-30')).toMatchObject({
       eligible: false,
       reason: 'EXPIRED',
     });
   });
 
   it('applies the same month boundary across years', () => {
-    expect(evaluate('2026-11-01', '2026-12-01', '2026-12-31').eligible).toBe(true);
-    expect(evaluate('2026-11-01', '2026-12-01', '2027-01-01').eligible).toBe(false);
+    expect(evaluate('2026-12-01', '2026-12-26', '2026-12-31').eligible).toBe(true);
+    expect(evaluate('2026-12-01', '2026-12-26', '2027-01-01').eligible).toBe(false);
   });
 
   it.each([

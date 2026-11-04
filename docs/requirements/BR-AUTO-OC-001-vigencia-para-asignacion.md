@@ -13,20 +13,23 @@ se cumple cualquiera de estas alternativas:
 
 1. `FECHA_FINAL_VIGENCIA` es hoy o posterior, y `FECHA_ASIGNACION` pertenece al
    mismo año y mes de hoy o está entre hoy y hoy + 20 días calendario, inclusive.
-2. `FECHA_FINAL_VIGENCIA` pertenece al mes actual de Bogotá, aunque ya haya
-   pasado y `FECHA_ASIGNACION` pertenezca a un mes anterior.
+2. `FECHA_FINAL_VIGENCIA` pertenece al mes actual de Bogotá, está vencida hace
+   entre uno y cinco días calendario y `FECHA_ASIGNACION` pertenece a un mes
+   anterior.
 
 Las fechas inválidas o ausentes, una fecha de asignación fuera de esas dos
 alternativas y una fecha final anterior al mes actual producen `NO VIGENTE`. Para
 `MES_GESTION` se usa el año y mes de `FECHA_ASIGNACION`, con formato `YYYY-MM`;
 si la fecha no se puede interpretar, el campo queda vacío.
 
-`VIGENTE` en los archivos de OC significa elegible por fechas para compra. La
-consulta clínica puede mostrar la misma AUTO vencida para entrega y aplicación.
-La vigencia temporal es independiente del estado de anulación y del estado del
-vínculo con una OC. Los demás controles de fuente/estado, habilitación,
-Anexo Tarifario, MIPRES, producto, permisos, alcance y capacidad siguen
-aplicándose. Esta regla no cambia la ventana de entrega ni de aplicación.
+`VIGENTE` en los archivos de OC significa elegible por fechas para crear una
+nueva relación de compra. Durante los días 1 a 5 también se permite atención y,
+con recepción real, reserva física. Desde el día 6 ya no se crea un nuevo
+vínculo mientras siga vencida. Los vínculos ya activos se conservan o liberan
+según [BR-AUTO-EXP-001](BR-AUTO-EXP-001-gracia-continuidad-atencion.md); no se
+confunde la relación comercial con recepción, reserva física ni consumo. Los
+demás controles de fuente/estado, habilitación, Anexo Tarifario, MIPRES,
+producto, permisos, alcance y capacidad siguen aplicándose.
 
 ## Aplicación
 
@@ -37,13 +40,19 @@ aplicándose. Esta regla no cambia la ventana de entrega ni de aplicación.
   puede omitir esta validación.
 - La creación desde demanda consolidada también revalida esta regla. La
   consolidación ofrece las mismas candidatas por fechas.
-- Desde el sexto día posterior al vencimiento, una AUTO vencida en el mes
-  actual solo puede vincularse a compra aún no recibida. El importador no crea
-  ni transfiere una reserva física a una AUTO ya vencida.
-- El worker libera la reserva física no consumida desde el día 6. El vínculo
-  de compra pendiente se libera cuando también terminó el mes de vencimiento.
-  Los vínculos liberados antes de este cambio permanecen históricos; una nueva
-  vinculación es manual.
+- Desde el sexto día posterior al vencimiento, el importador no crea nuevos
+  vínculos para esa AUTO mientras siga vencida, aunque su mes de vencimiento
+  todavía sea el actual.
+- Desde el día 6, el worker libera la reserva física pendiente y el vínculo
+  activo solo cuando no existe atención confirmada, sin esperar al cambio de
+  mes. Si existe atención confirmada, conserva la reserva restante y el vínculo
+  activo para continuidad. Una recepción física posterior de esa misma OC
+  activa puede aumentar progresivamente la reserva conforme a
+  [BR-AUTO-EXP-001](BR-AUTO-EXP-001-gracia-continuidad-atencion.md); una nueva
+  relación comercial vencida sigue bloqueada.
+- Las fuentes liberadas se conservan como historial. La renovación no restaura
+  automáticamente una fuente ni una allocation liberada; las nuevas relaciones
+  siguen sujetas a selección manual y a las validaciones vigentes.
 - `ordenes-compra.xlsx` mantiene `OC_PRODUCTOS` y amplía `AUTO_RELACIONADAS`
   con fechas de asignación y vencimiento, `MES_GESTION`, `ESTADO_VIGENCIA`,
   `ESTADO_ANULACION` y `ESTADO_VINCULO_OC`.
@@ -68,7 +77,7 @@ nueva regla. No se restauran automáticamente vínculos ya liberados.
 2. Una asignación exactamente en hoy + 20 días es `VIGENTE`; en hoy + 21 es
    `NO VIGENTE` cuando cae fuera del mes actual.
 3. La regla funciona al cambiar de mes y de año; la fecha final de hoy se
-   acepta, y una fecha anterior se acepta solo durante su mes de vencimiento.
+   acepta, y una fecha anterior se acepta solo hasta el quinto día de gracia.
 4. Una fecha de asignación o vencimiento inválida se clasifica `NO VIGENTE`.
 5. El archivo de candidatas excluye todas las autorizaciones `NO VIGENTE` y
    conserva sus siete encabezados compatibles con el importador.
@@ -79,9 +88,11 @@ nueva regla. No se restauran automáticamente vínculos ya liberados.
    también existe un vínculo activo para la pareja OC/AUTO.
 8. Las exportaciones siguen limitadas al permiso y al alcance organizacional
    MTD autorizados.
-9. Una AUTO vencida durante el mes actual es `VIGENTE` para OC aunque su
-   asignación sea de un mes anterior; al cambiar de mes pasa a `NO VIGENTE`
-   salvo que su fecha final se haya ampliado.
-10. Al día 6 se libera únicamente la reserva física; el vínculo de compra
-    permanece durante el mes y se libera al cumplirse ambos plazos. El
-    importador no crea una reserva física para una AUTO vencida.
+9. Una AUTO vencida durante el mes actual es `VIGENTE` para una nueva OC hasta
+   el quinto día posterior al vencimiento, si su asignación es de un mes
+   anterior; desde el día 6 pasa a `NO VIGENTE` mientras siga vencida.
+10. Al día 6 sin atención confirmada se libera la reserva física pendiente y
+    el vínculo activo OC; con atención confirmada se conservan ambos. Una
+    recepción posterior de la misma OC activa puede completar la reserva
+    dentro del snapshot, el saldo autorizado pendiente y el pool físico; no se
+    reactivan fuentes liberadas ni se crean nuevos vínculos vencidos.

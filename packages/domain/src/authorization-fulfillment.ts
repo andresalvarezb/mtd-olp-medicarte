@@ -1,3 +1,5 @@
+import { evaluateAuthorizationFulfillmentWindow } from './authorization-fulfillment-window';
+
 export const AUTHORIZATION_FULFILLMENT_TYPES = [
   'APPLICATION',
   'DELIVERY',
@@ -11,6 +13,7 @@ export type AuthorizationFulfillmentInput =
     effectiveDate: string;
     validityEndDate: string | null;
     todayBogota: string;
+    hasConfirmedAttention: boolean;
 
     requestedQuantity: number;
 
@@ -185,12 +188,19 @@ export function assertAuthorizationFulfillment(
   }
 
 
-  // La reserva puede persistir tras el vencimiento, pero exige renovación
-  // de la vigencia antes de registrar una entrega o aplicación.
-  if (input.validityEndDate < input.todayBogota) {
+  const fulfillmentWindow = evaluateAuthorizationFulfillmentWindow({
+    expirationDate: input.validityEndDate,
+    todayBogota: input.todayBogota,
+    hasConfirmedAttention: input.hasConfirmedAttention,
+    remainingAuthorizedQuantity: input.remainingAuthorizedQuantity,
+  });
+
+  if (!fulfillmentWindow.eligible) {
     throw new AuthorizationFulfillmentError(
       'AUTHORIZATION_FULFILLMENT_EXPIRED',
-      'Amplíe la vigencia de la autorización antes de entregar o aplicar.',
+      fulfillmentWindow.status === 'BLOCKED_AFTER_GRACE'
+        ? 'Desde el sexto día posterior al vencimiento no se puede iniciar una entrega o aplicación sin atención previa confirmada.'
+        : 'La autorización no está habilitada para una nueva entrega o aplicación.',
     );
   }
 

@@ -25,7 +25,7 @@ Se realizó revisión específica de las excepciones previamente listadas en est
 | Vigencia y estado 16→5 | Regla, contrato, excepciones y auditoría | Validación histórica de fechas y de todas las vistas |
 | Cambio de producto/cantidad | Impacto OC/programación/inventario y errores | Pruebas de cruces con OC recibidas, consumo y concurrencia |
 | Anulación y reservas | Condiciones, liberación y permanencia histórica | Verificar reparaciones antiguas, reversos y carreras |
-| Vencimiento automático | **Política definida y flujo implementado en la rama de trabajo**: conserva la reserva durante cinco días; desde el día 6 libera saldos no consumidos y la fuente activa de OC | Certificar worker/API en base aislada y coordinar despliegue de migraciones, API y worker |
+| Vencimiento automático | **Regla aprobada; implementación en la rama de trabajo**: días 1–5 permiten atención; desde día 6 sin atención libera saldo y fuente; con atención confirmada conserva el saldo y vínculo activo sin crear reserva nueva | Certificar worker/API/recepción/fulfillment en base temporal y coordinar despliegue |
 | Facturación | Individual/XLSX, soportes, estado definitivo | Validación con facturación operativa, retención y permisos |
 | Soportes Drive | Búsqueda, metadata, sincronización opcional | Indexación real, permisos Drive, cifrado y ciclo documental |
 | Auditoría aplicación/fulfillment | Contratos y rutas | Revisar en profundidad repositorio/servicios y regla de reintento |
@@ -38,7 +38,7 @@ Se realizó revisión específica de las excepciones previamente listadas en est
 
 ## Riesgos concretos de interpretación
 
-1. **Vigencia de AUTO y reserva son reglas distintas:** durante los cinco días de gracia la reserva se conserva, pero una AUTO vencida no puede usarse para entrega o aplicación. Primero debe ampliarse la vigencia y cumplir los demás gates. Desde el día 6, el worker libera el saldo no consumido y termina la fuente activa de OC; una renovación posterior no restaura lo liberado.
+1. **Vigencia de AUTO y reserva son reglas distintas:** la fecha final es inclusiva; durante los cinco días siguientes se permite atención con saldo autorizado y reservado. Desde el día 6, sin atención confirmada, se liberan saldo y fuente activa; con atención confirmada se conservan para continuidad cuantificada. Una renovación posterior no restaura información liberada. Ver [BR-AUTO-EXP-001](../requirements/BR-AUTO-EXP-001-gracia-continuidad-atencion.md).
 2. **Condición de vigencia vs compra:** [BR-AUTO-REN-001](../requirements/BR-AUTO-REN-001-estado-16-vigencia.md) registra una diferencia histórica entre vigencia de consulta y elegibilidad de compra, pendiente de decisión separada.
 3. **Stock directo vs ledger legacy:** recepción directa por OC y `receipts` ligados a `deliveries` tienen reglas distintas; no sumar dos representaciones sin reconciliación.
 4. **Soporte documental ≠ conformidad de auditoría:** un PDF hallado por nombre o texto requiere inspección humana y validaciones de contexto.
@@ -59,6 +59,10 @@ Se realizó revisión específica de las excepciones previamente listadas en est
 
 Registrar cada nueva regla como caso de uso `CE-XX`, con actor, precondición, contrato, estados, efectos contables/físicos, ejemplos sintéticos, errores, evento de auditoría, pruebas y referencia exacta a código/commit. Una regla propuesta debe etiquetarse **PENDIENTE DE DECISIÓN**, nunca como implementada. Conservar ADR históricos, no editarlos para aparentar comportamiento actual.
 
-## Enmienda — expiración y revinculación de OC (2026-11-03)
+## Enmienda histórica — expiración y revinculación de OC (2026-11-03; reemplazada el 2026-11-04)
 
 Esta enmienda reemplaza las conclusiones anteriores de esta guía únicamente para el vencimiento de AUTO y la liberación/revinculación de fuentes de OC. La implementación se encuentra en la rama de trabajo y aún requiere certificación y despliegue coordinado; no se afirma que esté desplegada. La reserva dura cinco días calendario después del vencimiento. En ese intervalo no habilita entrega ni aplicación: MTD debe ampliar la vigencia primero. Desde el día 6, el worker libera el saldo no consumido y cierra la fuente activa de OC. Una revinculación posterior es manual mediante importación, con origen vacío, y crea una fuente activa nueva conservando la liberada; solo procede si vigencia, producto, punto y capacidad pendiente son válidos. No restaura saldo liberado ni capacidad comprometida a otra AUTO.
+
+## Enmienda — gracia y continuidad con atención parcial (2026-11-04)
+
+La regla anterior queda supersedida por [BR-AUTO-EXP-001](../requirements/BR-AUTO-EXP-001-gracia-continuidad-atencion.md): fecha final inclusiva; atención permitida durante días 1–5; día 6 libera reserva y fuente activa únicamente sin atención confirmada. Con atención confirmada se conserva el saldo existente y el vínculo, sin crear allocations después de gracia. La recepción posterior al día 5 con atención parcial queda pendiente de política adicional. La implementación local requiere las pruebas de certificación indicadas en esa regla.

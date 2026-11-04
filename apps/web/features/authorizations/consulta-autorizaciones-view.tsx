@@ -9,6 +9,11 @@ import { useEffect, useRef, useState } from 'react';
 import { PageHeader } from '@/components/ui/page-header';
 import { BulkBillingAuditActions } from './bulk-billing-audit-actions';
 import { AuthorizationModeratorFeePanel } from './authorization-moderator-fee-panel';
+import {
+  authorizationFulfillmentBlockMessage,
+  authorizationFulfillmentWindowLabel,
+  canStartAuthorizationFulfillment,
+} from './authorization-fulfillment-availability';
 import { getAuthorizationModeratorFee } from '@/lib/authorization-moderator-fee-api';
 import { moderatorFeeDate, moderatorFeeMoney } from '@/lib/moderator-fee-presentation';
 
@@ -2489,20 +2494,14 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
   const canFulfillSelected =
     Boolean(
       selected &&
-      canFulfill &&
-      (
-        selected.operationalStatus ===
-          'ASSIGNED'
-        ||
-        selected.operationalStatus ===
-          'PARTIALLY_ASSIGNED'
-      ) &&
-      selected.remainingAuthorizedQuantity >
-        0 &&
-      selected.remainingAssignedQuantity >
-        0 &&
-      selectedActivePurchaseOrders.length >
-        0,
+      canStartAuthorizationFulfillment({
+        canManage: canFulfill,
+        expiryAttentionStatus: selected.expiryAttentionStatus,
+        operationalStatus: selected.operationalStatus,
+        remainingAuthorizedQuantity: selected.remainingAuthorizedQuantity,
+        remainingAssignedQuantity: selected.remainingAssignedQuantity,
+        activePurchaseOrderCount: selectedActivePurchaseOrders.length,
+      }),
     );
 
 
@@ -2825,6 +2824,10 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                                   )}`
                                 : 'Fechas no válidas'}
                         </span>
+
+                        {item.expiryAttentionStatus !== 'CURRENT' ? (
+                          <span>{authorizationFulfillmentWindowLabel(item.expiryAttentionStatus)}</span>
+                        ) : null}
                       </div>
                     </td>
 
@@ -4871,6 +4874,10 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                         selected.validityStatus,
                       )}
                     </strong>
+
+                    <span>
+                      {authorizationFulfillmentWindowLabel(selected.expiryAttentionStatus)}
+                    </span>
                   </div>
 
                   <div>
@@ -5439,12 +5446,9 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
               </>
             ) : (
               <div className="authorization-operation-message">
-                {selected.operationalStatus ===
+                {authorizationFulfillmentBlockMessage(selected.expiryAttentionStatus) ?? (selected.operationalStatus ===
                 'OUT_OF_OPERATION'
-                  ? selected.validityStatus ===
-                      'EXPIRED'
-                    ? 'La autorización está vencida y no tiene una reserva activa disponible. No recibe nuevas asignaciones. Si existe una reserva en otra autorización, el producto solo puede cambiar de AUTO mediante una reasignación explícita.'
-                    : selected.initialValidationStatus ===
+                  ? selected.initialValidationStatus ===
                         'FAILED'
                       ? 'La autorización no superó la validación inicial y se encuentra fuera de operación. No puede recibir asignaciones ni registrar entrega o aplicación.'
                       : selected.validityStatus ===
@@ -5457,7 +5461,7 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   : selected.operationalStatus ===
                       'UNASSIGNED'
                     ? 'La autorización está habilitada, pero todavía no cuenta con una asignación activa de inventario. Revisa la recepción y la disponibilidad del producto antes de entregar o aplicar.'
-                    : 'La gestión está disponible únicamente para Medicarte.'}
+                    : 'La gestión está disponible únicamente para Medicarte.')}
               </div>
             )}
               </>

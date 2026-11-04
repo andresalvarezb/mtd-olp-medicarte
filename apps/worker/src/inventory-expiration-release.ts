@@ -171,9 +171,8 @@ function subtractCalendarDays(
 
 
 /*
- * Libera las reservas físicas no consumidas desde el sexto día posterior al
- * vencimiento. Libera los vínculos de compra cuando además terminó el mes de
- * vencimiento. Las filas históricas de OC,
+ * Desde el sexto día posterior al vencimiento, libera las reservas y fuentes
+ * activas únicamente cuando no hay atención confirmada. Las filas históricas de OC,
  * asignaciones, recepciones y consumos se conservan.
  */
 export async function runInventoryExpirationReleaseSweep(
@@ -465,6 +464,43 @@ export async function runInventoryExpirationReleaseSweep(
         continue;
       }
 
+      const attentionEvidence = await client.query<{ has_confirmed_attention: boolean }>(
+        `
+          SELECT
+            EXISTS (
+              SELECT 1
+              FROM authorization_fulfillments af
+              WHERE af.authorization_item_id = $1
+                AND af.quantity > 0
+                AND af.confirmed_at IS NOT NULL
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM patient_applications pa
+              JOIN patient_application_lines pal
+                ON pal.patient_application_id = pa.id
+              WHERE pa.authorization_item_id = $1
+                AND pa.status = 'CONFIRMED'
+                AND pa.confirmed_by IS NOT NULL
+                AND pa.confirmed_at IS NOT NULL
+                AND pal.quantity > 0
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM inventory_authorization_allocations iaa
+              WHERE iaa.authorization_item_id = $1
+                AND iaa.consumed_quantity > 0
+            )
+              AS has_confirmed_attention
+        `,
+        [candidate.id],
+      );
+
+      if (attentionEvidence.rows[0]?.has_confirmed_attention === true) {
+        await client.query('ROLLBACK');
+        continue;
+      }
+
       const allocations =
         await client.query<InventoryAllocation>(
           `
@@ -527,8 +563,7 @@ export async function runInventoryExpirationReleaseSweep(
           ],
         );
 
-      const releasePurchaseSources =
-        lockedExpiration.slice(0, 7) < todayBogota.slice(0, 7);
+      const releasePurchaseSources = true;
 
       if (
         allocations.rows.length === 0

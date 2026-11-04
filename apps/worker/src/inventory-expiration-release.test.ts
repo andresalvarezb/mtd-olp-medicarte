@@ -38,7 +38,7 @@ function result<Row extends Record<string, unknown>>(
 
 function databaseFor(
   expirationRaw: string,
-  options: { contendOnce?: boolean; noAllocations?: boolean } = {},
+  options: { contendOnce?: boolean; noAllocations?: boolean; noSources?: boolean; hasConfirmedAttention?: boolean } = {},
 ) {
   const calls: Array<{
     sql: string;
@@ -100,6 +100,10 @@ function databaseFor(
           }]);
         }
 
+        if (normalized.includes('has_confirmed_attention')) {
+          return result([{ has_confirmed_attention: options.hasConfirmedAttention ?? false }]);
+        }
+
         if (
           normalized.startsWith('select')
           && normalized.includes('from inventory_authorization_allocations')
@@ -119,6 +123,7 @@ function databaseFor(
           normalized.startsWith('select')
           && normalized.includes('from purchase_order_authorization_sources')
         ) {
+          if (options.noSources) return result([]);
           return result([{
             id: SOURCE_ID,
             purchase_order_line_id: PURCHASE_ORDER_LINE_ID,
@@ -315,29 +320,30 @@ describe(
       },
     );
 
-    it('libera la reserva física el día 6 y conserva la fuente durante el mes', async () => {
+    it('libera la reserva y la fuente activa desde el día 6 sin esperar al cierre del mes', async () => {
       const fixture = databaseFor('20261101');
       const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2026-11-07');
 
       expect(outcome).toMatchObject({
         releasedAllocations: 1,
         releasedQuantity: 2,
-        releasedPurchaseOrderSources: 0,
-        clearedAuthorizations: 0,
+        releasedPurchaseOrderSources: 1,
+        clearedAuthorizations: 1,
       });
       expect(fixture.calls.some((call) =>
-        call.sql.startsWith('update purchase_order_authorization_sources'))).toBe(false);
+        call.sql.startsWith('update purchase_order_authorization_sources'))).toBe(true);
     });
 
-    it('no repite una liberación vacía mientras el vínculo sigue vigente para OC', async () => {
+    it('libera el vínculo activo aunque no haya reserva física materializada', async () => {
       const fixture = databaseFor('20261101', { noAllocations: true });
       const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2026-11-07');
-      expect(outcome.expiredAuthorizations).toBe(0);
-      expect(outcome.releasedPurchaseOrderSources).toBe(0);
-      expect(fixture.calls.some((call) => call.sql.startsWith('insert into audit_events'))).toBe(false);
+      expect(outcome.expiredAuthorizations).toBe(1);
+      expect(outcome.releasedAllocations).toBe(0);
+      expect(outcome.releasedPurchaseOrderSources).toBe(1);
+      expect(fixture.calls.some((call) => call.sql.startsWith('insert into audit_events'))).toBe(true);
     });
 
-    it('libera el vínculo al cambiar de mes si la gracia ya terminó', async () => {
+    it('mantiene el historial y libera fuentes desde el día 6 al cambiar de mes', async () => {
       const fixture = databaseFor('20261101');
       const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2026-12-01');
       expect(outcome.releasedPurchaseOrderSources).toBe(1);
@@ -355,6 +361,25 @@ describe(
       const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2027-01-06');
       expect(outcome.releasedAllocations).toBe(1);
       expect(outcome.releasedPurchaseOrderSources).toBe(1);
+    });
+
+    it('no libera reservas ni fuentes después del día 5 cuando existe atención confirmada', async () => {
+      const fixture = databaseFor('2026-10-01', { hasConfirmedAttention: true });
+      const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2026-10-31');
+
+      expect(outcome).toMatchObject({
+        expiredAuthorizations: 0,
+        releasedAllocations: 0,
+        releasedQuantity: 0,
+        releasedPurchaseOrderSources: 0,
+      });
+      expect(fixture.calls.some((call) => call.sql.startsWith('update inventory_authorization_allocations'))).toBe(false);
+      expect(fixture.calls.some((call) => call.sql.startsWith('update purchase_order_authorization_sources'))).toBe(false);
+
+      const evidenceQuery = fixture.calls.find((call) => call.sql.includes('has_confirmed_attention'))?.sql;
+      expect(evidenceQuery).toContain('authorization_fulfillments');
+      expect(evidenceQuery).toContain('patient_applications');
+      expect(evidenceQuery).toContain('consumed_quantity > 0');
     });
 
     it('cede ante un lock ocupado y reintenta en el siguiente barrido', async () => {

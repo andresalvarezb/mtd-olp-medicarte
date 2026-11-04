@@ -15,6 +15,14 @@ export type AuthorizationValidityStatus =
   | 'OUTSIDE_HORIZON'
   | 'INVALID_DATE';
 
+export type AuthorizationFulfillmentWindowStatus =
+  | 'CURRENT'
+  | 'GRACE'
+  | 'PARTIAL_CONTINUATION'
+  | 'BLOCKED_AFTER_GRACE'
+  | 'COMPLETE'
+  | 'INVALID_DATE';
+
 export type AuthorizationQueryFulfillmentStatus =
   | 'PENDING'
   | 'DELIVERED'
@@ -187,6 +195,9 @@ export type AuthorizationQueryItem = {
 
   validityStatus:
     AuthorizationValidityStatus;
+
+  expiryAttentionStatus:
+    AuthorizationFulfillmentWindowStatus;
 
   lifecycleEnablement:
     AuthorizationLifecycleStatus;
