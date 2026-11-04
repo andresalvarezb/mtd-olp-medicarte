@@ -1,12 +1,10 @@
-import { authorizationOperationalHorizonEnd } from './authorization-operational-window';
+import { evaluateAuthorizationAssignmentValidity } from './authorization-assignment-validity';
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function isStrictIsoDate(value: string): boolean {
   if (!ISO_DATE_PATTERN.test(value)) return false;
-
-  const instant = new Date(`${value}T00:00:00Z`);
-
+  const instant = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(instant.getTime()) && instant.toISOString().slice(0, 10) === value;
 }
 
@@ -15,7 +13,7 @@ export type AuthorizationPurchaseEligibilityReason =
   | 'SOURCE_STATUS_BLOCKED'
   | 'ASSIGNMENT_DATE_INVALID'
   | 'EXPIRATION_DATE_INVALID'
-  | 'FUTURE_VIGENCY'
+  | 'ASSIGNMENT_OUTSIDE_WINDOW'
   | 'EXPIRED';
 
 export type AuthorizationPurchaseEligibilityInput = Readonly<{
@@ -62,18 +60,13 @@ export function authorizationPurchaseMonthEnd(todayBogota: string): string {
 }
 
 /**
- * Regla temporal canónica de elegibilidad para compra.
+ * Regla canónica de elegibilidad de una AUTO destino para compra.
  *
  * Una AUTO puede participar dentro de la ventana operacional cuando:
  * - ESTADO_AUTORIZACION = 5;
- * - FECHA_ASIGNACION es válida y no supera HOY + 30 días;
- * - FECHA_FINAL_VIGENCIA es una fecha válida.
- *
- * EXPIRED es informativo y no bloquea demanda ni compra
- * por sí solo.
- *
- * La fecha de asignación puede ser posterior a "hoy" siempre que no supere
- * el horizonte inclusivo de 30 días calendario.
+ * - FECHA_ASIGNACION pertenece al mes calendario actual o cae entre hoy y
+ *   hoy + 20 días;
+ * - FECHA_FINAL_VIGENCIA es hoy o posterior.
  *
  * La presencia en AT y clasificación PBS se verifican en la frontera
  * correspondiente porque dependen del estado persistido del Anexo Tarifario.
@@ -83,8 +76,6 @@ export function evaluateAuthorizationPurchaseEligibility(
 ): AuthorizationPurchaseEligibility {
   const currentMonthEnd = authorizationPurchaseMonthEnd(input.todayBogota);
 
-  const operationalHorizonEnd = authorizationOperationalHorizonEnd(input.todayBogota);
-
   if (!isAuthorizationSourceEnabled(input.sourceStatus)) {
     return {
       eligible: false,
@@ -93,38 +84,24 @@ export function evaluateAuthorizationPurchaseEligibility(
     };
   }
 
-  if (!isStrictIsoDate(input.assignmentDate)) {
-    return {
-      eligible: false,
-      reason: 'ASSIGNMENT_DATE_INVALID',
-      currentMonthEnd,
-    };
-  }
+  const validity = evaluateAuthorizationAssignmentValidity(input);
+  let reason: AuthorizationPurchaseEligibilityReason;
 
-  if (!isStrictIsoDate(input.expirationDate)) {
-    return {
-      eligible: false,
-      reason: 'EXPIRATION_DATE_INVALID',
-      currentMonthEnd,
-    };
-  }
-
-  /*
-   * FECHA_FINAL_VIGENCIA debe ser válida, pero
-   * EXPIRED no retira la AUTO de operación ni compra.
-   */
-
-  if (input.assignmentDate > operationalHorizonEnd) {
-    return {
-      eligible: false,
-      reason: 'FUTURE_VIGENCY',
-      currentMonthEnd,
-    };
+  if (validity.eligible) {
+    reason = 'ELIGIBLE';
+  } else if (validity.reason === 'INVALID_ASSIGNMENT_DATE') {
+    reason = 'ASSIGNMENT_DATE_INVALID';
+  } else if (validity.reason === 'INVALID_EXPIRATION_DATE') {
+    reason = 'EXPIRATION_DATE_INVALID';
+  } else if (validity.reason === 'VALID') {
+    reason = 'ELIGIBLE';
+  } else {
+    reason = validity.reason;
   }
 
   return {
-    eligible: true,
-    reason: 'ELIGIBLE',
+    eligible: validity.eligible,
+    reason,
     currentMonthEnd,
   };
 }

@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 
 import * as XLSX from 'xlsx';
+import { currentBogotaDate } from '@authorization/domain';
 
 import {
   PurchaseOrderImportService,
@@ -208,7 +209,7 @@ const destinationDefault:
       'PENDING_MANUAL_ENABLEMENT',
 
     assignmentRaw:
-      '20200101',
+      currentBogotaDate(),
 
     expirationRaw:
       '20991231',
@@ -248,7 +249,7 @@ const originDefault:
       'PENDING_MANUAL_ENABLEMENT',
 
     assignmentRaw:
-      '20200101',
+      currentBogotaDate(),
 
     expirationRaw:
       '20991231',
@@ -1039,7 +1040,7 @@ async function runCreateGuard(
                 'PENDING_MANUAL_ENABLEMENT',
 
               assignment_raw:
-                '20200101',
+                currentBogotaDate(),
 
               expiration_raw:
                 '20991231',
@@ -1454,7 +1455,7 @@ describe(
 
 
     it(
-      'REASIGNAR no rechaza AUTO_DESTINO solo por estar vencida',
+      'REASIGNAR rechaza AUTO_DESTINO vencida',
       async () => {
         const {
           result,
@@ -1476,12 +1477,46 @@ describe(
           );
 
 
-        expect(
-          result.results[0]
-            ?.errorCode,
-        ).toBe(
-          'NEGATIVE_RULE_MUST_NOT_WRITE',
+        expectRejected(
+          result,
+          'PURCHASE_ORDER_DESTINATION_OUT_OF_OPERATION',
         );
+      },
+    );
+
+
+    it(
+      'ASIGNAR_DISPONIBLE rechaza destino fuera del mes de gestión y de los próximos 20 días',
+      async () => {
+        const { result } = await runExisting(
+          ['', 'AUTO-DEST', 'OC-EXISTENTE', 'PROD-1', 2],
+          {
+            destination: {
+              assignmentRaw: '20000101',
+              expirationRaw: '20991231',
+            },
+          },
+        );
+
+        expectRejected(result, 'PURCHASE_ORDER_DESTINATION_OUT_OF_OPERATION');
+      },
+    );
+
+
+    it(
+      'REASIGNAR rechaza destino fuera del mes de gestión y de los próximos 20 días',
+      async () => {
+        const { result } = await runExisting(
+          ['AUTO-ORIG', 'AUTO-DEST', 'OC-EXISTENTE', 'PROD-1', 2],
+          {
+            destination: {
+              assignmentRaw: '20000101',
+              expirationRaw: '20991231',
+            },
+          },
+        );
+
+        expectRejected(result, 'PURCHASE_ORDER_DESTINATION_OUT_OF_OPERATION');
       },
     );
 

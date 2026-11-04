@@ -62,6 +62,13 @@ MODELO, PUNTO_APLICACION_PREDETERMINADO
 
 **Responsable:** MTD con `purchase_orders.manage`. **Pantalla:** `/ordenes-compra`. **Entradas:** cobertura de compra, OC, AUTOs elegibles y códigos comerciales. Se puede construir una OC desde demanda consolidada o mediante el archivo de importación directa.
 
+La vigencia de AUTO para ofrecerlas y asignarlas como destino de OC sigue la
+regla calendario de [BR-AUTO-OC-001](requirements/BR-AUTO-OC-001-vigencia-para-asignacion.md).
+La exportación `AUTO-para-generar-OC.xlsx` mantiene sus siete encabezados y
+solo incluye candidatas vigentes. `ordenes-compra.xlsx` agrega la clasificación
+en `AUTO_RELACIONADAS` y la hoja `AUTORIZACIONES`, que incluye también AUTOs
+sin OC.
+
 **Archivo oficial:** `GET /api/v1/purchase-orders/import/template.xlsx`. Versión actual `PURCHASE_ORDERS_V3`, hoja `ORDENES_COMPRA` más `METADATA` (`templateVersion`, `importType=PURCHASE_ORDERS`). Cinco columnas y este orden **exacto**:
 
 ```csv

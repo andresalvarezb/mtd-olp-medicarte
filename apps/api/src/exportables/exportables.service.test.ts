@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { currentBogotaDate } from '@authorization/domain';
 
 import {
   describe,
@@ -50,6 +51,7 @@ describe(
     it(
       'agrega PUNTO al final de OC_PRODUCTOS y AUTO_RELACIONADAS',
       async () => {
+        const today = currentBogotaDate();
         const query =
           vi.fn()
             .mockResolvedValueOnce({
@@ -101,6 +103,44 @@ describe(
 
                   PUNTO:
                     'CIMA',
+
+                  FECHA_ASIGNACION:
+                    today,
+
+                  FECHA_FINAL_VIGENCIA:
+                    today,
+
+                  ESTADO_ANULACION:
+                    'NO ANULADA',
+
+                  ESTADO_VINCULO_OC:
+                    'ACTIVO',
+                },
+              ],
+            })
+            .mockResolvedValueOnce({
+              rows: [
+                {
+                  CLAVE_AUTO: '262125761591988|10156',
+                  NUMERO_AUTORIZACION: '262125761591988',
+                  CODIGO_PRODUCTO: '10156',
+                  CANTIDAD_AUTO: 30,
+                  FECHA_ASIGNACION: today,
+                  FECHA_FINAL_VIGENCIA: today,
+                  ESTADO_ANULACION: 'NO ANULADA',
+                  ESTADO_VINCULO_OC: 'SIN_OC',
+                  OC_RELACIONADAS: '',
+                },
+                {
+                  CLAVE_AUTO: 'AUTO-LIBERADA|10157',
+                  NUMERO_AUTORIZACION: 'AUTO-LIBERADA',
+                  CODIGO_PRODUCTO: '10157',
+                  CANTIDAD_AUTO: 4,
+                  FECHA_ASIGNACION: '2000-01-01',
+                  FECHA_FINAL_VIGENCIA: today,
+                  ESTADO_ANULACION: 'ANULADA',
+                  ESTADO_VINCULO_OC: 'LIBERADO',
+                  OC_RELACIONADAS: 'OC-HISTORICA',
                 },
               ],
             });
@@ -142,6 +182,8 @@ describe(
             'AUTO_RELACIONADAS'
           ];
 
+        const allAuthorizationsSheet = workbook.Sheets['AUTORIZACIONES'];
+
 
         expect(
           productSheet,
@@ -150,6 +192,7 @@ describe(
         expect(
           authorizationSheet,
         ).toBeDefined();
+        expect(allAuthorizationsSheet).toBeDefined();
 
 
         const products =
@@ -212,6 +255,12 @@ describe(
           'CANTIDAD_AUTO',
           'CANTIDAD_APORTADA_A_OC',
           'PUNTO',
+          'FECHA_ASIGNACION',
+          'FECHA_FINAL_VIGENCIA',
+          'MES_GESTION',
+          'ESTADO_VIGENCIA',
+          'ESTADO_ANULACION',
+          'ESTADO_VINCULO_OC',
         ]);
 
 
@@ -225,7 +274,63 @@ describe(
           30,
           30,
           'CIMA',
+          today,
+          today,
+          today.slice(0, 7),
+          'VIGENTE',
+          'NO ANULADA',
+          'ACTIVO',
         ]);
+
+        const allAuthorizations = XLSX.utils.sheet_to_json<unknown[]>(
+          allAuthorizationsSheet!,
+          { header: 1 },
+        );
+        expect(allAuthorizations[0]).toEqual([
+          'CLAVE_AUTO',
+          'NUMERO_AUTORIZACION',
+          'CODIGO_PRODUCTO',
+          'CANTIDAD_AUTO',
+          'FECHA_ASIGNACION',
+          'FECHA_FINAL_VIGENCIA',
+          'MES_GESTION',
+          'ESTADO_VIGENCIA',
+          'ESTADO_ANULACION',
+          'ESTADO_VINCULO_OC',
+          'OC_RELACIONADAS',
+        ]);
+        expect(allAuthorizations[1]).toEqual([
+          '262125761591988|10156',
+          '262125761591988',
+          '10156',
+          30,
+          today,
+          today,
+          today.slice(0, 7),
+          'VIGENTE',
+          'NO ANULADA',
+          'SIN_OC',
+          '',
+        ]);
+        expect(allAuthorizations[2]).toEqual([
+          'AUTO-LIBERADA|10157',
+          'AUTO-LIBERADA',
+          '10157',
+          4,
+          '2000-01-01',
+          today,
+          '2000-01',
+          'NO VIGENTE',
+          'ANULADA',
+          'LIBERADO',
+          'OC-HISTORICA',
+        ]);
+
+        const relatedSql = String(query.mock.calls[1]?.[0]).replace(/\s+/g, ' ').toLowerCase();
+        expect(relatedSql).toContain('distinct on ( po.id, source.authorization_item_id )');
+        expect(relatedSql).toContain('( source.released_at is null and po.status not in (\'rejected\', \'cancelled\') ) desc');
+        expect(query.mock.calls[1]?.[1]).toEqual([scope.organizationId]);
+        expect(query.mock.calls[2]?.[1]).toEqual([scope.organizationId]);
 
 
         const productsSql =
@@ -325,6 +430,10 @@ describe(
     it(
       'incluye FECHA_ASIGNACION y FECHA_FINAL_VIGENCIA en la exportación de candidatas a OC',
       async () => {
+        const today = currentBogotaDate();
+        const yesterdayDate = new Date(`${today}T00:00:00.000Z`);
+        yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
+        const yesterday = yesterdayDate.toISOString().slice(0, 10);
         const query = vi.fn().mockResolvedValue({
           rows: [
             {
@@ -332,8 +441,24 @@ describe(
               numero_autorizacion: 'KEY-001',
               codigo_medicamento: 'PROD-1',
               cantidad: 10,
-              fecha_asignacion: '2026-10-01',
-              fecha_final_vigencia: '2026-11-15',
+              fecha_asignacion: today,
+              fecha_final_vigencia: today,
+            },
+            {
+              authorization_key: 'KEY-002|PROD-2',
+              numero_autorizacion: 'KEY-002',
+              codigo_medicamento: 'PROD-2',
+              cantidad: 7,
+              fecha_asignacion: '2000-01-01',
+              fecha_final_vigencia: today,
+            },
+            {
+              authorization_key: 'KEY-003|PROD-3',
+              numero_autorizacion: 'KEY-003',
+              codigo_medicamento: 'PROD-3',
+              cantidad: 8,
+              fecha_asignacion: today,
+              fecha_final_vigencia: yesterday,
             },
           ],
         });
@@ -366,13 +491,32 @@ describe(
           '',
           'PROD-1',
           10,
-          '2026-10-01',
-          '2026-11-15',
+          today,
+          today,
         ]);
+        expect(matrix).toHaveLength(2);
+        expect(query.mock.calls[0]?.[1]).toEqual([scope.organizationId]);
       },
     );
   },
 );
+
+
+describe('ExportablesService MTD scope', () => {
+  it('rejects purchase order exports outside MTD before querying data', async () => {
+    const query = vi.fn();
+    const service = new ExportablesService({ pool: { query } } as never);
+    const otherOrganization = { ...scope, organizationCode: 'COMPENSAR' };
+
+    await expect(service.purchaseOrderCandidates(otherOrganization)).rejects.toMatchObject({
+      response: { code: 'EXPORT_MTD_ONLY' },
+    });
+    await expect(service.purchaseOrders(otherOrganization)).rejects.toMatchObject({
+      response: { code: 'EXPORT_MTD_ONLY' },
+    });
+    expect(query).not.toHaveBeenCalled();
+  });
+});
 
 
 describe(
@@ -447,20 +591,14 @@ describe(
 
 
         /*
-         * Para una AUTO que sí tiene MIPRES:
-         *
-         * Habilitada:
-         * validity_status = IN_WINDOW
-         * + initial_validation = PASSED.
-         *
-         * Desbloqueada:
-         * mipres_state = UNLOCKED.
+         * Para una AUTO que sí tiene MIPRES, los controles de
+         * habilitación y desbloqueo siguen en SQL. La vigencia de
+         * asignación se calcula con la regla compartida en el dominio.
          */
-        expect(
-          normalized,
-        ).toContain(
-          "e.validity_status in ( 'IN_WINDOW', 'EXPIRED' ) and e.mipres_state = 'UNLOCKED'",
-        );
+        expect(normalized).toContain("e.mipres_state = 'UNLOCKED'");
+        expect(normalized).toContain("e.initial_validation = 'PASSED'");
+        expect(normalized).toContain('aio.organization_id = $1');
+        expect(normalized).not.toContain('validity_status');
 
 
         /*

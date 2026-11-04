@@ -41,13 +41,15 @@ describe('WAVE2 - exportaciones por bloques', () => {
 
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: products })
-      .mockResolvedValueOnce({ rows: related });
+      .mockResolvedValueOnce({ rows: related })
+      .mockResolvedValueOnce({ rows: [] });
 
     const service = new ExportablesService({
       pool: { query },
     } as never);
 
     const result = await service.purchaseOrders({
+      organizationId: '10000000-0000-4000-8000-000000000001',
       organizationCode: 'MTD',
     } as Scope);
 
@@ -57,7 +59,7 @@ describe('WAVE2 - exportaciones por bloques', () => {
 
     expect(result.rowCount).toBe(2005);
     expect(sheet['!ref']).toBe('A1:G2006');
-    expect(linked['!ref']).toBe('A1:G2006');
+    expect(linked['!ref']).toBe('A1:M2006');
     expect(readCellValue(sheet, 'A2')).toBe('OC-0');
     expect(readCellValue(sheet, 'A1001')).toBe('OC-999');
     expect(readCellValue(sheet, 'A1002')).toBe('OC-1000');
@@ -66,6 +68,6 @@ describe('WAVE2 - exportaciones por bloques', () => {
     expect(readCellValue(sheet, 'C1002')).toBe("'=1+1");
     expect(readCellValue(sheet, 'D2')).toBe(0);
     expect(readCellValue(linked, 'B2006')).toBe('AUTO-2004|MED-2004');
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenCalledTimes(3);
   });
 });

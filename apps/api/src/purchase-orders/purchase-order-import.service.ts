@@ -8,7 +8,7 @@ import type { createDatabase } from '@authorization/database';
 
 import {
   currentBogotaDate,
-  evaluateAuthorizationOperationalWindow,
+  evaluateAuthorizationAssignmentValidity,
   evaluateEffectiveMipresEligibility,
 } from '@authorization/domain';
 
@@ -2754,12 +2754,12 @@ export class PurchaseOrderImportService {
   }
 
 
-  private assertDestinationOperationalWindow(
+  private assertDestinationAssignmentValidity(
     destination:
       ExistingAuthorizationRow,
   ): void {
-    const operationalWindow =
-      evaluateAuthorizationOperationalWindow({
+    const validity =
+      evaluateAuthorizationAssignmentValidity({
         assignmentDate:
           destination.assignment_raw,
 
@@ -2771,12 +2771,10 @@ export class PurchaseOrderImportService {
       });
 
 
-    if (
-      !operationalWindow.eligible
-    ) {
+    if (!validity.eligible) {
       this.existingOrderError(
         'PURCHASE_ORDER_DESTINATION_OUT_OF_OPERATION',
-        `AUTO_DESTINO ${destination.authorization_key} no está dentro de la ventana operacional vigente (${operationalWindow.status}).`,
+        `AUTO_DESTINO ${destination.authorization_key} no está vigente para asignación de OC (${validity.reason}).`,
       );
     }
   }
@@ -3940,7 +3938,7 @@ export class PurchaseOrderImportService {
           destination,
         );
 
-        this.assertDestinationOperationalWindow(
+        this.assertDestinationAssignmentValidity(
           destination,
         );
 
@@ -4665,7 +4663,7 @@ export class PurchaseOrderImportService {
           destination,
         );
 
-        this.assertDestinationOperationalWindow(
+        this.assertDestinationAssignmentValidity(
           destination,
         );
 

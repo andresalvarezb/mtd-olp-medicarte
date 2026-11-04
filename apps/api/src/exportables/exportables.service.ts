@@ -25,6 +25,11 @@ import {
 } from '../clinical/authorization-query.repository';
 
 import {
+  currentBogotaDate,
+  evaluateAuthorizationAssignmentValidity,
+} from '@authorization/domain';
+
+import {
   resolveAuthorizationInitialValidationStatus,
   resolveAuthorizationLifecycleReasons,
   resolveAuthorizationLifecycleStatus,
@@ -708,44 +713,7 @@ export class ExportablesService {
                 else
                   'LOCKED'
               end
-                as mipres_state,
-
-              case
-                when
-                  assignment_date is null
-                  or
-                  expiration_date is null
-                then
-                  'INVALID_DATE'
-
-                when
-                  expiration_date <
-                  (
-                    now()
-                    at time zone
-                      'America/Bogota'
-                  )::date
-                then
-                  'EXPIRED'
-
-                when
-                  assignment_date >
-                  (
-                    (
-                      now()
-                      at time zone
-                        'America/Bogota'
-                    )::date
-                    +
-                    30
-                  )
-                then
-                  'OUTSIDE_HORIZON'
-
-                else
-                  'IN_WINDOW'
-              end
-                as validity_status
+                as mipres_state
 
             from base
           )
@@ -900,8 +868,9 @@ export class ExportablesService {
             (
               /*
                * AUTO sin MIPRES:
-               * conserva la elegibilidad temporal histórica
-               * para compra.
+               * conserva sus controles clínicos y de catálogo;
+               * la vigencia temporal se aplica después con la
+               * regla compartida de asignación de OC.
                */
               (
                 btrim(
@@ -912,12 +881,6 @@ export class ExportablesService {
                 ) =
                 ''
 
-                and
-
-                e.validity_status in (
-                  'IN_WINDOW',
-                  'EXPIRED'
-                )
               )
 
               or
@@ -928,8 +891,8 @@ export class ExportablesService {
                * debe estar HABILITADA
                * y MIPRES debe estar DESBLOQUEADA.
                *
-               * IN_WINDOW + initial_validation PASSED
-               * representan la Habilitación natural.
+               * initial_validation PASSED representa la
+               * habilitación natural.
                */
               (
                 btrim(
@@ -943,13 +906,6 @@ export class ExportablesService {
 
                 and
 
-                e.validity_status in (
-                  'IN_WINDOW',
-                  'EXPIRED'
-                )
-
-                and
-
                 e.mipres_state =
                   'UNLOCKED'
               )
@@ -959,11 +915,28 @@ export class ExportablesService {
             purchase_balance.remaining_quantity >
               0
 
+            and exists (
+              select 1
+              from authorization_item_organizations aio
+              where aio.authorization_item_id = e.id
+                and aio.organization_id = $1
+            )
+
           order by
             numero_autorizacion,
             codigo_medicamento
         `,
+        [scope.organizationId],
       );
+
+    const todayBogota = currentBogotaDate();
+    const currentCandidates = result.rows.filter((row) =>
+      evaluateAuthorizationAssignmentValidity({
+        assignmentDate: row.fecha_asignacion,
+        expirationDate: row.fecha_final_vigencia,
+        todayBogota,
+      }).eligible,
+    );
 
 
     const workbook =
@@ -989,7 +962,7 @@ export class ExportablesService {
             'FECHA_FINAL_VIGENCIA',
           ],
 
-          ...result.rows.map(
+          ...currentCandidates.map(
             (row) => [
               '',
 
@@ -1093,7 +1066,7 @@ export class ExportablesService {
         ),
 
       rowCount:
-        result.rows.length,
+        currentCandidates.length,
     };
   }
 
@@ -1473,6 +1446,32 @@ export class ExportablesService {
         >
       >(
         `
+          with selected_sources as (
+            select distinct on (
+              po.id,
+              source.authorization_item_id
+            )
+              source.*,
+              po.id as purchase_order_id,
+              po.purchase_order_code,
+              po.status as purchase_order_status,
+              pol.commercial_code,
+              pol.dispensing_point_id
+            from purchase_order_authorization_sources source
+            join purchase_order_lines pol
+              on pol.id = source.purchase_order_line_id
+            join purchase_orders po
+              on po.id = pol.purchase_order_id
+            order by
+              po.id,
+              source.authorization_item_id,
+              (
+                source.released_at is null
+                and po.status not in ('REJECTED', 'CANCELLED')
+              ) desc,
+              source.created_at desc,
+              source.id desc
+          )
           select
             po.purchase_order_code
               as "OC",
@@ -1511,15 +1510,34 @@ export class ExportablesService {
             source.source_quantity_snapshot
               as "CANTIDAD_APORTADA_A_OC",
 
+            ai.source_data ->> 'FECHA_ASIGNACION'
+              as "FECHA_ASIGNACION",
+
+            ai.source_data ->> 'FECHA_FINAL_VIGENCIA'
+              as "FECHA_FINAL_VIGENCIA",
+
+            case
+              when ai.annulled_at is not null
+                or ai.source_status_normalized = 'ANULADA'
+                or ai.source_data ? '__mtdAnnulment'
+              then 'ANULADA'
+              else 'NO ANULADA'
+            end as "ESTADO_ANULACION",
+
+            case
+              when source.released_at is null
+                and po.status not in ('REJECTED', 'CANCELLED')
+              then 'ACTIVO'
+              else 'LIBERADO'
+            end as "ESTADO_VINCULO_OC",
+
             coalesce(
               historical_point.name,
               mapped_point.name
             )
               as "PUNTO"
 
-          from
-            purchase_order_authorization_sources
-              source
+          from selected_sources source
 
           join
             purchase_order_lines pol
@@ -1619,6 +1637,13 @@ export class ExportablesService {
               ai.id =
               source.authorization_item_id
 
+          where exists (
+            select 1
+            from authorization_item_organizations aio
+            where aio.authorization_item_id = ai.id
+              and aio.organization_id = $1
+          )
+
           order by
             po.purchase_order_code
               nulls last,
@@ -1635,7 +1660,87 @@ export class ExportablesService {
 
             ai.authorization_key
         `,
+        [scope.organizationId],
       );
+
+    const allAuthorizations =
+      await this.database.pool.query<Record<string, unknown>>(
+        `
+          select
+            ai.authorization_key as "CLAVE_AUTO",
+            ai.numero_autorizacion as "NUMERO_AUTORIZACION",
+            ai.codigo_medicamento as "CODIGO_PRODUCTO",
+            case
+              when btrim(coalesce(ai.source_data ->> 'CANTIDAD', '')) ~ '^[0-9]+$'
+              then (ai.source_data ->> 'CANTIDAD')::int
+              else null
+            end as "CANTIDAD_AUTO",
+            ai.source_data ->> 'FECHA_ASIGNACION' as "FECHA_ASIGNACION",
+            ai.source_data ->> 'FECHA_FINAL_VIGENCIA' as "FECHA_FINAL_VIGENCIA",
+            case
+              when ai.annulled_at is not null
+                or ai.source_status_normalized = 'ANULADA'
+                or ai.source_data ? '__mtdAnnulment'
+              then 'ANULADA'
+              else 'NO ANULADA'
+            end as "ESTADO_ANULACION",
+            case
+              when coalesce(link_summary.has_active_link, false)
+              then 'ACTIVO'
+              when coalesce(link_summary.has_any_link, false)
+              then 'LIBERADO'
+              else 'SIN_OC'
+            end as "ESTADO_VINCULO_OC",
+            coalesce(link_summary.purchase_order_codes, '') as "OC_RELACIONADAS"
+          from authorization_items ai
+          left join lateral (
+            select
+              bool_or(
+                source.released_at is null
+                and po.status not in ('REJECTED', 'CANCELLED')
+              ) as has_active_link,
+              count(*) > 0 as has_any_link,
+              string_agg(distinct po.purchase_order_code, ', ' order by po.purchase_order_code)
+                as purchase_order_codes
+            from purchase_order_authorization_sources source
+            join purchase_order_lines pol
+              on pol.id = source.purchase_order_line_id
+            join purchase_orders po
+              on po.id = pol.purchase_order_id
+            where source.authorization_item_id = ai.id
+          ) link_summary on true
+          where exists (
+            select 1
+            from authorization_item_organizations aio
+            where aio.authorization_item_id = ai.id
+              and aio.organization_id = $1
+          )
+          order by ai.numero_autorizacion, ai.authorization_key
+        `,
+        [scope.organizationId],
+      );
+
+    const todayBogota = currentBogotaDate();
+    const classifyAuthorization = (row: Record<string, unknown>) => {
+      const assignmentDate = nullableText(row.FECHA_ASIGNACION);
+      const expirationDate = nullableText(row.FECHA_FINAL_VIGENCIA);
+      const validity = evaluateAuthorizationAssignmentValidity({
+        assignmentDate,
+        expirationDate,
+        todayBogota,
+      });
+
+      return {
+        ...row,
+        FECHA_ASIGNACION: validity.assignmentDate ?? assignmentDate ?? '',
+        FECHA_FINAL_VIGENCIA: validity.expirationDate ?? expirationDate ?? '',
+        MES_GESTION: validity.managementMonth ?? '',
+        ESTADO_VIGENCIA: validity.status,
+      };
+    };
+
+    const relatedRows = authorizations.rows.map(classifyAuthorization);
+    const authorizationRows = allAuthorizations.rows.map(classifyAuthorization);
 
 
     const workbook =
@@ -1669,8 +1774,33 @@ export class ExportablesService {
         'CANTIDAD_AUTO',
         'CANTIDAD_APORTADA_A_OC',
         'PUNTO',
+        'FECHA_ASIGNACION',
+        'FECHA_FINAL_VIGENCIA',
+        'MES_GESTION',
+        'ESTADO_VIGENCIA',
+        'ESTADO_ANULACION',
+        'ESTADO_VINCULO_OC',
       ],
-      authorizations.rows,
+      relatedRows,
+    );
+
+    appendRecordSheet(
+      workbook,
+      'AUTORIZACIONES',
+      [
+        'CLAVE_AUTO',
+        'NUMERO_AUTORIZACION',
+        'CODIGO_PRODUCTO',
+        'CANTIDAD_AUTO',
+        'FECHA_ASIGNACION',
+        'FECHA_FINAL_VIGENCIA',
+        'MES_GESTION',
+        'ESTADO_VIGENCIA',
+        'ESTADO_ANULACION',
+        'ESTADO_VINCULO_OC',
+        'OC_RELACIONADAS',
+      ],
+      authorizationRows,
     );
 
 

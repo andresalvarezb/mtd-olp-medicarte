@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 
 import * as XLSX from 'xlsx';
+import { currentBogotaDate } from '@authorization/domain';
 
 import {
   PurchaseOrderImportService,
@@ -133,6 +134,7 @@ describe(
     it(
       'distribuye AUTO 10 entre OC1=4 y OC2=6 sin demanda, agenda ni recepción previa',
       async () => {
+        let assignmentRaw = currentBogotaDate();
         const poolQueries:
           string[] = [];
 
@@ -274,7 +276,7 @@ describe(
                       'PENDING_MANUAL_ENABLEMENT',
 
                     assignment_raw:
-                      '20200101',
+                      assignmentRaw,
 
                     expiration_raw:
                       '20991231',
@@ -588,6 +590,27 @@ describe(
         ).toHaveBeenCalledTimes(
           2,
         );
+
+        const purchaseOrderInsertCount = clientQueries.filter((sql) =>
+          sql.includes('insert into purchase_orders'),
+        ).length;
+
+        assignmentRaw = '20000101';
+        const rejected = await instance.import(
+          {
+            originalname: 'oc.xlsx',
+            mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            size: file.length,
+            buffer: file,
+          },
+          scope,
+        );
+
+        expect(rejected.acceptedRows).toBe(0);
+        expect(rejected.rejectedRows).toBe(2);
+        expect(
+          clientQueries.filter((sql) => sql.includes('insert into purchase_orders')),
+        ).toHaveLength(purchaseOrderInsertCount);
       },
     );
   },

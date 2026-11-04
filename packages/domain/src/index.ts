@@ -51,6 +51,14 @@ export type {
   AuthorizationPurchaseEligibilityReason,
 } from './authorization-purchase-eligibility';
 export {
+  evaluateAuthorizationAssignmentValidity,
+} from './authorization-assignment-validity';
+export type {
+  AuthorizationAssignmentValidity,
+  AuthorizationAssignmentValidityReason,
+  AuthorizationAssignmentValidityStatus,
+} from './authorization-assignment-validity';
+export {
   LEGACY_OPERATIONAL_FIELDS,
   createClinicalAuthorizationReference,
   isLegacyOperationalField,
