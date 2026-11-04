@@ -726,15 +726,29 @@
     {
       "idx": 103,
       "version": "7",
-      "when": 1793758434000,
-      "tag": "0104_expiration_system_release_actor",
+      "when": 1793758433999,
+      "tag": "0103a_release_backfill_guard_window",
       "breakpoints": true
     },
     {
       "idx": 104,
       "version": "7",
+      "when": 1793758434000,
+      "tag": "0104_expiration_system_release_actor",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
       "when": 1793758434001,
       "tag": "0105_purchase_order_source_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1793758434002,
+      "tag": "0106_restore_released_source_guard",
       "breakpoints": true
     }
   ]

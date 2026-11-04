@@ -277,9 +277,16 @@ El importador valida vigencia, producto, punto y capacidad pendiente de la líne
 antes de crear el nuevo vínculo. El worker toma locks `NOWAIT` por AUTO y cede
 ante una edición manual concurrente; reintenta esa AUTO en el siguiente barrido.
 
-El cambio de clave requiere despliegue coordinado: aplicar `0104`, detener
-escrituras de OC, aplicar `0105_purchase_order_source_history`, desplegar la API
-y el worker actualizados y entonces reanudar escrituras. La reversión lógica
+El cambio de clave requiere despliegue coordinado: detener escrituras de OC,
+aplicar `0103a_release_backfill_guard_window`, `0104`,
+`0105_purchase_order_source_history` y `0106_restore_released_source_guard`
+en una sola transacción de Drizzle, desplegar la API y el worker actualizados y
+entonces reanudar escrituras. `0103a` suspende solo el trigger que protege las
+fuentes liberadas para permitir el backfill de `released_by_type` en `0104`;
+`0106` lo reactiva antes del commit. Si la migración falla, la transacción
+revierte ambos cambios del trigger y el backfill. En bases que ya aplicaron
+`0104` y `0105`, solo se ejecuta `0106`, que deja el trigger habilitado.
+La reversión lógica
 de `0105` exige retirar o reconciliar primero cualquier segunda fila histórica
 de la misma pareja línea–AUTO; no se puede restaurar la clave compuesta sobre
 esas filas sin perder evidencia.
