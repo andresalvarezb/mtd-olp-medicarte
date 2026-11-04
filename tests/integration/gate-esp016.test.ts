@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { Client } from 'pg';
 import * as XLSX from 'xlsx';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { offsetBogotaDate, todayBogota } from './helpers/bogota-test-date';
 import {
   ORGANIZATION_IDS,
   adminLogin,
@@ -25,8 +26,8 @@ const suffix = randomUUID().slice(0, 8);
 const CODE = `ESP16-CODE-${suffix.toUpperCase()}`;
 const DOC = `DOC-016-${suffix}`;
 const POINT_CODE = `ESP16-PT-${suffix}`;
-const PERIOD = { from: '2052-08-01', to: '2052-08-31' };
-const DATE = '2052-08-12';
+const PERIOD = { from: offsetBogotaDate(todayBogota, -1), to: offsetBogotaDate(todayBogota, 30) };
+const DATE = todayBogota;
 const HEADER = [
   'AUTORIZACION',
   'DOCUMENTO',
@@ -202,9 +203,16 @@ beforeAll(async () => {
       `insert into planning_periods
         (start_date, end_date, scheduling_cutoff_at, purchase_order_deadline_at,
          expected_delivery_date, created_by, updated_by)
-       values ($1,$2,'2052-08-28T23:59:00-05:00','2052-08-29T23:59:00-05:00','2052-08-30',$3,$3)
+       values ($1,$2,$3,$4,$5,$6,$6)
        returning id`,
-      [PERIOD.from, PERIOD.to, foundationUserId],
+      [
+        PERIOD.from,
+        PERIOD.to,
+        `${offsetBogotaDate(todayBogota, 20)}T23:59:00-05:00`,
+        `${offsetBogotaDate(todayBogota, 21)}T23:59:00-05:00`,
+        offsetBogotaDate(todayBogota, 22),
+        foundationUserId,
+      ],
     )
   ).rows[0]!.id;
   await grantAllPointsToMedicarteOperator(database);

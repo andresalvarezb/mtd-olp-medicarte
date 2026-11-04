@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { offsetBogotaDate, todayBogota } from './helpers/bogota-test-date';
 import {
   ORGANIZATION_IDS,
   adminLogin,
@@ -17,6 +18,9 @@ const database = new Client({
 });
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 const suffix = randomUUID().slice(0, 8).toUpperCase();
+const scheduleDate = todayBogota;
+const periodStart = offsetBogotaDate(todayBogota, -1);
+const periodEnd = offsetBogotaDate(todayBogota, 30);
 let product = `ESP010-PRODUCT-${suffix}`;
 const periodCode = `ESP010-${suffix}`;
 let adminToken = '';
@@ -109,8 +113,8 @@ async function createSchedule(quantity = 1, code = product, point = pointId) {
   );
   const schedule = (
     await database.query<{ id: string }>(
-      `insert into patient_schedules (authorization_item_id,planning_period_id,dispensing_point_id,commercial_code,scheduled_date,quantity,created_by,updated_by) values ($1,$2,$3,$4,'2040-05-15',$5,$6,$6) returning id`,
-      [auth, periodId, point, code, quantity, foundationUserId],
+      `insert into patient_schedules (authorization_item_id,planning_period_id,dispensing_point_id,commercial_code,scheduled_date,quantity,created_by,updated_by) values ($1,$2,$3,$4,$5,$6,$7,$7) returning id`,
+      [auth, periodId, point, code, scheduleDate, quantity, foundationUserId],
     )
   ).rows[0]!.id;
   scheduleIds.push(schedule);
@@ -125,7 +129,7 @@ async function createDraft(
     fefoOverride?: boolean;
     fefoOverrideReason?: string;
   }>,
-  applicationDate = '2040-05-15',
+  applicationDate = scheduleDate,
 ) {
   const response = await api('POST', '/medicarte/applications', {
     patientScheduleId: scheduleId,
@@ -184,14 +188,22 @@ beforeAll(async () => {
     roleCode: 'COMPENSAR_VIEWER',
   });
   const existingPeriod = await database.query<{ id: string }>(
-    `select id from planning_periods where start_date='2040-05-01' and end_date='2040-05-31' limit 1`,
+    `select id from planning_periods where start_date=$1 and end_date=$2 limit 1`,
+    [periodStart, periodEnd],
   );
   periodId =
     existingPeriod.rows[0]?.id ??
     (
       await database.query<{ id: string }>(
-        `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by) values ('2040-05-01','2040-05-31','2039-01-01T00:00:00Z','2039-01-02T00:00:00Z','2040-06-01',$1,$1) returning id`,
-        [foundationUserId],
+        `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by) values ($1,$2,$3,$4,$5,$6,$6) returning id`,
+        [
+          periodStart,
+          periodEnd,
+          `${periodStart}T00:00:00Z`,
+          `${periodStart}T00:00:00Z`,
+          periodEnd,
+          foundationUserId,
+        ],
       )
     ).rows[0]!.id;
   periodCreated = existingPeriod.rows.length === 0;
@@ -272,7 +284,7 @@ describe('Gate ESP-010 - patient applications', () => {
     const duplicate = await api('POST', '/medicarte/applications', {
       patientScheduleId: schedule.id,
       scheduleRevision: 1,
-      applicationDate: '2040-05-15',
+      applicationDate: scheduleDate,
       lines: [],
     });
     expect(duplicate.status).toBe(400);
@@ -374,8 +386,8 @@ describe('Gate ESP-010 - patient applications', () => {
   });
   it('12. permite múltiples lotes con cantidad exacta', async () => {
     const s = await createSchedule(3);
-    const a = await createLot(2, '2040-01-01');
-    const b = await createLot(2, '2040-12-01');
+    const a = await createLot(2, '2098-01-01');
+    const b = await createLot(2, '2098-12-01');
     const app = await createDraft(s.id, 1, [
       { inventoryLotId: a, quantity: 2 },
       { inventoryLotId: b, quantity: 1 },
@@ -398,7 +410,7 @@ describe('Gate ESP-010 - patient applications', () => {
         await api('POST', '/medicarte/applications', {
           patientScheduleId: s.id,
           scheduleRevision: 1,
-          applicationDate: '2040-05-15',
+          applicationDate: scheduleDate,
           lines: [{ inventoryLotId: wrongProduct, quantity: 1 }],
         }),
       ),
@@ -409,7 +421,7 @@ describe('Gate ESP-010 - patient applications', () => {
         await api('POST', '/medicarte/applications', {
           patientScheduleId: s.id,
           scheduleRevision: 1,
-          applicationDate: '2040-05-15',
+          applicationDate: scheduleDate,
           lines: [{ inventoryLotId: wrongPoint, quantity: 1 }],
         }),
       ),
@@ -457,9 +469,7 @@ describe('Gate ESP-010 - patient applications', () => {
       [s.auth],
     );
 
-    expect(await errorCode(await confirm(app))).toBe(
-      'AUTHORIZATION_NOT_SCHEDULABLE',
-    );
+    expect(await errorCode(await confirm(app))).toBe('AUTHORIZATION_NOT_SCHEDULABLE');
 
     /*
      * Producto independiente para que el lote del escenario
@@ -467,65 +477,56 @@ describe('Gate ESP-010 - patient applications', () => {
      */
     const expiredProduct = `${product}-EXPIRED`;
 
-    const s2 = await createSchedule(
-      1,
-      expiredProduct,
-    );
+    const s2 = await createSchedule(1, expiredProduct);
 
-    const l2 = await createLot(
-      1,
-      '2099-12-31',
-      expiredProduct,
-    );
+    const l2 = await createLot(1, '2099-12-31', expiredProduct);
 
-    const app2 = await createDraft(
-      s2.id,
-      1,
-      [
-        {
-          inventoryLotId: l2,
-          quantity: 1,
-        },
-      ],
-    );
+    const app2 = await createDraft(s2.id, 1, [
+      {
+        inventoryLotId: l2,
+        quantity: 1,
+      },
+    ]);
 
     await database.query(
       `update authorization_items set source_data=jsonb_set(source_data,'{FECHA_FINAL_VIGENCIA}','"2000-01-01"') where id=$1`,
       [s2.auth],
     );
 
-    const expiredResponse =
-      await confirm(app2);
+    const expiredResponse = await confirm(app2);
 
-    expect(await errorCode(expiredResponse)).toBe(
-      'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
-    );
+    expect(await errorCode(expiredResponse)).toBe('PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE');
   });
   it('21. application date distinta es rechazada al confirmar', async () => {
     const s = await createSchedule();
     const l = await createLot(1);
-    const app = await createDraft(s.id, 1, [{ inventoryLotId: l, quantity: 1 }], '2040-05-16');
+    const app = await createDraft(
+      s.id,
+      1,
+      [{ inventoryLotId: l, quantity: 1 }],
+      offsetBogotaDate(scheduleDate, 1),
+    );
     expect(await errorCode(await confirm(app))).toBe('PATIENT_APPLICATION_DATE_MISMATCH');
   });
   it('22. FEFO normal no exige override', async () => {
     const s = await createSchedule(1);
-    const early = await createLot(1, '2040-01-01');
-    const late = await createLot(1, '2040-12-01');
+    const early = await createLot(1, '2098-01-01');
+    const late = await createLot(1, '2098-12-01');
     const app = await createDraft(s.id, 1, [{ inventoryLotId: early, quantity: 1 }]);
     expect((await confirm(app)).status).toBe(201);
     void late;
   });
   it('23. seleccionar vencimiento posterior sin motivo es rechazado', async () => {
     const s = await createSchedule();
-    await createLot(1, '2040-01-01');
-    const late = await createLot(1, '2040-12-01');
+    await createLot(1, '2098-01-01');
+    const late = await createLot(1, '2098-12-01');
     const app = await createDraft(s.id, 1, [{ inventoryLotId: late, quantity: 1 }]);
     expect(await errorCode(await confirm(app))).toBe('PATIENT_APPLICATION_FEFO_OVERRIDE_REQUIRED');
   });
   it('24. override con motivo queda auditado', async () => {
     const s = await createSchedule();
-    await createLot(1, '2040-01-01');
-    const late = await createLot(1, '2040-12-01');
+    await createLot(1, '2098-01-01');
+    const late = await createLot(1, '2098-12-01');
     const app = await createDraft(s.id, 1, [
       {
         inventoryLotId: late,
@@ -546,8 +547,8 @@ describe('Gate ESP-010 - patient applications', () => {
   });
   it('25. FEFO recomienda distribución multi-lote', async () => {
     const s = await createSchedule(8);
-    const a = await createLot(5, '2040-01-01');
-    const b = await createLot(10, '2040-12-01');
+    const a = await createLot(5, '2098-01-01');
+    const b = await createLot(10, '2098-12-01');
     const app = await createDraft(s.id, 1, [
       { inventoryLotId: a, quantity: 5 },
       { inventoryLotId: b, quantity: 3 },
@@ -599,7 +600,7 @@ describe('Gate ESP-010 - patient applications', () => {
         await api('POST', '/medicarte/applications', {
           patientScheduleId: s.id,
           scheduleRevision: 1,
-          applicationDate: '2040-05-15',
+          applicationDate: scheduleDate,
           lines: [],
         })
       ).status,
@@ -618,7 +619,7 @@ describe('Gate ESP-010 - patient applications', () => {
       {
         patientScheduleId: randomUUID(),
         scheduleRevision: 1,
-        applicationDate: '2040-05-15',
+        applicationDate: scheduleDate,
         lines: [],
       },
       mtdToken,

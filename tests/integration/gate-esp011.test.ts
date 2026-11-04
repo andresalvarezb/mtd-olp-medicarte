@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { offsetBogotaDate, todayBogota } from './helpers/bogota-test-date';
 import {
   ORGANIZATION_IDS,
   adminLogin,
@@ -17,7 +18,9 @@ const db = new Client({
 });
 const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 const suffix = randomUUID().slice(0, 8).toUpperCase();
-const scheduleDate = '2030-05-15';
+const scheduleDate = todayBogota;
+const periodStart = offsetBogotaDate(todayBogota, -1);
+const periodEnd = offsetBogotaDate(todayBogota, 30);
 let adminToken = '';
 let medicarteToken = '';
 let mtdToken = '';
@@ -159,8 +162,15 @@ beforeAll(async () => {
     (await db.query<{ id: string }>(`select id from planning_periods limit 1`)).rows[0]?.id ??
     (
       await db.query<{ id: string }>(
-        `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by) values ('2030-05-01','2030-05-31','2029-01-01T00:00:00Z','2029-01-02T00:00:00Z','2030-06-01',$1,$1) returning id`,
-        [userId],
+        `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by) values ($1,$2,$3,$4,$5,$6,$6) returning id`,
+        [
+          periodStart,
+          periodEnd,
+          `${periodStart}T00:00:00Z`,
+          `${periodStart}T00:00:00Z`,
+          periodEnd,
+          userId,
+        ],
       )
     ).rows[0]!.id;
   pointId = (

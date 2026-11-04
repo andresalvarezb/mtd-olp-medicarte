@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { Client } from 'pg';
 import * as XLSX from 'xlsx';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { offsetBogotaDate, todayBogota } from './helpers/bogota-test-date';
 import {
   ORGANIZATION_IDS,
   adminLogin,
@@ -24,9 +25,9 @@ const DOC = `DOC-015-${suffix}`;
 const POINT_A_CODE = `ESP15-A-${suffix}`;
 const POINT_B_CODE = `ESP15-B-${suffix}`;
 const POINT_INACTIVE_CODE = `ESP15-X-${suffix}`;
-const PERIOD = { from: '2051-03-01', to: '2051-03-31' };
-const DATE_A = '2051-03-10';
-const DATE_B = '2051-03-11';
+const DATE_A = todayBogota;
+const DATE_B = offsetBogotaDate(todayBogota, 1);
+const PERIOD = { from: offsetBogotaDate(todayBogota, -1), to: offsetBogotaDate(todayBogota, 30) };
 const HEADER = [
   'AUTORIZACION',
   'DOCUMENTO',
@@ -257,8 +258,8 @@ async function fixtureDelivery(pointId: string): Promise<{
   );
   await database.query(
     `insert into purchase_order_lines (id,purchase_order_id,commercial_code,product_description,presentation,dispensing_point_id,requested_quantity,accepted_quantity,requested_delivery_date,compensar_unit_rate_snapshot,supplier_unit_cost,projected_demand_line_id,projected_demand_revision,demand_bucket)
-     values ($1,$2,$3,'ESP15 product','presentation',$4,5,5,'2051-03-20','10.00','10.00',$5,1,'REGULAR')`,
-    [lineId, orderId, CODE, pointId, randomUUID()],
+     values ($1,$2,$3,'ESP15 product','presentation',$4,5,5,$5,'10.00','10.00',$6,1,'REGULAR')`,
+    [lineId, orderId, CODE, pointId, offsetBogotaDate(todayBogota, 10), randomUUID()],
   );
   await database.query(
     `insert into deliveries (id,purchase_order_id,status,dispatched_at,created_by,updated_by)
@@ -377,9 +378,16 @@ beforeAll(async () => {
       `insert into planning_periods
         (start_date, end_date, scheduling_cutoff_at, purchase_order_deadline_at,
          expected_delivery_date, created_by, updated_by)
-       values ($1,$2,'2051-03-28T23:59:00-05:00','2051-03-29T23:59:00-05:00','2051-03-30',$3,$3)
+       values ($1,$2,$3,$4,$5,$6,$6)
        returning id`,
-      [PERIOD.from, PERIOD.to, foundationUserId],
+      [
+        PERIOD.from,
+        PERIOD.to,
+        `${offsetBogotaDate(todayBogota, 20)}T23:59:00-05:00`,
+        `${offsetBogotaDate(todayBogota, 21)}T23:59:00-05:00`,
+        offsetBogotaDate(todayBogota, 22),
+        foundationUserId,
+      ],
     )
   ).rows[0]!.id;
   itemA = await insertAuthorization(`ESP015-A-${suffix}`);
