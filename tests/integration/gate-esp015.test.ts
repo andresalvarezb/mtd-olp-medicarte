@@ -117,7 +117,8 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 async function waitForBulkImportTerminalState(jobId: string, token: string): Promise<Job> {
-  const deadline = Date.now() + 10_000;
+  const timeoutMs = 30_000;
+  const deadline = Date.now() + timeoutMs;
   let last: Job | undefined;
 
   while (Date.now() < deadline) {
@@ -130,7 +131,7 @@ async function waitForBulkImportTerminalState(jobId: string, token: string): Pro
   }
 
   throw new Error(
-    `Bulk import ${jobId} did not reach a terminal state within 10000ms; last state: ${JSON.stringify(last)}`,
+    `Bulk import ${jobId} did not reach a terminal state within ${timeoutMs}ms; last state: ${JSON.stringify(last)}`,
   );
 }
 

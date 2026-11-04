@@ -930,6 +930,12 @@ describe(
           'CANTIDAD_AUTO',
           'CANTIDAD_APORTADA_A_OC',
           'PUNTO',
+          'FECHA_ASIGNACION',
+          'FECHA_FINAL_VIGENCIA',
+          'MES_GESTION',
+          'ESTADO_VIGENCIA',
+          'ESTADO_ANULACION',
+          'ESTADO_VINCULO_OC',
         ]);
 
 

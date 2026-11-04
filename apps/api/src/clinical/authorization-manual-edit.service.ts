@@ -1765,6 +1765,7 @@ export class AuthorizationManualEditService {
               purchase_order_line_id,
               authorization_item_id
             )
+            where released_at is null
             do update
             set
               projected_demand_line_id =
