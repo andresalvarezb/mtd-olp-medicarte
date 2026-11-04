@@ -502,9 +502,9 @@ describe('Gate ESP-010 - patient applications', () => {
     const l = await createLot(1);
     const app = await createDraft(
       s.id,
-      1,
+      s.revision,
       [{ inventoryLotId: l, quantity: 1 }],
-      offsetBogotaDate(scheduleDate, 1),
+      offsetBogotaDate(scheduleDate, -1),
     );
     expect(await errorCode(await confirm(app))).toBe('PATIENT_APPLICATION_DATE_MISMATCH');
   });
