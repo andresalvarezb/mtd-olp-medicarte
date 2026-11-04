@@ -722,6 +722,20 @@
       "when": 1790546879674,
       "tag": "0103_mtd_moderator_fee_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1793758434000,
+      "tag": "0104_expiration_system_release_actor",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1793758434001,
+      "tag": "0105_purchase_order_source_history",
+      "breakpoints": true
     }
   ]
 }

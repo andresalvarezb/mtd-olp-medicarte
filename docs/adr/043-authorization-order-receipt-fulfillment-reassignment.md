@@ -2,12 +2,15 @@
 
 Estado: documentación de AS-IS, decisiones de negocio y TO-BE
 Fecha: 2026-09-24
+Actualización operativa: 2026-11-03
 
 ## Propósito y alcance
 
 Este documento separa lo demostrado por el código (`AS-IS`), las decisiones de
 negocio confirmadas (`DECISIÓN DE NEGOCIO`) y el comportamiento que deberá
-implementarse posteriormente (`TO-BE`). No cambia código, esquema ni migraciones.
+implementarse posteriormente (`TO-BE`). Las actualizaciones registran cambios
+de comportamiento y esquema; el catálogo generado documenta las columnas e
+índices resultantes de Drizzle.
 
 La trazabilidad operativa que debe conservarse es:
 
@@ -26,13 +29,11 @@ El flujo objetivo cuando vence una AUTO sin consumo es:
 ```mermaid
 flowchart LR
    A[AUTO asignada] --> B[Vence sin consumo]
-   B --> C[Liberar cantidad no consumida]
-   C --> D[Buscar candidata compatible]
-   D --> E{Vencimiento entre hoy y hoy + 30 días}
-   E -- Sí --> F[Ordenar por vencimiento, created_at, id]
-   F --> G[Reasignar y auditar]
-   E -- No --> H[Dejar liberada]
-   H --> I[Reconsiderar en reconciliación futura]
+   B --> C[Conservar reserva durante cinco días]
+   C --> D[Desde el día 6 liberar saldo y fuente activa de OC]
+   D --> E[Compra pendiente disponible]
+   E --> F[Seleccionar manualmente AUTO_DESTINO compatible]
+   F --> G[Asignar mediante import de OC y auditar]
 ```
 
 El modelo de cantidades es:
@@ -224,6 +225,10 @@ Una AUTO vencida:
 - conserva temporalmente la reserva ya materializada;
 - no puede ser AUTO_DESTINO de una reasignación.
 
+La reserva retenida solo puede usarse para entrega o aplicación cuando la
+vigencia haya sido ampliada hasta cubrir el día de operación y se cumplan las
+demás condiciones de habilitación.
+
 La expiración no elimina la relación histórica entre
 la AUTO y la orden de compra.
 
@@ -235,6 +240,8 @@ Durante los días 1 a 5 posteriores al vencimiento,
 la allocation activa permanece asociada a la AUTO.
 
 Durante esta gracia no se permite entrega ni aplicación.
+La reserva retenida solo puede consumirse después de ampliar
+`FECHA_FINAL_VIGENCIA` y cumplir los demás requisitos de habilitación.
 
 Si la allocation no tiene consumo previo, puede
 transferirse mediante una reasignación explícita y
@@ -252,9 +259,38 @@ allocated_quantity
 
 La allocation histórica no se elimina.
 
-La liberación afecta exclusivamente la disponibilidad
-física. La relación histórica AUTO -> OC permanece en
-purchase_order_authorization_sources.
+El worker también marca como liberadas las fuentes
+activas de OC de la AUTO. La fila histórica y
+source_quantity_snapshot permanecen intactos; el
+actor automático queda registrado como SYSTEM.
+La liberación no modifica cantidades solicitadas,
+recibidas ni consumidas. La compra pendiente puede
+asignarse manualmente a una AUTO elegible mediante
+PURCHASE_ORDERS_V3 con AUTO_ORIGEN vacía.
+Si la misma AUTO se renueva después de esta liberación, MTD puede elegirla
+manualmente como `AUTO_DESTINO` y seleccionar la misma línea de OC pendiente.
+El vínculo anterior conserva su `id`, cantidad y fecha de liberación; la nueva
+asignación crea otra fila activa con `id` propio. La renovación no recupera
+automáticamente capacidad comprometida a otra AUTO.
+
+El importador valida vigencia, producto, punto y capacidad pendiente de la línea
+antes de crear el nuevo vínculo. El worker toma locks `NOWAIT` por AUTO y cede
+ante una edición manual concurrente; reintenta esa AUTO en el siguiente barrido.
+
+El cambio de clave requiere despliegue coordinado: aplicar `0104`, detener
+escrituras de OC, aplicar `0105_purchase_order_source_history`, desplegar la API
+y el worker actualizados y entonces reanudar escrituras. La reversión lógica
+de `0105` exige retirar o reconciliar primero cualquier segunda fila histórica
+de la misma pareja línea–AUTO; no se puede restaurar la clave compuesta sobre
+esas filas sin perder evidencia.
+
+La migración `0105_purchase_order_source_history` da a cada fila de fuente un
+`id` propio y cambia la unicidad a un índice parcial sobre
+`(purchase_order_line_id, authorization_item_id)` para filas activas
+(`released_at IS NULL`). Así se conserva la fila liberada y se puede insertar
+una fuente activa nueva para esa misma pareja. Los totales operativos cuentan
+solo fuentes activas; las consultas históricas eligen una fila por pareja para
+no duplicar cantidades.
 
 ### REASIGNACIÓN EXPLÍCITA
 
@@ -341,10 +377,11 @@ previamente. Una unidad ya entregada/aplicada nunca puede reasignarse.
 - `MEDICARTE_RECIBIDO >= CONSUMIDO`.
 - Nunca `CONSUMIDO > RECIBIDO`.
 - Actualizar una AUTO no modifica el snapshot histórico de una OC.
-- La relación AUTO → OC permanece aunque la AUTO venza.
+- La evidencia AUTO → OC permanece cuando la AUTO vence; el vínculo está activo
+  durante la gracia y desde el día 6 queda como fuente liberada histórica.
 - Una unidad reservada y no consumida solo puede pasar a otra AUTO mediante reasignación explícita y atómica.
 - Una unidad consumida no puede reasignarse.
-- El vencimiento por sí solo nunca libera una reserva.
+- El vencimiento conserva la reserva durante cinco días; desde el día 6 libera el saldo no consumido y la fuente activa de OC, manteniendo su evidencia histórica.
 
 ## Modelo temporal y trazabilidad mínima
 
@@ -368,12 +405,12 @@ reasignación.
 | Disponibilidad | `InventoryAvailabilityRepository` usa `inventory_authorization_allocations` y carga UI/XLSX | Sigue siendo una segunda asignación técnica; TO-BE la deja fuera de la responsabilidad de asignar AUTO |
 | Fulfillment automático | `ensureAutomaticAllocation()` crea allocations desde el snapshot de OC | El contrato backend actual todavía materializa asignación al atender; debe alinearse con la asignación lógica nacida en la OC |
 | Recepción histórica | `recordConfirmedReceipt()` sí crea lotes y movimientos `RECEIPT` | Conviven dos arquitecturas y la quantity-only no tiene la misma evidencia física |
-| Retención/reasignación | `reconcileIneligibleTx()` no libera reservas; la transferencia explícita vive en `PurchaseOrderImportService` | No debe reintroducirse liberación automática por vencimiento o cambios administrativos |
+| Retención/reasignación | `reconcileIneligibleTx()` no libera reservas; el worker de expiración libera allocations y fuentes activas desde el día 6. La transferencia a una AUTO_DESTINO vive en `PurchaseOrderImportService` | El vencimiento libera automáticamente el saldo no consumido y el vínculo activo de OC; la selección de destino permanece manual. Otros cambios administrativos no liberan reservas automáticamente |
 | Concurrencia de consumo | Fulfillment usa transacción, locks de autorización/allocation/punto y valida lotes | El TO-BE exige además una reserva/consumo atómico que no elija AUTO propietaria por anticipado en escasez |
 
-Estos GAPs no se presentan como funcionalidades implementadas. La
-reconciliación existente detecta inconsistencias, pero no auto-repara ni crea la
-reasignación de negocio definida aquí.
+Los GAPs de recepción, asignación y consumo de la tabla no se presentan como
+funcionalidades implementadas. La reconciliación existente detecta
+inconsistencias, pero no auto-repara ni crea la reasignación descrita aquí.
 
 ## Precedencia del punto programado
 
@@ -469,3 +506,26 @@ Implementación pendiente de pruebas finales e integración: **NO desplegada**.
 `pnpm lint`, `pnpm --filter @authorization/api typecheck`, build, suite
 de integración PostgreSQL real, concurrencia entre importador/UI y
 conciliación sobre OC 9198/9218/9230, sin intervenir producción.
+
+
+## 2026-11-03 — Vencimiento, liberación y reutilización de OC pendiente
+
+- Una AUTO vencida conserva su reserva física y la fuente activa de OC durante
+  los cinco días posteriores. Entrega y aplicación quedan bloqueadas hasta
+  ampliar la vigencia y superar las demás validaciones.
+- Desde el día 6, el worker libera el saldo no consumido y las fuentes activas
+  de OC. La fuente liberada conserva `id`, cantidad snapshot, fecha y actor
+  `SYSTEM`; las cantidades solicitadas, recibidas y consumidas no cambian.
+- Después de una renovación, MTD puede volver a seleccionar manualmente la
+  misma AUTO con `AUTO_ORIGEN` vacío para una línea de OC aún pendiente y sin
+  recibir. La nueva fila activa requiere vigencia, producto, punto y capacidad
+  disponibles. La renovación no restaura allocations ni recupera capacidad
+  comprometida a otra AUTO.
+- El importador bloquea la OC y controla capacidad por orden, producto, punto y
+  línea. El worker procesa cada AUTO en una transacción y toma los locks con
+  `NOWAIT`; si una edición manual sostiene un lock, revierte solo ese caso y
+  lo reintenta en el siguiente barrido. La liberación, auditoría e
+  invalidaciones del caso comparten transacción.
+- El cambio de clave se despliega aplicando `0104`, deteniendo escrituras de
+  OC, aplicando `0105_purchase_order_source_history`, desplegando API y worker
+  compatibles y reanudando las escrituras después.

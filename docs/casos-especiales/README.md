@@ -25,7 +25,7 @@ Este índice complementa [el manual operativo](../manual-operativo.md) y [el cat
 ## Reglas de interpretación
 
 1. **Persistido ≠ habilitado ≠ comprado ≠ recibido ≠ reservado ≠ consumido ≠ auditado.** Son registros y validaciones distintos.
-2. **EXPIRED no provoca devolución automática.** El worker de vigencia solo invalida vistas en la política actual (ver CE-08).
+2. **Vencimiento de AUTO y vencimiento físico de lote son eventos distintos.** La reserva de una AUTO vencida se conserva durante cinco días, pero no permite entrega o aplicación hasta renovar vigencia. Desde el día 6 el worker libera el saldo no consumido y termina la fuente activa de OC; una renovación posterior no restaura esos saldos. La liberación comercial no ajusta el inventario físico del lote (ver CE-08 y CE-12A).
 3. Las mutaciones de autorización se ejecutan con `expectedVersion` para evitar sobrescrituras concurrentes.
 4. Una edición **no** debe reescribir evidencia de OC donde OLP o MEDICARTE ya intervinieron.
 5. La existencia de soporte **no** equivale a una auditoría aprobada; la ausencia de soporte **no** debe sustituir la decisión humana.
@@ -52,4 +52,8 @@ flowchart TD
 
 ## Cobertura ampliada (CE-33 a CE-84)
 
-Esta segunda ampliación identifica **52 casos adicionales**; total acumulado **84 casos**. Los casos con etiqueta **REQUIERE DECISIÓN** son brechas, **no** módulos implantados. La matriz de pruebas se amplía a **97 casos por ejecutar**, sin resultados inventados.
+Esta segunda ampliación identifica **52 casos adicionales**; total acumulado **84 casos**. Los casos con etiqueta **REQUIERE DECISIÓN** son brechas, **no** módulos implantados. La matriz base cubría 97 casos; la enmienda de vencimiento agrega ocho escenarios, para **105 casos pendientes de ejecución**, sin resultados inventados.
+
+## Enmienda de vencimiento y revinculación de OC — 2026-11-03
+
+La política y el flujo se actualizaron en la rama de trabajo. Falta la certificación en base aislada y el despliegue coordinado de migraciones, API y worker. Para una OC pendiente y aún no recibida, MTD puede renovar la AUTO y volver a vincularla manualmente mediante importación con `AUTO_ORIGEN` vacío. Se conserva la fuente liberada y se crea una nueva fuente activa si el producto, punto y capacidad pendiente siguen siendo válidos. La operación no recupera capacidad ocupada por otra AUTO ni crea recepción, asignación física o inventario.

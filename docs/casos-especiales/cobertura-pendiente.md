@@ -25,7 +25,7 @@ Se realizó revisión específica de las excepciones previamente listadas en est
 | Vigencia y estado 16→5 | Regla, contrato, excepciones y auditoría | Validación histórica de fechas y de todas las vistas |
 | Cambio de producto/cantidad | Impacto OC/programación/inventario y errores | Pruebas de cruces con OC recibidas, consumo y concurrencia |
 | Anulación y reservas | Condiciones, liberación y permanencia histórica | Verificar reparaciones antiguas, reversos y carreras |
-| Vencimiento automático | **Se documenta política sin liberación** | Acordar si negocio desea liberar al vencer; implicaría **nuevo requerimiento** |
+| Vencimiento automático | **Política definida y flujo implementado en la rama de trabajo**: conserva la reserva durante cinco días; desde el día 6 libera saldos no consumidos y la fuente activa de OC | Certificar worker/API en base aislada y coordinar despliegue de migraciones, API y worker |
 | Facturación | Individual/XLSX, soportes, estado definitivo | Validación con facturación operativa, retención y permisos |
 | Soportes Drive | Búsqueda, metadata, sincronización opcional | Indexación real, permisos Drive, cifrado y ciclo documental |
 | Auditoría aplicación/fulfillment | Contratos y rutas | Revisar en profundidad repositorio/servicios y regla de reintento |
@@ -38,7 +38,7 @@ Se realizó revisión específica de las excepciones previamente listadas en est
 
 ## Riesgos concretos de interpretación
 
-1. **Nombre engañoso de worker de liberación:** el scheduler corre, pero no libera reservas por vencimiento. No alterar la política solo para hacerla coincidir con el nombre.
+1. **Vigencia de AUTO y reserva son reglas distintas:** durante los cinco días de gracia la reserva se conserva, pero una AUTO vencida no puede usarse para entrega o aplicación. Primero debe ampliarse la vigencia y cumplir los demás gates. Desde el día 6, el worker libera el saldo no consumido y termina la fuente activa de OC; una renovación posterior no restaura lo liberado.
 2. **Condición de vigencia vs compra:** [BR-AUTO-REN-001](../requirements/BR-AUTO-REN-001-estado-16-vigencia.md) registra una diferencia histórica entre vigencia de consulta y elegibilidad de compra, pendiente de decisión separada.
 3. **Stock directo vs ledger legacy:** recepción directa por OC y `receipts` ligados a `deliveries` tienen reglas distintas; no sumar dos representaciones sin reconciliación.
 4. **Soporte documental ≠ conformidad de auditoría:** un PDF hallado por nombre o texto requiere inspección humana y validaciones de contexto.
@@ -48,7 +48,8 @@ Se realizó revisión específica de las excepciones previamente listadas en est
 ## Prioridades de documentación siguiente
 
 - **P0:** validar en ambiente de integración las 47 pruebas de casos especiales; conciliar diferencias con negocio antes de publicar manual certificado.
-- **P0:** definir formalmente política de liberación por vencimiento: mantener reserva, reubicar mediante acción humana, o automatizarla con criterios de seguridad. La implementación actual **no libera**.
+- **P0:** certificar en ambiente aislado vencimiento, renovación, revinculación manual de OC, capacidad ocupada y contención entre edición y worker. La política ya está definida; los resultados de estas pruebas siguen pendientes.
+- **P0:** coordinar despliegue de la migración de historial de fuentes OC, API y worker: aplicar 0104, detener escrituras de OC, aplicar 0105 y desplegar API y worker antes de reanudar escrituras.
 - **P1:** manual MIPRES: estados, actualización/errores de dispensación, reversos, evidencia y semántica de PBS / NO PBS.
 - **P1:** manual de corrección posrecepción: OC entregada, recepción parcial, lotes, trazabilidad, excedentes, reuso y transferencias.
 - **P1:** auditoría financiera: soportes, cierre, novedades, costos y conciliación exportable.
@@ -57,3 +58,7 @@ Se realizó revisión específica de las excepciones previamente listadas en est
 ## Método de actualización continua
 
 Registrar cada nueva regla como caso de uso `CE-XX`, con actor, precondición, contrato, estados, efectos contables/físicos, ejemplos sintéticos, errores, evento de auditoría, pruebas y referencia exacta a código/commit. Una regla propuesta debe etiquetarse **PENDIENTE DE DECISIÓN**, nunca como implementada. Conservar ADR históricos, no editarlos para aparentar comportamiento actual.
+
+## Enmienda — expiración y revinculación de OC (2026-11-03)
+
+Esta enmienda reemplaza las conclusiones anteriores de esta guía únicamente para el vencimiento de AUTO y la liberación/revinculación de fuentes de OC. La implementación se encuentra en la rama de trabajo y aún requiere certificación y despliegue coordinado; no se afirma que esté desplegada. La reserva dura cinco días calendario después del vencimiento. En ese intervalo no habilita entrega ni aplicación: MTD debe ampliar la vigencia primero. Desde el día 6, el worker libera el saldo no consumido y cierra la fuente activa de OC. Una revinculación posterior es manual mediante importación, con origen vacío, y crea una fuente activa nueva conservando la liberada; solo procede si vigencia, producto, punto y capacidad pendiente son válidos. No restaura saldo liberado ni capacidad comprometida a otra AUTO.

@@ -10,15 +10,18 @@
 | T-AT-02 | CONFIRM de AT sin cambios repetido | Sin revisiones duplicadas; idempotencia | Conteo revisiones y auditoría | PENDIENTE |
 | T-AT-03 | Anomalía tarifaria sin override suficiente | Conflicto; no aplica anomalía | Código `TARIFF_IMPORT_OVERRIDE_REQUIRED` y snapshot | PENDIENTE |
 | T-AUTO-01 | XLSX de AUTO con 28 cabeceras y METADATA válido | Job listo; confirmación persiste las filas operables | Job/filas/AUTO por clave | PENDIENTE |
-| T-AUTO-02 | AUTO con identidad completa pero vigencia vencida | Persistida, pero no elegible para operación | AUTO + vigencia/enablement | PENDIENTE |
+| T-AUTO-02 | AUTO con identidad completa, vencida hace entre 1 y 5 días | Persistida; retiene la reserva durante la gracia, pero no permite entrega ni aplicación hasta ampliar vigencia | AUTO + vigencia + reserva + rechazo operativo | PENDIENTE |
 | T-AUTO-03 | AUTO sin número o código | Fila rechazada; XLSX de errores legible | `rejected.xlsx`, error por fila | PENDIENTE |
-| T-AUTO-04 | Reimportación idéntica | No duplicar AUTO ni recrear línea histórica de OC | Clave, versión, timestamps | PENDIENTE |
+| T-AUTO-04 | Reimportación idéntica | No duplicar AUTO ni fuente activa; conservar sin cambios cualquier fuente histórica liberada | Clave, versión, sources, timestamps | PENDIENTE |
 | T-AUTO-05 | Renovación 16 → 5 con fecha posterior válida | Regla y trazabilidad de renovación, sin saltarse otros gates | before/after + historial | PENDIENTE |
+| T-AUTO-06 | AUTO vencida en gracia intenta entrega/aplicación; luego se renueva | Rechazo antes de ampliar vigencia; después puede operar si cumple los demás gates y conserva saldo | requests, vigencia, saldo y auditoría | PENDIENTE |
 | T-OC-01 | AUTO 10 → nueva OC-A 4 + nueva OC-B 6 | Dos fuentes de OC, saldo de compra 0 | Líneas/poas + cobertura | PENDIENTE |
 | T-OC-02 | Intentar tercera OC por 1 sobre la AUTO cubierta 10/10 | Rechazo sin sobrecompra | Código/error + suma fuentes | PENDIENTE |
 | T-OC-03 | Archivo V3 con misma AUTO destino + OC repetidas | Rechazo de duplicidad | Resultados por fila | PENDIENTE |
 | T-OC-04 | Reasignar desde AUTO de producto distinto | Error y ninguna reasignación física/histórica | Producto/sources/allocations before/after | PENDIENTE |
 | T-OC-05 | Reasignación parcial donde contrato exige completa 1:1 | Rechazo; preservar origen | Sources/allocations | PENDIENTE |
+| T-OC-06 | AUTO vencida después del día 6, OC pendiente sin recibir; MTD la reimporta manualmente a la misma línea tras renovar | Nueva fuente activa con `AUTO_ORIGEN` vacío; fila liberada intacta; sin recepción ni inventario ficticios | archivo/fila, source IDs/estados, OC y stock | PENDIENTE |
+| T-OC-07 | Revincular si la capacidad de la línea ya está comprometida con otra AUTO | Rechazo; no recuperar capacidad ni reasignar reserva automáticamente | fuentes por AUTO, capacidad pendiente, allocations | PENDIENTE |
 | T-OLP-01 | Aceptación con `expectedVersion`, fecha y cantidades válidas | Aceptación persistida con trazabilidad | Campos OLP por OC y líneas | PENDIENTE |
 | T-OLP-02 | Aceptación sin fecha comprometida | 400/validación, no muta OC | Response, status/versión | PENDIENTE |
 | T-OLP-03 | Aceptar versión desactualizada | Conflicto, sin sobrescribir aceptación vigente | VERSION_CONFLICT + before/after | PENDIENTE |
@@ -34,6 +37,7 @@
 | T-CON-01 | Dos recepciones simultáneas sobre mismo saldo 5 | No recibir > remanente; bloqueo/guard transaccional | sum(receipts), OC y logs | PENDIENTE |
 | T-CON-02 | Reasignación y fulfillment simultáneos | No mover unidades ya consumidas ni duplicar reserva | locks, allocated/released/consumed | PENDIENTE |
 | T-CON-03 | Anulación y fulfillment simultáneos | Exactamente una ruta válida; estado consistente | transacciones, marks y ledger | PENDIENTE |
+| T-CON-04 | Worker de vencimiento y edición manual compiten por la misma AUTO | `NOWAIT` hace ceder al worker en ese caso; rollback aislado y reintento en siguiente barrido | locks/transacciones, edición, logs y estado final | PENDIENTE |
 | T-REC-01 | Reconciliar OC con recepciones `quantity-only` | Proyección consistente sin materialización ficticia | read model, receipts, allocations | PENDIENTE |
 
 ## Pruebas de documentación adicional

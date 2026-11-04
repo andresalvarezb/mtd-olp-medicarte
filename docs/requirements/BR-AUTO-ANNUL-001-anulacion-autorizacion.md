@@ -43,5 +43,8 @@ elegible puede vincularlo mediante importación de OC existente con
 AUTO_ORIGEN vacía.
 
 Esta vinculación no es stock físico ni reasignación histórica 1:1.
+La AUTO anulada no puede volver a habilitarse ni reutilizarse como destino;
+seleccionar la misma AUTO tras ampliar vigencia solo aplica al caso de
+vencimiento, no a la anulación irreversible.
 
 Ver [AC-FIN-001 — capacidad de compra](AC-FIN-001-capacidad-compra-anulaciones.md).

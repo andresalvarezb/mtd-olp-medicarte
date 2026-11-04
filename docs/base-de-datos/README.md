@@ -26,6 +26,12 @@
 
 La relación **OC ≠ recibido ≠ reserva ≠ consumo** es crítica. Consultar [mapa operativo](mapa-operativo.md) antes de formular consultas que suman cantidades.
 
+`purchase_order_authorization_sources` conserva cada vínculo OC–AUTO con un
+`id` independiente. Su índice único parcial limita a una sola fila activa por
+pareja de línea y AUTO (`released_at IS NULL`); las filas liberadas se mantienen
+como historia y no cuentan como compromiso activo. Crear una fuente nueva no
+crea stock ni una reserva física.
+
 ## Referencias disponibles
 
 - [Mapa operativo y diagramas Mermaid](mapa-operativo.md): recorridos principales y relaciones FK verificadas en Drizzle.
@@ -80,4 +86,4 @@ El resultado señala tablas o columnas ausentes respecto de Drizzle. No sustituy
 
 > Antes de buscar por todo el repositorio, lee `docs/base-de-datos/README.md`, busca la entidad en `schema-index.json` (o ejecuta `node scripts/db-schema-catalog.mjs --table <tabla>`), revisa las relaciones y sus columnas clave y **solo entonces** inspecciona el servicio/repositorio y los tests correspondientes. Si `--check` falla, regenera antes de confiar en el catálogo. No infieras disponibilidad física a partir de cantidades de OC.
 
-**Limitación:** durante la creación inicial se inspeccionó estáticamente el schema de `develop`, con **87 tablas Drizzle**. No se accedió a una instancia de PostgreSQL para afirmar cuántas tablas existen realmente en producción o qué migraciones están aplicadas allí.
+**Limitación:** durante la creación inicial se inspeccionó estáticamente el schema de `develop`, con **87 tablas Drizzle**; el catálogo generado actual enumera 88. No se accedió a una instancia de PostgreSQL para afirmar cuántas tablas existen realmente en producción o qué migraciones están aplicadas allí.

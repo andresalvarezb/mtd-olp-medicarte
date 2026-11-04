@@ -4352,7 +4352,7 @@ export class PurchaseOrderImportService {
       requested_quantity: number;
       received_quantity: number;
       committed_quantity: number;
-      destination_ever_linked: boolean;
+      destination_active_linked: boolean;
       global_requested_quantity: number;
       point_requested_quantity: number;
       global_commitment_quantity: number;
@@ -4436,7 +4436,8 @@ export class PurchaseOrderImportService {
                  select 1 from purchase_order_authorization_sources poas
                  where poas.purchase_order_line_id = pl.id
                    and poas.authorization_item_id = $4
-               ) as destination_ever_linked,
+                   and poas.released_at is null
+               ) as destination_active_linked,
                coalesce((select sum(requested_quantity)
                          from product_lines), 0)::int as global_requested_quantity,
                coalesce((select sum(requested_quantity)
@@ -4846,7 +4847,7 @@ export class PurchaseOrderImportService {
             const invalidPendingLine = lines.some((line) =>
               typeof line.line_id !== 'string' ||
               line.line_id.length === 0 ||
-              typeof line.destination_ever_linked !== 'boolean' ||
+              typeof line.destination_active_linked !== 'boolean' ||
               quantityFields.some((field) =>
                 !Number.isSafeInteger(Number(line[field])) ||
                 Number(line[field]) < 0
@@ -4893,9 +4894,9 @@ export class PurchaseOrderImportService {
             const selectedLines: Array<{ id: string; quantity: number }> = [];
             for (const line of lines) {
               if (outstanding === 0) break;
-              // The historical source row, even released, is immutable. A PK
-              // prevents creating another relation for the same AUTO + line.
-              if (line.destination_ever_linked) continue;
+              // A released source stays intact; only an active pair blocks
+              // a new commitment on this OC line.
+              if (line.destination_active_linked) continue;
 
               const lineCapacity = Math.max(
                 Number(line.requested_quantity) - Math.max(

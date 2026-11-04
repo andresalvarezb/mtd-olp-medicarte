@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- |
 | P0 | RF-01 | Devolución posrecepción a OLP | Rechazo durante recepción legacy | Autorización RMA, movimiento compensatorio, inventario, proveedor y documento final |
 | P0 | RF-02 | Novedad en tránsito por traslado | Transferencia CREATED→DISPATCHED→RECEIVED | Recibo parcial, faltantes, merma, reclamo y cierre sin inventario ficticio |
-| P0 | RF-03 | Liberación de reserva por no-show y vencimiento | Novedad NOT_APPLIED; scheduler de invalidación | Momento, lote, reuso, reasignación y reglas de no doble consumo; **no presumir liberación** |
+| P0 | RF-03 | Liberación de reserva por no-show y vencimiento | Para vencimiento: reserva por cinco días y liberación automática desde el día 6, con fuente OC histórica; para no-show: evento NOT_APPLIED | No-show sigue pendiente de decisión. Certificar vencimiento, renovación, revinculación, concurrencia y despliegue; no extrapolar la política de expiración a no-show |
 | P0 | RF-04 | Ajuste manual por daño/vencimiento fuera de atención | Movimiento NON_REUSABLE por resultado de atención | Tipos de ajuste, motivo, doble aprobación, evidencia y conciliación de stock |
 | P1 | RF-05 | Reversión de recepción confirmada | Borrador editable, confirmación inmutable | Compensación auditable, control de OC asignadas, aplicación ya realizada |
 | P1 | RF-06 | Conciliación contable/billing | Auditoría y analíticas económicas | Fuente factura, glosa, pagos, notas, impuestos, cortes y responsable |

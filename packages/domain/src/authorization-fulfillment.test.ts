@@ -15,7 +15,7 @@ const base = {
     '2026-09-20',
 
   validityEndDate:
-    '2026-09-15',
+    '2026-10-15',
 
   todayBogota:
     '2026-09-30',
@@ -54,17 +54,15 @@ describe(
 
 
     it(
-      'permite aplicación posterior al vencimiento',
+      'rechaza aplicación con vigencia vencida aunque conserve reserva',
       () => {
         expect(
           () =>
             assertAuthorizationFulfillment({
               ...base,
-
-              effectiveDate:
-                '2026-09-29',
+              validityEndDate: '2026-09-15',
             }),
-        ).not.toThrow();
+        ).toThrowError(/Amplíe la vigencia/);
       },
     );
 

@@ -2332,7 +2332,7 @@ export class AuthorizationQueryRepository {
             as purchase_order_code,
 
           min(
-            poas.created_at
+            poas.first_created_at
           )
             as occurred_at,
 
@@ -2361,8 +2361,23 @@ export class AuthorizationQueryRepository {
           )
             as dispensing_point_name
 
-        from
-          purchase_order_authorization_sources poas
+        from (
+          select distinct on (
+            purchase_order_line_id,
+            authorization_item_id
+          )
+            *,
+            min(created_at) over (
+              partition by purchase_order_line_id, authorization_item_id
+            ) as first_created_at
+          from purchase_order_authorization_sources
+          order by
+            purchase_order_line_id,
+            authorization_item_id,
+            (released_at is null) desc,
+            created_at desc,
+            id desc
+        ) poas
 
         join
           purchase_order_lines pol
@@ -2395,7 +2410,7 @@ export class AuthorizationQueryRepository {
 
         order by
           min(
-            poas.created_at
+            poas.first_created_at
           ),
           po.id
       `);
@@ -2562,13 +2577,13 @@ export class AuthorizationQueryRepository {
             on po.id =
                por.purchase_order_id
 
-        join
-          purchase_order_authorization_sources poas
-            on poas.purchase_order_line_id =
-               pol.id
-
-           and poas.authorization_item_id =
-               ${id}
+        join lateral (
+          select 1
+          from purchase_order_authorization_sources source
+          where source.purchase_order_line_id = pol.id
+            and source.authorization_item_id = ${id}
+          limit 1
+        ) poas on true
 
         left join
           dispensing_points dp
@@ -2754,13 +2769,13 @@ export class AuthorizationQueryRepository {
             on po.id =
                d.purchase_order_id
 
-        join
-          purchase_order_authorization_sources poas
-            on poas.purchase_order_line_id =
-               pol.id
-
-           and poas.authorization_item_id =
-               ${id}
+        join lateral (
+          select 1
+          from purchase_order_authorization_sources source
+          where source.purchase_order_line_id = pol.id
+            and source.authorization_item_id = ${id}
+          limit 1
+        ) poas on true
 
         left join
           dispensing_points dp

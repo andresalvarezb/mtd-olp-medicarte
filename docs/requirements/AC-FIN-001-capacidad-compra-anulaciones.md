@@ -1,14 +1,23 @@
-# AC-FIN-001 — Capacidad de compra de OC después de una anulación
+# AC-FIN-001 — Capacidad pendiente de OC después de una liberación
 
 **Fecha:** 2026-10-20
 **Implementación:** PR #91, integrado en develop
-**Estado:** Implementado en código; certificación operativa pendiente.
+**Estado:** La capacidad base corresponde al PR #91; la ampliación por
+vencimiento está implementada en la rama de trabajo. Certificación de base de
+datos y despliegue pendientes.
+
+**Ampliación 2026-11-03:** cubre también la liberación automática por
+vencimiento desde el día 6. La migración `0105_purchase_order_source_history`
+define el soporte para una nueva fuente activa después de conservar la fuente
+liberada; debe aplicarse coordinadamente antes de aceptar escrituras nuevas.
 
 ## Objetivo
 
-Permitir que MTD reutilice la capacidad de compra disponible en una orden
-de compra existente cuando una autorización anterior se haya anulado sin
-entregas ni aplicaciones confirmadas.
+Permitir que MTD reutilice la capacidad de compra pendiente en una OC existente
+cuando la fuente anterior se liberó por anulación o vencimiento. Para una
+anulación, esta continúa sujeta a BR-AUTO-ANNUL-001: no puede haber entregas ni
+aplicaciones confirmadas. Para vencimiento, una AUTO que se reutiliza como
+destino debe tener la vigencia ampliada y cumplir los demás requisitos.
 
 La operación debe conservar la trazabilidad histórica y distinguir
 inventario físico de compromisos de compra aún no recibidos.
@@ -17,14 +26,24 @@ inventario físico de compromisos de compra aún no recibidos.
 
 1. Una AUTO con cualquier cantidad entregada o aplicada no puede anularse.
 2. La anulación libera las reservas no consumidas y las fuentes activas.
-3. Las fuentes históricas permanecen registradas mediante released_at
-   y released_by.
-4. La OC conserva su identidad, cantidades solicitadas y recepciones.
-5. La anulación no genera medicamentos disponibles físicamente.
-6. Una nueva AUTO puede aprovechar un compromiso de compra pendiente
-   cuando tiene producto, punto, vigencia y cobertura compatibles.
-7. No se puede superar la capacidad disponible de la OC, punto o línea.
-8. No se puede recrear una pareja histórica de línea OC y AUTO liberada.
+3. Desde el día 6 posterior al vencimiento, el worker libera el saldo no
+   consumido y marca las fuentes activas de OC como liberadas con actor
+   `SYSTEM`; durante los cinco días de gracia conserva ambas reservas.
+4. Las fuentes liberadas permanecen como filas históricas inmutables con su
+   cantidad snapshot, fecha y actor de liberación.
+5. La OC conserva su identidad, cantidades solicitadas y recepciones.
+6. La liberación o revinculación de una fuente no genera inventario físico.
+7. MTD puede vincular manualmente una AUTO destino con vigencia válida,
+   producto, punto y capacidad pendiente compatibles. Puede ser la misma AUTO
+   renovada; el archivo lleva `AUTO_ORIGEN` vacío.
+8. Solo puede existir una fuente activa por pareja línea OC–AUTO. Una fuente
+   liberada no impide insertar una nueva fila activa con `id` propio.
+9. No se puede superar la capacidad pendiente de la OC, punto o línea ni
+   recuperar capacidad que ya quedó comprometida a otra AUTO.
+10. Los vínculos liberados no se suman como compromisos activos ni se duplican
+    en los totales históricos de una misma pareja línea–AUTO.
+11. Si el worker encuentra locks tomados por una edición manual, revierte solo
+    el caso ocupado y lo reintenta en el siguiente barrido.
 
 ## 2. Diferencia entre cantidades
 
@@ -37,7 +56,7 @@ inventario físico de compromisos de compra aún no recibidos.
 | Pendiente de recepción | Compra todavía no recibida |
 | Compromiso OC activo | Cobertura lógica vigente |
 | Saldo OC pendiente sin comprometer | Compra futura reutilizable |
-| Liberado por anulación histórico | Evidencia de cantidades liberadas |
+| Liberado por anulación o vencimiento | Evidencia histórica; no es stock ni compromiso activo |
 
 El histórico liberado no constituye stock ni debe sumarse como capacidad
 adicional a las cantidades pendientes o recibidas.
@@ -86,16 +105,18 @@ Adicionalmente se aplican restricciones por:
 - Punto de dispensación.
 - Línea individual de compra.
 - Cantidades ya planificadas en la transacción.
-- Relaciones históricas previamente liberadas.
+- Relaciones activas de la pareja línea–AUTO; una fila liberada permanece
+  como evidencia y no bloquea por sí sola una nueva fila activa.
 
 Una cantidad inválida, negativa, no entera o una línea sin identidad
 válida deben rechazarse antes de ejecutar la inserción.
 
 ## 5. Persistencia
 
-ASSIGN_PENDING_COMMITMENT crea nuevas relaciones activas en
-purchase_order_authorization_sources con procedencia
-DIRECT_AUTHORIZATION.
+ASSIGN_PENDING_COMMITMENT crea una fila activa con `id` propio en
+`purchase_order_authorization_sources` y procedencia `DIRECT_AUTHORIZATION`.
+La clave primaria es ese `id`; un índice único parcial restringe la pareja
+`(purchase_order_line_id, authorization_item_id)` mientras `released_at IS NULL`.
 
 No modifica:
 
@@ -141,9 +162,17 @@ físicamente cuando alcanza la cantidad completa. La capacidad de
 compra no recibida se gestiona por separado.
 
 Caso C: AUTO que ya estuvo asociada a una línea liberada.
-No se recrea la misma relación histórica línea/AUTO.
+Si la AUTO fue liberada por vencimiento y se renovó, MTD puede seleccionarla
+con `AUTO_ORIGEN` vacía para una línea pendiente sin recibir, si producto,
+punto y capacidad siguen siendo compatibles. Se conserva la fila liberada y
+se crea otra fuente activa con `id` distinto. Sin renovación o sin capacidad,
+se rechaza. La anulación sigue siendo irreversible y no permite reutilizar la
+AUTO anulada.
 
-Caso D: AUTO con consumo 1. La anulación debe rechazarse.
+Caso D: una segunda AUTO ya tiene comprometida la capacidad pendiente.
+La AUTO renovada no puede recuperar esa capacidad ni exceder el saldo libre.
+
+Caso E: AUTO con consumo 1. La anulación debe rechazarse.
 
 ## 9. Validación
 
@@ -152,6 +181,8 @@ Pruebas automatizadas de referencia:
 - purchase-order-import-pending.service.test.ts
 - purchase-order-import-existing.service.test.ts
 - purchase-order-import-rules.service.test.ts
+- apps/worker/src/inventory-expiration-release.test.ts
+- tests/integration/inventory-expiration-auto-release.prodshadow.test.ts
 - inventory-availability-balance.test.ts
 - inventory-availability-xlsx.test.ts
 
@@ -163,6 +194,8 @@ Antes de certificar el cierre se requiere:
 - pnpm build
 - Integración con PostgreSQL real.
 - Pruebas de concurrencia.
+- Aplicación y despliegue coordinados de `0104` y `0105` antes de reanudar
+  escrituras de OC.
 - Validación HTTP con los roles operativos.
 - Validación del XLSX y de las cantidades por OC/punto.
 

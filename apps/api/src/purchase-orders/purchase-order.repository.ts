@@ -3919,7 +3919,7 @@ export class PurchaseOrderRepository {
         on conflict (
           purchase_order_line_id,
           authorization_item_id
-        ) do nothing
+        ) where released_at is null do nothing
       `);
 
       if (orderType === 'STANDARD' && line.demandBucket !== 'REGULAR')

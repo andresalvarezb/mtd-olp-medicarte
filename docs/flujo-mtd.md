@@ -54,7 +54,7 @@ MODELO, PUNTO_APLICACION_PREDETERMINADO
 5. Descargar **filas rechazadas** (`GET /api/v1/bulk-imports/:id/rejected.xlsx`) o resultado, corregir en la fuente, y recargar/reintentar según el estado. `retry-failed` está disponible solo para estados permitidos.
 6. Consultar la AUTO en `/autorizaciones/consulta`. Confirmar habilitación, vigencia, cobertura, validación AT, cantidades y permisos de operación por separado.
 
-**Salida:** AUTO conservada o actualizada con trazabilidad de carga y estado operacional calculado; **no** se asignan medicamentos físicos con el cargue. Importar una autorización vencida, con cantidad insuficiente o no presente en AT puede conservar su registro, pero no habilitar compra/atención.
+**Salida:** AUTO conservada o actualizada con trazabilidad de carga y estado operacional calculado; **no** se asignan medicamentos físicos con el cargue. Importar una autorización vencida, con cantidad insuficiente o no presente en AT puede conservar su registro, pero no habilitar compra/atención. La entrega y la aplicación requieren que la vigencia actual cubra el día de operación; una reserva retenida durante la gracia no habilita atención hasta ampliar la vigencia y superar las demás validaciones.
 
 **Casos particulares:** recarga con mismos datos (comportamiento sin cambios esperado); cambio de vigencia/estado 16 → 5 sujeto a [BR-AUTO-REN-001](requirements/BR-AUTO-REN-001-estado-16-vigencia.md); anulación irreversible para AUTO sin entrega/aplicación con [BR-AUTO-ANNUL-001](requirements/BR-AUTO-ANNUL-001-anulacion-autorizacion.md). No presentar estas excepciones como recuperación libre de consumo.
 
@@ -123,6 +123,18 @@ No use estos valores como claves reales. La columna destino puede resolverse des
 7. Confirmar que no se modificaron las recepciones ni el solicitado de OC.
 
 Ver [AC-FIN-001](requirements/AC-FIN-001-capacidad-compra-anulaciones.md).
+
+## MTD-OC-03 — Reutilización tras vencimiento
+
+1. El worker conserva la reserva durante los cinco días posteriores al vencimiento y, desde el día 6, libera el saldo no consumido y marca las fuentes activas de OC como liberadas, sin borrar su evidencia.
+2. Confirmar que la AUTO ya superó la gracia y que la OC sigue activa. La liberación no modifica lo solicitado ni lo recibido.
+3. Descargar PURCHASE_ORDERS_V3 y cargar una fila para la OC existente con `CLAVE_AUTORIZACION_ORIGEN` (`AUTO_ORIGEN`) vacía, `CLAVE_AUTORIZACION_DESTINO` (`AUTO_DESTINO`) vigente, código de producto y cantidad. Puede ser la misma AUTO si MTD amplió su vigencia; la selección es manual.
+4. Para una OC aún no recibida, el importador usa `ASSIGN_PENDING_COMMITMENT` si la línea tiene saldo. Valida nuevamente vigencia, producto, punto y capacidad por OC/línea. No crea inventario ni una reserva física ni cambia la cantidad de la OC.
+5. Revisar `acceptedRows`/`rejectedRows` y confirmar la nueva fuente activa con `id` propio y la conservación de la fuente liberada.
+
+La renovación no recupera una allocation liberada ni capacidad que ya se comprometió a otra AUTO. El stock solo podrá asignarse y consumirse después de una recepción física válida. No se reasignan cantidades consumidas.
+
+Ver [BR-AUTO-REN-001](requirements/BR-AUTO-REN-001-estado-16-vigencia.md) y [AC-FIN-001](requirements/AC-FIN-001-capacidad-compra-anulaciones.md).
 
 ## MTD-RECAUDO-01 — Recaudo único de cuota moderadora
 

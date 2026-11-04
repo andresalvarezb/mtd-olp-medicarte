@@ -2,6 +2,8 @@
 
 **Rama de referencia:** `develop` · **Corte de código:** `7ced5792c08faf35e673e2f1c2ca4571892ab87a` · **Fecha:** 2026-10-17.
 
+**Enmienda documental:** 2026-11-03 se actualizaron las reglas de vencimiento y revinculación de OC para la implementación en la rama de trabajo; aún requieren certificación y despliegue. El corte de código indicado arriba sigue siendo la referencia del manual base, no evidencia de que esta enmienda esté desplegada.
+
 ## Propósito y límites
 
 Este índice reúne flujos de trabajo y casos de uso verificados por **inspección estática** de controladores, contratos, servicios y pantallas. No es una certificación de operación en producción. El nombre comercial de la aplicación no está definido en el repositorio. Se usa **AUTO** para un ítem de autorización; **OC** para orden de compra y **AT** para Anexo Tarifario.
@@ -20,7 +22,7 @@ Este índice reúne flujos de trabajo y casos de uso verificados por **inspecci�
 
 ## Excepciones operativas
 
-Ver el [índice de casos especiales](casos-especiales/README.md): edición de vigencia/producto/cantidad, política de no liberación por vencimiento, anulación, soportes Google Drive, auditorías de facturación, auditorías de atención y reconciliación. Estas reglas complementan, pero no sustituyen, el flujo normal de MTD, OLP y MEDICARTE.
+Ver el [índice de casos especiales](casos-especiales/README.md): edición de vigencia/producto/cantidad, retención y liberación de reservas por vencimiento, anulación, soportes Google Drive, auditorías de facturación, auditorías de atención y reconciliación. Estas reglas complementan, pero no sustituyen, el flujo normal de MTD, OLP y MEDICARTE.
 
 ## Flujo extremo a extremo
 

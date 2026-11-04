@@ -371,7 +371,8 @@ export class AuthorizationManualEditService {
       }>(sql`
         update purchase_order_authorization_sources
         set released_at = now(),
-            released_by = ${scope.userId}
+            released_by = ${scope.userId},
+            released_by_type = 'USER'
         where authorization_item_id = ${authorizationItemId}
           and released_at is null
         returning source_quantity_snapshot::int as quantity

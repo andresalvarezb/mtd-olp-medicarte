@@ -889,10 +889,10 @@ afterAll(
 
 
 describe(
-  'Vencimiento automatico -> conserva reserva asignada',
+  'Vencimiento automatico -> libera el saldo al sexto dia',
   () => {
     it(
-      'conserva la reserva despues del vencimiento y nunca la libera automaticamente',
+      'respeta la gracia, libera saldo y fuente OC una sola vez',
       async () => {
         const today =
           bogotaToday();
@@ -1005,6 +1005,34 @@ describe(
           -6,
         );
 
+        // Una edición que mantiene bloqueada la AUTO gana la carrera. El
+        // worker cede inmediatamente y deja este caso para otro barrido.
+        const editor = new Client({ connectionString: databaseUrl });
+        await editor.connect();
+        try {
+          await editor.query('BEGIN');
+          await editor.query(
+            `UPDATE authorization_items
+             SET source_data = jsonb_set(
+               source_data, '{FECHA_FINAL_VIGENCIA}', to_jsonb($2::text), true
+             ), updated_at = now()
+             WHERE id = $1`,
+            [authorizationItemId, compactDate(plusDays(today, 30))],
+          );
+
+          const yielded = await runInventoryExpirationReleaseSweep(sweepDatabase, today);
+          expect(yielded.releasedAllocations).toBe(0);
+          expect(yielded.releasedPurchaseOrderSources).toBe(0);
+          await editor.query('COMMIT');
+        } finally {
+          await editor.query('ROLLBACK');
+          await editor.end();
+        }
+
+        const afterRenewal = await runInventoryExpirationReleaseSweep(sweepDatabase, today);
+        expect(afterRenewal.releasedAllocations).toBe(0);
+        await setExpiration(-6);
+
 
         const day6 =
           await runInventoryExpirationReleaseSweep(
@@ -1015,25 +1043,36 @@ describe(
         expect(
           day6.releasedAllocations,
         ).toBe(
-          0,
+          1,
         );
 
         expect(
           day6.releasedQuantity,
         ).toBe(
-          0,
+          5,
+        );
+
+        expect(
+          day6.releasedPurchaseOrderSources,
+        ).toBe(
+          1,
+        );
+
+        expect(
+          day6.releasedPurchaseSourceSnapshotQuantity,
+        ).toBe(
+          5,
         );
 
         expect(
           day6.clearedAuthorizations,
         ).toBe(
-          0,
+          1,
         );
 
 
         /*
-         * La allocation continúa siendo la reserva operativa.
-         * El vencimiento no mueve ni libera el producto.
+         * El consumo se conserva y todo saldo no consumido queda liberado.
          */
         expect(
           await allocationSnapshot(),
@@ -1045,11 +1084,64 @@ describe(
             0,
 
           released_quantity:
-            0,
+            5,
 
           status:
-            'ALLOCATED',
+            'RELEASED',
         });
+
+        const releasedSource =
+          await database.query<{
+            released_at:
+              string | null;
+
+            released_by:
+              string | null;
+
+            released_by_type:
+              string | null;
+
+            source_quantity_snapshot:
+              number;
+          }>(
+            `
+              SELECT
+                released_at::text,
+                released_by,
+                released_by_type,
+                source_quantity_snapshot
+
+              FROM
+                purchase_order_authorization_sources
+
+              WHERE
+                purchase_order_line_id =
+                  $1
+
+                AND authorization_item_id =
+                  $2
+            `,
+            [
+              purchaseOrderLineId,
+              authorizationItemId,
+            ],
+          );
+
+        expect(
+          releasedSource.rows[0],
+        ).toMatchObject({
+          released_by:
+            null,
+
+          released_by_type:
+            'SYSTEM',
+
+          source_quantity_snapshot:
+            5,
+        });
+        expect(
+          releasedSource.rows[0]?.released_at,
+        ).toBeTruthy();
 
 
         /*
@@ -1102,8 +1194,8 @@ describe(
 
 
         /*
-         * Las unidades NO regresan a un pool libre.
-         * Cinco siguen reservadas a la AUTO original.
+         * La reserva deja de ocupar disponibilidad y el inventario recibido
+         * vuelve al saldo utilizable sin cambiar la recepción.
          */
         const after =
           await inventory();
@@ -1132,7 +1224,7 @@ describe(
             'assignedQuantity',
           ),
         ).toBe(
-          5,
+          0,
         );
 
         expect(
@@ -1141,7 +1233,7 @@ describe(
             'availableQuantity',
           ),
         ).toBe(
-          5,
+          10,
         );
 
 
@@ -1193,13 +1285,17 @@ describe(
 
             released:
               string | null;
+
+            actor_type:
+              string;
           }>(
             `
               SELECT
                 action,
+                actor_type,
 
                 after
-                  ->> 'releasedQuantity'
+                  ->> 'releasedThisRun'
                   AS released
 
               FROM
@@ -1220,8 +1316,20 @@ describe(
         expect(
           audit.rows,
         ).toHaveLength(
-          0,
+          1,
         );
+        expect(
+          audit.rows[0],
+        ).toMatchObject({
+          action:
+            'INVENTORY_ALLOCATION_AUTO_RELEASED_EXPIRED',
+
+          actor_type:
+            'SYSTEM',
+
+          released:
+            '5',
+        });
 
 
         /*
@@ -1235,6 +1343,11 @@ describe(
 
         expect(
           duplicate.releasedAllocations,
+        ).toBe(
+          0,
+        );
+        expect(
+          duplicate.releasedPurchaseOrderSources,
         ).toBe(
           0,
         );
@@ -1269,7 +1382,7 @@ describe(
             .rows[0]
             ?.total,
         ).toBe(
-          0,
+          1,
         );
       },
       60_000,

@@ -82,6 +82,18 @@ export function evaluatePatientApplicationAuthorization(
     };
   }
 
+  if (
+    operationalWindow.status === 'EXPIRED'
+    || (input.applicationDate !== undefined
+      && operationalWindow.expirationDate !== null
+      && input.applicationDate > operationalWindow.expirationDate)
+  ) {
+    return {
+      eligible: false,
+      code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
+    };
+  }
+
   return {
     eligible: true,
 

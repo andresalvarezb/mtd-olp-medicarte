@@ -26,13 +26,12 @@
 - **Corrección propuesta:** no mutar historial ni habilitar cobros por inferencia; una vez decidida la autoridad, añadir compatibilidad/migración transaccional e idempotente y cobertura que impida doble conteo. No se identificó un defecto de doble aplicación independiente de esta decisión.
 - **Criterio de cierre:** decisión funcional explícita, prueba de expediente legacy sin fulfillment ni reserva activa según la decisión, y prueba mixta que confirme que application/fulfillment no registran dos veces una misma atención.
 
-## Vencimiento, no-show y reservas — P1, regla de negocio pendiente
+## Vencimiento, no-show y reservas — actualización 2026-11-03
 
-- **Evidencia:** `apps/worker/src/inventory-expiration-release.ts` (`runInventoryExpirationReleaseSweep`) invalida vistas, pero no libera `inventory_authorization_allocations` ni incrementa `released_quantity`; `docs/casos-especiales/liberaciones-reservas.md` (CE-08/CE-13) y `docs/casos-especiales/pendientes-funcionales-priorizados.md` (RF-03) describen la limitación.
-- **Estado actual:** comportamiento conocido e intencional: vencer una autorización no equivale a liberar stock. La liberación por no-show y su momento/reglas siguen pendientes; no se clasifica la ausencia de liberación automática por vencimiento como bug confirmado.
-- **Decisión pendiente:** disparador y responsable, lote/punto, elegibilidad y reuso, relación con vencimiento, reasignación y carreras con consumo/fulfillment.
-- **Corrección propuesta:** implementar solo después de aprobar reglas, mediante evento auditable e idempotente, con actualización atómica de allocation y cantidades; no fabricar inventario ni equiparar invalidación con liberación.
-- **Criterio de cierre:** pruebas concurrentes de liberación contra fulfillment, recepción y reasignación; conservación de cantidades y evidencia de que no existe stock ficticio ni doble consumo.
+- **Evidencia actual:** `apps/worker/src/inventory-expiration-release.ts` (`runInventoryExpirationReleaseSweep`) conserva allocations y fuentes activas durante los cinco días posteriores al vencimiento; desde el día 6 bloquea cada caso con locks `NOWAIT`, libera solo el saldo no consumido y termina las fuentes activas de OC en la misma transacción que auditoría e invalidaciones. `docs/casos-especiales/liberaciones-reservas.md` y `docs/adr/043-authorization-order-receipt-fulfillment-reassignment.md` describen la regla.
+- **Estado actual:** la regla de vencimiento está definida e implementada en la rama de trabajo; no se afirma certificación ni despliegue. Una AUTO vencida no puede usarse para entrega o aplicación hasta renovar vigencia y superar los demás gates. La revinculación de una OC pendiente es manual y conserva la fuente liberada como historial.
+- **Decisión pendiente:** el no-show conserva un disparador y política de liberación separados; la regla de vencimiento no se extiende a ese evento.
+- **Criterio de cierre:** certificar expiración y renovación en entrega/aplicación, revinculación, capacidad ocupada, no duplicación histórica y carrera real con edición manual en base aislada; registrar el resultado y coordinar despliegue de `0104`, pausa de escrituras de OC, `0105` y API.
 
 ## Arquitectura de recepción y fulfillment — P2
 

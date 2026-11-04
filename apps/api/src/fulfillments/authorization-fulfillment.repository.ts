@@ -265,19 +265,6 @@ export class AuthorizationFulfillmentRepository {
             todayBogota,
           });
 
-        /*
-         * El vencimiento impide nuevas asignaciones, pero no invalida
-         * una reserva física que ya pertenece a esta AUTO.
-         *
-         * INVALID_DATE y OUTSIDE_HORIZON continúan bloqueando.
-         */
-        const retainedExpiredAllocation =
-          operationalWindow.status ===
-            'EXPIRED'
-          &&
-          assignedQuantity >
-            0;
-
         const mipresEligible =
           evaluateEffectiveMipresEligibility({
             coverageType:
@@ -294,10 +281,7 @@ export class AuthorizationFulfillmentRepository {
           authorization.enablement_status !==
             'ENABLED' ||
           !mipresEligible ||
-          (
-            !operationalWindow.eligible &&
-            !retainedExpiredAllocation
-          )
+          !operationalWindow.eligible
         ) {
           throw new Error(
             'AUTHORIZATION_FULFILLMENT_AUTHORIZATION_NOT_ELIGIBLE',

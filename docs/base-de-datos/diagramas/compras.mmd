@@ -13,8 +13,9 @@ erDiagram
     uuid dispensing_point_id FK
   }
   purchase_order_authorization_sources {
-    uuid purchase_order_line_id PK,FK
-    uuid authorization_item_id PK,FK
+    uuid id PK
+    uuid purchase_order_line_id FK
+    uuid authorization_item_id FK
     uuid released_by FK
   }
   purchase_order_demand_allocations {

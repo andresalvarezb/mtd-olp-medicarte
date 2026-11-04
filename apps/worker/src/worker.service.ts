@@ -275,6 +275,12 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
             releasedQuantity:
               result.releasedQuantity,
 
+            releasedPurchaseOrderSources:
+              result.releasedPurchaseOrderSources,
+
+            releasedPurchaseSourceSnapshotQuantity:
+              result.releasedPurchaseSourceSnapshotQuantity,
+
             clearedAuthorizations:
               result.clearedAuthorizations,
           },

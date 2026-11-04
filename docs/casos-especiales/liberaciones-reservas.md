@@ -1,14 +1,14 @@
 # CE-08 a CE-13 — Vencimientos, liberaciones y reservas
 
-**Advertencia de política:** `runInventoryExpirationReleaseSweep` **NO ejecuta una liberación automática**. El nombre histórico del módulo no representa lo que hace hoy. Fuente de verdad: `apps/worker/src/inventory-expiration-release.ts`.
+**Política vigente:** runInventoryExpirationReleaseSweep libera automáticamente desde el sexto día posterior al vencimiento. Conserva las fuentes de OC y allocations como historial; no borra recepciones ni consumos.
 
 ## CE-08 — Una autorización alcanza `EXPIRED`
 
-El valor de vigencia es una **clasificación temporal informativa**: no elimina ni devuelve `inventory_authorization_allocations`, no aumenta `released_quantity`, no desvincula AUTO→OC, no aplica automáticamente una prohibición de atención o reasignación (esas operaciones mantienen sus controles individuales). El cálculo del horizonte de consulta usa el día calendario **America/Bogota** y un horizonte de 30 días para la proyección de consulta (`authorization-query-validity.ts`).
+Durante los cinco días posteriores al vencimiento, la reserva física y el vínculo activo AUTO→OC permanecen. La reserva retenida no permite entrega ni aplicación mientras la vigencia siga vencida; primero debe ampliarse `FECHA_FINAL_VIGENCIA` y deben cumplirse las demás validaciones. Desde el sexto día, el worker libera `allocated_quantity - consumed_quantity - released_quantity` y marca las fuentes activas de OC como liberadas (`released_by_type=SYSTEM`). Mantiene `source_quantity_snapshot`, cantidades de OC, recepciones y consumos. El vínculo queda visible como historial y la compra pendiente puede asignarse manualmente a una AUTO con vigencia y condiciones compatibles.
 
-**Proceso worker:** con `SCHEDULER_ENABLED=true`, al iniciar y cada **5 minutos** ejecuta `runInventoryExpirationReleaseSweep`. Utiliza `pg_try_advisory_xact_lock`; genera `outbox_events` `realtime.invalidate` para `AUTHORIZATIONS` y `DASHBOARD` en organizaciones activas MTD y MEDICARTE. La clave idempotente incorpora día y organización, evitando repetición por el mismo día. Los cuatro contadores de mutación de inventario permanecen **0** por diseño vigente.
+**Proceso worker:** con SCHEDULER_ENABLED=true, al iniciar y cada **5 minutos** ejecuta runInventoryExpirationReleaseSweep. Usa advisory y row locks, registra auditoría con actor SYSTEM e invalida AUTHORIZATIONS, PURCHASE_ORDERS, INVENTORY y DASHBOARD. Las liberaciones son idempotentes; una segunda ejecución no vuelve a aumentar released_quantity ni crea auditoría duplicada.
 
-**No interpretar** `EXPIRED -> stock disponible`. No registrar en informes unidades liberadas por caducidad si no hay hecho distinto (anulación, edición, reasignación o consumo).
+**No interpretar** EXPIRED -> stock disponible durante la gracia. Una AUTO con consumo previo conserva esas cantidades consumidas; solo se libera el saldo pendiente.
 
 ## CE-09 — Anular autorización sin atención confirmada
 
@@ -42,7 +42,8 @@ La recepción directa Medicarte (`POST /api/v1/medicarte/purchase-orders/:id/rec
 
 | Evento | Cambia reserva | Cambia OC histórica | Incrementa inventario físico | Dispara invalidación |
 | --- | --- | --- | --- | --- |
-| Día de vencimiento | **No** | No | No | Sí, vistas AUTO/dashboard |
+| Día 1 a 5 después del vencimiento | No | No | No | Sí, vistas AUTO/dashboard |
+| Desde el día 6 | Sí, saldo no consumido | Marca fuentes activas liberadas y conserva historial | No crea inventario; reservas físicas liberadas vuelven a disponibilidad | Sí |
 | Anulación sin atención | Sí, libera saldo | Conserva OC, marca fuente liberada | No | Sí |
 | Cambio de producto | Sí, libera no consumido | Solo reconcilia OC exclusivamente MTD elegible | No | Sí |
 | Reducción de cantidad | Sí, solo exceso | Solo en caso MTD elegible | No | Sí |
@@ -51,12 +52,22 @@ La recepción directa Medicarte (`POST /api/v1/medicarte/purchase-orders/:id/rec
 
 **Por certificar:** pruebas de concurrencia anulación vs fulfillment, recepción parcial repetida, límites de disponibilidad por punto, replay del worker y reconciliación histórica; jamás llamar PASS por lectura estática.
 
-## CE-12A — Compromisos pendientes después de anulación
+## CE-12A — Compromisos pendientes después de liberación
 
-Una fuente liberada por anulación se conserva como evidencia histórica.
+Una fuente liberada por anulación o vencimiento desde el día 6 se conserva como evidencia histórica.
+Durante los cinco días de gracia, la reserva sigue asociada a la AUTO, pero
+entrega y aplicación exigen ampliar primero su vigencia. Después de la
+liberación, una renovación no recupera automáticamente la reserva ni una
+capacidad de OC que ya se comprometió a otra AUTO.
 
-El importador de OC existentes permite vincular compra todavía
-pendiente a otra AUTO elegible, sin fabricar inventario.
+El importador de OC existentes permite vincular compra todavía pendiente a una
+AUTO destino compatible, sin fabricar inventario. Si la AUTO vencida se renovó,
+MTD puede seleccionarla de nuevo con `AUTO_ORIGEN` vacía y la cantidad
+pendiente. En la misma línea de OC, se conserva la fuente liberada y se crea
+una nueva fuente activa con `id` distinto. Producto, punto, vigencia y
+capacidad se vuelven a validar. La renovación no restaura una reserva física
+liberada ni recupera capacidad ya comprometida a otra AUTO; la nueva fuente
+tampoco crea una allocation física.
 
 El sistema diferencia ASSIGN_AVAILABLE, ASSIGN_PENDING_COMMITMENT
 y REASSIGN. Deben preservarse los controles de cantidad por línea,

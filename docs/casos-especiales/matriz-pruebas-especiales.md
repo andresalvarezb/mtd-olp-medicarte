@@ -25,8 +25,8 @@
 | TE-19 | Cambio producto con reservas sin consumo | Liberación completa no consumida | ledger allocations |
 | TE-20 | Reducción cantidad con reserva | Liberar solo exceso | cantidades antes/después |
 | TE-21 | Aumento cantidad sin reserva adicional | Ningún stock inventado | inventario por OC |
-| TE-22 | Worker en día de vencimiento | Cero liberaciones; outbox invalidación | outbox y allocations |
-| TE-23 | Worker ejecutado dos veces mismo día | Sin duplicados por clave idempotente | outbox |
+| TE-22 | Worker en los cinco días posteriores al vencimiento | Conserva la reserva; invalida vistas según corresponda | outbox y allocations |
+| TE-23 | Worker desde el día 6 | Libera solo el saldo no consumido y termina la fuente activa de OC, con auditoría | fuente/allocations/auditoría |
 | TE-24 | Worker con scheduler deshabilitado | Sin ejecución periódica | config y logs |
 | TE-25 | Anulación antes de cualquier atención | Liberación de reservas y fuentes; OC preservada | BD y audit_event |
 | TE-26 | Anulación con cumplimiento parcial | Rechazo `AUTHORIZATION_ALREADY_ATTENDED` | fulfilment conservado |
@@ -108,6 +108,14 @@ Todos los siguientes casos son **PENDIENTES**, no pruebas ejecutadas. Para brech
 | TE-95 | Rol MTD_ADMIN intenta desactivación | ROLE_PROTECTED | API + DB + auditoría / acta RF |
 | TE-96 | Revocación grant de punto antes de mutar | Denegación al revalidar y sin saldo negativo | API + DB + auditoría / acta RF |
 | TE-97 | Usuario doble organización cambia X-Organization-Id | No mezcla datos/permisos entre organizaciones | API + DB + auditoría / acta RF |
+| TE-98 | Worker ejecutado de nuevo tras liberar una AUTO | No repetir liberación, auditoría ni invalidación de la fuente ya terminada | source/allocations/outbox/auditoría |
+| TE-99 | AUTO vencida dentro de gracia intenta entrega o aplicación | Rechazo hasta ampliar vigencia, aunque conserve reserva | API, vigencia, saldo reservado |
+| TE-100 | Renovar AUTO durante gracia y cumplir demás gates | Entrega/aplicación permitida según saldo y requisitos vigentes | before/after, fulfillment/application |
+| TE-101 | Renovar después del día 6 | No restaura reservas ni fuente OC liberadas | sources/allocations antes/después |
+| TE-102 | Revincular manualmente la misma AUTO a la misma línea OC pendiente y no recibida | Acepta nueva fuente activa con `AUTO_ORIGEN` vacío; preserva intacta la fuente liberada y no crea stock | importación, fuentes, línea OC, inventario |
+| TE-103 | Revinculación cuando la capacidad ya está comprometida a otra AUTO | Rechaza sin exceder capacidad ni reasignar automáticamente | capacidad/sources/allocations |
+| TE-104 | Worker encuentra edición manual con locks ocupados | Omite y revierte solo ese caso; procesa otros y reintenta en siguiente barrido | transacciones, logs, estado del caso independiente |
+| TE-105 | Consulta histórica con dos fuentes sucesivas para la pareja línea/AUTO | Cantidad agregada una sola vez según estado/semántica de cada fuente | consulta, fuentes, total conciliado |
 
 ## Condiciones de cierre
 

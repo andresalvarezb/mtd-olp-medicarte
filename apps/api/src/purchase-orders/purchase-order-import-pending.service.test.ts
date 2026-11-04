@@ -41,11 +41,27 @@ function result<T>(rows: T[]) {
   return { rows, rowCount: rows.length };
 }
 
+function assignmentDateWithinWindow() {
+  const dateParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const value = (type: string) =>
+    Number(dateParts.find((part) => part.type === type)?.value);
+  return new Date(Date.UTC(
+    value('year'),
+    value('month') - 1,
+    value('day') + 7,
+  )).toISOString().slice(0, 10).replaceAll('-', '');
+}
+
 function setup(options: {
   requested: number;
   committed?: number;
   received?: number;
-  linkedBefore?: boolean;
+  activeLinked?: boolean;
 }) {
   const poolQuery = vi.fn((sql: string) => {
     if (String(sql).replace(/\s+/g, ' ').includes('purchase_order_code = any($1::text[])')) {
@@ -81,7 +97,7 @@ function setup(options: {
         coverage_type: 'PBS',
         direction_status: 'NOT_APPLICABLE',
         mipres_manual_decision: 'PENDING_MANUAL_ENABLEMENT',
-        assignment_raw: '20200101',
+        assignment_raw: assignmentDateWithinWindow(),
         expiration_raw: '20991231',
         closed: false,
       }]);
@@ -134,13 +150,13 @@ function setup(options: {
     }
 
     if (q.includes('with product_lines as (') &&
-        q.includes('destination_ever_linked')) {
+        q.includes('destination_active_linked')) {
       return result([{
         line_id: LINE_ID,
         requested_quantity: options.requested,
         received_quantity: options.received ?? 0,
         committed_quantity: options.committed ?? 0,
-        destination_ever_linked: options.linkedBefore ?? false,
+        destination_active_linked: options.activeLinked ?? false,
         global_requested_quantity: options.requested,
         point_requested_quantity: options.requested,
         global_commitment_quantity: options.committed ?? 0,
@@ -166,8 +182,8 @@ function setup(options: {
   return { instance, clientQuery, release };
 }
 
-describe('AC-FIN-001: capacidad de compra liberada por anulación', () => {
-  it('vincula a otra AUTO las unidades pendientes sin reservar inventario ni alterar OC', async () => {
+describe('Asignación de compromiso de compra pendiente', () => {
+  it('vincula a otra AUTO una OC no recibida con compromiso liberado sin inventar inventario ni alterar OC', async () => {
     const { instance, clientQuery, release } = setup({ requested: 5 });
     const imported = await instance.import(workbook(), actor);
 
@@ -207,8 +223,18 @@ describe('AC-FIN-001: capacidad de compra liberada por anulación', () => {
     expect(statements).toContain('rollback');
   });
 
-  it('rechaza recrear un vínculo histórico liberado para la misma AUTO y línea', async () => {
-    const { instance, clientQuery } = setup({ requested: 5, linkedBefore: true });
+  it('permite volver a vincular la misma AUTO renovada tras liberar su vínculo anterior', async () => {
+    const { instance, clientQuery } = setup({ requested: 5 });
+    const imported = await instance.import(workbook(), actor);
+
+    expect(imported.acceptedRows).toBe(1);
+    const statements = clientQuery.mock.calls.map(([sql]) => String(sql).toLowerCase()).join('\n');
+    expect(statements).toContain('insert into purchase_order_authorization_sources');
+    expect(statements).not.toContain('update purchase_order_authorization_sources');
+  });
+
+  it('rechaza otro vínculo activo para la misma AUTO y línea', async () => {
+    const { instance, clientQuery } = setup({ requested: 5, activeLinked: true });
     const imported = await instance.import(workbook(), actor);
 
     expect(imported.acceptedRows).toBe(0);

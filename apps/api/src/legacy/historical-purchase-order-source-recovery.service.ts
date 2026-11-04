@@ -517,10 +517,17 @@ export class HistoricalPurchaseOrderSourceRecoveryService {
       from
         resolved
 
+      where not exists (
+        select 1
+        from purchase_order_authorization_sources existing
+        where existing.purchase_order_line_id = resolved.purchase_order_line_id
+          and existing.authorization_item_id = resolved.authorization_item_id
+      )
+
       on conflict (
         purchase_order_line_id,
         authorization_item_id
-      )
+      ) where released_at is null
       do nothing
     `);
   }

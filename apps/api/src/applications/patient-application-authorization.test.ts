@@ -55,7 +55,7 @@ describe('patient application authorization eligibility', () => {
     });
   });
 
-  it('allows expired authorization', () => {
+  it('blocks expired authorization until validity is extended', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
@@ -63,13 +63,13 @@ describe('patient application authorization eligibility', () => {
         expirationDate: '2031-03-01',
       }),
     ).toEqual({
-      eligible: true,
+      eligible: false,
 
-      code: null,
+      code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
     });
   });
 
-  it('allows application date after expiration', () => {
+  it('blocks application date after an expired validity', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
@@ -79,9 +79,9 @@ describe('patient application authorization eligibility', () => {
         applicationDate: '2031-03-10',
       }),
     ).toEqual({
-      eligible: true,
+      eligible: false,
 
-      code: null,
+      code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
     });
   });
 
@@ -211,7 +211,7 @@ describe('patient application authorization eligibility', () => {
     });
   });
 
-  it('allows application after authorization expiration', () => {
+  it('blocks application after authorization expiration', () => {
     expect(
       evaluatePatientApplicationAuthorization({
         ...base,
@@ -221,9 +221,9 @@ describe('patient application authorization eligibility', () => {
         applicationDate: '2031-04-21',
       }),
     ).toEqual({
-      eligible: true,
+      eligible: false,
 
-      code: null,
+      code: 'PATIENT_APPLICATION_AUTHORIZATION_NOT_ELIGIBLE',
     });
   });
 

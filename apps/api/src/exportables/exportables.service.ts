@@ -780,6 +780,8 @@ export class ExportablesService {
                         source.authorization_item_id =
                           e.id
 
+                        and source.released_at is null
+
                         and po.status not in (
                           'REJECTED',
                           'CANCELLED'

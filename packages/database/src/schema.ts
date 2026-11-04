@@ -1325,6 +1325,7 @@ export const purchaseOrderDemandAllocations = pgTable(
 export const purchaseOrderAuthorizationSources = pgTable(
   'purchase_order_authorization_sources',
   {
+    id: uuid('id').primaryKey().defaultRandom(),
     purchaseOrderLineId: uuid('purchase_order_line_id')
       .notNull()
       .references(() => purchaseOrderLines.id, { onDelete: 'cascade' }),
@@ -1338,13 +1339,13 @@ export const purchaseOrderAuthorizationSources = pgTable(
     evidenceAt: timestamp('evidence_at', { withTimezone: true }),
     releasedAt: timestamp('released_at', { withTimezone: true }),
     releasedBy: uuid('released_by').references(() => users.id, { onDelete: 'restrict' }),
+    releasedByType: varchar('released_by_type', { length: 10 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    primaryKey({
-      name: 'purchase_order_authorization_sources_pk',
-      columns: [table.purchaseOrderLineId, table.authorizationItemId],
-    }),
+    uniqueIndex('purchase_order_authorization_sources_active_pair_unique')
+      .on(table.purchaseOrderLineId, table.authorizationItemId)
+      .where(sql`${table.releasedAt} IS NULL`),
     index('purchase_order_authorization_sources_authorization_idx').on(
       table.authorizationItemId,
       table.purchaseOrderLineId,
@@ -1387,7 +1388,19 @@ export const purchaseOrderAuthorizationSources = pgTable(
     ),
     check(
       'purchase_order_authorization_sources_release_consistency_check',
-      sql`(${table.releasedAt} IS NULL) = (${table.releasedBy} IS NULL)`,
+      sql`(
+        (${table.releasedAt} IS NULL
+          AND ${table.releasedBy} IS NULL
+          AND ${table.releasedByType} IS NULL)
+        OR
+        (${table.releasedAt} IS NOT NULL
+          AND ${table.releasedByType} = 'USER'
+          AND ${table.releasedBy} IS NOT NULL)
+        OR
+        (${table.releasedAt} IS NOT NULL
+          AND ${table.releasedByType} = 'SYSTEM'
+          AND ${table.releasedBy} IS NULL)
+      )`,
     ),
     check(
       'purchase_order_authorization_sources_quantity_check',

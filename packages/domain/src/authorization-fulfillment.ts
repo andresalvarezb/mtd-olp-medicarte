@@ -185,15 +185,15 @@ export function assertAuthorizationFulfillment(
   }
 
 
-  /*
-   * EXPIRED es informativo.
-   *
-   * La fecha efectiva puede ser posterior al
-   * vencimiento de la AUTO.
-   *
-   * La única cota temporal es HOY:
-   * no se admite declarar un evento futuro.
-   */
+  // La reserva puede persistir tras el vencimiento, pero exige renovación
+  // de la vigencia antes de registrar una entrega o aplicación.
+  if (input.validityEndDate < input.todayBogota) {
+    throw new AuthorizationFulfillmentError(
+      'AUTHORIZATION_FULFILLMENT_EXPIRED',
+      'Amplíe la vigencia de la autorización antes de entregar o aplicar.',
+    );
+  }
+
   if (
     input.effectiveDate >
       input.todayBogota
