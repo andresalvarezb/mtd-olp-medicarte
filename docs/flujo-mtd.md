@@ -64,6 +64,9 @@ MODELO, PUNTO_APLICACION_PREDETERMINADO
 
 La vigencia de AUTO para ofrecerlas y asignarlas como destino de OC sigue la
 regla calendario de [BR-AUTO-OC-001](requirements/BR-AUTO-OC-001-vigencia-para-asignacion.md).
+Una AUTO vencida puede ser `VIGENTE` para OC durante su mes de vencimiento;
+entrega y aplicación siguen bloqueadas hasta ampliar la fecha final. El estado
+`ESTADO_VIGENCIA` de los archivos de OC expresa exclusivamente vigencia para OC.
 La exportación `AUTO-para-generar-OC.xlsx` mantiene sus siete encabezados y
 solo incluye candidatas vigentes. `ordenes-compra.xlsx` agrega la clasificación
 en `AUTO_RELACIONADAS` y la hoja `AUTORIZACIONES`, que incluye también AUTOs
@@ -126,10 +129,10 @@ Ver [AC-FIN-001](requirements/AC-FIN-001-capacidad-compra-anulaciones.md).
 
 ## MTD-OC-03 — Reutilización tras vencimiento
 
-1. El worker conserva la reserva durante los cinco días posteriores al vencimiento y, desde el día 6, libera el saldo no consumido y marca las fuentes activas de OC como liberadas, sin borrar su evidencia.
+1. El worker conserva la reserva durante los cinco días posteriores al vencimiento. Desde el día 6 libera el saldo físico no consumido; marca las fuentes activas de OC como liberadas cuando además terminó el mes de vencimiento, sin borrar su evidencia.
 2. Confirmar que la AUTO ya superó la gracia y que la OC sigue activa. La liberación no modifica lo solicitado ni lo recibido.
 3. Descargar PURCHASE_ORDERS_V3 y cargar una fila para la OC existente con `CLAVE_AUTORIZACION_ORIGEN` (`AUTO_ORIGEN`) vacía, `CLAVE_AUTORIZACION_DESTINO` (`AUTO_DESTINO`) vigente, código de producto y cantidad. Puede ser la misma AUTO si MTD amplió su vigencia; la selección es manual.
-4. Para una OC aún no recibida, el importador usa `ASSIGN_PENDING_COMMITMENT` si la línea tiene saldo. Valida nuevamente vigencia, producto, punto y capacidad por OC/línea. No crea inventario ni una reserva física ni cambia la cantidad de la OC.
+4. Para una OC aún no recibida, el importador usa `ASSIGN_PENDING_COMMITMENT` si la línea tiene saldo. Valida nuevamente vigencia para OC, producto, punto y capacidad por OC/línea. Una AUTO ya vencida no recibe una reserva física nueva ni transferida. No se crea inventario ni cambia la cantidad de la OC.
 5. Revisar `acceptedRows`/`rejectedRows` y confirmar la nueva fuente activa con `id` propio y la conservación de la fuente liberada.
 
 La renovación no recupera una allocation liberada ni capacidad que ya se comprometió a otra AUTO. El stock solo podrá asignarse y consumirse después de una recepción física válida. No se reasignan cantidades consumidas.

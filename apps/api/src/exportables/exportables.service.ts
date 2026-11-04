@@ -399,7 +399,7 @@ export class ExportablesService {
    * Regla:
    *
    * - validación inicial PASSED;
-   * - vigencia operacional válida;
+   * - vigencia por fechas para OC;
    * - saldo pendiente para compra > 0.
    *
    * Una AUTO puede estar parcialmente comprometida en
@@ -1046,7 +1046,7 @@ export class ExportablesService {
 
           [
             'eligibility',
-            'AUTO_DESTINO elegible para nueva OC; AUTO_ORIGEN se usa únicamente al reasignar una OC existente',
+            'Vigencia para OC: FECHA_FINAL_VIGENCIA en el mes actual de Bogotá también es elegible aunque ya venció; entrega y aplicación conservan su control diario. AUTO_ORIGEN se usa únicamente al reasignar una OC existente.',
           ],
         ],
       );
@@ -1804,6 +1804,19 @@ export class ExportablesService {
       ],
       authorizationRows,
     );
+
+    for (const [sheetName, cellAddress] of [
+      ['AUTO_RELACIONADAS', 'K1'],
+      ['AUTORIZACIONES', 'H1'],
+    ] as const) {
+      const cell = workbook.Sheets[sheetName]?.[cellAddress] as XLSX.CellObject | undefined;
+      if (cell) {
+        cell.c = [{
+          a: 'Medicarte',
+          t: 'Vigencia para OC por fechas en Bogotá. Una autorización vencida en el mes actual puede seguir siendo elegible para compra; entrega y aplicación exigen vigencia diaria.',
+        }];
+      }
+    }
 
 
     return {

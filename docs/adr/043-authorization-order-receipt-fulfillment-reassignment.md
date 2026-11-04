@@ -30,9 +30,10 @@ El flujo objetivo cuando vence una AUTO sin consumo es:
 flowchart LR
    A[AUTO asignada] --> B[Vence sin consumo]
    B --> C[Conservar reserva durante cinco días]
-   C --> D[Desde el día 6 liberar saldo y fuente activa de OC]
-   D --> E[Compra pendiente disponible]
-   E --> F[Seleccionar manualmente AUTO_DESTINO compatible]
+   C --> D[Desde el día 6 liberar saldo físico]
+   D --> E[Al terminar el mes liberar fuente activa de OC]
+   E --> H[Compra pendiente disponible]
+   H --> F[Seleccionar manualmente AUTO_DESTINO compatible]
    F --> G[Asignar mediante import de OC y auditar]
 ```
 
@@ -223,7 +224,9 @@ Una AUTO vencida:
 - no puede registrar entrega;
 - no puede registrar aplicación;
 - conserva temporalmente la reserva ya materializada;
-- no puede ser AUTO_DESTINO de una reasignación.
+- puede ser AUTO_DESTINO para compra durante su mes de vencimiento, si cumple
+  [BR-AUTO-OC-001](../requirements/BR-AUTO-OC-001-vigencia-para-asignacion.md);
+  no recibe una reserva física nueva o transferida mientras esté vencida.
 
 La reserva retenida solo puede usarse para entrega o aplicación cuando la
 vigencia haya sido ampliada hasta cubrir el día de operación y se cumplan las
@@ -259,8 +262,8 @@ allocated_quantity
 
 La allocation histórica no se elimina.
 
-El worker también marca como liberadas las fuentes
-activas de OC de la AUTO. La fila histórica y
+El worker marca como liberadas las fuentes activas de OC de la AUTO cuando,
+además de cumplirse la gracia, terminó el mes de vencimiento. La fila histórica y
 source_quantity_snapshot permanecen intactos; el
 actor automático queda registrado como SYSTEM.
 La liberación no modifica cantidades solicitadas,
@@ -385,10 +388,11 @@ previamente. Una unidad ya entregada/aplicada nunca puede reasignarse.
 - Nunca `CONSUMIDO > RECIBIDO`.
 - Actualizar una AUTO no modifica el snapshot histórico de una OC.
 - La evidencia AUTO → OC permanece cuando la AUTO vence; el vínculo está activo
-  durante la gracia y desde el día 6 queda como fuente liberada histórica.
+  durante la gracia y el mes de vencimiento; queda como fuente liberada histórica
+  cuando se cumplen ambos plazos.
 - Una unidad reservada y no consumida solo puede pasar a otra AUTO mediante reasignación explícita y atómica.
 - Una unidad consumida no puede reasignarse.
-- El vencimiento conserva la reserva durante cinco días; desde el día 6 libera el saldo no consumido y la fuente activa de OC, manteniendo su evidencia histórica.
+- El vencimiento conserva la reserva durante cinco días; desde el día 6 libera el saldo no consumido. La fuente activa de OC se libera cuando también terminó el mes de vencimiento, manteniendo su evidencia histórica.
 
 ## Modelo temporal y trazabilidad mínima
 
@@ -412,7 +416,7 @@ reasignación.
 | Disponibilidad | `InventoryAvailabilityRepository` usa `inventory_authorization_allocations` y carga UI/XLSX | Sigue siendo una segunda asignación técnica; TO-BE la deja fuera de la responsabilidad de asignar AUTO |
 | Fulfillment automático | `ensureAutomaticAllocation()` crea allocations desde el snapshot de OC | El contrato backend actual todavía materializa asignación al atender; debe alinearse con la asignación lógica nacida en la OC |
 | Recepción histórica | `recordConfirmedReceipt()` sí crea lotes y movimientos `RECEIPT` | Conviven dos arquitecturas y la quantity-only no tiene la misma evidencia física |
-| Retención/reasignación | `reconcileIneligibleTx()` no libera reservas; el worker de expiración libera allocations y fuentes activas desde el día 6. La transferencia a una AUTO_DESTINO vive en `PurchaseOrderImportService` | El vencimiento libera automáticamente el saldo no consumido y el vínculo activo de OC; la selección de destino permanece manual. Otros cambios administrativos no liberan reservas automáticamente |
+| Retención/reasignación | `reconcileIneligibleTx()` no libera reservas; el worker de expiración libera allocations desde el día 6 y fuentes activas cuando además termina el mes de vencimiento. La transferencia a una AUTO_DESTINO vive en `PurchaseOrderImportService` | El vencimiento libera el saldo físico no consumido al día 6 y el vínculo de OC al cumplirse ambos plazos; la selección de destino permanece manual. Otros cambios administrativos no liberan reservas automáticamente |
 | Concurrencia de consumo | Fulfillment usa transacción, locks de autorización/allocation/punto y valida lotes | El TO-BE exige además una reserva/consumo atómico que no elija AUTO propietaria por anticipado en escasez |
 
 Los GAPs de recepción, asignación y consumo de la tabla no se presentan como
@@ -520,8 +524,9 @@ conciliación sobre OC 9198/9218/9230, sin intervenir producción.
 - Una AUTO vencida conserva su reserva física y la fuente activa de OC durante
   los cinco días posteriores. Entrega y aplicación quedan bloqueadas hasta
   ampliar la vigencia y superar las demás validaciones.
-- Desde el día 6, el worker libera el saldo no consumido y las fuentes activas
-  de OC. La fuente liberada conserva `id`, cantidad snapshot, fecha y actor
+- Desde el día 6, el worker libera el saldo físico no consumido. Libera las
+  fuentes activas de OC cuando además terminó el mes de vencimiento. La fuente
+  liberada conserva `id`, cantidad snapshot, fecha y actor
   `SYSTEM`; las cantidades solicitadas, recibidas y consumidas no cambian.
 - Después de una renovación, MTD puede volver a seleccionar manualmente la
   misma AUTO con `AUTO_ORIGEN` vacío para una línea de OC aún pendiente y sin

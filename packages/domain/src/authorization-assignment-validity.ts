@@ -70,14 +70,22 @@ export function evaluateAuthorizationAssignmentValidity(input: Readonly<{
 
   if (!assignmentDate) return invalid('INVALID_ASSIGNMENT_DATE');
   if (!expirationDate) return invalid('INVALID_EXPIRATION_DATE');
-  if (expirationDate < input.todayBogota) return invalid('EXPIRED');
+
+  // Durante el mes de vencimiento la AUTO sigue siendo elegible para compra,
+  // incluso si la asignación pertenece a un mes anterior. La atención conserva
+  // su propia validación diaria de vencimiento.
+  const expirationInCurrentMonth =
+    expirationDate.slice(0, 7) === input.todayBogota.slice(0, 7);
+  if (!expirationInCurrentMonth && expirationDate < input.todayBogota) {
+    return invalid('EXPIRED');
+  }
 
   const sameManagementMonth = assignmentDate.slice(0, 7) === input.todayBogota.slice(0, 7);
   const insideForwardWindow =
     assignmentDate >= input.todayBogota &&
     assignmentDate <= datePlusDays(input.todayBogota, 20);
 
-  if (!sameManagementMonth && !insideForwardWindow) {
+  if (!expirationInCurrentMonth && !sameManagementMonth && !insideForwardWindow) {
     return invalid('ASSIGNMENT_OUTSIDE_WINDOW');
   }
 

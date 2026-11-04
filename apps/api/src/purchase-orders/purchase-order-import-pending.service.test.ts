@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as XLSX from 'xlsx';
 import { PurchaseOrderImportService } from './purchase-order-import.service';
 
@@ -62,6 +62,9 @@ function setup(options: {
   committed?: number;
   received?: number;
   activeLinked?: boolean;
+  assignmentRaw?: string;
+  expirationRaw?: string;
+  physicalAvailable?: number;
 }) {
   const poolQuery = vi.fn((sql: string) => {
     if (String(sql).replace(/\s+/g, ' ').includes('purchase_order_code = any($1::text[])')) {
@@ -97,8 +100,8 @@ function setup(options: {
         coverage_type: 'PBS',
         direction_status: 'NOT_APPLICABLE',
         mipres_manual_decision: 'PENDING_MANUAL_ENABLEMENT',
-        assignment_raw: assignmentDateWithinWindow(),
-        expiration_raw: '20991231',
+        assignment_raw: options.assignmentRaw ?? assignmentDateWithinWindow(),
+        expiration_raw: options.expirationRaw ?? '20991231',
         closed: false,
       }]);
     }
@@ -137,8 +140,8 @@ function setup(options: {
 
     if (q.includes('as point_available_quantity')) {
       return result([{
-        point_available_quantity: 0,
-        global_available_quantity: 0,
+        point_available_quantity: options.physicalAvailable ?? 0,
+        global_available_quantity: options.physicalAvailable ?? 0,
         point_received_quantity: options.received ?? 0,
         global_received_quantity: options.received ?? 0,
         has_direct_receipt: false,
@@ -183,6 +186,27 @@ function setup(options: {
 }
 
 describe('Asignación de compromiso de compra pendiente', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('vincula una AUTO vencida del mes a compra pendiente sin reservar inventario recibido', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-07T12:00:00Z'));
+    const { instance, clientQuery } = setup({
+      requested: 5,
+      received: 2,
+      physicalAvailable: 2,
+      assignmentRaw: '2026-10-01',
+      expirationRaw: '2026-11-01',
+    });
+    const imported = await instance.import(workbook(), actor);
+
+    expect(imported.acceptedRows, JSON.stringify(imported.results)).toBe(1);
+    const statements = clientQuery.mock.calls.map(([sql]) => String(sql).toLowerCase()).join('\n');
+    expect(statements).toContain('insert into purchase_order_authorization_sources');
+    expect(statements).not.toContain('insert into inventory_authorization_allocations');
+    expect(statements).not.toContain('insert into inventory_allocation_batches');
+  });
+
   it('vincula a otra AUTO una OC no recibida con compromiso liberado sin inventar inventario ni alterar OC', async () => {
     const { instance, clientQuery, release } = setup({ requested: 5 });
     const imported = await instance.import(workbook(), actor);

@@ -2757,7 +2757,8 @@ export class PurchaseOrderImportService {
   private assertDestinationAssignmentValidity(
     destination:
       ExistingAuthorizationRow,
-  ): void {
+    todayBogota = currentBogotaDate(),
+  ): string {
     const validity =
       evaluateAuthorizationAssignmentValidity({
         assignmentDate:
@@ -2767,7 +2768,7 @@ export class PurchaseOrderImportService {
           destination.expiration_raw,
 
         todayBogota:
-          currentBogotaDate(),
+          todayBogota,
       });
 
 
@@ -2777,6 +2778,8 @@ export class PurchaseOrderImportService {
         `AUTO_DESTINO ${destination.authorization_key} no está vigente para asignación de OC (${validity.reason}).`,
       );
     }
+
+    return validity.expirationDate!;
   }
 
 
@@ -3942,7 +3945,6 @@ export class PurchaseOrderImportService {
           destination,
         );
 
-
         if (
           destination.commercial_code
             .trim()
@@ -4618,6 +4620,7 @@ export class PurchaseOrderImportService {
       const pendingAtPoint = new Map<string, number>();
       const pendingGlobally = new Map<string, number>();
       const pendingAtLine = new Map<string, number>();
+      const todayBogota = currentBogotaDate();
 
       const seenOrigins =
         new Set<
@@ -4664,9 +4667,10 @@ export class PurchaseOrderImportService {
           destination,
         );
 
-        this.assertDestinationAssignmentValidity(
-          destination,
-        );
+        const destinationExpirationDate =
+          this.assertDestinationAssignmentValidity(destination, todayBogota);
+        const destinationExpiredForPhysical =
+          destinationExpirationDate < todayBogota;
 
 
         if (
@@ -4816,7 +4820,7 @@ export class PurchaseOrderImportService {
           const globalKey = [order.id, destination.commercial_code].join(':');
           const alreadyPlannedGlobally = reservedAcrossPoints.get(globalKey) ?? 0;
 
-          const remaining = Math.min(
+          const remaining = destinationExpiredForPhysical ? 0 : Math.min(
             Math.max(available.pointAvailable - alreadyPlanned, 0),
             Math.max(available.globalAvailable - alreadyPlannedGlobally, 0),
           );
@@ -5392,6 +5396,13 @@ export class PurchaseOrderImportService {
           this.existingOrderError(
             'PURCHASE_ORDER_REASSIGNMENT_ALLOCATION_QUANTITY_MISMATCH',
             `La reserva física de AUTO_ORIGEN contiene ${activeRemaining} unidad(es), pero la reasignación solicita ${row.quantity}.`,
+          );
+        }
+
+        if (destinationExpiredForPhysical && activeRemaining > 0) {
+          this.existingOrderError(
+            'PURCHASE_ORDER_DESTINATION_OUT_OF_OPERATION',
+            `AUTO_DESTINO ${destination.authorization_key} está vencida para reserva física; solo puede vincularse a compra pendiente de recepción.`,
           );
         }
 

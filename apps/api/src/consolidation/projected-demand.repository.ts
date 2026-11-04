@@ -2,8 +2,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
 import {
-  authorizationOperationalHorizonEnd,
   currentBogotaDate,
+  evaluateAuthorizationAssignmentValidity,
   projectFungibleAuthorizationCoverage,
   sumDemandQuantities,
   type DemandSourceClassification,
@@ -36,6 +36,8 @@ type LoadedAuthorizationRow = Readonly<{
   quantity: number;
   commercial_code: string;
   loaded_at: string;
+  assignment_date: string | null;
+  expiration_date: string | null;
 }>;
 
 type DesiredSource = Readonly<{
@@ -186,24 +188,17 @@ export class ProjectedDemandRepository {
       //
       // planning_period_id identifica este snapshot operativo de demanda.
       //
-      // Wave 1:
-      // FECHA_ASIGNACION representa el inicio de vigencia operativa de la AUTO.
-      // Una AUTO participa si FECHA_ASIGNACION no supera
-      // el horizonte operacional inclusivo HOY + 30 días.
-      //
-      // No se exige FECHA_ASIGNACION <= hoy: una autorización futura
-      // puede participar mientras esté dentro del horizonte +30.
+      // La demanda que puede convertirse en OC usa la misma vigencia de
+      // compra que el importador y la creación directa desde demanda.
       const todayBogota = currentBogotaDate();
-      const operationalHorizonEnd =
-        authorizationOperationalHorizonEnd(
-          todayBogota,
-        );
 
       const authorizations = await tx.execute<LoadedAuthorizationRow>(sql`
           select
             ai.id,
             (ai.source_data->>'CANTIDAD')::int as quantity,
             ai.codigo_medicamento as commercial_code,
+            ai.source_data->>'FECHA_ASIGNACION' as assignment_date,
+            ai.source_data->>'FECHA_FINAL_VIGENCIA' as expiration_date,
             to_char(
               ai.created_at at time zone 'UTC',
               'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
@@ -224,17 +219,17 @@ export class ProjectedDemandRepository {
            ) = 'PBS'
           where ai.enablement_status = 'ENABLED'
             and (ai.source_data->>'CANTIDAD') ~ '^[1-9][0-9]*$'
-            and (ai.source_data->>'FECHA_ASIGNACION')
-                  ~ '^\\d{4}-\\d{2}-\\d{2}$'
-            and (ai.source_data->>'FECHA_ASIGNACION')
-                  <= ${operationalHorizonEnd}
-            and (ai.source_data->>'FECHA_FINAL_VIGENCIA')
-                  ~ '^\\d{4}-\\d{2}-\\d{2}$'
         `);
 
       const desiredByLine = new Map<string, DesiredLine>();
 
       for (const authorization of authorizations.rows) {
+        if (!evaluateAuthorizationAssignmentValidity({
+          assignmentDate: authorization.assignment_date,
+          expirationDate: authorization.expiration_date,
+          todayBogota,
+        }).eligible) continue;
+
         const identity = authorization.commercial_code;
 
         const line = desiredByLine.get(identity) ?? {

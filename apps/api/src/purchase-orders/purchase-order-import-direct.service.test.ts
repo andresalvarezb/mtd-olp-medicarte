@@ -1,4 +1,5 @@
 import {
+  afterEach,
   describe,
   expect,
   it,
@@ -6,7 +7,6 @@ import {
 } from 'vitest';
 
 import * as XLSX from 'xlsx';
-import { currentBogotaDate } from '@authorization/domain';
 
 import {
   PurchaseOrderImportService,
@@ -131,10 +131,14 @@ function workbook(): Buffer {
 describe(
   'PurchaseOrderImportService OC directa desde autorización',
   () => {
+    afterEach(() => vi.useRealTimers());
     it(
-      'distribuye AUTO 10 entre OC1=4 y OC2=6 sin demanda, agenda ni recepción previa',
+      'distribuye AUTO vencida en el mes entre OC1=4 y OC2=6 sin reserva física',
       async () => {
-        let assignmentRaw = currentBogotaDate();
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-11-07T12:00:00Z'));
+        let assignmentRaw = '2026-10-01';
+        let expirationRaw = '2026-11-01';
         const poolQueries:
           string[] = [];
 
@@ -279,7 +283,7 @@ describe(
                       assignmentRaw,
 
                     expiration_raw:
-                      '20991231',
+                      expirationRaw,
 
                     closed:
                       false,
@@ -596,6 +600,7 @@ describe(
         ).length;
 
         assignmentRaw = '20000101';
+        expirationRaw = '20000102';
         const rejected = await instance.import(
           {
             originalname: 'oc.xlsx',

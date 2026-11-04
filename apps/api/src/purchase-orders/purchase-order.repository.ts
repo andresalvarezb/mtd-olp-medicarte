@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import {
-  authorizationOperationalHorizonEnd,
   currentBogotaDate,
+  evaluateAuthorizationAssignmentValidity,
   evaluateEffectiveMipresEligibility,
   derivePurchaseOrderMacroStatus,
   isAuthorizationSourceEnabled,
@@ -3732,21 +3732,6 @@ export class PurchaseOrderRepository {
 
     const todayBogota = currentBogotaDate();
 
-    const operationalHorizonEnd =
-      authorizationOperationalHorizonEnd(
-        todayBogota,
-      );
-
-    const isStrictIsoDate = (value: string | null): value is string => {
-      if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        return false;
-      }
-
-      const instant = new Date(`${value}T00:00:00Z`);
-
-      return !Number.isNaN(instant.getTime()) && instant.toISOString().slice(0, 10) === value;
-    };
-
     let regularSourceQuantity = 0;
     let lateSourceQuantity = 0;
 
@@ -3787,9 +3772,11 @@ export class PurchaseOrderRepository {
         Number.isSafeInteger(sourceQuantity) &&
         sourceQuantity > 0 &&
         sourceQuantity === source.quantity &&
-        isStrictIsoDate(assignmentDate) &&
-        assignmentDate <= operationalHorizonEnd &&
-        isStrictIsoDate(expirationDate);
+        evaluateAuthorizationAssignmentValidity({
+          assignmentDate,
+          expirationDate,
+          todayBogota,
+        }).eligible;
 
       if (!eligible) {
         throw new Error('PURCHASE_ORDER_DEMAND_STALE');
