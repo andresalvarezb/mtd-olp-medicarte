@@ -137,6 +137,24 @@ function queryResult<T>(
 }
 
 
+function assignmentDateWithinWindow() {
+  const dateParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const value = (type: string) =>
+    Number(dateParts.find((part) => part.type === type)?.value);
+
+  return new Date(Date.UTC(
+    value('year'),
+    value('month') - 1,
+    value('day') + 7,
+  )).toISOString().slice(0, 10).replaceAll('-', '');
+}
+
+
 describe(
   'PurchaseOrderImportService OC existente',
   () => {
@@ -271,7 +289,7 @@ describe(
                       'PENDING_MANUAL_ENABLEMENT',
 
                     assignment_raw:
-                      '20200101',
+                      assignmentDateWithinWindow(),
 
                     expiration_raw:
                       '20991231',
@@ -846,7 +864,7 @@ describe(
                       'PENDING_MANUAL_ENABLEMENT',
 
                     assignment_raw:
-                      '20200101',
+                      assignmentDateWithinWindow(),
 
                     expiration_raw:
                       '20991231',
