@@ -82,10 +82,7 @@ export function evaluateAuthorizationAssignmentValidity(input: Readonly<{
   // Una nueva relación comercial solo puede crearse durante la vigencia o
   // los cinco días de gracia. Vínculos ya activos se conservan por su propio
   // historial y el worker decide su liberación con evidencia de atención.
-  const expirationInCurrentMonth =
-    expirationDate.slice(0, 7) === input.todayBogota.slice(0, 7) &&
-    fulfillmentWindow.eligibleForNewReservation;
-  if (!expirationInCurrentMonth && expirationDate < input.todayBogota) {
+  if (!fulfillmentWindow.eligibleForNewReservation) {
     return invalid('EXPIRED');
   }
 
@@ -94,7 +91,7 @@ export function evaluateAuthorizationAssignmentValidity(input: Readonly<{
     assignmentDate >= input.todayBogota &&
     assignmentDate <= datePlusDays(input.todayBogota, 20);
 
-  if (!expirationInCurrentMonth && !sameManagementMonth && !insideForwardWindow) {
+  if (!sameManagementMonth && !insideForwardWindow) {
     return invalid('ASSIGNMENT_OUTSIDE_WINDOW');
   }
 

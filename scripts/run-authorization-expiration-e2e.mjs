@@ -149,7 +149,7 @@ try {
       'tests/integration/inventory-expiration-auto-release.prodshadow.test.ts',
       'tests/integration/po-operational-cycle.prodshadow.test.ts',
     ],
-    { stdio: 'inherit', env },
+    { stdio: 'inherit', env, shell: process.platform === 'win32' },
   );
 } catch (error) {
   runError = error;

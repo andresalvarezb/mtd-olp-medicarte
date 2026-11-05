@@ -195,7 +195,7 @@ describe('Asignación de compromiso de compra pendiente', () => {
       requested: 5,
       received: 2,
       physicalAvailable: 2,
-      assignmentRaw: '2026-10-01',
+      assignmentRaw: '2026-11-01',
       expirationRaw: '2026-11-01',
     });
     const imported = await instance.import(workbook(), actor);

@@ -137,12 +137,14 @@ async function receive(
     lot?: string;
     expiration?: string;
   }>,
+  receivedAt?: string,
 ) {
   const created = await api('POST', '/medicarte/receipts', { deliveryId: value.deliveryId });
   expect(created.status).toBe(201);
   const draft = await json<{ id: string; version: number }>(created);
   const updated = await api('PATCH', `/medicarte/receipts/${draft.id}`, {
     expectedVersion: draft.version,
+    ...(receivedAt ? { receivedAt } : {}),
     lines: value.lines.map((line, index) => ({
       deliveryLineId: line.deliveryLineId,
       receivedQuantity: quantities[index]!.received,
@@ -504,7 +506,12 @@ describe('Gate ESP-008 - operational inventory ledger', () => {
     });
     await receive(expired, [{ received: 2, accepted: 2, rejected: 0 }]);
     await receive(zero, [{ received: 1, accepted: 0, rejected: 1 }]);
-    await receive(today, [{ received: 2, accepted: 2, rejected: 0 }]);
+    const todayReceipt = await receive(
+      today,
+      [{ received: 2, accepted: 2, rejected: 0 }],
+      `${todayDate}T23:30:00-05:00`,
+    );
+    expect(todayReceipt.response.status).toBe(201);
     await receive(nearest, [{ received: 2, accepted: 2, rejected: 0 }]);
     const recommendation = await json<{
       recommendation: { lotNumber: string; expirationDate: string; usableBalance: number };

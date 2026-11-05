@@ -322,7 +322,7 @@ describe(
           '2000-01-01',
           today,
           '2000-01',
-          'VIGENTE',
+          'NO VIGENTE',
           'ANULADA',
           'LIBERADO',
           'OC-HISTORICA',
@@ -433,7 +433,7 @@ describe(
       'incluye FECHA_ASIGNACION y FECHA_FINAL_VIGENCIA en la exportación de candidatas a OC',
       async () => {
         vi.useFakeTimers();
-        vi.setSystemTime(new Date('2026-11-07T12:00:00Z'));
+        vi.setSystemTime(new Date('2026-11-05T12:00:00Z'));
         const today = currentBogotaDate();
         const yesterdayDate = new Date(`${today}T00:00:00.000Z`);
         yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
@@ -469,7 +469,7 @@ describe(
               numero_autorizacion: 'KEY-004',
               codigo_medicamento: 'PROD-4',
               cantidad: 9,
-              fecha_asignacion: '2026-10-01',
+              fecha_asignacion: '2026-11-01',
               fecha_final_vigencia: '2026-10-31',
             },
           ],
@@ -506,13 +506,15 @@ describe(
           today,
           today,
         ]);
-        expect(matrix[2]?.[1]).toBe('KEY-002|PROD-2');
-        expect(matrix[3]?.[1]).toBe('KEY-003|PROD-3');
+        expect(matrix[2]?.[1]).toBe('KEY-003|PROD-3');
+        expect(matrix[3]?.[1]).toBe('KEY-004|PROD-4');
         expect(matrix).toHaveLength(4);
         const metadata = XLSX.utils.sheet_to_json<unknown[]>(
           workbook.Sheets['METADATA']!, { header: 1 },
         );
         expect(String(metadata[3]?.[1])).toContain('Vigencia para OC');
+        expect(String(metadata[3]?.[1])).toContain('hoy + 20 días');
+        expect(String(metadata[3]?.[1])).toContain('días 1 a 5 de gracia');
         expect(query.mock.calls[0]?.[1]).toEqual([scope.organizationId]);
       },
     );

@@ -327,13 +327,13 @@ beforeAll(async () => {
     assignmentDate: OUTSIDE_HORIZON_ASSIGNMENT,
   });
 
-  // Una asignación anterior con vencimiento dentro del mes actual sigue
-  // siendo elegible para OC según BR-AUTO-OC-001, aunque ya venció.
+  // AUTO vencida durante la gracia: la asignación también cumple la ventana
+  // comercial por pertenecer al mes actual.
   authBId = await insertAuthorization({
     label: 'B1',
     commercialCode: CODE_B,
     quantity: 4,
-    assignmentDate: '2000-01-01',
+    assignmentDate: CURRENT_MONTH_ASSIGNMENT,
     expirationDate: plusDays(
       TODAY_BOGOTA,
       Number(TODAY_BOGOTA.slice(8, 10)) > 1 ? -1 : 0,
@@ -370,7 +370,7 @@ beforeAll(async () => {
     label: 'EXPIRED',
     commercialCode: CODE_EXPIRED,
     quantity: 9,
-    assignmentDate: plusDays(CURRENT_MONTH_ASSIGNMENT, -1),
+    assignmentDate: CURRENT_MONTH_ASSIGNMENT,
     expirationDate: plusDays(
       TODAY_BOGOTA,
       Number(TODAY_BOGOTA.slice(8, 10)) > 1 ? -1 : 0,

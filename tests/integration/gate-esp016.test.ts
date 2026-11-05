@@ -288,7 +288,7 @@ afterAll(async () => {
     );
     await database.query(`delete from import_batches where original_filename like 'esp016-%'`);
     await database.query(`delete from dispensing_points where id=$1`, [pointId]);
-    await database.query(`delete from planning_periods where id=$1`, [periodId]);
+    if (periodId) await database.query(`delete from planning_periods where id=$1`, [periodId]);
   } finally {
     await database.query(
       `alter table patient_schedule_history enable trigger patient_schedule_history_no_delete`,

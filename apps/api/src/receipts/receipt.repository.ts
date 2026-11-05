@@ -234,7 +234,7 @@ export class ReceiptRepository {
         version: number;
         received_date: string;
       }>(
-        sql`select delivery_id,status,version,received_at::date received_date from receipts where id=${id} for update`,
+        sql`select delivery_id,status,version,(received_at at time zone 'America/Bogota')::date::text received_date from receipts where id=${id} for update`,
       );
       const row = receipt.rows[0];
       if (!row) return { outcome: 'not_found' };

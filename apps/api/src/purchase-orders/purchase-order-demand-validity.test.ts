@@ -28,7 +28,7 @@ describe('creación de OC desde demanda consolidada', () => {
         direction_status: 'NOT_APPLICABLE',
         mipres_manual_decision: 'PENDING_MANUAL_ENABLEMENT',
         source_quantity: '2',
-        assignment_date: '2026-10-01',
+        assignment_date: '2026-11-01',
         expiration_date: expirationDate,
       }] });
 
