@@ -630,7 +630,7 @@ describe('Wave 2B — stale authorization demand purchase boundary', () => {
                     ),
                   updated_at=now()
             where id=$2`,
-      [todayBogota, authorizationId],
+      [expiredDate, authorizationId],
     );
   });
 

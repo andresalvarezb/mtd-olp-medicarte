@@ -29,13 +29,13 @@ describe('authorization assignment validity for purchase orders', () => {
     });
   });
 
-  it('applies the assignment window even when expiration belongs to the current month', () => {
+  it('applies the forward assignment window independently of expiration month', () => {
     expect(evaluate('2026-11-24', '2026-11-30', '2026-11-04')).toMatchObject({
       eligible: true,
       status: 'VIGENTE',
     });
 
-    expect(evaluate('2026-12-11', '2026-11-30', '2026-11-20')).toMatchObject({
+    expect(evaluate('2026-12-11', '2026-12-31', '2026-11-20')).toMatchObject({
       eligible: false,
       reason: 'ASSIGNMENT_OUTSIDE_WINDOW',
     });
@@ -53,35 +53,49 @@ describe('authorization assignment validity for purchase orders', () => {
     });
   });
 
-  it('accepts day five of grace across a month boundary when assignment qualifies', () => {
-    expect(evaluate('2026-11-01', '2026-10-31', '2026-11-05')).toMatchObject({
+  it('accepts historical assignments across months and years while vigency remains valid', () => {
+    expect(evaluate('2026-10-20', '2026-11-20', '2026-11-05')).toMatchObject({
       eligible: true,
       status: 'VIGENTE',
-      managementMonth: '2026-11',
+      managementMonth: '2026-10',
     });
 
-    expect(evaluate('2026-11-01', '2026-10-31', '2026-11-06')).toMatchObject({
+    expect(evaluate('2025-12-20', '2026-11-20', '2026-11-05')).toMatchObject({
+      eligible: true,
+      status: 'VIGENTE',
+      managementMonth: '2025-12',
+    });
+  });
+
+  it('accepts a historical assignment on day five of grace and rejects day six', () => {
+    expect(evaluate('2026-10-01', '2026-10-31', '2026-11-05')).toMatchObject({
+      eligible: true,
+      status: 'VIGENTE',
+      managementMonth: '2026-10',
+    });
+
+    expect(evaluate('2026-10-01', '2026-10-31', '2026-11-06')).toMatchObject({
       eligible: false,
       reason: 'EXPIRED',
     });
   });
 
   it('applies grace across a year boundary and stops on day six', () => {
-    expect(evaluate('2027-01-01', '2026-12-31', '2027-01-05')).toMatchObject({
+    expect(evaluate('2026-12-20', '2026-12-31', '2027-01-05')).toMatchObject({
       eligible: true,
       status: 'VIGENTE',
     });
 
-    expect(evaluate('2027-01-01', '2026-12-31', '2027-01-06')).toMatchObject({
+    expect(evaluate('2026-12-20', '2026-12-31', '2027-01-06')).toMatchObject({
       eligible: false,
       reason: 'EXPIRED',
     });
   });
 
-  it('still rejects an out-of-window assignment during grace', () => {
-    expect(evaluate('2026-10-01', '2026-10-31', '2026-11-05')).toMatchObject({
+  it('rejects an assignment later than its final validity date', () => {
+    expect(evaluate('2026-11-01', '2026-10-31', '2026-11-05')).toMatchObject({
       eligible: false,
-      reason: 'ASSIGNMENT_OUTSIDE_WINDOW',
+      reason: 'ASSIGNMENT_AFTER_EXPIRATION',
     });
   });
 

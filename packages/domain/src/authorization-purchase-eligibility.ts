@@ -94,6 +94,8 @@ export function evaluateAuthorizationPurchaseEligibility(
     reason = 'ASSIGNMENT_DATE_INVALID';
   } else if (validity.reason === 'INVALID_EXPIRATION_DATE') {
     reason = 'EXPIRATION_DATE_INVALID';
+  } else if (validity.reason === 'ASSIGNMENT_AFTER_EXPIRATION') {
+    reason = 'ASSIGNMENT_OUTSIDE_WINDOW';
   } else if (validity.reason === 'VALID') {
     reason = 'ELIGIBLE';
   } else {
