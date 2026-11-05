@@ -137,7 +137,7 @@ describe(
       async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-11-06T12:00:00Z'));
-        let assignmentRaw = '2026-10-01';
+        let assignmentRaw = '2026-11-01';
         let expirationRaw = '2026-11-01';
         const poolQueries:
           string[] = [];

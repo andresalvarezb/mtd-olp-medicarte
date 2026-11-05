@@ -1046,7 +1046,7 @@ export class ExportablesService {
 
           [
             'eligibility',
-            'Vigencia para OC: FECHA_FINAL_VIGENCIA en el mes actual de Bogotá también es elegible aunque ya venció; entrega y aplicación conservan su control diario. AUTO_ORIGEN se usa únicamente al reasignar una OC existente.',
+            'Vigencia para OC: FECHA_ASIGNACION debe pertenecer al mes actual de Bogotá o estar entre hoy y hoy + 20 días, inclusive. FECHA_FINAL_VIGENCIA debe ser hoy o posterior, o estar dentro de los días 1 a 5 de gracia, sin depender del mes o año. La atención conserva su validación diaria. AUTO_ORIGEN se usa únicamente al reasignar una OC existente.',
           ],
         ],
       );

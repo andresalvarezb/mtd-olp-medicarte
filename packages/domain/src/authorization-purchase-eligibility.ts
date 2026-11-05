@@ -66,8 +66,8 @@ export function authorizationPurchaseMonthEnd(todayBogota: string): string {
  * - ESTADO_AUTORIZACION = 5;
  * - FECHA_ASIGNACION pertenece al mes calendario actual o cae entre hoy y
  *   hoy + 20 días;
- * - FECHA_FINAL_VIGENCIA es hoy o posterior; o pertenece al mes actual,
- *   incluso si ya venció y FECHA_ASIGNACION es de un mes anterior.
+ * - FECHA_FINAL_VIGENCIA es hoy o posterior, o venció hace como máximo cinco
+ *   días calendario, sin depender del mes o año.
  *
  * La presencia en AT y clasificación PBS se verifican en la frontera
  * correspondiente porque dependen del estado persistido del Anexo Tarifario.

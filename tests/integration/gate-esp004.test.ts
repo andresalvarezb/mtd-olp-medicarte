@@ -88,7 +88,6 @@ function plusDays(value: string, days: number): string {
 
 const TODAY_BOGOTA = bogotaDateForGate();
 const CURRENT_MONTH_ASSIGNMENT = `${TODAY_BOGOTA.slice(0, 7)}-01`;
-const PREVIOUS_MONTH_ASSIGNMENT = plusDays(CURRENT_MONTH_ASSIGNMENT, -1);
 const CURRENT_MONTH_EXPIRATION = plusDays(
   TODAY_BOGOTA,
   Number(TODAY_BOGOTA.slice(8, 10)) > 1 ? -1 : 0,
@@ -626,7 +625,7 @@ beforeAll(async () => {
     label: 'EXPIRED',
     commercialCode: CODE_EXPIRED,
     quantity: 9,
-    assignmentDate: PREVIOUS_MONTH_ASSIGNMENT,
+    assignmentDate: CURRENT_MONTH_ASSIGNMENT,
     expirationDate: CURRENT_MONTH_EXPIRATION,
   });
 

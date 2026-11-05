@@ -28,6 +28,7 @@ let olpToken = '';
 let compensarToken = '';
 let userId = '';
 let periodId = '';
+let periodCreated = false;
 let pointId = '';
 let otherPointId = '';
 const scheduleIds: string[] = [];
@@ -159,8 +160,12 @@ beforeAll(async () => {
     organizationId: ORGANIZATION_IDS.COMPENSAR,
     roleCode: 'COMPENSAR_VIEWER',
   });
+  const existingPeriod = await db.query<{ id: string }>(
+    `select id from planning_periods where start_date=$1 and end_date=$2 limit 1`,
+    [periodStart, periodEnd],
+  );
   periodId =
-    (await db.query<{ id: string }>(`select id from planning_periods limit 1`)).rows[0]?.id ??
+    existingPeriod.rows[0]?.id ??
     (
       await db.query<{ id: string }>(
         `insert into planning_periods (start_date,end_date,scheduling_cutoff_at,purchase_order_deadline_at,expected_delivery_date,created_by,updated_by) values ($1,$2,$3,$4,$5,$6,$6) returning id`,
@@ -174,6 +179,7 @@ beforeAll(async () => {
         ],
       )
     ).rows[0]!.id;
+  periodCreated = existingPeriod.rows.length === 0;
   pointId = (
     await db.query<{ id: string }>(
       `insert into dispensing_points (organization_id,code,name,created_by) values ($1,$2,$2,$3) returning id`,
@@ -231,6 +237,7 @@ afterAll(async () => {
   await db.query(
     `alter table patient_applications enable trigger patient_applications_confirmed_immutable`,
   );
+  if (periodCreated) await db.query(`delete from planning_periods where id=$1`, [periodId]);
   await db.end();
 });
 

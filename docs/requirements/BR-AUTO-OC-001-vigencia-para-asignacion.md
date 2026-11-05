@@ -8,17 +8,22 @@ usa fechas calendario de `America/Bogota`.
 
 ## Regla de vigencia
 
-Una autorización está `VIGENTE` **para OC** cuando ambas fechas son válidas y
-se cumple cualquiera de estas alternativas:
+Una autorización está `VIGENTE` **para OC** cuando ambas fechas son válidas,
+`FECHA_ASIGNACION` cumple su ventana y `FECHA_FINAL_VIGENCIA` está vigente o
+dentro de los cinco días calendario de gracia. Las dos validaciones temporales
+son independientes del mes al que pertenece la otra fecha y usan el calendario
+`America/Bogota`:
 
-1. `FECHA_FINAL_VIGENCIA` es hoy o posterior, y `FECHA_ASIGNACION` pertenece al
-   mismo año y mes de hoy o está entre hoy y hoy + 20 días calendario, inclusive.
-2. `FECHA_FINAL_VIGENCIA` pertenece al mes actual de Bogotá, está vencida hace
-   entre uno y cinco días calendario y `FECHA_ASIGNACION` pertenece a un mes
-   anterior.
+- `FECHA_ASIGNACION` pertenece al mes calendario actual, **o** está entre hoy y
+  hoy + 20 días calendario, inclusive. Una asignación del mes actual puede
+  superar el horizonte de 20 días; una asignación fuera del mes actual y a más
+  de 20 días no es elegible.
+- `FECHA_FINAL_VIGENCIA` es hoy o posterior, **o** venció hace entre uno y cinco
+  días calendario, inclusive. La gracia cruza límites de mes y año. Desde el día
+  6, no se crea una nueva relación comercial mientras siga vencida.
 
-Las fechas inválidas o ausentes, una fecha de asignación fuera de esas dos
-alternativas y una fecha final anterior al mes actual producen `NO VIGENTE`. Para
+Las fechas inválidas o ausentes, una fecha de asignación fuera de su ventana y
+una fecha final vencida hace más de cinco días producen `NO VIGENTE`. Para
 `MES_GESTION` se usa el año y mes de `FECHA_ASIGNACION`, con formato `YYYY-MM`;
 si la fecha no se puede interpretar, el campo queda vacío.
 
@@ -76,8 +81,9 @@ nueva regla. No se restauran automáticamente vínculos ya liberados.
    20 días, si su fecha final no está vencida.
 2. Una asignación exactamente en hoy + 20 días es `VIGENTE`; en hoy + 21 es
    `NO VIGENTE` cuando cae fuera del mes actual.
-3. La regla funciona al cambiar de mes y de año; la fecha final de hoy se
-   acepta, y una fecha anterior se acepta solo hasta el quinto día de gracia.
+3. La ventana de `FECHA_ASIGNACION` se aplica igual si el vencimiento ocurre en
+   el mes actual; la fecha final de hoy se acepta, y una fecha anterior se
+   acepta solo hasta el quinto día de gracia, incluso al cambiar de mes o año.
 4. Una fecha de asignación o vencimiento inválida se clasifica `NO VIGENTE`.
 5. El archivo de candidatas excluye todas las autorizaciones `NO VIGENTE` y
    conserva sus siete encabezados compatibles con el importador.
@@ -88,9 +94,10 @@ nueva regla. No se restauran automáticamente vínculos ya liberados.
    también existe un vínculo activo para la pareja OC/AUTO.
 8. Las exportaciones siguen limitadas al permiso y al alcance organizacional
    MTD autorizados.
-9. Una AUTO vencida durante el mes actual es `VIGENTE` para una nueva OC hasta
-   el quinto día posterior al vencimiento, si su asignación es de un mes
-   anterior; desde el día 6 pasa a `NO VIGENTE` mientras siga vencida.
+9. Una AUTO vencida es `VIGENTE` para una nueva OC hasta el quinto día
+   posterior al vencimiento, sin depender del mes o año, si la fecha de
+   asignación también cumple su ventana. El día 6 pasa a `NO VIGENTE` si sigue
+   vencida.
 10. Al día 6 sin atención confirmada se libera la reserva física pendiente y
     el vínculo activo OC; con atención confirmada se conservan ambos. Una
     recepción posterior de la misma OC activa puede completar la reserva
