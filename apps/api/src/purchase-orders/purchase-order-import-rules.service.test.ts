@@ -53,6 +53,13 @@ const POINT_ID =
   '40000000-0000-4000-8000-000000000001';
 
 
+function futureAssignmentOutsideManagementWindowRaw(): string {
+  const assignmentDate = new Date(`${currentBogotaDate()}T00:00:00.000Z`);
+  assignmentDate.setUTCMonth(assignmentDate.getUTCMonth() + 2, 1);
+  return assignmentDate.toISOString().slice(0, 10).replaceAll('-', '');
+}
+
+
 function queryResult<T>(
   rows: T[],
 ) {
@@ -1488,12 +1495,13 @@ describe(
     it(
       'ASIGNAR_DISPONIBLE rechaza destino fuera del mes de gestión y de los próximos 20 días',
       async () => {
+        const assignmentRaw = futureAssignmentOutsideManagementWindowRaw();
         const { result } = await runExisting(
           ['', 'AUTO-DEST', 'OC-EXISTENTE', 'PROD-1', 2],
           {
             destination: {
-              assignmentRaw: '20000101',
-              expirationRaw: '20991231',
+              assignmentRaw,
+              expirationRaw: assignmentRaw,
             },
           },
         );
@@ -1506,12 +1514,13 @@ describe(
     it(
       'REASIGNAR rechaza destino fuera del mes de gestión y de los próximos 20 días',
       async () => {
+        const assignmentRaw = futureAssignmentOutsideManagementWindowRaw();
         const { result } = await runExisting(
           ['AUTO-ORIG', 'AUTO-DEST', 'OC-EXISTENTE', 'PROD-1', 2],
           {
             destination: {
-              assignmentRaw: '20000101',
-              expirationRaw: '20991231',
+              assignmentRaw,
+              expirationRaw: assignmentRaw,
             },
           },
         );

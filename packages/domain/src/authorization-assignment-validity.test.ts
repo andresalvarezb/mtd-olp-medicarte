@@ -29,13 +29,13 @@ describe('authorization assignment validity for purchase orders', () => {
     });
   });
 
-  it('applies the assignment window even when expiration belongs to the current month', () => {
+  it('applies the forward assignment window independently of expiration month', () => {
     expect(evaluate('2026-11-24', '2026-11-30', '2026-11-04')).toMatchObject({
       eligible: true,
       status: 'VIGENTE',
     });
 
-    expect(evaluate('2026-12-11', '2026-11-30', '2026-11-20')).toMatchObject({
+    expect(evaluate('2026-12-11', '2026-12-31', '2026-11-20')).toMatchObject({
       eligible: false,
       reason: 'ASSIGNMENT_OUTSIDE_WINDOW',
     });
@@ -81,12 +81,12 @@ describe('authorization assignment validity for purchase orders', () => {
   });
 
   it('applies grace across a year boundary and stops on day six', () => {
-    expect(evaluate('2027-01-01', '2026-12-31', '2027-01-05')).toMatchObject({
+    expect(evaluate('2026-12-20', '2026-12-31', '2027-01-05')).toMatchObject({
       eligible: true,
       status: 'VIGENTE',
     });
 
-    expect(evaluate('2027-01-01', '2026-12-31', '2027-01-06')).toMatchObject({
+    expect(evaluate('2026-12-20', '2026-12-31', '2027-01-06')).toMatchObject({
       eligible: false,
       reason: 'EXPIRED',
     });

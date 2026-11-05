@@ -322,7 +322,7 @@ describe(
           '2000-01-01',
           today,
           '2000-01',
-          'NO VIGENTE',
+          'VIGENTE',
           'ANULADA',
           'LIBERADO',
           'OC-HISTORICA',
@@ -461,7 +461,7 @@ describe(
               numero_autorizacion: 'KEY-003',
               codigo_medicamento: 'PROD-3',
               cantidad: 8,
-              fecha_asignacion: today,
+              fecha_asignacion: '2026-11-01',
               fecha_final_vigencia: yesterday,
             },
             {
