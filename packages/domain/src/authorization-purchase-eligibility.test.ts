@@ -41,6 +41,15 @@ describe('authorization purchase eligibility', () => {
     expect(
       evaluateAuthorizationPurchaseEligibility({
         sourceStatus: '5',
+        assignmentDate: '2026-12-20',
+        expirationDate: '2026-12-19',
+        todayBogota: '2026-12-20',
+      }),
+    ).toMatchObject({ eligible: false, reason: 'ASSIGNMENT_OUTSIDE_WINDOW' });
+
+    expect(
+      evaluateAuthorizationPurchaseEligibility({
+        sourceStatus: '5',
         assignmentDate: '2026-12-01',
         expirationDate: '2026-12-19',
         todayBogota: '2026-12-20',
