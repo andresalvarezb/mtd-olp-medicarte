@@ -516,8 +516,8 @@ describe(
           today,
         ]);
         expect(matrix[3]?.[1]).toBe('KEY-003|PROD-3');
-        expect(matrix[4]?.[1]).toBe('KEY-004|PROD-4');
-        expect(matrix).toHaveLength(5);
+        expect(matrix).toHaveLength(4);
+        expect(matrix.some((row) => row[1] === 'KEY-004|PROD-4')).toBe(false);
         const metadata = XLSX.utils.sheet_to_json<unknown[]>(
           workbook.Sheets['METADATA']!, { header: 1 },
         );
