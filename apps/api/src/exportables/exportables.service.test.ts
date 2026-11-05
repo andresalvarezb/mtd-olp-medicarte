@@ -506,13 +506,23 @@ describe(
           today,
           today,
         ]);
-        expect(matrix[2]?.[1]).toBe('KEY-003|PROD-3');
-        expect(matrix[3]?.[1]).toBe('KEY-004|PROD-4');
-        expect(matrix).toHaveLength(4);
+        expect(matrix[2]).toEqual([
+          '',
+          'KEY-002|PROD-2',
+          '',
+          'PROD-2',
+          7,
+          '2000-01-01',
+          today,
+        ]);
+        expect(matrix[3]?.[1]).toBe('KEY-003|PROD-3');
+        expect(matrix[4]?.[1]).toBe('KEY-004|PROD-4');
+        expect(matrix).toHaveLength(5);
         const metadata = XLSX.utils.sheet_to_json<unknown[]>(
           workbook.Sheets['METADATA']!, { header: 1 },
         );
         expect(String(metadata[3]?.[1])).toContain('Vigencia para OC');
+        expect(String(metadata[3]?.[1])).toContain('no se excluyen por mes');
         expect(String(metadata[3]?.[1])).toContain('hoy + 20 días');
         expect(String(metadata[3]?.[1])).toContain('días 1 a 5 de gracia');
         expect(query.mock.calls[0]?.[1]).toEqual([scope.organizationId]);

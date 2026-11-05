@@ -9,6 +9,7 @@ export type AuthorizationAssignmentValidityReason =
   | 'VALID'
   | 'INVALID_ASSIGNMENT_DATE'
   | 'INVALID_EXPIRATION_DATE'
+  | 'ASSIGNMENT_AFTER_EXPIRATION'
   | 'EXPIRED'
   | 'ASSIGNMENT_OUTSIDE_WINDOW';
 
@@ -71,6 +72,7 @@ export function evaluateAuthorizationAssignmentValidity(input: Readonly<{
 
   if (!assignmentDate) return invalid('INVALID_ASSIGNMENT_DATE');
   if (!expirationDate) return invalid('INVALID_EXPIRATION_DATE');
+  if (assignmentDate > expirationDate) return invalid('ASSIGNMENT_AFTER_EXPIRATION');
 
   const fulfillmentWindow = evaluateAuthorizationFulfillmentWindow({
     expirationDate,
@@ -91,7 +93,11 @@ export function evaluateAuthorizationAssignmentValidity(input: Readonly<{
     assignmentDate >= input.todayBogota &&
     assignmentDate <= datePlusDays(input.todayBogota, 20);
 
-  if (!sameManagementMonth && !insideForwardWindow) {
+  if (
+    assignmentDate > input.todayBogota &&
+    !sameManagementMonth &&
+    !insideForwardWindow
+  ) {
     return invalid('ASSIGNMENT_OUTSIDE_WINDOW');
   }
 
