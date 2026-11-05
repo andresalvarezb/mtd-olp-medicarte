@@ -425,7 +425,7 @@ describe('Wave 2B — stale authorization demand purchase boundary', () => {
             NUMERO_AUTORIZACION: `W2B-STALE-AUTO-${suffix}`,
             CODIGO_COMERCIAL: commercialCode,
             CANTIDAD: '2',
-            FECHA_ASIGNACION: todayBogota,
+            FECHA_ASIGNACION: expiredDate,
             FECHA_FINAL_VIGENCIA: validExpiration,
             IDENTIFICACION_PACIENTE: `DOC-W2B-${suffix}`,
             NOMBRE_PACIENTE: 'Paciente W2B stale',
