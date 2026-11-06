@@ -1,173 +1,159 @@
 # RF-PAC-001 — Maestro dinámico de pacientes e integración con MTDOM
 
-**Estado:** propuesta funcional para revisión; no aprobada ni implementada.
-**Proyecto:** MTD OLP Medicarte. **Base analizada:** `develop`, 2026-11-06.
-**Alcance:** identidad y ficha local de pacientes, importación de autorizaciones y consumo de Patients Read API v1. Sin modificaciones de OC, inventario, puntos o producción.
+**Estado:** propuesta funcional ajustada a decisiones aprobadas; no implementada.
+**Proyecto:** MTD OLP Medicarte. **Base analizada:** `origin/develop`, 2026-11-06.
+**Alcance:** maestro local de pacientes relacionados con autorizaciones de Medicarte, sincronización de lectura con MTDOM y acceso de usuario por organización y punto. No autoriza migraciones ni cambios de operación.
 
-## 1. Antecedentes verificados
+## 1. Objetivo y antecedentes
 
-- El esquema de Medicarte no declara una entidad maestra `patients`. `authorization_items.source_data` conserva información original de las autorizaciones; `patient_schedules` modela programaciones y `patient_default_dispensing_points` guarda el punto habitual mediante `patient_document`. Esta última está documentada en código como solución transitoria anterior al maestro de pacientes.
-- MTDOM dispone de **Patients Read API v1**, de solo lectura, en `https://api.mtdom.com` con `GET /v1/patients`, `GET /v1/patients/changes` y `POST /v1/patients/lookup`.
-- La identidad en MTDOM es `tipo_identificacion + identificacion`. La consulta por número sin tipo puede devolver `409 AMBIGUOUS_PATIENT_IDENTITY`.
-- Hay perfiles `basic` y `personal`. El segundo incluye fecha de nacimiento, dirección, barrio, zona, coordenadas, teléfonos y correo. Los puntos operacionales de Medicarte no son parte de esa API.
+Crear un maestro local único, enlazable con `patient_id`, que mantenga la identidad de pacientes asociados a autorizaciones, enriquezca su ficha desde MTDOM y conserve compatibilidad con autorizaciones, programaciones, puntos y demás consumidores vigentes.
 
-## 2. Objetivo
+En `origin/develop` el esquema no declara una tabla maestra `patients`. La identidad usada por varios consumidores se obtiene desde `authorization_items.source_data`; `patient_schedules` referencia la autorización y el punto, mientras `patient_default_dispensing_points` se identifica por `patient_document`. La auditoría de referencias identificó otras dependencias directas e indirectas en consulta, demanda, compra, inventario, aplicaciones, reportes y auditoría. Ver [matriz de impacto y regresión](RF-PAC-001-impacto-tecnico.md); sus rutas y símbolos fueron contrastados con el código, sin inferir comportamiento solo desde Graphify.
 
-Crear un **maestro local, dinámico y normalizado de pacientes**: registrar identidades presentes en autorizaciones, evitar duplicados, enriquecer los campos autorizados mediante MTDOM y mantenerlos actualizados sin que la disponibilidad de la API externa condicione el cargue de autorizaciones ni la operación habitual de Medicarte.
+MTDOM publica Patients Read API v1 como API de solo lectura en `https://api.mtdom.com`, con `POST /v1/patients/lookup`, `GET /v1/patients` y `GET /v1/patients/changes`. La identidad es compuesta por `tipo_identificacion + identificacion`; consultar solo el número puede resultar en `409 AMBIGUOUS_PATIENT_IDENTITY`. El contrato define perfiles `basic` y `personal`, Bearer scopes separados, cursor opaco y checkpoints `sync.as_of`.
 
-**Diseño candidato:** altas desde autorizaciones, consultas puntuales asíncronas para pacientes nuevos o pendientes, y actualización incremental periódica de los ya conocidos. Estas decisiones requieren aprobación antes de implementar.
+## 2. Decisiones funcionales aprobadas
 
-## 3. Alcance y actores
+Estas decisiones forman parte del alcance aprobado para documentar y planear; no equivalen a implementación ni a aprobación legal del tratamiento de datos.
 
-- **MTD:** importa autorizaciones y consulta la información de pacientes permitida por su perfil vigente.
-- **Sistema Medicarte:** identifica pacientes sin duplicar, conserva fuentes históricas, encola enriquecimiento y controla sincronización.
-- **MTDOM:** fuente de verdad de los atributos personales autorizados. La API es solo lectura.
-- **Responsable de datos:** aprueba campos, finalidad, acceso, retención y tratamiento de datos personales antes de habilitar perfil `personal`.
+| ID    | Decisión aprobada                                                                                                                                                                                                                                      |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| DP-01 | Registrar y sincronizar únicamente pacientes relacionados con autorizaciones de Medicarte. No mantener una copia completa del maestro de MTDOM.                                                                                                        |
+| DP-02 | La ficha local objetivo contiene los atributos personales, de contacto, ubicación y aseguramiento que MTDOM exponga en el perfil autorizado; aplicar minimización de almacenamiento, acceso y exposición conforme a la decisión legal pendiente DP-07. |
+| DP-03 | Actualizar automáticamente desde MTDOM con reglas explícitas para campos ausentes, discrepancias e identidad ambigua. Los datos oficiales personales se consultan/corrigen en MTDOM según DP-06; no inferir precedencia para excepciones pendientes.   |
+| DP-04 | Crear/reutilizar identidad local al confirmar una autorización y ejecutar carga histórica inicial de todos los pacientes relacionados con autorizaciones existentes de Medicarte.                                                                      |
+| DP-05 | Consultar nuevos pacientes por evento de confirmación y ejecutar sincronización incremental cada 60 minutos, con reintentos, alertas y supervisión. Las importaciones nunca esperan la disponibilidad de MTDOM.                                        |
+| DP-06 | MTD autorizado administra conciliaciones; MEDICARTE consulta pacientes solo dentro de su alcance por organización y punto; OLP no accede al maestro. Los datos personales oficiales se corrigen en MTDOM.                                              |
+| DP-08 | Centralizar la identidad en `patient_id` y migrar consumidores/relaciones progresivamente, manteniendo compatibilidad completa durante la transición.                                                                                                  |
 
-No se define en este RF un nuevo esquema de permisos por ubicaciones; las decisiones de acceso a una eventual ficha de pacientes quedan para diseño específico.
+**DP-07 — pendiente de aprobación definitiva:** base jurídica/finalidad, responsable, campos concretos del perfil `personal`, retención, supresión, atención de derechos y controles organizacionales. No implementar la carga de datos personales hasta resolverla. No archivar ni retirar pacientes automáticamente por inactividad; su conservación/supresión queda sujeta a DP-07 y a las obligaciones aplicables.
 
-## 4. Reglas funcionales propuestas
+## 3. Actores, autoridad y límites
 
-**RF-01 — Registro con autorización.** Al confirmar una autorización, Medicarte crea o reutiliza una identidad de paciente según los datos suficientes y confiables del archivo. El proceso de importación debe completarse sin esperar la respuesta de MTDOM. No se realiza HTTP externo dentro de la transacción principal.
+- **MTD autorizado:** confirma autorizaciones; administra conciliaciones locales de identidad bajo permisos que se definan para ese fin.
+- **MEDICARTE:** consulta ficha dentro de su organización y puntos autorizados; no corrige atributos oficiales personales.
+- **OLP:** no consulta ni administra el maestro ni recibe ficha personal por exportaciones o contratos indirectos.
+- **Medicarte backend:** mantiene identidades, relaciones, cola/checkpoints y aplica controles de autorización. La credencial MTDOM no llega al navegador.
+- **MTDOM:** autoridad de los atributos de paciente expuestos por Patients Read API v1; API de solo lectura.
+- **Responsable de datos/seguridad:** resuelve DP-07 y aprueba scope `patients.read.personal`, campos, finalidad y salvaguardas antes de su habilitación.
 
-**RF-02 — Sin duplicación.** Una identidad verificada se distingue por tipo y número de identificación normalizados, conservando sus valores originales. Importaciones repetidas o simultáneas vinculan el mismo paciente.
+La autorización existente para leer una autorización, programación o aplicación no concede por sí sola acceso a una ficha personal centralizada. La nueva consulta requiere enforcement server-side por rol, organización y punto; las relaciones indirectas deben respetar su autorización y no crear una vía de acceso por ID.
 
-**RF-03 — Identidades incompletas o ambiguas.** Si falta un componente de identidad o los datos se contradicen, no se fuerza un vínculo. Se conserva la autorización y un estado pendiente de resolución. Si lookup solo por número devuelve `409`, no se elige arbitrariamente un paciente.
+## 4. Reglas funcionales
 
-**RF-04 — Enriquecimiento puntual.** Una tarea asíncrona consulta `POST /v1/patients/lookup` para identidades nuevas o pendientes; no se consulta MTDOM por cada fila de Excel ni cada vez que se abre una ficha. Ante `404` se conserva el paciente pendiente, ante `401/403` se alerta sobre configuración, ante timeout/`429`/`5xx` se considera reintento limitado según política.
+**RF-01 — Registro en confirmación.** Al confirmar una autorización, crear o reutilizar una identidad local si los datos permiten determinarla sin ambigüedad. Persistir una tarea de enriquecimiento en el mismo límite transaccional o mediante un mecanismo durable equivalente. No realizar HTTP a MTDOM dentro de la transacción ni retrasar el resultado del cargue.
 
-**RF-05 — Actualización.** Las modificaciones de MTDOM se incorporan mediante `GET /v1/patients/changes` y UPSERT idempotente por identidad. El delta es global y debe filtrarse a pacientes pertinentes a Medicarte; no implica descargar y guardar todos los pacientes de MTDOM.
+**RF-02 — Identidad compuesta.** La identidad canónica externa es `(tipo_identificacion, identificacion)`. Normalizar para comparar, guardar el valor de origen y evitar unicidad por número solamente. Las reglas de normalización deben conservar ceros y caracteres que puedan ser significativos para el tipo documental y fijarse con los contratos/fuentes reales antes del esquema.
 
-**RF-06 — Datos locales.** Las vistas habituales consultan PostgreSQL local. Se registran origen, versión/fecha del dato externo, última sincronización y estado de verificación. No se guarda el cuerpo completo de la API si solo se requieren campos seleccionados.
+**RF-03 — Pendientes y conflictos.** Si falta tipo/número o hay contradicción entre autorizaciones/fuentes, mantener la autorización y registrar el caso para conciliación sin asignar una identidad verificada. No resolver automáticamente identidades repetidas, cambiadas o ambiguas; `409` requiere conciliación MTD autorizada. Un `404` no borra el paciente ni la autorización.
 
-**RF-07 — Independencia operacional.** MTDOM no es autoridad para puntos predeterminados, programación, autorizaciones, cantidades, OC, inventario, recepción ni consumo. Cambios de nombre, EPS, dirección o estado personal no alteran automáticamente esos registros.
+**RF-04 — Enriquecimiento por evento.** Un proceso asíncrono consulta `POST /v1/patients/lookup` con identidad compuesta y perfil aprobado. No llamar por fila XLSX, apertura de vista ni cada reintento del importador. Validar que la respuesta corresponde a la identidad solicitada antes de aplicar un UPSERT.
 
-**RF-08 — Históricos.** La información del Excel en `authorization_items.source_data` es evidencia de origen y no se reescribe a partir de MTDOM. Los enlaces a `patients` se migran progresivamente; mantener compatibilidad con autorizaciones aún no vinculadas.
+**RF-05 — Históricos y delta.** Cargar identidades distintas obtenidas de autorizaciones históricas y resolverlas contra MTDOM; almacenar solo identidades enlazadas o conciliadas como pertinentes a Medicarte. Después, consumir `/v1/patients/changes` cada 60 minutos con checkpoint durable. El API de cambios documentado entrega cambios globales; el cliente debe filtrar candidatos locales. Este contrato no evita que respuestas ajenas al alcance transiten por el cliente y es un bloqueo de minimización/seguridad a resolver antes de producción (sección 11).
 
-**RF-09 — Estados distintos.** `activo`, `paciente_vivo` y `presente_en_fuente_actual` son campos diferentes. Ni su modificación ni la ausencia del paciente en el último snapshot suponen eliminación automática o cambio de elegibilidad operacional.
+**RF-06 — Paginación y checkpoints.** En snapshot y cambios, seguir `next_cursor` exactamente como opaco. Al usar cursor no volver a enviar/modificar `since`, `profile` ni `limit` de la página inicial. El delta puede repetir registros en el límite inclusivo del checkpoint: UPSERT idempotente. Avanzar `sync.as_of` solo tras completar y persistir todas las páginas; al fallar, reiniciar desde el checkpoint anterior.
 
-**RF-10 — Punto habitual.** `patient_default_dispensing_points` permanece inicialmente intacta. Un futuro vínculo a `patient_id` requiere conciliación de identidades, sin cambiar la prioridad actual: programación activa → punto predeterminado → mapeo AT.
+**RF-07 — Perfiles, datos y estado.** DP-02 define ficha completa objetivo, pero DP-07 bloquea el uso de perfil `personal` hasta su aprobación. No guardar respuesta cruda completa por conveniencia; persistir campos autorizados, procedencia, `actualizado_en`, última sincronización y estado/error técnico mínimo. Mantener separados `activo`, `paciente_vivo` y `presente_en_fuente_actual`; ausencia o cambio de esos indicadores no borra identidad ni cambia elegibilidad operacional.
 
-## 5. Modelo de datos conceptual (pendiente de diseño físico)
+**RF-08 — Precedencia del punto habitual.** No derivar punto de domicilio, ciudad o coordenadas. La prioridad vigente se conserva: programación activa → punto predeterminado → mapeo AT. Durante la migración, consultar vínculo por `patient_id` y fallback histórico solo de forma explícita, sin cambiar resultados ni fusionar registros automáticamente.
 
-| Componente propuesto | Contenido mínimo y función | Restricción clave |
-| --- | --- | --- |
-| `patients` | UUID, tipo y número de identidad normalizados/originales, nombres, datos administrativos autorizados, procedencia, estado y marcas de actualización | Único por `(tipo_identificacion, identificacion)` verificados; no unificar solo por número |
-| Pendientes de identidad | Origen, autorización, motivo e identidad incompleta o ambigua, sin atribución forzada | No asignar `patient_id` si no se ha identificado inequívocamente |
-| `authorization_items.patient_id` (nullable) | Referencia progresiva al paciente verificado | El cargue/consulta siguen funcionando con valor nulo |
-| Control de sincronización | Checkpoint de MTDOM (`sync.as_of`), estado y auditoría de ejecuciones | Avanzar únicamente al finalizar todas las páginas correctamente |
-| Cola/estado de enriquecimiento | Identidad, causa, próximo intento, conteo de intentos y error clasificado | Tareas idempotentes, backoff, sin PII en logs |
-| `patient_default_dispensing_points` (existente) | Punto habitual operacional | No modificar ni migrar automáticamente en esta primera fase |
+**RF-09 — Históricos y compatibilidad.** `authorization_items.source_data` y sus valores originales son evidencia del archivo y no se reescriben con MTDOM. Los lectores siguen operando cuando `patient_id` es nulo. Una referencia nueva complementa la evidencia histórica; no reemplaza de golpe sus consumidores.
 
-La estructura exacta, separación de tablas, índices, constraints, formato de fechas y migraciones deberán validarse con `drizzle-schema-safety`, sin introducir tablas redundantes por inercia.
+**RF-10 — Separación operacional.** MTDOM no determina autorizaciones, cantidades, estados de compra, prioridad de puntos, inventario, recibos, dispensaciones, aplicaciones ni elegibilidad. Cambios de perfil personal solo actualizan atributos admitidos de la ficha local.
 
-## 6. Flujos de sincronización
+**RF-11 — Acceso a ficha.** MTD autorizado puede administrar conciliación con permiso específico; MEDICARTE puede consultar solo cuando la autorización abarca la organización y punto relacionados; OLP queda denegado. Filtros, detalle, exportación y endpoints aplican el mismo control server-side y no filtran datos de otros alcances.
 
-### 6.1 Autorizaciones nuevas
+## 5. Modelo conceptual y viabilidad
 
-1. Validar y confirmar el archivo con las reglas vigentes.
-2. Identificar de forma normalizada al paciente, reutilizar uno verificado o registrar la necesidad de conciliación.
-3. Crear una tarea deduplicada de enriquecimiento después de la confirmación transaccional.
-4. Consultar MTDOM por backend; validar identidad, contrato, permisos y campos permitidos.
-5. Aplicar actualización idempotente a la ficha; conservar siempre la autorización original.
-6. Los errores de MTDOM se reportan y reintentan sin revertir una importación exitosa.
+El diseño físico es pendiente y debe revisarse con `drizzle-schema-safety` en implementación. Se propone evaluar:
 
-### 6.2 Pacientes de autorizaciones históricas
+| Entidad/relación conceptual               | Propósito y límites                                                                                                                                                                                             |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `patients`                                | UUID interno, identidad normalizada y original, atributos MTDOM autorizados, procedencia/frescura y estados independientes. Unicidad compuesta solo para identidad resuelta.                                    |
+| Identidad provisoria/conciliación         | Conservar autorización de origen, componentes conocidos, motivo y resolución/auditoría; sin asignar identidad verificada por documento aislado. Puede ser tabla o estado explícito según idempotencia/consulta. |
+| `authorization_items.patient_id` nullable | Enlace progresivo; debe ser consistente con tipo/número asociados y permitir `NULL` hasta conciliación. No cambiar clave de autorización ni datos operacionales.                                                |
+| Punto habitual                            | Integrar vínculo opcional por `patient_id` con unicidad y política de conciliación. Preservar temporalmente `patient_document`; no backfill automático sin reporte/resolución de colisiones.                    |
+| Sincronización                            | Checkpoint por perfil/flujo, `sync.as_of`, ejecución y páginas completadas. Cursor no necesita persistirse fuera de una ejecución reanudable; si se persiste, protegerlo como token opaco.                      |
+| Cola/reintentos                           | Clave idempotente paciente+causa, intentos, `next_attempt_at` y clase de error; no incluir PII/secretos en mensajes/logs.                                                                                       |
 
-- Extraer identidades distintas existentes en Medicarte con un proceso de solo lectura para análisis inicial.
-- Evaluar **lookup puntual vs snapshot paginado** según volumen medido; si se usa snapshot, almacenar solamente pacientes vinculados a Medicarte.
-- Completar el snapshot siguiendo `next_cursor` opaco, registrar `sync.as_of` y ejecutar inmediatamente el delta posterior para capturar cambios intermedios.
-- Resolver ambigüedades mediante informe de conciliación sin fusionar registros automáticamente.
+El snapshot completo de MTDOM no puede poblarse indiscriminadamente: DP-01 limita filas locales a pacientes relacionados con Medicarte. El esquema debe permitir almacenar solo la proyección personal autorizada y separar datos de identidad, estado de conciliación y sincronización sin redundancias prematuras.
 
-### 6.3 Cambios incrementales
+## 6. Contrato MTDOM contrastado
 
-1. Solicitar `/v1/patients/changes?since=<checkpoint>` con la credencial y perfil autorizados.
-2. Recorrer `next_cursor` sin modificarlo; no mezclar parámetros iniciales cuando el cursor ya existe.
-3. Aplicar UPSERT idempotente solo para pacientes locales pertinentes; evitar sobrescribir con versiones antiguas.
-4. **Confirmar el nuevo checkpoint solo después de procesar todas las páginas**. Si falla, repetir desde el checkpoint anterior sin perder datos.
-5. Publicar métricas agregadas: total observado, candidatos locales, actualizados, no encontrados, ambiguos, errores y frescura, sin datos personales.
+Verificado directamente en `FelipeMTD/mtdom-apis` `main` commit `020747eb02ad072f2263430df8383fb5de67e617` el 2026-11-06; no se usaron credenciales ni datos reales.
 
-La frecuencia (por ejemplo, cada hora) es **propuesta, no aprobada**; verificar primero volumen, límites, duraciones y disponibilidad de MTDOM.
+| Operación                  | Contrato observado                                                                                                                                                                  | Implicación                                                                                                                                                                                            |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /v1/patients/lookup` | Bearer; body con tipo+documento (preferido) y `profile`. `200`, `400`, `401`, `403`, `404 PATIENT_NOT_FOUND`, `409 AMBIGUOUS_PATIENT_IDENTITY`, `500`. POST evita documento en URL. | `404` conserva identidad pendiente; `401/403` alerta y pausa llamadas incompatibles; `409` se deriva a conciliación. La guía también permite lookup por número solo: evitarlo para el flujo ordinario. |
+| `GET /v1/patients`         | Snapshot paginado; perfil default `basic`, límite default 1000 / máximo 5000, cursor opaco; responde `pagination.has_next`, `next_cursor` y `sync.as_of`.                           | No usar snapshot para replicar población completa; construir conjunto de claves locales y diseñar bootstrap que minimice transferencia personal.                                                       |
+| `GET /v1/patients/changes` | Requiere `since` RFC3339 en primera página; siguientes páginas solo cursor; checkpoint inclusivo puede repetir pacientes; `sync.as_of` solo se persiste tras todas las páginas.     | Consume delta global y no documenta filtro por IDs/organización. Aplicar deduplicación/upsert por identidad y checkpoint transaccional.                                                                |
+| `basic`                    | Identidad, nombres, sexo, ubicación administrativa, aseguramiento y estados (`activo`, `paciente_vivo`, `presente_en_fuente_actual`, otros).                                        | DP-02 permite los atributos seleccionados, sujeto a minimización/DP-07. No tratar los estados como sinónimos.                                                                                          |
+| `personal`                 | Incluye `basic` más nacimiento, dirección, barrio, zona, coordenadas, teléfonos y correo/validación. Requiere `patients.read.personal`; `basic` no puede pedir personal (403).      | Habilitar solamente tras aprobar DP-07 y permiso de campo/rol; evitar exposición a OLP.                                                                                                                |
+| Credenciales               | Token Bearer individual por consumidor, `mtdpat_...`; operaciones revocables/auditables.                                                                                            | Secreto exclusivo en backend/secret manager; no en cliente, URL, repositorio, logs ni reportes.                                                                                                        |
 
-## 7. Seguridad y protección de datos
+## 7. Seguridad, privacidad e invariantes
 
-- Primera etapa sugerida con scope `patients.read.basic`, aplicando minimización. `patients.read.personal` se habilitará solo con justificación y aprobación de tratamiento de datos personales.
-- Token Bearer específico para Medicarte guardado en secretos de backend. Nunca exponer en navegador, URL, Excel, commits, telemetría o chats.
-- Lookup utiliza `POST` para no incluir documentos en la URL. Establecer timeout, rate limits, reintentos con backoff y alertas de fallos de autenticación.
-- No registrar payloads completos, nombres, documentos, teléfonos, direcciones o correos en logs o resultados de CI. Probar con identidades sintéticas.
-- Definir consentimiento/base legal, finalidad, conservación, corrección y eliminación de datos personales antes de poblar `personal`.
-- El control de acceso a la futura ficha de pacientes deberá quedar aprobado antes de exponer datos personales en la interfaz; sin cambios de RBAC por punto dentro de RF-PAC-001.
+- MTDOM solo lectura; Medicarte no intenta escribir, corregir ni eliminar allí.
+- DP-07 bloquea uso productivo de perfil personal hasta aprobar base/finalidad, retención/supresión, derechos, responsable y controles.
+- Resolver el delta global con MTDOM: filtrar almacenamiento no basta si el cliente recibe información personal de todos los pacientes. Antes de implementación productiva, acordar con MTDOM un endpoint/filtro acotado o justificar y autorizar el procesamiento transitorio del delta global con minimización, memoria/logging, análisis de seguridad y prueba de que datos ajenos no se persisten.
+- Aplicar RBAC, organización y punto en endpoints, listados, detalle, batch, métricas y exportaciones. El servicio de sincronización no debe usar autorización de usuario final como sustituto de credencial técnica ni exponer bypasses de OLP.
+- No almacenar body bruto ni PII en logs, trazas, error reports, métricas, CI o fixtures. Tests usan identidades sintéticas.
+- No bloquear importación por timeout, caída, `404`, `429` o `5xx`; establecer límites, backoff, jitter y alerta. `401/403` detienen retries inútiles y requieren corrección de credenciales/scope.
+- `source_data` conserva la fila original; no alterar cantidades, autorizaciones, puntos, historial, ordenes/recepciones, asignaciones, inventario, dispensaciones o aplicaciones.
+- No purgar ni archivar por inactividad. Aplicar únicamente la política legal que resulte de DP-07.
 
-## 8. Invariantes de compatibilidad
+## 8. Criterios de aceptación propuestos
 
-- La API de MTDOM es de **solo lectura**: Medicarte no le escribe.
-- No bloquear importaciones válidas por indisponibilidad de MTDOM o datos incompletos de paciente.
-- No duplicar pacientes ni tareas por recargas/reintentos.
-- No alterar históricos de autorización, puntos, OC, recepción, inventario, reservas, asignaciones ni consumos.
-- No inferir punto habitual de la dirección o ciudad del paciente.
-- Mantener interoperabilidad de consumidores que hoy leen paciente desde `authorization_items.source_data`.
-- Aplicar nuevas estructuras aditivamente y con compatibilidad temporal; no migrar puntos históricos de forma silenciosa.
+1. Dos autorizaciones con identidad compuesta verificada comparten un `patient_id`, incluso ante confirmación concurrente; un componente faltante no fuerza asociación.
+2. Recarga/reintento no duplica paciente ni job y una falla MTDOM no revierte una autorización confirmada.
+3. Lookup `200` solo actualiza identidad coincidente/campos autorizados; `404`, `409`, `401/403` y errores transitorios siguen las salidas definidas sin fusionar ni borrar.
+4. Backfill contiene solo pacientes con referencias de autorización Medicarte; muestra conteo de no encontrados/ambiguos para conciliación y no modifica `source_data`.
+5. Delta cada 60 min es idempotente frente a repetición; un fallo de cualquier página no confirma checkpoint; reintentar alcanza frescura sin saltos.
+6. Cambio o ausencia de `activo`, `paciente_vivo` o `presente_en_fuente_actual` conserva registro y no modifica elegibilidad o consumo.
+7. `patient_id` nullable permite transición; autorización, programación, compras/recepción, inventario, asignación, dispensación, aplicación, informes y exportaciones mantienen resultados equivalentes antes/después.
+8. Punto resultante respeta programación activa → punto habitual → mapeo AT; datos de dirección no seleccionan punto; conflicto de punto no crea asignación.
+9. MTD y MEDICARTE consultan solo según la política autorizada y punto; OLP, otros puntos/organizaciones, acceso por ID y exportación quedan denegados.
+10. Antes de DP-07 no se habilita `personal`; después, datos personales quedan en backend/local conforme a política, sin PII en logs/CI y con auditoría de acceso.
+11. Una corrección de nombre/dirección/EPS no altera autorización, OC, cantidades, recepción, inventario, reservas ni aplicaciones.
+12. Ninguna sincronización elimina o archiva pacientes por inactividad/ausencia; supresión se sujeta a política aprobada.
 
-## 9. Criterios de aceptación propuestos
+## 9. Matriz de impacto y regresión
 
-1. **CA-01.** Dos autorizaciones de una identidad verificada se vinculan al mismo paciente, incluso si llegan concurrentemente.
-2. **CA-02.** Recargas idénticas no crean duplicados ni tareas de enriquecimiento repetidas.
-3. **CA-03.** Una autorización válida queda guardada aunque MTDOM esté caído, tarde o devuelva `404`.
-4. **CA-04.** Una respuesta `200` coherente de lookup enriquece únicamente campos autorizados y guarda procedencia/fecha.
-5. **CA-05.** Lookup sin tipo con `409` no fusiona pacientes ni fuerza un vínculo.
-6. **CA-06.** Error `401/403` detiene reintentos innecesarios y alerta configuración; errores transitorios respetan límites.
-7. **CA-07.** El delta actualiza un paciente conocido sin crear otra identidad.
-8. **CA-08.** Un fallo a mitad de la paginación no avanza el checkpoint; un reintento recupera cambios sin duplicados.
-9. **CA-09.** Paciente ausente del último snapshot conserva histórico y muestra un estado de presencia de origen independiente.
-10. **CA-10.** Actualizar datos personales no cambia punto habitual, programación, OC, inventario o recibos.
-11. **CA-11.** Autorizaciones sin `patient_id` siguen funcionando mientras se completa la vinculación progresiva.
-12. **CA-12.** La integración no registra secretos ni PII en logs ni expone datos fuera del backend.
-13. **CA-13.** Con la integración deshabilitada, la plataforma conserva los comportamientos operacionales actuales.
+La matriz con archivos, símbolos, dependencias directas/indirectas, cambio propuesto, riesgo y prueba requerida está en [RF-PAC-001 — Impacto técnico y regresión](RF-PAC-001-impacto-tecnico.md). Es evidencia de navegación revisada y lista inicial para implementar; no sustituye una nueva búsqueda de consumidores al cambiar contratos/código.
 
-## 10. Plan por etapas
+## 10. Plan de implementación futura
 
-1. Validación funcional, legal y técnica; inventario real de formatos y datos de identidad en autorizaciones.
-2. Esquema aditivo y contrato mínimo de paciente, con integración deshabilitada por defecto.
-3. Registro de identidades y lookup asíncrono con stubs/pruebas de duplicación y fallos.
-4. Backfill histórico controlado y conciliación de identidades.
-5. Delta incremental con checkpoint durable, seguridad y métricas.
-6. Ficha de consulta y eventual migración del punto habitual a `patient_id` mediante iniciativa separada.
+1. **Resolver bloqueos previos:** DP-07; consulta global del delta; normalización documental; mapeo exacto de organización/punto y campos personal. Aprobar threat model y criterios de datos.
+2. **Esquema aditivo/contratos:** paciente, claves compuestas, pendencias, enlace nullable, checkpoint/cola; constraints, índices, migraciones y plan de rollback con `drizzle-schema-safety`.
+3. **Confirmación de autorización:** crear/reusar identidad local y outbox idempotente en flujo confirmado; compatibilidad con reload/retry y campos incompletos.
+4. **Lookup asíncrono:** cliente backend, secreto y scopes, timeout/backoff/clasificación de error; stubs contractuales y verificación de identidad.
+5. **Backfill histórico:** inventario read-only de identidades distintas; resolver vía lookup en lotes; resumen de duplicados/ambiguos; aplicar solo claves conciliadas.
+6. **Delta incremental:** programador cada 60 minutos, paginación opaca, global filtering controlado, UPSERT, checkpoints durables, métricas agregadas y alertas.
+7. **Conciliación/seguridad:** pantalla y endpoints solo para MTD autorizado; auditoría, RBAC organizacional/punto y tratamiento de estados/identidad cambiada.
+8. **Consulta de pacientes:** interfaz MEDICARTE dentro de punto/organización; OLP bloqueado; endpoints y exportaciones de pacientes protegidos. Habilitar personal solo tras DP-07.
+9. **Migración progresiva de consumidores:** filtros/autorizaciones, programación, punto habitual, compra/demanda, inventario, aplicación/dispensación, auditoría, exportes y reportes; fallback para `patient_id IS NULL`, comparación dual y retiro por etapas.
+10. **Regresión y corte:** pruebas enfocadas por cada capa durante desarrollo; PostgreSQL aislado para contratos, constraints/concurrencia y migraciones; suite completa en CI antes de habilitar. No usar datos ni DB de producción.
 
-No ejecutar migraciones, resets, credenciales reales o pruebas contra producción durante el análisis. Antes de implementar, usar `AGENTS.md`, `requirements-implementation` y `drizzle-schema-safety`; validar con pruebas unitarias y PostgreSQL aislado.
+## 11. Bloqueos y decisiones pendientes
 
-## 11. Decisiones pendientes para la próxima conversación
-
-| ID | Decisión | Propuesta a evaluar (no aprobada) |
-| --- | --- | --- |
-| DP-01 | ¿Sincronizar solo pacientes con autorizaciones o todo MTDOM? | Solo relacionados con Medicarte |
-| DP-02 | ¿Qué campos se necesitan realmente y con qué base de tratamiento? | Perfil `basic` primero |
-| DP-03 | ¿Cada cuánto ejecutar delta y cuándo refrescar a demanda? | Configurable tras medir volumen |
-| DP-04 | ¿Qué hacer si no hay tipo de documento, cambia identidad o hay varias coincidencias? | Pendiente de conciliación, nunca fusionar solo por número |
-| DP-05 | ¿Qué prevalece si existen datos personales corregidos localmente? | MTDOM para atributos de su competencia, con excepciones explícitas |
-| DP-06 | ¿Cuánto reintentar `404`, timeout, `429` o `5xx`? | Backoff y límites por definir |
-| DP-07 | ¿Cómo conservar o suprimir PII y quién autoriza el perfil personal? | Aprobación de responsable de datos |
-| DP-08 | ¿Cuándo migrar `patient_default_dispensing_points` a vínculo por `patient_id`? | Después de conciliar identidades |
-| DP-09 | ¿Quién consulta ficha personal y qué información se presenta? | Definir en una etapa de UI; sin revisar RBAC por puntos ahora |
-| DP-10 | ¿Snapshot inicial o lookups puntuales y qué volumen/SLA? | Medir antes de elegir |
+- **DP-07 (decisión pendiente formal):** base legal/finalidad; conjunto exacto de atributos; responsable/retención; reglas de supresión y ejercicio de derechos; autorización del scope `patients.read.personal`.
+- **Bloqueo de minimización de delta:** la API documentada es global, sin filtro por conjunto de pacientes. Confirmar con MTDOM si puede limitar el feed o documentar y aprobar el procesamiento transitorio de cambios globales. No implementar el delta personal mientras no exista solución aprobada.
+- **Normalización:** fijar catálogo real de tipos de identificación, tratamiento de espacios/separadores/ceros y cambios de documento. No asumir equivalencias que colapsen claves.
+- **DP-03 casos límite:** definir resolución de conflicto de identidad cambiada y campo nulo en actualización (borrar valor, conservar último dato o marcar stale) sin contradecir autoridad de MTDOM ni DP-06.
+- **Alcance organizacional/punto:** documentar cómo se deriva el alcance permitido para una persona cuando existen varias autorizaciones/puntos; verificar que listados/exportaciones y consultas históricas tengan la misma regla. DP-06 define actores; el enforcement exacto queda para diseño RBAC.
+- **Operación:** definir número máximo de intentos, backoff, SLO de frescura/alertas, credencial de contingencia, tratamiento de `429` y revisión/rotación de token.
 
 ## 12. Fuera de alcance
 
-- Cambiar reglas o prioridades de OC, inventario, puntos, atención o recepción.
-- Modificar permisos por ubicación/punto, ejecutar despliegues o alterar datos de producción.
-- Crear endpoints de escritura en MTDOM, importar indiscriminadamente toda la población o borrar históricos.
-- Implementar funcionalidades sin resolver las decisiones que afectan identidades, PII y estados.
+- Implementar API, interfaz, worker, migración, seed o integración en esta tarea documental.
+- Escribir en MTDOM, crear una copia completa de su población, o corregir atributos personales localmente como autoridad.
+- Cambiar prioridad del punto habitual, lógica de autorización/compra, inventario/recepción, consumo, cantidades o estados operacionales.
+- Archivar/purgar por inactividad, decidir DP-07 por inferencia, ejecutar migraciones o usar datos/credenciales/DB de producción.
 
-## 13. Fuentes revisadas
+## 13. Fuentes
 
-**Medicarte**
-- [`AGENTS.md`](https://github.com/andresalvarezb/mtd-olp-medicarte/blob/develop/AGENTS.md)
-- [Skill de requisitos](https://github.com/andresalvarezb/mtd-olp-medicarte/blob/develop/.agents/skills/requirements-documentation/SKILL.md)
-- [Esquema actual](https://github.com/andresalvarezb/mtd-olp-medicarte/blob/develop/packages/database/src/schema.ts)
-- [Flujo MTD](https://github.com/andresalvarezb/mtd-olp-medicarte/blob/develop/docs/flujo-mtd.md)
+**Medicarte (código contrastado en `origin/develop`):** [esquema](../../packages/database/src/schema.ts), [flujo MTD](../flujo-mtd.md), [matriz de impacto](RF-PAC-001-impacto-tecnico.md), [reglas de agentes](../../AGENTS.md), [skill de documentación de requisitos](../../.agents/skills/requirements-documentation/SKILL.md), [skill RBAC](../../.agents/skills/rbac-point-scope/SKILL.md), [skill de esquema](../../.agents/skills/drizzle-schema-safety/SKILL.md), [skill de integridad de compras/entrega](../../.agents/skills/purchase-fulfillment-integrity/SKILL.md).
 
-**MTDOM**
-- [Catálogo de endpoints](https://github.com/FelipeMTD/mtdom-apis/blob/main/docs/api/API_CATALOG.md)
-- [Patients Read API v1 — Consumo](https://github.com/FelipeMTD/mtdom-apis/blob/main/docs/api/PATIENTS_READ_API_V1_USAGE.md)
-- [Patients Read API v1 — Operaciones](https://github.com/FelipeMTD/mtdom-apis/blob/main/docs/api/PATIENTS_READ_API_V1_OPERATIONS.md)
+**MTDOM (`main` @ `020747eb02ad072f2263430df8383fb5de67e617`, 2026-11-06):** [catálogo API](https://github.com/FelipeMTD/mtdom-apis/blob/020747eb02ad072f2263430df8383fb5de67e617/docs/api/API_CATALOG.md), [guía Patients Read v1](https://github.com/FelipeMTD/mtdom-apis/blob/020747eb02ad072f2263430df8383fb5de67e617/docs/api/PATIENTS_READ_API_V1_USAGE.md), [operación y administración](https://github.com/FelipeMTD/mtdom-apis/blob/020747eb02ad072f2263430df8383fb5de67e617/docs/api/PATIENTS_READ_API_V1_OPERATIONS.md).
 
-**Validación:** inspección estática de fuentes mediante GitHub; no hay pruebas, consultas autenticadas a MTDOM ni modificaciones de código. Los nombres de tablas propuestas no constituyen una migración aprobada.
+**Validación documental/técnica:** inspección estática del código, esquema, contratos y nombres de pruebas; lectura directa del contrato MTDOM vía GitHub API. No se consultó endpoint ni dato real, no se usaron credenciales, no se ejecutaron pruebas/builds, y no se modificó código/esquema/base de datos.
