@@ -8,6 +8,10 @@ import { currentBogotaDate } from '@authorization/domain';
 
 import type { Scope } from '../../apps/api/src/common/request-scope';
 import { PurchaseOrderImportService } from '../../apps/api/src/purchase-orders/purchase-order-import.service';
+import { PurchaseOrderRepository } from '../../apps/api/src/purchase-orders/purchase-order.repository';
+import { InventoryRepository } from '../../apps/api/src/inventory/inventory.repository';
+import { HistoricalPurchaseOrderSourceRecoveryService } from '../../apps/api/src/legacy/historical-purchase-order-source-recovery.service';
+import { ReceiptRepository } from '../../apps/api/src/receipts/receipt.repository';
 import { ORGANIZATION_IDS } from './helpers/auth';
 
 const databaseUrl =
@@ -20,6 +24,7 @@ const importBatchCode = `PO-ROW-${suffix}.json`;
 const chapineroCode = `PO-ROW-CH-${suffix}`;
 const ibagueCode = `PO-ROW-IB-${suffix}`;
 const purchaseOrderCodes = [`PO-ROW-MIX-${suffix}`, `PO-ROW-CUM-${suffix}`, `PO-ROW-CON-${suffix}`];
+const splitPurchaseOrderCode = `PO-ROW-SPLIT-${suffix}`;
 const atomicPurchaseOrderCode = `PO-ROW-ATOMIC-${suffix}`;
 const atomicTrigger = `po_row_fail_${suffix.toLowerCase()}`;
 const atomicFunction = `po_row_fail_fn_${suffix.toLowerCase()}`;
@@ -28,6 +33,7 @@ let adminId = '';
 let importBatchId = '';
 let chapineroPointId = '';
 let ibaguePointId = '';
+let cetumPointId = '';
 const orderIds: string[] = [];
 const authorizationIds: string[] = [];
 const patientDocuments: string[] = [];
@@ -48,6 +54,7 @@ function scope(correlationId = randomUUID()): Scope {
 async function insertAuthorization(
   label: string,
   dispensingPointId: string,
+  quantity = 1,
 ): Promise<{ id: string; key: string }> {
   const number = `${suffix}-${label}`;
   const document = `TEST-PO-ROW-${suffix}-${label}`;
@@ -69,7 +76,7 @@ async function insertAuthorization(
       JSON.stringify({
         NUMERO_AUTORIZACION: number,
         CODIGO_COMERCIAL: product,
-        CANTIDAD: '1',
+        CANTIDAD: String(quantity),
         FECHA_ASIGNACION: currentBogotaDate(),
         FECHA_FINAL_VIGENCIA: '20991231',
         IDENTIFICACION_PACIENTE: document,
@@ -209,6 +216,13 @@ beforeAll(async () => {
   );
   ibaguePointId = ibague.rows[0]!.id;
 
+  const cetum = await database.pool.query<{ id: string }>(
+    `insert into dispensing_points (organization_id, code, name, active, created_by)
+     values ($1, $2, 'Synthetic CETUM', true, $3) returning id`,
+    [ORGANIZATION_IDS.MEDICARTE, `PO-ROW-CE-${suffix}`, adminId],
+  );
+  cetumPointId = cetum.rows[0]!.id;
+
   await database.pool.query(
     `insert into tariff_annex_products (
        codigo_producto, tarifa_unidad, descripcion_generica, consecutivo_invima_presentacion,
@@ -256,6 +270,11 @@ afterAll(async () => {
         [orderIds],
       );
       await database.pool.query(
+        `delete from purchase_order_authorization_sources where purchase_order_line_id in
+           (select id from purchase_order_lines where purchase_order_id = any($1::uuid[]))`,
+        [orderIds],
+      );
+      await database.pool.query(
         `delete from purchase_order_lines where purchase_order_id = any($1::uuid[])`,
         [orderIds],
       );
@@ -289,12 +308,160 @@ afterAll(async () => {
       await database.pool.query(`delete from dispensing_points where id = $1`, [chapineroPointId]);
     if (ibaguePointId)
       await database.pool.query(`delete from dispensing_points where id = $1`, [ibaguePointId]);
+    if (cetumPointId)
+      await database.pool.query(`delete from dispensing_points where id = $1`, [cetumPointId]);
   } finally {
     await database.pool.end();
   }
 }, 30_000);
 
 describe('PostgreSQL — asignaciones independientes a OC existente', () => {
+  it('agrupa una OC nueva por producto y punto y conserva los vínculos hasta recepción Medicarte', async () => {
+    const cetumA = await insertAuthorization('SPLIT-CETUM-A', cetumPointId, 50);
+    const cetumB = await insertAuthorization('SPLIT-CETUM-B', cetumPointId, 36);
+    const ibague = await insertAuthorization('SPLIT-IBAGUE', ibaguePointId, 20);
+    const chapinero = await insertAuthorization('SPLIT-CHAPINERO', chapineroPointId, 4);
+
+    const imported = await importRows([
+      [cetumA.key, splitPurchaseOrderCode, 50],
+      [cetumB.key, splitPurchaseOrderCode, 36],
+      [ibague.key, splitPurchaseOrderCode, 20],
+      [chapinero.key, splitPurchaseOrderCode, 4],
+    ]);
+
+    expect(imported.acceptedRows).toBe(4);
+    expect(imported.rejectedRows).toBe(0);
+    expect(imported.createdOrders).toBe(1);
+    const purchaseOrderId = imported.results[0]?.purchaseOrderId;
+    expect(purchaseOrderId).toBeTruthy();
+    orderIds.push(purchaseOrderId!);
+
+    const grouped = await database.pool.query<{
+      line_id: string;
+      dispensing_point_id: string;
+      point_name: string;
+      requested_quantity: number;
+      authorization_count: number;
+      source_quantity: number;
+    }>(
+      `select
+         pol.id as line_id,
+         pol.dispensing_point_id,
+         dp.name as point_name,
+         pol.requested_quantity,
+         count(poas.authorization_item_id)::int as authorization_count,
+         sum(poas.source_quantity_snapshot)::int as source_quantity
+       from purchase_order_lines pol
+       join dispensing_points dp on dp.id = pol.dispensing_point_id
+       join purchase_order_authorization_sources poas on poas.purchase_order_line_id = pol.id
+       where pol.purchase_order_id = $1 and pol.commercial_code = $2
+       group by pol.id, pol.dispensing_point_id, dp.name, pol.requested_quantity
+       order by dp.name`,
+      [purchaseOrderId, product],
+    );
+
+    expect(grouped.rows).toHaveLength(3);
+    expect(
+      grouped.rows.map((line) => ({
+        point: line.point_name,
+        requested: Number(line.requested_quantity),
+        sources: Number(line.authorization_count),
+        sourceQuantity: Number(line.source_quantity),
+      })),
+    ).toEqual([
+      { point: 'Synthetic CETUM', requested: 86, sources: 2, sourceQuantity: 86 },
+      { point: 'Synthetic CHAPINERO', requested: 4, sources: 1, sourceQuantity: 4 },
+      { point: 'Synthetic IBAGUE', requested: 20, sources: 1, sourceQuantity: 20 },
+    ]);
+    expect(grouped.rows.reduce((total, line) => total + Number(line.requested_quantity), 0)).toBe(
+      110,
+    );
+
+    const order = await database.pool.query<{ version: number }>(
+      `select version from purchase_orders where id = $1`,
+      [purchaseOrderId],
+    );
+    const orderRepository = new PurchaseOrderRepository(database);
+    await orderRepository.acceptBySupplier(
+      purchaseOrderId!,
+      {
+        expectedVersion: Number(order.rows[0]!.version),
+        committedDate: currentBogotaDate(),
+        lines: grouped.rows.map((line) => ({
+          purchaseOrderLineId: line.line_id,
+          managedQuantity: Number(line.requested_quantity),
+        })),
+      },
+      {
+        userId: adminId,
+        organizationId: ORGANIZATION_IDS.OLP,
+        correlationId: randomUUID(),
+      },
+    );
+
+    const receiptRepository = new ReceiptRepository(
+      database,
+      new InventoryRepository(database),
+      new HistoricalPurchaseOrderSourceRecoveryService(database),
+    );
+    await receiptRepository.createPurchaseOrderReceipt(
+      purchaseOrderId!,
+      {
+        lines: grouped.rows.map((line) => ({
+          purchaseOrderLineId: line.line_id,
+          receivedQuantity: Number(line.requested_quantity),
+        })),
+      },
+      {
+        ...scope(randomUUID()),
+        organizationId: ORGANIZATION_IDS.MEDICARTE,
+        organizationCode: 'MEDICARTE',
+      },
+    );
+
+    const received = await database.pool.query<{
+      point_name: string;
+      received_quantity: number;
+      allocated_quantity: number;
+      authorization_count: number;
+    }>(
+      `with received_by_point as (
+         select pol.dispensing_point_id, sum(porl.received_quantity)::int as quantity
+         from purchase_order_receipt_lines porl
+         join purchase_order_receipts por on por.id = porl.receipt_id
+         join purchase_order_lines pol on pol.id = porl.purchase_order_line_id
+         where por.purchase_order_id = $1
+         group by pol.dispensing_point_id
+       ), allocations_by_point as (
+         select dispensing_point_id, sum(allocated_quantity)::int as quantity,
+                count(distinct authorization_item_id)::int as authorization_count
+         from inventory_authorization_allocations
+         where purchase_order_id = $1
+         group by dispensing_point_id
+       )
+       select dp.name as point_name,
+              received_by_point.quantity as received_quantity,
+              coalesce(allocations_by_point.quantity, 0)::int as allocated_quantity,
+              coalesce(allocations_by_point.authorization_count, 0)::int as authorization_count
+       from received_by_point
+       join dispensing_points dp on dp.id = received_by_point.dispensing_point_id
+       left join allocations_by_point on allocations_by_point.dispensing_point_id = dp.id
+       order by dp.name`,
+      [purchaseOrderId],
+    );
+
+    expect(received.rows.map((line) => ({
+      point: line.point_name,
+      received: Number(line.received_quantity),
+      allocated: Number(line.allocated_quantity),
+      authorizations: Number(line.authorization_count),
+    }))).toEqual([
+      { point: 'Synthetic CETUM', received: 86, allocated: 86, authorizations: 2 },
+      { point: 'Synthetic CHAPINERO', received: 4, allocated: 4, authorizations: 1 },
+      { point: 'Synthetic IBAGUE', received: 20, allocated: 20, authorizations: 1 },
+    ]);
+  });
+
   it('aísla el punto incompatible, acumula disponibilidad, persiste auditoría y evita duplicar reintentos', async () => {
     const compatibleA = await insertAuthorization('MIX-A', chapineroPointId);
     const incompatible = await insertAuthorization('MIX-IBAGUE', ibaguePointId);
