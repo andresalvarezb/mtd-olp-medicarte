@@ -3485,20 +3485,41 @@ export class PurchaseOrderRepository {
           lateQuantity: demand.late_quantity,
         });
 
-        /*
-         * Wave 2A.
-         *
-         * La sede logística no viene del paciente ni del request.
-         * Se deriva del maestro producto/presentación -> sede Medicarte.
-         *
-         * La resolución ocurre dentro de la misma transacción de creación
-         * de OC para impedir usar una relación logística obsoleta.
-         */
-        await this.resolveProductDeliveryPoint(
-          tx,
-          currentTariffRow.numero_expediente_invima,
-          currentTariffRow.consecutivo_invima_presentacion,
-        );
+        const sourcePoints = await tx.execute<{
+          source_count: number;
+          unresolved_count: number;
+          inactive_count: number;
+        }>(sql`
+          select
+            count(ds.authorization_item_id)::int as source_count,
+            count(ds.authorization_item_id) filter (
+              where ds.dispensing_point_id is null
+            )::int as unresolved_count,
+            count(ds.authorization_item_id) filter (
+              where ds.dispensing_point_id is not null
+                and dp.active is distinct from true
+            )::int as inactive_count
+          from demand_sources ds
+          left join dispensing_points dp on dp.id = ds.dispensing_point_id
+          where ds.projected_demand_line_id = ${demand.id}
+            and ds.authorization_item_id is not null
+        `);
+        const sourcePointState = sourcePoints.rows[0]!;
+        if (sourcePointState.inactive_count > 0) {
+          throw new Error('DISPENSING_POINT_NOT_FOUND');
+        }
+        if (
+          sourcePointState.source_count === 0 ||
+          sourcePointState.unresolved_count > 0
+        ) {
+          // La resolución de respaldo sigue ocurriendo dentro de la misma
+          // transacción cuando el snapshot de una autorización no tiene punto.
+          await this.resolveProductDeliveryPoint(
+            tx,
+            currentTariffRow.numero_expediente_invima,
+            currentTariffRow.consecutivo_invima_presentacion,
+          );
+        }
 
         const supply = await tx.execute<{
           usable_stock: number;
@@ -3863,51 +3884,139 @@ export class PurchaseOrderRepository {
 
       const d = demand.rows[0]!;
 
-      let dispensingPointId = line.dispensingPointId ?? d.dispensing_point_id ?? null;
+      const sourceGroups =
+        d.dispensing_point_id === null
+          ? await tx.execute<{
+              dispensing_point_id: string | null;
+              quantity: number;
+            }>(sql`
+              select dispensing_point_id, sum(quantity)::int as quantity
+              from demand_sources
+              where projected_demand_line_id = ${line.projectedDemandLineId}
+                and authorization_item_id is not null
+              group by dispensing_point_id
+              order by dispensing_point_id nulls last
+            `)
+          : { rows: [] as Array<{ dispensing_point_id: string | null; quantity: number }> };
 
-      if (d.dispensing_point_id === null) {
+      let groups = sourceGroups.rows.map((source) => ({
+        dispensingPointId: source.dispensing_point_id,
+        sourcePointIds: source.dispensing_point_id ? [source.dispensing_point_id] : [],
+        includesNullSources: source.dispensing_point_id === null,
+        sourceQuantity: Number(source.quantity),
+      }));
+
+      if (d.dispensing_point_id !== null) {
+        groups = [
+          {
+            dispensingPointId: d.dispensing_point_id,
+            sourcePointIds: [d.dispensing_point_id],
+            includesNullSources: false,
+            sourceQuantity: line.requestedQuantity,
+          },
+        ];
+      } else if (groups.some((group) => group.dispensingPointId === null) || groups.length === 0) {
         const mappedPoint = await this.resolveProductDeliveryPoint(
           tx,
           d.numero_expediente_invima,
           d.consecutivo_invima_presentacion,
         );
-
-        dispensingPointId = mappedPoint.id;
+        groups = groups.map((group) =>
+          group.dispensingPointId === null
+            ? { ...group, dispensingPointId: mappedPoint.id }
+            : group,
+        );
+        if (groups.length === 0) {
+          groups = [
+            {
+              dispensingPointId: mappedPoint.id,
+              sourcePointIds: [],
+              includesNullSources: false,
+              sourceQuantity: line.requestedQuantity,
+            },
+          ];
+        }
       }
 
-      if (!dispensingPointId) {
+      if (groups.some((group) => !group.dispensingPointId)) {
         throw new Error('DELIVERY_POINT_MAPPING_MISSING');
       }
 
-      const inserted = await tx.execute<{ id: string }>(
-        sql`insert into purchase_order_lines (purchase_order_id, commercial_code, product_description, presentation, dispensing_point_id, requested_quantity, requested_delivery_date, compensar_unit_rate_snapshot, projected_demand_line_id, projected_demand_revision, demand_bucket) values (${orderId}, ${d.commercial_code}, ${d.descripcion_generica}, ${d.consecutivo_invima_presentacion}, ${dispensingPointId}, ${line.requestedQuantity}, ${line.requestedDeliveryDate ?? null}, ${d.tarifa_unidad}, ${line.projectedDemandLineId}, ${line.expectedDemandRevision}, ${line.demandBucket}) returning id`,
-      );
-      await tx.execute(
-        sql`insert into purchase_order_demand_allocations (purchase_order_line_id, projected_demand_line_id, projected_demand_revision, demand_bucket, allocated_quantity) values (${inserted.rows[0]!.id}, ${line.projectedDemandLineId}, ${line.expectedDemandRevision}, ${line.demandBucket}, ${line.requestedQuantity})`,
+      const mergedGroups = new Map<
+        string,
+        {
+          dispensingPointId: string;
+          sourcePointIds: string[];
+          includesNullSources: boolean;
+          sourceQuantity: number;
+        }
+      >();
+      for (const group of groups) {
+        const pointId = group.dispensingPointId!;
+        const merged = mergedGroups.get(pointId) ?? {
+          dispensingPointId: pointId,
+          sourcePointIds: [],
+          includesNullSources: false,
+          sourceQuantity: 0,
+        };
+        merged.sourcePointIds.push(...group.sourcePointIds);
+        merged.includesNullSources ||= group.includesNullSources;
+        merged.sourceQuantity += group.sourceQuantity;
+        mergedGroups.set(pointId, merged);
+      }
+      groups = [...mergedGroups.values()].sort((a, b) =>
+        a.dispensingPointId.localeCompare(b.dispensingPointId),
       );
 
-      await tx.execute(sql`
-        insert into purchase_order_authorization_sources (
-          purchase_order_line_id,
-          authorization_item_id,
-          projected_demand_line_id,
-          projected_demand_revision,
-          source_quantity_snapshot
-        )
-        select
-          ${inserted.rows[0]!.id},
-          ds.authorization_item_id,
-          ${line.projectedDemandLineId},
-          ${line.expectedDemandRevision},
-          ds.quantity
-        from demand_sources ds
-        where ds.projected_demand_line_id = ${line.projectedDemandLineId}
-          and ds.authorization_item_id is not null
-        on conflict (
-          purchase_order_line_id,
-          authorization_item_id
-        ) where released_at is null do nothing
-      `);
+      const quantities = distributeQuantityAcrossPoints(line.requestedQuantity, groups);
+      for (let index = 0; index < groups.length; index += 1) {
+        const group = groups[index]!;
+        const requestedQuantity = quantities[index]!;
+        if (requestedQuantity === 0) continue;
+        const dispensingPointId = group.dispensingPointId!;
+
+        const inserted = await tx.execute<{ id: string }>(
+          sql`insert into purchase_order_lines (purchase_order_id, commercial_code, product_description, presentation, dispensing_point_id, requested_quantity, requested_delivery_date, compensar_unit_rate_snapshot, projected_demand_line_id, projected_demand_revision, demand_bucket) values (${orderId}, ${d.commercial_code}, ${d.descripcion_generica}, ${d.consecutivo_invima_presentacion}, ${dispensingPointId}, ${requestedQuantity}, ${line.requestedDeliveryDate ?? null}, ${d.tarifa_unidad}, ${line.projectedDemandLineId}, ${line.expectedDemandRevision}, ${line.demandBucket}) returning id`,
+        );
+        await tx.execute(
+          sql`insert into purchase_order_demand_allocations (purchase_order_line_id, projected_demand_line_id, projected_demand_revision, demand_bucket, allocated_quantity) values (${inserted.rows[0]!.id}, ${line.projectedDemandLineId}, ${line.expectedDemandRevision}, ${line.demandBucket}, ${requestedQuantity})`,
+        );
+
+        const sourcePointPredicate =
+          group.sourcePointIds.length > 0
+            ? sql`(${sql.join(
+                group.sourcePointIds.map((sourcePointId) => sql`ds.dispensing_point_id = ${sourcePointId}`),
+                sql` or `,
+              )})`
+            : sql`false`;
+
+        await tx.execute(sql`
+          insert into purchase_order_authorization_sources (
+            purchase_order_line_id,
+            authorization_item_id,
+            projected_demand_line_id,
+            projected_demand_revision,
+            source_quantity_snapshot
+          )
+          select
+            ${inserted.rows[0]!.id},
+            ds.authorization_item_id,
+            ${line.projectedDemandLineId},
+            ${line.expectedDemandRevision},
+            ds.quantity
+          from demand_sources ds
+          where ds.projected_demand_line_id = ${line.projectedDemandLineId}
+            and ds.authorization_item_id is not null
+            and (
+              ${sourcePointPredicate}
+              or (${group.includesNullSources} and ds.dispensing_point_id is null)
+            )
+          on conflict (
+            purchase_order_line_id,
+            authorization_item_id
+          ) where released_at is null do nothing
+        `);
+      }
 
       if (orderType === 'STANDARD' && line.demandBucket !== 'REGULAR')
         throw new Error('PURCHASE_ORDER_BUCKET_MISMATCH');
@@ -4260,4 +4369,29 @@ export class PurchaseOrderRepository {
       }),
     );
   }
+}
+
+function distributeQuantityAcrossPoints(
+  quantity: number,
+  groups: readonly { dispensingPointId: string | null; sourceQuantity: number }[],
+): number[] {
+  if (groups.length === 0) return [];
+  const totalWeight = groups.reduce((total, group) => total + Math.max(group.sourceQuantity, 0), 0);
+  if (totalWeight <= 0) return groups.map((_, index) => (index === 0 ? quantity : 0));
+
+  const exact = groups.map((group) => (quantity * Math.max(group.sourceQuantity, 0)) / totalWeight);
+  const allocated = exact.map(Math.floor);
+  let remainder = quantity - allocated.reduce((total, amount) => total + amount, 0);
+  const order = groups
+    .map((group, index) => ({
+      index,
+      fractional: exact[index]! - allocated[index]!,
+      pointId: group.dispensingPointId ?? '',
+    }))
+    .sort((a, b) => b.fractional - a.fractional || a.pointId.localeCompare(b.pointId));
+
+  for (let index = 0; remainder > 0; index += 1, remainder -= 1) {
+    allocated[order[index % order.length]!.index]! += 1;
+  }
+  return allocated;
 }

@@ -78,7 +78,9 @@ let periodEnd = '';
 let validExpiration = '';
 let batchId = '';
 let pointId = '';
+let defaultPointId = '';
 let ignoredScheduleId = '';
+let splitOrderId = '';
 
 let authA1Id = '';
 let authA2Id = '';
@@ -394,6 +396,23 @@ beforeAll(async () => {
 
   pointId = point.rows[0]!.id;
 
+  const defaultPoint = await database.query<{ id: string }>(
+    `insert into dispensing_points
+      (organization_id, code, name, active, created_by)
+     values
+      ($1, $2, 'Macro 3A patient default point', true, $3)
+     returning id`,
+    [ORGANIZATION_IDS.MTD, `M3A-DEFAULT-${suffix}`, foundationUserId],
+  );
+  defaultPointId = defaultPoint.rows[0]!.id;
+
+  await database.query(
+    `insert into patient_default_dispensing_points
+      (patient_document, dispensing_point_id, created_by, updated_by)
+     values ($1, $2, $3, $3)`,
+    [`DOC-A2-${suffix}`, defaultPointId, foundationUserId],
+  );
+
   const schedule = await database.query<{ id: string }>(
     `insert into patient_schedules
       (
@@ -434,6 +453,25 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
+    if (splitOrderId) {
+      await database.query(
+        `delete from purchase_order_authorization_sources
+         where purchase_order_line_id in (
+           select id from purchase_order_lines where purchase_order_id = $1
+         )`,
+        [splitOrderId],
+      );
+      await database.query(
+        `delete from purchase_order_demand_allocations
+         where purchase_order_line_id in (
+           select id from purchase_order_lines where purchase_order_id = $1
+         )`,
+        [splitOrderId],
+      );
+      await database.query(`delete from purchase_order_lines where purchase_order_id = $1`, [splitOrderId]);
+      await database.query(`delete from purchase_orders where id = $1`, [splitOrderId]);
+    }
+
     if (periodId) {
       await database.query(
         `delete from demand_sources
@@ -455,6 +493,11 @@ afterAll(async () => {
     if (ignoredScheduleId) {
       await database.query(`delete from patient_schedules where id = $1`, [ignoredScheduleId]);
     }
+
+    await database.query(
+      `delete from patient_default_dispensing_points where patient_document = $1`,
+      [`DOC-A2-${suffix}`],
+    );
 
     const authorizationIds = [
       authA1Id,
@@ -484,6 +527,9 @@ afterAll(async () => {
 
     if (pointId) {
       await database.query(`delete from dispensing_points where id = $1`, [pointId]);
+    }
+    if (defaultPointId) {
+      await database.query(`delete from dispensing_points where id = $1`, [defaultPointId]);
     }
 
     if (batchId) {
@@ -847,5 +893,94 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
     );
 
     expect(restoredSource.rows[0]?.count).toBe(1);
+  });
+
+  it('preserves each authorization point and creates one purchase-order line per point', async () => {
+    const sources = await database.query<{
+      authorization_item_id: string;
+      dispensing_point_id: string | null;
+      quantity: number;
+    }>(
+      `select ds.authorization_item_id, ds.dispensing_point_id, ds.quantity
+       from demand_sources ds
+       where ds.authorization_item_id = any($1::uuid[])
+       order by ds.authorization_item_id`,
+      [[authA1Id, authA2Id]],
+    );
+
+    expect(sources.rows).toEqual(
+      [
+        { authorization_item_id: authA1Id, dispensing_point_id: pointId, quantity: 2 },
+        { authorization_item_id: authA2Id, dispensing_point_id: defaultPointId, quantity: 3 },
+      ].sort((a, b) => a.authorization_item_id.localeCompare(b.authorization_item_id)),
+    );
+
+    const demand = await database.query<{ id: string; revision: number }>(
+      `select id, revision
+       from projected_demand_lines
+       where planning_period_id = $1 and commercial_code = $2 and dispensing_point_id is null`,
+      [periodId, CODE_A],
+    );
+
+    const response = await apiCall('POST', '/purchase-orders', {
+      planningPeriodId: periodId,
+      orderType: 'STANDARD',
+      purchaseOrderCode: `OC-M3A-SPLIT-${suffix}`,
+      lines: [
+        {
+          projectedDemandLineId: demand.rows[0]!.id,
+          expectedDemandRevision: demand.rows[0]!.revision,
+          requestedQuantity: 4,
+          demandBucket: 'REGULAR',
+        },
+      ],
+    });
+
+    expect(response.status, await response.clone().text()).toBe(201);
+    const order = (await response.json()) as {
+      id: string;
+      lines: Array<{
+        id: string;
+        dispensingPointId: string;
+        requestedQuantity: number;
+      }>;
+    };
+    splitOrderId = order.id;
+
+    expect(order.lines).toHaveLength(2);
+    expect(
+      order.lines
+        .map((line) => ({ pointId: line.dispensingPointId, quantity: line.requestedQuantity }))
+        .sort((a, b) => a.pointId.localeCompare(b.pointId)),
+    ).toEqual(
+      [
+        { pointId, quantity: 2 },
+        { pointId: defaultPointId, quantity: 2 },
+      ].sort((a, b) => a.pointId.localeCompare(b.pointId)),
+    );
+
+    const linked = await database.query<{
+      authorization_item_id: string;
+      dispensing_point_id: string;
+      requested_quantity: number;
+    }>(
+      `select poas.authorization_item_id, pol.dispensing_point_id, pol.requested_quantity
+       from purchase_order_authorization_sources poas
+       join purchase_order_lines pol on pol.id = poas.purchase_order_line_id
+       where pol.purchase_order_id = $1
+       order by poas.authorization_item_id`,
+      [splitOrderId],
+    );
+
+    expect(linked.rows).toEqual(
+      [
+        { authorization_item_id: authA1Id, dispensing_point_id: pointId, requested_quantity: 2 },
+        {
+          authorization_item_id: authA2Id,
+          dispensing_point_id: defaultPointId,
+          requested_quantity: 2,
+        },
+      ].sort((a, b) => a.authorization_item_id.localeCompare(b.authorization_item_id)),
+    );
   });
 });

@@ -1188,6 +1188,9 @@ export type PaginatedProjectedDemandLinesResponse = z.infer<
 >;
 
 export const projectedDemandSourceResponseSchema = z.object({
+  dispensingPointId: z.string().uuid().nullable().optional(),
+  dispensingPointCode: z.string().nullable().optional(),
+  dispensingPointName: z.string().nullable().optional(),
   patientScheduleId: z.string().uuid().nullable().optional(),
   scheduleRevision: z.number().int().nullable().optional(),
   scheduleTiming: z.string().nullable().optional(),

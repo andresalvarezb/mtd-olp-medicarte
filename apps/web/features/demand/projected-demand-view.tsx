@@ -142,7 +142,7 @@ export function ProjectedDemandView() {
         <Card>
           <CardHead
             title="Líneas de demanda consolidada"
-            subtitle="Una línea por período + código comercial. El punto se define en la orden de compra."
+          subtitle="La demanda se netea por producto y conserva el punto de cada autorización; la orden de compra separa sus líneas por punto."
           />
           <CardBody>
             <FilterBar><FilterField label="Código comercial"><input className="control" value={commercialFilter} onChange={(event) => setCommercialFilter(event.target.value)} placeholder="Buscar producto" /></FilterField></FilterBar>
@@ -226,6 +226,7 @@ export function ProjectedDemandView() {
                       <th>Autorización</th>
                       <th>Paciente</th>
                       <th>Documento</th>
+                      <th>Punto de dispensación</th>
                       <th>Cargada</th>
                       <th>Cantidad</th>
                     </tr>
@@ -236,6 +237,7 @@ export function ProjectedDemandView() {
                         <td>{source.authorizationNumber}</td>
                         <td>{source.patientName ?? '—'}</td>
                         <td>{source.patientDocument ?? '—'}</td>
+                        <td>{source.dispensingPointName ?? source.dispensingPointCode ?? '—'}</td>
                         <td>{source.loadedAt}</td>
                         <td>{source.quantity}</td>
                       </tr>

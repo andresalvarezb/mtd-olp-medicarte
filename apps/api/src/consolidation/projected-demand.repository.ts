@@ -38,10 +38,16 @@ type LoadedAuthorizationRow = Readonly<{
   loaded_at: string;
   assignment_date: string | null;
   expiration_date: string | null;
+  dispensing_point_id: string | null;
+  scheduled_point_count: number;
+  scheduled_point_active: boolean | null;
+  default_point_active: boolean | null;
+  mapped_point_count: number;
 }>;
 
 type DesiredSource = Readonly<{
   authorizationItemId: string;
+  dispensingPointId: string | null;
   quantity: number;
   scheduleTiming: 'ON_TIME';
   lateHandling: null;
@@ -73,6 +79,7 @@ type ExistingSourceRow = Readonly<{
   patient_schedule_id: string | null;
   schedule_revision: number | null;
   authorization_item_id: string | null;
+  dispensing_point_id: string | null;
   quantity: number;
   schedule_timing: 'ON_TIME' | 'LATE';
   late_handling: 'COMPLEMENTARY_PURCHASE_ORDER' | 'NEXT_PERIOD' | null;
@@ -100,6 +107,9 @@ type DemandLineJoinedRow = Readonly<{
 }>;
 
 type DemandSourceJoinedRow = Readonly<{
+  dispensing_point_id: string | null;
+  dispensing_point_code: string | null;
+  dispensing_point_name: string | null;
   patient_schedule_id: string | null;
   schedule_revision: number | null;
   schedule_timing: string | null;
@@ -183,8 +193,8 @@ export class ProjectedDemandRepository {
       if (!period.rows[0]) return { outcome: 'period_not_found' as const };
 
       // 2. Macro 3A: la fuente de verdad para la demanda de compra es
-      // authorization_items. MEDICARTE/patient_schedules no determina
-      // cantidad, punto, fecha ni elegibilidad de compra.
+      // authorization_items. La programación y la configuración del paciente
+      // resuelven el punto, pero no cambian cantidad, fecha ni elegibilidad.
       //
       // planning_period_id identifica este snapshot operativo de demanda.
       //
@@ -202,7 +212,12 @@ export class ProjectedDemandRepository {
             to_char(
               ai.created_at at time zone 'UTC',
               'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
-            ) as loaded_at
+            ) as loaded_at,
+            resolved.dispensing_point_id,
+            resolved.scheduled_point_count,
+            resolved.scheduled_point_active,
+            resolved.default_point_active,
+            resolved.mapped_point_count
           from authorization_items ai
           join import_batches ib
             on ib.id = ai.created_from_batch_id
@@ -217,6 +232,64 @@ export class ProjectedDemandRepository {
              '_',
              'g'
            ) = 'PBS'
+          left join lateral (
+            select
+              coalesce(
+                (select ps.dispensing_point_id
+                 from patient_schedules ps
+                 where ps.authorization_item_id = ai.id
+                   and ps.status in ('SCHEDULED', 'RESCHEDULED')
+                 order by ps.dispensing_point_id
+                 limit 1),
+                (select dp.id
+                 from patient_default_dispensing_points pdp
+                 join dispensing_points dp on dp.id = pdp.dispensing_point_id
+                 where pdp.patient_document = coalesce(
+                     nullif(btrim(ai.source_data->>'IDENTIFICACION_PACIENTE'), ''),
+                     nullif(btrim(ai.source_data->>'NUM_DOCUMENTO'), '')
+                   )
+                   and pdp.active = true
+                 order by dp.id
+                 limit 1),
+                (select mapping.dispensing_point_id
+                 from product_delivery_point_mappings mapping
+                 where mapping.invima_record_normalized = coalesce(
+                     nullif(ltrim(btrim(tap.numero_expediente_invima), '0'), ''), '0'
+                   )
+                   and mapping.invima_presentation_normalized = coalesce(
+                     nullif(ltrim(btrim(tap.consecutivo_invima_presentacion), '0'), ''), '0'
+                   )
+                 order by mapping.dispensing_point_id
+                 limit 1)
+              ) as dispensing_point_id,
+              (select count(distinct ps.dispensing_point_id)::int
+               from patient_schedules ps
+               where ps.authorization_item_id = ai.id
+                 and ps.status in ('SCHEDULED', 'RESCHEDULED')) as scheduled_point_count,
+              (select bool_and(dp.active)
+               from patient_schedules ps
+               join dispensing_points dp on dp.id = ps.dispensing_point_id
+               where ps.authorization_item_id = ai.id
+                 and ps.status in ('SCHEDULED', 'RESCHEDULED')) as scheduled_point_active,
+              (select dp.active
+               from patient_default_dispensing_points pdp
+               join dispensing_points dp on dp.id = pdp.dispensing_point_id
+               where pdp.patient_document = coalesce(
+                   nullif(btrim(ai.source_data->>'IDENTIFICACION_PACIENTE'), ''),
+                   nullif(btrim(ai.source_data->>'NUM_DOCUMENTO'), '')
+                 )
+                 and pdp.active = true
+               order by dp.id
+               limit 1) as default_point_active,
+              (select count(distinct mapping.dispensing_point_id)::int
+               from product_delivery_point_mappings mapping
+               where mapping.invima_record_normalized = coalesce(
+                   nullif(ltrim(btrim(tap.numero_expediente_invima), '0'), ''), '0'
+                 )
+                 and mapping.invima_presentation_normalized = coalesce(
+                   nullif(ltrim(btrim(tap.consecutivo_invima_presentacion), '0'), ''), '0'
+                 )) as mapped_point_count
+          ) resolved on true
           where ai.enablement_status = 'ENABLED'
             and (ai.source_data->>'CANTIDAD') ~ '^[1-9][0-9]*$'
         `);
@@ -229,6 +302,29 @@ export class ProjectedDemandRepository {
           expirationDate: authorization.expiration_date,
           todayBogota,
         }).eligible) continue;
+
+        if (authorization.scheduled_point_count > 1) {
+          throw new Error('PURCHASE_ORDER_SCHEDULE_POINT_AMBIGUOUS');
+        }
+        if (
+          authorization.scheduled_point_count === 1 &&
+          authorization.scheduled_point_active === false
+        ) {
+          throw new Error('PURCHASE_ORDER_SCHEDULE_POINT_INACTIVE');
+        }
+        if (
+          authorization.scheduled_point_count === 0 &&
+          authorization.default_point_active === false
+        ) {
+          throw new Error('PURCHASE_ORDER_PATIENT_DEFAULT_POINT_INACTIVE');
+        }
+        if (
+          authorization.scheduled_point_count === 0 &&
+          !authorization.dispensing_point_id &&
+          authorization.mapped_point_count > 1
+        ) {
+          throw new Error('PURCHASE_ORDER_AT_POINT_AMBIGUOUS');
+        }
 
         const identity = authorization.commercial_code;
 
@@ -243,6 +339,7 @@ export class ProjectedDemandRepository {
 
         line.sources.push({
           authorizationItemId: authorization.id,
+          dispensingPointId: authorization.dispensing_point_id,
           quantity: authorization.quantity,
           scheduleTiming: 'ON_TIME',
           lateHandling: null,
@@ -360,7 +457,9 @@ export class ProjectedDemandRepository {
 
   async listSources(line: ProjectedDemandLineResponse): Promise<ProjectedDemandSourceResponse[]> {
     const rows = await this.database.db.execute<DemandSourceJoinedRow>(sql`
-       select ds.patient_schedule_id, ds.schedule_revision, ds.schedule_timing, ds.late_handling,
+       select ds.dispensing_point_id, dp.code as dispensing_point_code,
+              dp.name as dispensing_point_name,
+              ds.patient_schedule_id, ds.schedule_revision, ds.schedule_timing, ds.late_handling,
               coalesce(ai.id, ps.authorization_item_id) as authorization_item_id,
              ai.numero_autorizacion as authorization_number,
              coalesce(ai.source_data->>'IDENTIFICACION_PACIENTE', ai.source_data->>'NUM_DOCUMENTO') as patient_document,
@@ -368,6 +467,7 @@ export class ProjectedDemandRepository {
               ds.quantity,
                to_char(coalesce(ds.loaded_at, ps.created_at, ai.created_at) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as loaded_at
        from demand_sources ds
+       left join dispensing_points dp on dp.id = ds.dispensing_point_id
        left join patient_schedules ps on ps.id = ds.patient_schedule_id
        join authorization_items ai on ai.id = coalesce(ds.authorization_item_id, ps.authorization_item_id)
        where ds.projected_demand_line_id = ${line.id}
@@ -524,6 +624,7 @@ export class ProjectedDemandRepository {
               ds.patient_schedule_id,
               ds.schedule_revision,
               ds.authorization_item_id,
+              ds.dispensing_point_id,
               ds.quantity,
               ds.schedule_timing,
               ds.late_handling,
@@ -582,7 +683,7 @@ export class ProjectedDemandRepository {
           [...currentSources.values()]
             .map(
               (source) =>
-                `${sourceKey(source)}|${source.quantity}|${source.schedule_timing}|${source.late_handling}`,
+                `${sourceKey(source)}|${source.quantity}|${source.schedule_timing}|${source.late_handling}|${source.dispensing_point_id}`,
             )
             .sort()
             .join(',');
@@ -662,7 +763,7 @@ export class ProjectedDemandRepository {
           ai.id,
           ${source.quantity},
           ${periodId},
-          null,
+          ${source.dispensingPointId},
           ${desired.commercialCode},
           'ON_TIME',
           null,
@@ -776,7 +877,7 @@ function fingerprint(sources: readonly DesiredSource[]): string {
   return sources
     .map(
       (source) =>
-        `${sourceKey(source)}|${source.quantity}|${source.scheduleTiming}|${source.lateHandling}`,
+        `${sourceKey(source)}|${source.quantity}|${source.scheduleTiming}|${source.lateHandling}|${source.dispensingPointId}`,
     )
     .sort()
     .join(',');
@@ -821,6 +922,9 @@ function toDemandLine(row: DemandLineJoinedRow): ProjectedDemandLineResponse {
 
 function toDemandSource(row: DemandSourceJoinedRow): ProjectedDemandSourceResponse {
   return {
+    dispensingPointId: row.dispensing_point_id,
+    dispensingPointCode: row.dispensing_point_code,
+    dispensingPointName: row.dispensing_point_name,
     authorizationItemId: row.authorization_item_id,
     patientScheduleId: row.patient_schedule_id,
     scheduleRevision: row.schedule_revision,
