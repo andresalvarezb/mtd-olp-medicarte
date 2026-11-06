@@ -51,6 +51,12 @@ const ORIGIN_ID =
 const POINT_ID =
   '40000000-0000-4000-8000-000000000001';
 
+const IBAGUE_POINT_ID =
+  '40000000-0000-4000-8000-000000000002';
+
+const IBAGUE_DEST_ID =
+  '30000000-0000-4000-8000-000000000003';
+
 const BATCH_ID =
   '50000000-0000-4000-8000-000000000001';
 
@@ -58,6 +64,14 @@ const BATCH_ID =
 function workbook(
   row:
     readonly unknown[],
+): Buffer {
+  return workbookRows([row]);
+}
+
+
+function workbookRows(
+  rows:
+    readonly (readonly unknown[])[],
 ): Buffer {
   const book =
     XLSX.utils.book_new();
@@ -72,7 +86,7 @@ function workbook(
         'CODIGO_PRODUCTO',
         'CANTIDAD',
       ],
-      [...row],
+      ...rows.map((row) => [...row]),
     ]),
     'ORDENES_COMPRA',
   );
@@ -159,7 +173,7 @@ describe(
   'PurchaseOrderImportService OC existente',
   () => {
     it(
-      'agrega cantidad parcial de AUTO a OC existente sin exigir recepción previa',
+      'rechaza solo la autorización de otro punto y asigna la fila compatible de la misma OC',
       async () => {
         const poolQuery =
           vi.fn(
@@ -256,13 +270,18 @@ describe(
                   'patient_default_dispensing_points pdp',
                 )
               ) {
+                const authorizationKey =
+                  typeof params?.[0] === 'string' ? params[0] : '';
+
                 return queryResult([
                   {
                     id:
-                      DEST_ID,
+                      authorizationKey === 'AUTO-IBAGUE'
+                        ? IBAGUE_DEST_ID
+                        : DEST_ID,
 
                     authorization_key:
-                      'AUTO-DEST',
+                      authorizationKey,
 
                     commercial_code:
                       'PROD-1',
@@ -351,7 +370,7 @@ describe(
                 ]);
               }
 
-        // DESTINATION_POINT_SCHEDULE_FALLBACK_MOCK
+        // La autorización incompatible resuelve a IBAGUÉ.
         if (
           normalized.includes(
             'from patient_schedules ps',
@@ -360,10 +379,21 @@ describe(
             'join dispensing_points dp',
           )
         ) {
-          return {
-            rows: [],
-            rowCount: 0,
-          };
+          const authorizationItemId =
+            typeof params?.[0] === 'string' ? params[0] : '';
+          if (authorizationItemId !== IBAGUE_DEST_ID) {
+            return {
+              rows: [],
+              rowCount: 0,
+            };
+          }
+
+          return queryResult([
+            {
+              dispensing_point_id: IBAGUE_POINT_ID,
+              active: true,
+            },
+          ]);
         }
 
 
@@ -379,6 +409,13 @@ describe(
           };
         }
 
+
+              if (
+                normalized.includes('select pol.id') &&
+                params?.[2] === IBAGUE_POINT_ID
+              ) {
+                return queryResult([]);
+              }
 
               if (
                 normalized.includes(
@@ -567,12 +604,9 @@ describe(
         const result =
           await instance.import(
             uploaded(
-              workbook([
-                '',
-                'AUTO-DEST',
-                'OC-100',
-                'PROD-1',
-                1,
+              workbookRows([
+                ['', 'AUTO-DEST', 'OC-100', 'PROD-1', 1],
+                ['', 'AUTO-IBAGUE', 'OC-100', 'PROD-1', 1],
               ]),
             ),
             scope,
@@ -588,24 +622,35 @@ describe(
         expect(
           result.rejectedRows,
         ).toBe(
-          0,
+          1,
         );
 
-        /*
-         * El punto NO puede venir de agenda.
-         */
+        expect(result.results).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              rowNumber: 2,
+              status: 'ACCEPTED',
+              errorCode: null,
+            }),
+            expect.objectContaining({
+              rowNumber: 3,
+              status: 'REJECTED',
+              errorCode: 'PURCHASE_ORDER_PRODUCT_POINT_MISMATCH',
+              errorMessage:
+                'El producto de la OC no corresponde al punto vigente de AUTO_DESTINO.',
+            }),
+          ]),
+        );
+
+        // La autorización incompatible resuelve su punto por separado.
         expect(
           clientQuery.mock.calls.some(
             ([sql]) =>
-              String(
-                sql,
-              ).includes(
+              String(sql).replace(/\s+/g, ' ').includes(
                 'from patient_schedules ps',
               ),
           ),
-        ).toBe(
-          false,
-        );
+        ).toBe(true);
 
         /*
          * El punto debe resolverse desde:
@@ -715,7 +760,7 @@ describe(
         expect(
           release,
         ).toHaveBeenCalledTimes(
-          1,
+          2,
         );
       },
     );

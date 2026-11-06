@@ -910,7 +910,8 @@ export class PurchaseOrderImportService {
      * Procesar OC existentes antes del flujo
      * histórico de creación.
      *
-     * Cada OC es una unidad atómica.
+     * Cada fila de una OC existente se valida y confirma
+     * de forma independiente.
      */
     const existingGroups =
       new Map<
@@ -954,49 +955,26 @@ export class PurchaseOrderImportService {
       ] of existingGroups
     ) {
       /*
-       * Si una fila de la OC ya falló validación
-       * estructural, no ejecutar parcialmente.
+       * Cada asignación a una OC existente es una
+       * transacción independiente. processExisting...
+       * mantiene el lock de la OC y vuelve a leer
+       * disponibilidad antes de persistir, por lo que
+       * las filas anteriores del mismo archivo ya
+       * quedan reflejadas en las validaciones siguientes.
        */
-      if (
-        groupRows.some(
-          (row) =>
-            results.has(
-              row.rowNumber,
-            ),
-        )
-      ) {
-        for (
-          const row of groupRows
-        ) {
-          if (
-            !results.has(
-              row.rowNumber,
-            )
-          ) {
-            reject(
-              row,
-              'PURCHASE_ORDER_GROUP_REJECTED',
-              'La OC contiene otra fila inválida; no se procesó parcialmente.',
-            );
-          }
+      for (const row of groupRows) {
+        if (results.has(row.rowNumber)) {
+          continue;
         }
 
-        continue;
-      }
+        try {
+          const context =
+            await this.processExistingPurchaseOrderGroup(
+              purchaseOrderCode,
+              [row],
+              actor,
+            );
 
-
-      try {
-        const context =
-          await this.processExistingPurchaseOrderGroup(
-            purchaseOrderCode,
-            groupRows,
-            actor,
-          );
-
-
-        for (
-          const row of groupRows
-        ) {
           results.set(
             row.rowNumber,
             {
@@ -1036,19 +1014,8 @@ export class PurchaseOrderImportService {
                 null,
             },
           );
-        }
-      } catch (
-        error
-      ) {
-        const failure =
-          errorInformation(
-            error,
-          );
-
-
-        for (
-          const row of groupRows
-        ) {
+        } catch (error) {
+          const failure = errorInformation(error);
           reject(
             row,
             failure.code,
