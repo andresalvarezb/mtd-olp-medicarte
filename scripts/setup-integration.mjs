@@ -56,11 +56,13 @@ if (!pnpmExecPath) {
   throw new Error('npm_execpath is unavailable; run setup through pnpm integration:setup');
 }
 
-assertComposeProjectIsEmpty(projectName);
+const reusable = process.env.INTEGRATION_REUSE === '1';
+assertIntegrationDatabaseTarget(databaseUrl, postgresHostPort);
+if (!reusable) assertComposeProjectIsEmpty(projectName);
 
 let composeStartAttempted = false;
 try {
-  composeStartAttempted = true;
+  composeStartAttempted = !reusable;
   const compose = integrationComposeArgs(projectName, composeFile, [
     'up',
     '-d',
@@ -72,11 +74,6 @@ try {
     'api',
   ]);
   execFileSync('docker', compose, { stdio: 'inherit', env: integrationEnvironment });
-
-  execFileSync(process.execPath, [pnpmExecPath, 'db:reset'], {
-    stdio: 'inherit',
-    env: integrationEnvironment,
-  });
 
   execFileSync(
     'docker',
@@ -93,11 +90,13 @@ try {
 } catch (error) {
   if (composeStartAttempted) {
     try {
-      execFileSync(
-        'docker',
-        integrationComposeArgs(projectName, composeFile, ['down', '-v', '--remove-orphans']),
-        { stdio: 'inherit', env: integrationEnvironment },
-      );
+      if (!reusable) {
+        execFileSync(
+          'docker',
+          integrationComposeArgs(projectName, composeFile, ['down', '-v', '--remove-orphans']),
+          { stdio: 'inherit', env: integrationEnvironment },
+        );
+      }
     } catch (cleanupError) {
       console.error('No se pudo limpiar el proyecto aislado de integración:', cleanupError);
     }

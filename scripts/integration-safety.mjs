@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { existsSync, statSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 const PROJECT_PREFIX = 'mtd-olp-medicarte-integration-';
 const UUID_SUFFIX = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
@@ -59,6 +61,90 @@ export function assertIntegrationDatabaseTarget(databaseUrl, expectedPort) {
   }
 
   return database;
+}
+
+export function assertIntegrationTestFiles(files, rootDirectory) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error('At least one explicit integration test file is required');
+  }
+  const root = resolve(rootDirectory);
+  return files.map((file) => {
+    const absolute = resolve(root, file);
+    const relativePath = relative(root, absolute);
+    if (
+      relativePath.startsWith('..' + sep) ||
+      isAbsolute(relativePath) ||
+      !/^tests\/integration\/.*\.(test|spec)\.[cm]?[jt]sx?$/.test(relativePath.split(sep).join('/'))
+    ) {
+      throw new Error('Refusing integration test selection outside tests/integration');
+    }
+    if (!existsSync(absolute) || !statSync(absolute).isFile()) {
+      throw new Error('Refusing missing integration test file: ' + file);
+    }
+    return absolute;
+  });
+}
+
+export function assertReusableIntegrationProject(
+  projectName,
+  composeFile,
+  postgresPort,
+  env,
+  run = execFileSync,
+) {
+  const safeProject = assertIntegrationProjectName(projectName);
+  const expectedPort = String(postgresPort);
+  assertIntegrationDatabaseTarget(env.DATABASE_URL, expectedPort);
+  const identity = run(
+    'docker',
+    integrationComposeArgs(safeProject, composeFile, [
+      'exec',
+      '-T',
+      'postgres',
+      'psql',
+      '-X',
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-U',
+      EXPECTED_DATABASE_USER,
+      '-d',
+      EXPECTED_DATABASE,
+      '-Atc',
+      "select current_database() || '|' || current_user || '|' || inet_server_port()",
+    ]),
+    { encoding: 'utf8', stdio: 'pipe', env },
+  ).trim();
+  if (identity !== `${EXPECTED_DATABASE}|${EXPECTED_DATABASE_USER}|5432`) {
+    throw new Error('Refusing reuse: PostgreSQL identity verification failed');
+  }
+  const args = integrationComposeArgs(safeProject, composeFile, [
+    'ps',
+    '--services',
+    '--status',
+    'running',
+  ]);
+  const services = String(run('docker', args, { encoding: 'utf8', stdio: 'pipe', env }))
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort();
+  const expectedServices = ['api', 'mipres-mock', 'postgres', 'redis', 'worker'];
+  if (JSON.stringify(services) !== JSON.stringify(expectedServices)) {
+    throw new Error('Refusing reuse: expected all integration services to be running');
+  }
+
+  const postgresArgs = integrationComposeArgs(safeProject, composeFile, [
+    'port',
+    'postgres',
+    '5432',
+  ]);
+  const published = String(
+    run('docker', postgresArgs, { encoding: 'utf8', stdio: 'pipe', env }),
+  ).trim();
+  const match = published.match(/:(\d+)$/);
+  if (!match || match[1] !== expectedPort) {
+    throw new Error('Refusing reuse: PostgreSQL port does not match the guarded database URL');
+  }
 }
 
 export function assertComposeProjectIsEmpty(projectName, run = execFileSync) {
