@@ -930,7 +930,7 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
         {
           projectedDemandLineId: demand.rows[0]!.id,
           expectedDemandRevision: demand.rows[0]!.revision,
-          requestedQuantity: 5,
+          requestedQuantity: 4,
           demandBucket: 'REGULAR',
         },
       ],
@@ -955,7 +955,7 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
     ).toEqual(
       [
         { pointId, quantity: 2 },
-        { pointId: defaultPointId, quantity: 3 },
+        { pointId: defaultPointId, quantity: 2 },
       ].sort((a, b) => a.pointId.localeCompare(b.pointId)),
     );
 
@@ -978,7 +978,7 @@ describe('Macro 3A — authorization-driven purchase demand', () => {
         {
           authorization_item_id: authA2Id,
           dispensing_point_id: defaultPointId,
-          requested_quantity: 3,
+          requested_quantity: 2,
         },
       ].sort((a, b) => a.authorization_item_id.localeCompare(b.authorization_item_id)),
     );
