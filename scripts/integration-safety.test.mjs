@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   assertComposeProjectIsEmpty,
   assertIntegrationDatabaseTarget,
+  assertIntegrationTestFiles,
   assertIntegrationProjectName,
   createIntegrationProjectName,
+  assertReusableIntegrationProject,
   integrationComposeArgs,
 } from './integration-safety.mjs';
 
@@ -35,6 +38,9 @@ test('uses one Compose project for CI setup, logs and cleanup', () => {
   assert.ok(integrationStep > 0);
   assert.doesNotMatch(workflow.slice(0, integrationStep), /run: docker compose .*\bup\b/);
   assert.doesNotMatch(workflow.slice(0, integrationStep), /run: pnpm db:migrate/);
+  assert.match(workflow, /run: pnpm test:integration/);
+  const classifier = readFileSync(new URL('./ci-scope.sh', import.meta.url), 'utf8');
+  assert.match(classifier, /Unknown paths require full CI/);
 });
 
 test('crea un proyecto por ejecución dentro del namespace de integración', () => {
@@ -85,6 +91,59 @@ test('acepta solo la base local de integración con credenciales sintéticas', (
     '25432',
   );
   assert.equal(database.pathname, '/authorization_test_integration');
+});
+
+test('la selección de integración exige archivos existentes bajo tests/integration', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const testFile = 'tests/integration/gate-w1-tariff-foundation.test.ts';
+  assert.throws(() => assertIntegrationTestFiles([], root), /explicit integration test file/);
+  assert.throws(
+    () => assertIntegrationTestFiles(['../apps/api/src/app.test.ts'], root),
+    /outside tests\/integration/,
+  );
+  assert.throws(
+    () => assertIntegrationTestFiles(['tests/integration/missing.test.ts'], root),
+    /missing integration test file/,
+  );
+  assert.equal(assertIntegrationTestFiles([testFile], root).length, 1);
+});
+
+test('la reutilización verifica todos los servicios y puerto de PostgreSQL', () => {
+  const calls = [];
+  const run = (_command, args) => {
+    calls.push(args);
+    if (args.includes('psql')) return 'authorization_test_integration|authorization|5432';
+    if (args.includes('--services')) return 'api\nmipres-mock\npostgres\nredis\nworker\n';
+    return '0.0.0.0:25432\n';
+  };
+  assertReusableIntegrationProject(
+    testProject,
+    'docker-compose.yml',
+    '25432',
+    {
+      DATABASE_URL:
+        'postgresql://authorization:authorization@localhost:25432/authorization_test_integration',
+    },
+    run,
+  );
+  assert.equal(calls.length, 3);
+  assert.throws(
+    () =>
+      assertReusableIntegrationProject(
+        testProject,
+        'docker-compose.yml',
+        '25432',
+        {
+          DATABASE_URL:
+            'postgresql://authorization:authorization@localhost:25432/authorization_test_integration',
+        },
+        (_command, args) =>
+          args.includes('psql')
+            ? 'authorization_test_integration|authorization|5432'
+            : 'api\npostgres\n',
+      ),
+    /expected all integration services/,
+  );
 });
 
 test('rechaza destinos de base de datos remotos, credenciales o nombres inseguros', () => {

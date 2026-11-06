@@ -2,6 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 import {
+  assertIntegrationTestFiles,
+  assertReusableIntegrationProject,
   assertIntegrationProjectName,
   createIntegrationProjectName,
   integrationComposeArgs,
@@ -40,12 +42,20 @@ async function availablePort() {
   throw new Error('No hay puertos independientes disponibles');
 }
 
-const postgresPort = await availablePort();
-const redisPort = await availablePort();
-const apiPort = await availablePort();
+const reusable = process.env.INTEGRATION_REUSE === '1';
+const postgresPort = reusable ? (process.env.POSTGRES_HOST_PORT ?? '25432') : await availablePort();
+const redisPort = reusable ? (process.env.REDIS_HOST_PORT ?? '26379') : await availablePort();
+const apiPort = reusable ? (process.env.API_HOST_PORT ?? '3003') : await availablePort();
 const projectName = assertIntegrationProjectName(
   process.env.INTEGRATION_COMPOSE_PROJECT_NAME ?? createIntegrationProjectName(),
 );
+const selectedFiles =
+  process.argv.length > 2
+    ? assertIntegrationTestFiles(
+        process.argv.slice(2).filter((arg) => arg !== '--'),
+        resolve(import.meta.dirname, '..'),
+      )
+    : [];
 const composeFile = resolve(import.meta.dirname, '..', 'docker-compose.yml');
 
 const env = {
@@ -68,24 +78,64 @@ const pnpmPath = process.env.npm_execpath;
 if (!pnpmPath) {
   throw new Error('Ejecuta este script mediante pnpm test:integration');
 }
+if (reusable && selectedFiles.length === 0) {
+  throw new Error('Reusable integration mode requires explicit test files');
+}
 
-console.log('INTEGRATION_POSTGRES_PORT=' + postgresPort);
-console.log('INTEGRATION_REDIS_PORT=' + redisPort);
-console.log('INTEGRATION_API_PORT=' + apiPort);
 console.log('INTEGRATION_COMPOSE_PROJECT_NAME=' + projectName);
 
 let setupCompleted = false;
 let runError;
 
 try {
-  execFileSync(process.execPath, [pnpmPath, 'integration:setup'], { stdio: 'inherit', env });
-  setupCompleted = true;
-
-  execFileSync(
-    process.execPath,
-    [pnpmPath, 'exec', 'vitest', 'run', '--config', 'tests/vitest.integration.config.ts'],
-    { stdio: 'inherit', env },
-  );
+  if (reusable) {
+    if (!process.env.INTEGRATION_COMPOSE_PROJECT_NAME) {
+      throw new Error('INTEGRATION_REUSE=1 requires an explicit INTEGRATION_COMPOSE_PROJECT_NAME');
+    }
+    env.INTEGRATION_REUSE = '1';
+    const running = execFileSync(
+      'docker',
+      integrationComposeArgs(projectName, composeFile, ['ps', '--services', '--status', 'running']),
+      { encoding: 'utf8', stdio: 'pipe', env },
+    ).trim();
+    if (!running) {
+      execFileSync(process.execPath, [pnpmPath, 'integration:setup'], { stdio: 'inherit', env });
+    }
+    assertReusableIntegrationProject(projectName, composeFile, postgresPort, env);
+    execFileSync(process.execPath, [pnpmPath, 'db:reset', '--', '--yes'], {
+      stdio: 'inherit',
+      env,
+    });
+    execFileSync(
+      process.execPath,
+      [
+        pnpmPath,
+        'exec',
+        'vitest',
+        'run',
+        '--config',
+        'tests/vitest.integration.config.ts',
+        ...selectedFiles,
+      ],
+      { stdio: 'inherit', env },
+    );
+  } else {
+    execFileSync(process.execPath, [pnpmPath, 'integration:setup'], { stdio: 'inherit', env });
+    setupCompleted = true;
+    execFileSync(
+      process.execPath,
+      [
+        pnpmPath,
+        'exec',
+        'vitest',
+        'run',
+        '--config',
+        'tests/vitest.integration.config.ts',
+        ...selectedFiles,
+      ],
+      { stdio: 'inherit', env },
+    );
+  }
 
   console.log('WAVE1_INTEGRATION=PASS');
 } catch (error) {
