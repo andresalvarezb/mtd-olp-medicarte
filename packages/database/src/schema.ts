@@ -2427,7 +2427,7 @@ export const patientBackfillItems = pgTable(
   ],
 );
 
-/** One checkpoint/run lease for the MTDOM changes feed; cursor stays opaque. */
+/** Per-flow checkpoint/run lease for MTDOM basic sync; cursor format is flow-specific. */
 export const patientSyncCheckpoints = pgTable(
   'patient_sync_checkpoints',
   {

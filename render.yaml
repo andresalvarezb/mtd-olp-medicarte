@@ -97,6 +97,12 @@ services:
           property: connectionString
       - key: SCHEDULER_ENABLED
         value: 'true'
+      - key: MTDOM_PATIENT_LOOKUP_ENABLED
+        value: 'false'
+      - key: MTDOM_DP07_APPROVED
+        value: 'false'
+      - key: MTDOM_PATIENT_IDENTITY_POLICY_VERSION
+        value: ''
       - key: MIPRES_BASE_URL
         value: https://wsmipres.sispro.gov.co/WSSUMMIPRESNOPBS
       - key: MIPRES_NIT
