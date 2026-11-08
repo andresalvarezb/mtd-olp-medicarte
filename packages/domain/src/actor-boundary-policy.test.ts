@@ -45,16 +45,19 @@ describe('ESP-020 actor boundaries', () => {
   });
 
   it('limits patient master and reconciliation to their explicit actor boundaries', () => {
-    expect(
-      isPermissionAllowedForActor('MEDICARTE', 'MEDICARTE_OPERATOR', 'patient_master.read'),
-    ).toBe(true);
-    expect(isPermissionAllowedForActor('MTD', 'MTD_ADMIN', 'patient_master.read')).toBe(true);
-    expect(isPermissionAllowedForActor('MTD', 'MTD_AUDITORIA', 'patient_reconciliation.read')).toBe(
-      true,
-    );
-    expect(isPermissionAllowedForActor('OLP', 'OLP_OPERATOR', 'patient_master.read')).toBe(false);
-    expect(
-      isPermissionAllowedForActor('MEDICARTE', 'MEDICARTE_OPERATOR', 'patient_reconciliation.read'),
-    ).toBe(false);
+    const patientPermissions = [
+      'patient_master.read',
+      'patient_master.personal.read',
+      'patient_reconciliation.read',
+    ];
+
+    for (const permission of patientPermissions) {
+      expect(isPermissionAllowedForActor('MTD', 'MTD_ADMIN', permission)).toBe(true);
+      expect(isPermissionAllowedForActor('MTD', 'MTD_AUDITORIA', permission)).toBe(true);
+      expect(isPermissionAllowedForActor('MEDICARTE', 'MEDICARTE_OPERATOR', permission)).toBe(
+        false,
+      );
+      expect(isPermissionAllowedForActor('OLP', 'OLP_OPERATOR', permission)).toBe(false);
+    }
   });
 });
