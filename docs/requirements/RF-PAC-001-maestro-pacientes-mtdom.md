@@ -61,7 +61,7 @@ La autorización existente para leer una autorización, programación o aplicaci
 
 **RF-10 — Separación operacional.** MTDOM no determina autorizaciones, cantidades, estados de compra, prioridad de puntos, inventario, recibos, dispensaciones, aplicaciones ni elegibilidad. Cambios de perfil personal solo actualizan atributos admitidos de la ficha local.
 
-**RF-11 — Acceso a ficha.** MTD autorizado puede administrar conciliación con permiso específico; MEDICARTE puede consultar solo cuando la autorización abarca la organización y punto relacionados; OLP queda denegado. Filtros, detalle, exportación y endpoints aplican el mismo control server-side y no filtran datos de otros alcances.
+**RF-11 — Acceso al maestro.** El acceso a listados, detalle, conciliaciones y perfiles del maestro es exclusivo para MTD mediante roles y permisos efectivos. MEDICARTE y OLP quedan denegados incluso si conservan permisos anteriores. Filtros, detalle, exportaciones y endpoints aplican el mismo control server-side; esta regla no modifica permisos de los módulos operacionales.
 
 ## 5. Modelo conceptual y viabilidad
 
