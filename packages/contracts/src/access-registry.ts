@@ -89,7 +89,14 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
     'MTD_ONLY',
   ),
   permission('authorizations.manual_edit', 'authorizations', 'MANUAL_EDIT', 'ACTIVE', 'MTD_ONLY'),
-  permission('moderator_fees.manage', 'authorizations', 'COLLECT_MODERATOR_FEE', 'ACTIVE', 'MTD_ONLY', { configurable: true }),
+  permission(
+    'moderator_fees.manage',
+    'authorizations',
+    'COLLECT_MODERATOR_FEE',
+    'ACTIVE',
+    'MTD_ONLY',
+    { configurable: true },
+  ),
   permission('imports.create', 'imports', 'CREATE', 'LEGACY', 'MTD_ONLY'),
   permission('imports.confirm', 'imports', 'CONFIRM', 'LEGACY', 'MTD_ONLY'),
   permission('mipres.recheck', 'authorizations', 'RECHECK', 'LEGACY', 'MTD_ONLY'),
@@ -339,6 +346,19 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
     'VIEW_NOTIFICATIONS',
     'ACTIVE',
     'MTD_ONLY',
+  ),
+  permission('patient_master.read', 'patient-master', 'READ_MASTER', 'ACTIVE', 'MEDICARTE_POINT', {
+    configurable: false,
+    structural: true,
+    systemAllowed: false,
+  }),
+  permission(
+    'patient_reconciliation.read',
+    'patient-master',
+    'READ_RECONCILIATION',
+    'ACTIVE',
+    'MTD_ONLY',
+    { configurable: false, structural: true, systemAllowed: false },
   ),
 ] as const;
 
@@ -609,6 +629,14 @@ const MODULE_METADATA: Readonly<Record<string, ModuleMetadata>> = {
     icon: 'bell',
     displayOrder: 310,
   },
+  'patient-master': {
+    label: 'Maestro de pacientes',
+    description: 'Consulta protegida del maestro y los casos de conciliación',
+    route: '/pacientes',
+    section: 'Consulta',
+    icon: 'users',
+    displayOrder: 320,
+  },
 };
 
 function actionLabel(actionCode: string): string {
@@ -686,8 +714,8 @@ export function validateAccessRegistry(): void {
     routes.add(module.route);
   }
 
-  if (permissionCodes.size !== 83) {
-    throw new Error(`Expected 83 current permission mappings, got ${permissionCodes.size}`);
+  if (permissionCodes.size !== 85) {
+    throw new Error(`Expected 85 current permission mappings, got ${permissionCodes.size}`);
   }
 }
 

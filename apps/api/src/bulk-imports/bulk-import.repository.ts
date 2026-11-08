@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type {
   BulkImportJobResponse,
@@ -7,6 +8,7 @@ import type {
   BulkImportRowResponse,
   BulkImportRowValidationStatus,
 } from '@authorization/contracts';
+import { PATIENT_LOOKUP_OUTBOX_EVENT_TYPE } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
 import {
   BULK_IMPORT_ROW_CLAIM_LEASE_SECONDS,
@@ -18,13 +20,23 @@ import {
   AUTHORIZATION_16_RENEWAL_EVIDENCE_KEY,
   isAuthorizationSourceEnabled,
   rowIdempotencyKey,
+  assessPatientIdentity,
 } from '@authorization/domain';
+import type { PatientIdentityNormalizationPolicy } from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
 import { DATABASE } from '../tokens';
 import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 type Database = ReturnType<typeof createDatabase>;
 export type BulkImportTransaction = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
+
+/** Optional hook; the application intentionally has no provider until documentary identity rules are approved. */
+const SYNTHETIC_PATIENT_IDENTITY_LINKING_POLICY = Symbol(
+  'SYNTHETIC_PATIENT_IDENTITY_LINKING_POLICY',
+);
+type SyntheticPatientIdentityPolicy = PatientIdentityNormalizationPolicy & Readonly<{
+  version: `SYNTHETIC_EXACT_TEST_${string}`;
+}>;
 
 class StaleBulkImportClaimError extends Error {
   constructor() {
@@ -316,7 +328,105 @@ function toLegacyAuthorizationJob(
 
 @Injectable()
 export class BulkImportRepository {
-  constructor(@Inject(DATABASE) private readonly database: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly database: Database,
+    @Optional()
+    @Inject(SYNTHETIC_PATIENT_IDENTITY_LINKING_POLICY)
+    private readonly patientIdentityPolicy?: SyntheticPatientIdentityPolicy,
+  ) {}
+
+  /**
+   * Resolves a patient only when an explicit policy is supplied. The test-only
+   * path accepts exact raw equality only; it never persists normalized data.
+   * PostgreSQL advisory locking serializes concurrent synthetic confirmations
+   * without adding a documentary uniqueness constraint.
+   */
+  private async linkPatientForSyntheticIdentityInTx(
+    tx: BulkImportTransaction,
+    authorizationItemId: string,
+    sourceData: Readonly<Record<string, unknown>>,
+  ): Promise<string | null> {
+    if (
+      process.env.NODE_ENV !== 'test' ||
+      !this.patientIdentityPolicy ||
+      !this.patientIdentityPolicy.version.startsWith('SYNTHETIC_EXACT_TEST_')
+    ) return null;
+
+    const identity = assessPatientIdentity(sourceData, this.patientIdentityPolicy);
+    if (
+      identity.state !== 'VERIFIED' ||
+      identity.normalizedDocumentType !== identity.rawDocumentType ||
+      identity.normalizedDocumentValue !== identity.rawDocumentValue
+    ) {
+      return null;
+    }
+
+    // Hash the compound key in-process; neither raw identity value is stored in
+    // a lock table or emitted to application logs.
+    const lockKey = createHash('sha256')
+      .update(JSON.stringify([identity.rawDocumentType, identity.rawDocumentValue]))
+      .digest()
+      .readBigInt64BE(0)
+      .toString();
+    await tx.execute(sql`select pg_advisory_xact_lock(${lockKey}::bigint)`);
+
+    const matching = await tx.execute<{ id: string }>(sql`
+      select id
+      from patients
+      where identification_type_raw = ${identity.rawDocumentType}
+        and identification_value_raw = ${identity.rawDocumentValue}
+      order by id
+      limit 2
+      for update
+    `);
+    if (matching.rows.length > 1) return null;
+
+    let patientId = matching.rows[0]?.id;
+    if (!patientId) {
+      const created = await tx.execute<{ id: string }>(sql`
+        insert into patients (identification_type_raw, identification_value_raw)
+        values (${identity.rawDocumentType}, ${identity.rawDocumentValue})
+        returning id
+      `);
+      patientId = created.rows[0]?.id;
+    }
+    if (!patientId) throw new Error('PATIENT_SYNTHETIC_IDENTITY_CREATE_FAILED');
+
+    const linked = await tx.execute<{ patient_id: string }>(sql`
+      update authorization_items
+      set patient_id = ${patientId}::uuid
+      where id = ${authorizationItemId}::uuid
+        and patient_id is null
+      returning patient_id
+    `);
+    return linked.rows[0]?.patient_id ?? null;
+  }
+
+  private async enqueuePatientLookupInTx(
+    tx: BulkImportTransaction,
+    input: { patientId: string; actor: Scope },
+  ): Promise<void> {
+    // The application has no synthetic policy provider. This path is only
+    // reachable from synthetic tests until documentary identity policy exists.
+    if (
+      process.env.NODE_ENV !== 'test' ||
+      !this.patientIdentityPolicy?.version.startsWith('SYNTHETIC_EXACT_TEST_')
+    ) return;
+
+    await tx.execute(sql`
+      insert into outbox_events (
+        event_type, version, payload, correlation_id, organization_id, idempotency_key
+      ) values (
+        ${PATIENT_LOOKUP_OUTBOX_EVENT_TYPE},
+        1,
+        ${JSON.stringify({ patientId: input.patientId })}::jsonb,
+        ${input.actor.correlationId}::uuid,
+        ${input.actor.organizationId}::uuid,
+        ${`patient.lookup.v1:${input.patientId}`}
+      )
+      on conflict (idempotency_key) do nothing
+    `);
+  }
 
   async hasDuplicateHash(createdBy: string, fileHash: string): Promise<boolean> {
     const result = await this.database.db.execute<{ duplicated: boolean }>(sql`
@@ -1253,6 +1363,8 @@ export class BulkImportRepository {
     const insertedRow = inserted.rows[0];
 
     if (insertedRow) {
+      const patientId = await this.linkPatientForSyntheticIdentityInTx(tx, insertedRow.id, p);
+      if (patientId) await this.enqueuePatientLookupInTx(tx, { patientId, actor: input.actor });
       await linkOrganization(insertedRow.id);
 
       await this.audit(tx, input.actor, 'AUTHORIZATION_SMART_RELOAD_INSERTED', input.jobId, {
@@ -1276,6 +1388,9 @@ export class BulkImportRepository {
       await tx.execute<{
         id:
           string;
+
+        patient_id:
+          string | null;
 
         version:
           number;
@@ -1308,6 +1423,7 @@ export class BulkImportRepository {
       }>(sql`
         select
           id,
+          patient_id,
           version,
           coverage_type,
           direction_status,
@@ -1359,6 +1475,17 @@ export class BulkImportRepository {
         CODIGO_COMERCIAL:
           commercialCode,
       };
+
+    // Existing links are immutable during reimport. A previously unlinked row
+    // may acquire a test-only exact link from its merged source evidence.
+    if (!existingRow.patient_id) {
+      const patientId = await this.linkPatientForSyntheticIdentityInTx(
+        tx,
+        existingRow.id,
+        mergedPayload,
+      );
+      if (patientId) await this.enqueuePatientLookupInTx(tx, { patientId, actor: input.actor });
+    }
 
 
     const mergedText =

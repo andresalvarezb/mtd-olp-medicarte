@@ -10,8 +10,8 @@ import {
 describe('ESP-020 access registry', () => {
   it('covers every current permission exactly once', () => {
     validateAccessRegistry();
-    expect(ACCESS_PERMISSION_REGISTRY).toHaveLength(83);
-    expect(new Set(ACCESS_PERMISSION_REGISTRY.map((entry) => entry.permissionCode)).size).toBe(83);
+    expect(ACCESS_PERMISSION_REGISTRY).toHaveLength(85);
+    expect(new Set(ACCESS_PERMISSION_REGISTRY.map((entry) => entry.permissionCode)).size).toBe(85);
     expect(new Set(ACCESS_RETIRED_PERMISSION_CODES).size).toBe(6);
 
     const mipresDecision = ACCESS_PERMISSION_REGISTRY.find(
@@ -42,6 +42,27 @@ describe('ESP-020 access registry', () => {
       expect(entry.actionCode).toBeTruthy();
       expect(entry.actorBoundary).toBeTruthy();
     }
+  });
+
+  it('keeps patient master permissions structurally ungrantable until scope approval', () => {
+    expect(
+      ACCESS_PERMISSION_REGISTRY.filter((entry) => entry.moduleCode === 'patient-master'),
+    ).toMatchObject([
+      {
+        permissionCode: 'patient_master.read',
+        actorBoundary: 'MEDICARTE_POINT',
+        configurable: false,
+        structural: true,
+        systemAllowed: false,
+      },
+      {
+        permissionCode: 'patient_reconciliation.read',
+        actorBoundary: 'MTD_ONLY',
+        configurable: false,
+        structural: true,
+        systemAllowed: false,
+      },
+    ]);
   });
 
   it('keeps module routes and module actions unique', () => {

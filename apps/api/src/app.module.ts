@@ -126,6 +126,9 @@ import { MipresReadController } from './mipres/mipres-read.controller';
 import { MipresDecisionController } from './mipres/mipres-decision.controller';
 import { MipresDecisionService } from './mipres/mipres-decision.service';
 import { MipresReadRepository } from './mipres/mipres-read.repository';
+import { PatientMasterController } from './patients/patient-master.controller';
+import { PatientMasterRepository } from './patients/patient-master.repository';
+import { PatientMasterService } from './patients/patient-master.service';
 
 import { MipresRecheckController } from './mipres/mipres-recheck.controller';
 import { MipresRecheckService } from './mipres/mipres-recheck.service';
@@ -232,6 +235,7 @@ new Gauge({
     RealtimeController,
     MipresReadController,
     MipresDecisionController,
+    PatientMasterController,
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
@@ -308,6 +312,8 @@ new Gauge({
     RealtimeService,
     MipresReadRepository,
     MipresDecisionService,
+    PatientMasterRepository,
+    PatientMasterService,
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

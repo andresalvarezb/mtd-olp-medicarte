@@ -10,6 +10,7 @@
 
 - Usar `requirements-documentation` al crear, aclarar o actualizar un requerimiento funcional; no al implementarlo ni para edición documental general.
 - Usar `requirements-implementation` al desarrollar un requerimiento aprobado; no para documentarlo, revisarlo o estimarlo sin cambios.
+- Usar `patient-master-integrity` cuando cambien la identidad maestra de pacientes, sus enlaces históricos, backfill/conciliación, sincronización MTDOM o consumidores migrados bajo RF-PAC-001; no por rutas que solo incluyan `patient`.
 - Usar `purchase-fulfillment-integrity` cuando cambien estados, cantidades o enlaces entre autorizaciones, órdenes, recepciones, inventario, asignaciones y consumos, incluidos imports o conciliaciones de esa cadena.
 - Usar `rbac-point-scope` cuando cambien enforcement o visibilidad por identidad, roles, organizaciones, puntos, listados, recursos por id u operaciones masivas.
 - Usar `drizzle-schema-safety` para cambios persistentes en `schema.ts`, migraciones, constraints, índices, seeds versionados o catálogo; no por una consulta SQL aislada.

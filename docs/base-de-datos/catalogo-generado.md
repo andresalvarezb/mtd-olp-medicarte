@@ -1,15 +1,15 @@
 # Catálogo estructural de la base de datos — generado
 
 > **Origen:** `packages/database/src/schema.ts` (Drizzle). **No demuestra que las migraciones estén aplicadas a un PostgreSQL concreto.**
-> **Identificador de fuente SHA-256:** `b8332777748aae558c804aad261b4e2d05d81959f53ed13e864683578f3eb370`. Generador: `scripts/db-schema-catalog.mjs`.
+> **Identificador de fuente SHA-256:** `651295b217c552abde242c8f87ee10f590fa5c87b930016e1de91934446fdedb`. Generador: `scripts/db-schema-catalog.mjs`.
 
-**Tablas Drizzle:** 88. **Columnas:** 1127. **Referencias FK declaradas:** 235.
+**Tablas Drizzle:** 92. **Columnas:** 1187. **Referencias FK declaradas:** 242.
 
 ## Índice por proceso
 
 | Proceso | Tablas |
 | --- | ---: |
-| Identidad, permisos y organizaciones | 8 |
+| Identidad, permisos y organizaciones | 9 |
 | Autorizaciones y MIPRES | 7 |
 | Planeación, programación y demanda | 8 |
 | Órdenes de compra y entregas OLP | 6 |
@@ -20,7 +20,7 @@
 | Auditoría y novedades | 9 |
 | Conciliación operacional | 8 |
 | Cargas masivas, jobs y eventos técnicos | 13 |
-| Otros objetos | 1 |
+| Otros objetos | 4 |
 
 ## Diccionario de tablas
 
@@ -39,7 +39,29 @@
 | `active` | boolean | No | default: true |
 | `created_at` | timestamp | No | default: defaultNow() |
 
-**Referenciada por:** `authorization_dispensations(organization_id)`; `authorization_fulfillments(organization_id)`; `authorization_item_organizations(organization_id)`; `authorization_mipres_decision_history(organization_id)`; `authorization_moderator_fee_events(organization_id)`; `bulk_import_jobs(organization_id)`; `bulk_update_batches(organization_id)`; `dispensing_points(organization_id)`; `import_batches(organization_id)`; `inventory_allocation_batches(organization_id)`; `inventory_authorization_allocations(organization_id)`; `inventory_locations(organization_id)`; `operational_field_changes(organization_id)`; `outbox_events(organization_id)`; `patient_schedule_imports(organization_id)`; `reconciliation_issue_comments(tenant_id)`; `reconciliation_issue_events(tenant_id)`; `reconciliation_issues(tenant_id)`; `reconciliation_notifications(tenant_id)`; `reconciliation_operation_executions(tenant_id)`; `reconciliation_operation_policies(tenant_id)`; `reconciliation_runs(tenant_id)`; `role_organization_scopes(organization_id)`; `tariff_annex_imports(organization_id)`; `tariff_annex_products(organization_id)`; `user_organization_roles(organization_id)`.
+**Referenciada por:** `authorization_dispensations(organization_id)`; `authorization_fulfillments(organization_id)`; `authorization_item_organizations(organization_id)`; `authorization_mipres_decision_history(organization_id)`; `authorization_moderator_fee_events(organization_id)`; `bulk_import_jobs(organization_id)`; `bulk_update_batches(organization_id)`; `dispensing_points(organization_id)`; `import_batches(organization_id)`; `inventory_allocation_batches(organization_id)`; `inventory_authorization_allocations(organization_id)`; `inventory_locations(organization_id)`; `operational_field_changes(organization_id)`; `outbox_events(organization_id)`; `patient_backfill_batches(organization_id)`; `patient_schedule_imports(organization_id)`; `reconciliation_issue_comments(tenant_id)`; `reconciliation_issue_events(tenant_id)`; `reconciliation_issues(tenant_id)`; `reconciliation_notifications(tenant_id)`; `reconciliation_operation_executions(tenant_id)`; `reconciliation_operation_policies(tenant_id)`; `reconciliation_runs(tenant_id)`; `role_organization_scopes(organization_id)`; `tariff_annex_imports(organization_id)`; `tariff_annex_products(organization_id)`; `user_organization_roles(organization_id)`.
+
+#### `patients`
+
+**Columnas:** 9 · **Clave primaria:** id · **FK:** 0.
+
+| Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
+| --- | --- | --- | --- |
+| `id` | uuid | No | PK; default: defaultRandom() |
+| `identification_type_raw` | varchar(80) | No |  |
+| `identification_value_raw` | varchar(255) | No |  |
+| `mtdom_lookup_status` | varchar(40) | No | default: 'NOT_REQUESTED' |
+| `mtdom_last_checked_at` | timestamp | Sí |  |
+| `mtdom_last_error_code` | varchar(80) | Sí |  |
+| `mtdom_changes_seen_at` | timestamp | Sí |  |
+| `created_at` | timestamp | No | default: defaultNow() |
+| `updated_at` | timestamp | No | default: defaultNow() |
+
+**Referenciada por:** `authorization_items(patient_id)`; `patient_backfill_items(previous_patient_id)`; `patient_backfill_items(applied_patient_id)`.
+
+**Índices / unicidad declarados:** `patients_identification_raw_idx` (index).
+
+**Checks declarados:** `patients_identification_type_not_blank_check`; `patients_identification_value_not_blank_check`; `patients_mtdom_lookup_status_check`.
 
 #### `permissions`
 
@@ -144,7 +166,7 @@
 | `created_at` | timestamp | No | default: defaultNow() |
 | `updated_at` | timestamp | No | default: defaultNow() |
 
-**Referenciada por:** `audit_findings(created_by)`; `audit_reviews(started_by)`; `audit_reviews(decided_by)`; `authorization_billing_audits(created_by)`; `authorization_billing_audits(audited_by)`; `authorization_dispensations(reported_by)`; `authorization_fulfillments(confirmed_by)`; `authorization_items(mipres_manual_updated_by)`; `authorization_items(annulled_by)`; `authorization_items(updated_by)`; `authorization_mipres_decision_history(actor_id)`; `authorization_moderator_fee_events(registered_by)`; `bulk_import_jobs(created_by)`; `bulk_update_batches(created_by)`; `deliveries(dispatched_by)`; `deliveries(created_by)`; `deliveries(updated_by)`; `dispensing_points(created_by)`; `import_batches(created_by)`; `inventory_allocation_batches(created_by)`; `inventory_allocation_batches(confirmed_by)`; `inventory_authorization_allocations(created_by)`; `inventory_authorization_allocations(updated_by)`; `inventory_locations(created_by)`; `inventory_locations(updated_by)`; `inventory_movements(created_by)`; `novelties(created_by)`; `patient_application_audits(started_by)`; `patient_application_audits(decided_by)`; `patient_applications(created_by)`; `patient_applications(confirmed_by)`; `patient_default_dispensing_points(created_by)`; `patient_default_dispensing_points(updated_by)`; `patient_schedule_history(changed_by)`; `patient_schedule_imports(created_by)`; `patient_schedule_outcomes(created_by)`; `patient_schedules(created_by)`; `patient_schedules(updated_by)`; `planning_periods(created_by)`; `planning_periods(updated_by)`; `product_delivery_point_mappings(created_by)`; `product_delivery_point_mappings(updated_by)`; `projected_demand_lines(created_by)`; `projected_demand_lines(updated_by)`; `purchase_order_authorization_sources(released_by)`; `purchase_order_receipts(confirmed_by)`; `purchase_orders(legacy_assigned_by)`; `purchase_orders(issued_by)`; `purchase_orders(created_by)`; `purchase_orders(updated_by)`; `receipts(created_by)`; `receipts(updated_by)`; `reconciliation_issue_comments(author_user_id)`; `reconciliation_issue_events(actor_user_id)`; `reconciliation_issues(assigned_to_user_id)`; `reconciliation_issues(acknowledged_by)`; `reconciliation_issues(resolved_by)`; `reconciliation_issues(accepted_risk_by)`; `reconciliation_operation_policies(created_by)`; `reconciliation_operation_policies(updated_by)`; `reconciliation_runs(started_by)`; `stock_transfers(created_by)`; `stock_transfers(updated_by)`; `tariff_annex_imports(created_by)`; `tariff_annex_imports(confirmed_by)`; `tariff_annex_products(created_by)`; `tariff_annex_products(updated_by)`; `tariff_product_revisions(changed_by)`; `user_organization_roles(user_id)`; `user_point_scopes(user_id)`; `user_point_scopes(granted_by)`; `user_point_scopes(revoked_by)`.
+**Referenciada por:** `audit_findings(created_by)`; `audit_reviews(started_by)`; `audit_reviews(decided_by)`; `authorization_billing_audits(created_by)`; `authorization_billing_audits(audited_by)`; `authorization_dispensations(reported_by)`; `authorization_fulfillments(confirmed_by)`; `authorization_items(mipres_manual_updated_by)`; `authorization_items(annulled_by)`; `authorization_items(updated_by)`; `authorization_mipres_decision_history(actor_id)`; `authorization_moderator_fee_events(registered_by)`; `bulk_import_jobs(created_by)`; `bulk_update_batches(created_by)`; `deliveries(dispatched_by)`; `deliveries(created_by)`; `deliveries(updated_by)`; `dispensing_points(created_by)`; `import_batches(created_by)`; `inventory_allocation_batches(created_by)`; `inventory_allocation_batches(confirmed_by)`; `inventory_authorization_allocations(created_by)`; `inventory_authorization_allocations(updated_by)`; `inventory_locations(created_by)`; `inventory_locations(updated_by)`; `inventory_movements(created_by)`; `novelties(created_by)`; `patient_application_audits(started_by)`; `patient_application_audits(decided_by)`; `patient_applications(created_by)`; `patient_applications(confirmed_by)`; `patient_backfill_items(decided_by)`; `patient_default_dispensing_points(created_by)`; `patient_default_dispensing_points(updated_by)`; `patient_schedule_history(changed_by)`; `patient_schedule_imports(created_by)`; `patient_schedule_outcomes(created_by)`; `patient_schedules(created_by)`; `patient_schedules(updated_by)`; `planning_periods(created_by)`; `planning_periods(updated_by)`; `product_delivery_point_mappings(created_by)`; `product_delivery_point_mappings(updated_by)`; `projected_demand_lines(created_by)`; `projected_demand_lines(updated_by)`; `purchase_order_authorization_sources(released_by)`; `purchase_order_receipts(confirmed_by)`; `purchase_orders(legacy_assigned_by)`; `purchase_orders(issued_by)`; `purchase_orders(created_by)`; `purchase_orders(updated_by)`; `receipts(created_by)`; `receipts(updated_by)`; `reconciliation_issue_comments(author_user_id)`; `reconciliation_issue_events(actor_user_id)`; `reconciliation_issues(assigned_to_user_id)`; `reconciliation_issues(acknowledged_by)`; `reconciliation_issues(resolved_by)`; `reconciliation_issues(accepted_risk_by)`; `reconciliation_operation_policies(created_by)`; `reconciliation_operation_policies(updated_by)`; `reconciliation_runs(started_by)`; `stock_transfers(created_by)`; `stock_transfers(updated_by)`; `tariff_annex_imports(created_by)`; `tariff_annex_imports(confirmed_by)`; `tariff_annex_products(created_by)`; `tariff_annex_products(updated_by)`; `tariff_product_revisions(changed_by)`; `user_organization_roles(user_id)`; `user_point_scopes(user_id)`; `user_point_scopes(granted_by)`; `user_point_scopes(revoked_by)`.
 
 **Índices / unicidad declarados:** `users_username_lower_unique` (uniqueIndex).
 
@@ -168,11 +190,12 @@
 
 #### `authorization_items`
 
-**Columnas:** 41 · **Clave primaria:** id · **FK:** 6.
+**Columnas:** 42 · **Clave primaria:** id · **FK:** 7.
 
 | Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
 | --- | --- | --- | --- |
 | `id` | uuid | No | PK; default: defaultRandom() |
+| `patient_id` | uuid | Sí | FK patients |
 | `numero_autorizacion` | varchar(255) | No |  |
 | `codigo_medicamento` | varchar(255) | No |  |
 | `authorization_key` | varchar(511) | No |  |
@@ -214,11 +237,11 @@
 | `created_at` | timestamp | No | default: defaultNow() |
 | `updated_at` | timestamp | No | default: defaultNow() |
 
-**Claves foráneas:** `mipres_manual_concept_code → mipres_manual_decision_concepts(code)`; `mipres_manual_updated_by → users(id)`; `created_from_batch_id → import_batches(id)`; `annulled_by → users(id)`; `updated_by → users(id)`; `last_load_id → import_batches(id)`.
+**Claves foráneas:** `patient_id → patients(id)`; `mipres_manual_concept_code → mipres_manual_decision_concepts(code)`; `mipres_manual_updated_by → users(id)`; `created_from_batch_id → import_batches(id)`; `annulled_by → users(id)`; `updated_by → users(id)`; `last_load_id → import_batches(id)`.
 
-**Referenciada por:** `audit_reviews(authorization_item_id)`; `authorization_billing_audits(authorization_item_id)`; `authorization_dispensations(authorization_item_id)`; `authorization_fulfillments(authorization_item_id)`; `authorization_item_organizations(authorization_item_id)`; `authorization_mipres_decision_history(authorization_item_id)`; `authorization_moderator_fee_events(authorization_item_id)`; `authorization_tariff_snapshots(authorization_item_id)`; `bulk_update_rows(authorization_item_id)`; `coverage_evaluations(authorization_item_id)`; `demand_sources(authorization_item_id)`; `import_rows(authorization_item_id)`; `inventory_allocation_import_rows(resolved_authorization_item_id)`; `inventory_authorization_allocations(authorization_item_id)`; `mipres_checks(authorization_item_id)`; `mipres_directions(authorization_item_id)`; `novelties(authorization_item_id)`; `operational_field_changes(authorization_item_id)`; `patient_application_audits(authorization_item_id)`; `patient_applications(authorization_item_id)`; `patient_applications(authorization_item_id, commercial_code)`; `patient_schedule_history(authorization_item_id)`; `patient_schedule_history(authorization_item_id, commercial_code)`; `patient_schedule_import_rows(authorization_item_id)`; `patient_schedule_outcomes(authorization_item_id)`; `patient_schedules(authorization_item_id)`; `patient_schedules(authorization_item_id, commercial_code)`; `purchase_order_authorization_sources(authorization_item_id)`.
+**Referenciada por:** `audit_reviews(authorization_item_id)`; `authorization_billing_audits(authorization_item_id)`; `authorization_dispensations(authorization_item_id)`; `authorization_fulfillments(authorization_item_id)`; `authorization_item_organizations(authorization_item_id)`; `authorization_mipres_decision_history(authorization_item_id)`; `authorization_moderator_fee_events(authorization_item_id)`; `authorization_tariff_snapshots(authorization_item_id)`; `bulk_update_rows(authorization_item_id)`; `coverage_evaluations(authorization_item_id)`; `demand_sources(authorization_item_id)`; `import_rows(authorization_item_id)`; `inventory_allocation_import_rows(resolved_authorization_item_id)`; `inventory_authorization_allocations(authorization_item_id)`; `mipres_checks(authorization_item_id)`; `mipres_directions(authorization_item_id)`; `novelties(authorization_item_id)`; `operational_field_changes(authorization_item_id)`; `patient_application_audits(authorization_item_id)`; `patient_applications(authorization_item_id)`; `patient_applications(authorization_item_id, commercial_code)`; `patient_backfill_items(authorization_item_id)`; `patient_schedule_history(authorization_item_id)`; `patient_schedule_history(authorization_item_id, commercial_code)`; `patient_schedule_import_rows(authorization_item_id)`; `patient_schedule_outcomes(authorization_item_id)`; `patient_schedules(authorization_item_id)`; `patient_schedules(authorization_item_id, commercial_code)`; `purchase_order_authorization_sources(authorization_item_id)`.
 
-**Índices / unicidad declarados:** `authorization_items_identity_idx` (uniqueIndex); `authorization_items_id_code_unique` (unique); `authorization_items_authorization_key_idx` (uniqueIndex); `authorization_items_coverage_idx` (index); `authorization_items_mipres_manual_decision_idx` (index); `authorization_items_audit_status_idx` (index); `authorization_items_annulled_at_idx` (index); `authorization_items_created_idx` (index); `authorization_items_tariff_membership_idx` (index).
+**Índices / unicidad declarados:** `authorization_items_identity_idx` (uniqueIndex); `authorization_items_patient_id_idx` (index); `authorization_items_id_code_unique` (unique); `authorization_items_authorization_key_idx` (uniqueIndex); `authorization_items_coverage_idx` (index); `authorization_items_mipres_manual_decision_idx` (index); `authorization_items_audit_status_idx` (index); `authorization_items_annulled_at_idx` (index); `authorization_items_created_idx` (index); `authorization_items_tariff_membership_idx` (index).
 
 **Checks declarados:** `authorization_items_tariff_membership_status_check`; `authorization_items_enablement_status_check`; `authorization_items_coverage_type_check`; `authorization_items_direction_status_check`; `authorization_items_mipres_manual_version_check`; `authorization_items_mipres_manual_decision_check`; `authorization_items_mipres_manual_decision_concept_check`; `authorization_items_operation_status_check`; `authorization_items_process_status_check`; `authorization_items_audit_status_check`; `authorization_items_admission_status_check`; `authorization_items_admission_ready_requires_approval_check`; `authorization_items_dispensed_requires_approval_check`; `authorization_items_annulment_consistency_check`; `authorization_items_version_check`.
 
@@ -2261,7 +2284,7 @@
 
 #### `outbox_events`
 
-**Columnas:** 14 · **Clave primaria:** id · **FK:** 1.
+**Columnas:** 15 · **Clave primaria:** id · **FK:** 1.
 
 | Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
 | --- | --- | --- | --- |
@@ -2273,6 +2296,7 @@
 | `organization_id` | uuid | Sí | FK organizations |
 | `idempotency_key` | varchar(200) | No |  |
 | `status` | varchar(30) | No | default: 'PENDING' |
+| `processing_attempts` | integer | No | default: 0 |
 | `attempts` | integer | No | default: 0 |
 | `available_at` | timestamp | No | default: defaultNow() |
 | `created_at` | timestamp | No | default: defaultNow() |
@@ -2284,7 +2308,7 @@
 
 **Índices / unicidad declarados:** `outbox_events_idempotency_key_idx` (uniqueIndex); `outbox_events_dispatch_idx` (index).
 
-**Checks declarados:** `outbox_events_status_check`.
+**Checks declarados:** `outbox_events_status_check`; `outbox_events_processing_attempts_check`.
 
 #### `validation_errors`
 
@@ -2330,6 +2354,94 @@
 **Índices / unicidad declarados:** `authorization_moderator_fee_version_unique` (uniqueIndex); `authorization_moderator_fee_idempotency_unique` (uniqueIndex); `authorization_moderator_fee_history_idx` (index); `authorization_moderator_fee_created_idx` (index).
 
 **Checks declarados:** `authorization_moderator_fee_version_positive`; `authorization_moderator_fee_status_valid`; `authorization_moderator_fee_amount_consistency`; `authorization_moderator_fee_observation_length`; `authorization_moderator_fee_reference_length`.
+
+#### `patient_backfill_batches`
+
+**Columnas:** 11 · **Clave primaria:** id · **FK:** 1.
+
+| Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
+| --- | --- | --- | --- |
+| `id` | uuid | No | PK; default: defaultRandom() |
+| `organization_id` | uuid | No | FK organizations |
+| `policy_version` | varchar(120) | No |  |
+| `status` | varchar(30) | No | default: 'PENDING' |
+| `batch_size` | integer | No |  |
+| `summary` | jsonb | No | default: {} |
+| `last_error_code` | varchar(80) | Sí |  |
+| `started_at` | timestamp | Sí |  |
+| `completed_at` | timestamp | Sí |  |
+| `reverted_at` | timestamp | Sí |  |
+| `created_at` | timestamp | No | default: defaultNow() |
+
+**Claves foráneas:** `organization_id → organizations(id)`.
+
+**Referenciada por:** `patient_backfill_items(batch_id)`.
+
+**Índices / unicidad declarados:** `patient_backfill_batches_org_created_idx` (index).
+
+**Checks declarados:** `patient_backfill_batches_status_check`; `patient_backfill_batches_size_check`; `patient_backfill_batches_policy_not_blank_check`.
+
+#### `patient_backfill_items`
+
+**Columnas:** 13 · **Clave primaria:** id · **FK:** 5.
+
+| Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
+| --- | --- | --- | --- |
+| `id` | uuid | No | PK; default: defaultRandom() |
+| `batch_id` | uuid | No | FK patient_backfill_batches |
+| `authorization_item_id` | uuid | No | FK authorization_items |
+| `status` | varchar(30) | No |  |
+| `reason_code` | varchar(80) | No |  |
+| `previous_patient_id` | uuid | Sí | FK patients |
+| `applied_patient_id` | uuid | Sí | FK patients |
+| `created_patient` | boolean | No | default: false |
+| `resolution_code` | varchar(80) | Sí |  |
+| `decision_reference` | varchar(255) | Sí |  |
+| `decided_by` | uuid | Sí | FK users |
+| `decided_at` | timestamp | Sí |  |
+| `processed_at` | timestamp | No | default: defaultNow() |
+
+**Claves foráneas:** `batch_id → patient_backfill_batches(id)`; `authorization_item_id → authorization_items(id)`; `previous_patient_id → patients(id)`; `applied_patient_id → patients(id)`; `decided_by → users(id)`.
+
+**Índices / unicidad declarados:** `patient_backfill_items_batch_authorization_uq` (unique); `patient_backfill_items_batch_status_idx` (index); `patient_backfill_items_authorization_idx` (index).
+
+**Checks declarados:** `patient_backfill_items_status_check`; `patient_backfill_items_reconciliation_decision_check`; `patient_backfill_items_link_provenance_check`.
+
+#### `patient_sync_checkpoints`
+
+**Columnas:** 25 · **Clave primaria:** id · **FK:** 0.
+
+| Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
+| --- | --- | --- | --- |
+| `id` | uuid | No | PK; default: defaultRandom() |
+| `feed_key` | varchar(80) | No |  |
+| `profile` | varchar(20) | No | default: 'basic' |
+| `sync_as_of` | timestamp | No |  |
+| `status` | varchar(20) | No | default: 'IDLE' |
+| `run_id` | uuid | Sí |  |
+| `lease_token` | uuid | Sí |  |
+| `lease_expires_at` | timestamp | Sí |  |
+| `pending_as_of` | timestamp | Sí |  |
+| `next_cursor` | text | Sí |  |
+| `cursor_fingerprints` | jsonb | No | default: [] |
+| `last_page_patient_ids` | jsonb | No | default: [] |
+| `pages_processed` | integer | No | default: 0 |
+| `records_seen` | integer | No | default: 0 |
+| `local_patients_matched` | integer | No | default: 0 |
+| `unrelated_records_skipped` | integer | No | default: 0 |
+| `ambiguous_local_records_skipped` | integer | No | default: 0 |
+| `boundary_duplicates_skipped` | integer | No | default: 0 |
+| `stale_records_skipped` | integer | No | default: 0 |
+| `retries` | integer | No | default: 0 |
+| `last_error_code` | varchar(80) | Sí |  |
+| `run_started_at` | timestamp | Sí |  |
+| `last_success_at` | timestamp | Sí |  |
+| `created_at` | timestamp | No | default: defaultNow() |
+| `updated_at` | timestamp | No | default: defaultNow() |
+
+**Índices / unicidad declarados:** `patient_sync_checkpoints_status_lease_idx` (index).
+
+**Checks declarados:** `patient_sync_checkpoints_profile_check`; `patient_sync_checkpoints_status_check`; `patient_sync_checkpoints_lease_state_check`; `patient_sync_checkpoints_counters_check`; `patient_sync_checkpoints_arrays_check`.
 
 ---
 

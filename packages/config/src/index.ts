@@ -58,8 +58,7 @@ const driveAuditConfigSchema = {
    * Compatibilidad con la configuración histórica
    * de una única raíz.
    */
-  GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_ID:
-    z.string().min(1).optional().or(z.literal('')),
+  GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_ID: z.string().min(1).optional().or(z.literal('')),
 
   /*
    * Lista CSV de raíces autorizadas.
@@ -67,11 +66,9 @@ const driveAuditConfigSchema = {
    * Ejemplo:
    * root-medicarte,root-facturas
    */
-  GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_IDS:
-    z.string().min(1).optional().or(z.literal('')),
+  GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_IDS: z.string().min(1).optional().or(z.literal('')),
 
-  GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE:
-    z.string().min(1).optional().or(z.literal('')),
+  GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: z.string().min(1).optional().or(z.literal('')),
 
   /*
    * ID del Google Sheet donde se registran los recaudos
@@ -79,66 +76,33 @@ const driveAuditConfigSchema = {
    *
    * Ejemplo: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
    */
-  GOOGLE_SHEETS_MODERATOR_FEE_ID:
-    z.string().min(1).optional().or(z.literal('')),
+  GOOGLE_SHEETS_MODERATOR_FEE_ID: z.string().min(1).optional().or(z.literal('')),
 
   /*
    * Nombre de la pestaña o pestaña del Google Sheet donde se registran los recaudos.
    * Por defecto: PRUEBAS
    */
-  GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME:
-    z.string().min(1).optional().default('PRUEBAS'),
+  GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME: z.string().min(1).optional().default('PRUEBAS'),
 };
 
 const driveAuditSyncConfigSchema = {
-  GOOGLE_DRIVE_AUDIT_SYNC_ENABLED:
-    z.enum(['true', 'false'])
-      .transform(
-        (value) =>
-          value === 'true',
-      )
-      .default('false'),
+  GOOGLE_DRIVE_AUDIT_SYNC_ENABLED: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .default('false'),
 
-  GOOGLE_DRIVE_AUDIT_SYNC_SCOPE:
-    z.enum([
-      'ALL',
-      'CLOSED_ONLY',
-    ])
-      .default('ALL'),
+  GOOGLE_DRIVE_AUDIT_SYNC_SCOPE: z.enum(['ALL', 'CLOSED_ONLY']).default('ALL'),
 
-  GOOGLE_DRIVE_AUDIT_SYNC_POLL_INTERVAL_MS:
-    z.coerce.number()
-      .int()
-      .min(10_000)
-      .default(60_000),
+  GOOGLE_DRIVE_AUDIT_SYNC_POLL_INTERVAL_MS: z.coerce.number().int().min(10_000).default(60_000),
 
-  GOOGLE_DRIVE_AUDIT_SYNC_BATCH_SIZE:
-    z.coerce.number()
-      .int()
-      .min(1)
-      .max(50)
-      .default(10),
+  GOOGLE_DRIVE_AUDIT_SYNC_BATCH_SIZE: z.coerce.number().int().min(1).max(50).default(10),
 
-  GOOGLE_DRIVE_AUDIT_SYNC_CONCURRENCY:
-    z.coerce.number()
-      .int()
-      .min(1)
-      .max(5)
-      .default(2),
+  GOOGLE_DRIVE_AUDIT_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(5).default(2),
 
-  GOOGLE_DRIVE_AUDIT_SYNC_RECHECK_MS:
-    z.coerce.number()
-      .int()
-      .min(300_000)
-      .default(1_800_000),
+  GOOGLE_DRIVE_AUDIT_SYNC_RECHECK_MS: z.coerce.number().int().min(300_000).default(1_800_000),
 
-  GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MS:
-    z.coerce.number()
-      .int()
-      .min(60_000)
-      .default(300_000),
+  GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MS: z.coerce.number().int().min(60_000).default(300_000),
 };
-
 
 const bulkConfigSchema = {
   BULK_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
@@ -154,34 +118,121 @@ const reconciliationOperationsConfigSchema = {
   RECONCILIATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
 };
 
-export const apiConfigSchema = commonSchema.extend({
-  ...importConfigSchema,
-  AUTHORIZATION_IMPORT_MAX_FILE_BYTES: z.coerce.number().int().positive()
-    .max(50 * 1024 * 1024).default(50 * 1024 * 1024),
-  ...mipresConfigSchema,
-  ...authConfigSchema,
-  ...driveAuditConfigSchema,
-  ...reconciliationOperationsConfigSchema,
-  PORT: z.coerce.number().int().positive().optional(),
-  API_PORT: z.coerce.number().int().positive().default(3001),
-  API_PUBLIC_URL: z.string().url(),
-  WEB_ORIGIN: z.string().url(),
-});
-
-export const workerConfigSchema = commonSchema.extend({
-  ...importConfigSchema,
-  ...mipresConfigSchema,
-  ...bulkConfigSchema,
-  ...driveAuditConfigSchema,
-  ...driveAuditSyncConfigSchema,
-  ...reconciliationOperationsConfigSchema,
-  IMPORT_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
-  SCHEDULER_ENABLED: z
+const patientMasterApiConfigSchema = {
+  PATIENT_MASTER_ACCESS_ENABLED: z
     .enum(['true', 'false'])
     .transform((value) => value === 'true')
-    .default('true'),
-  OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(100).default(1000),
-});
+    .default('false'),
+  PATIENT_MASTER_SCOPE_POLICY_APPROVED: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .default('false'),
+  PATIENT_MASTER_DP07_APPROVED: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .default('false'),
+  PATIENT_MASTER_SCOPE_POLICY_VERSION: z.string().min(1).optional().or(z.literal('')),
+};
+
+export const apiConfigSchema = commonSchema
+  .extend({
+    ...importConfigSchema,
+    AUTHORIZATION_IMPORT_MAX_FILE_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(50 * 1024 * 1024)
+      .default(50 * 1024 * 1024),
+    ...mipresConfigSchema,
+    ...authConfigSchema,
+    ...driveAuditConfigSchema,
+    ...reconciliationOperationsConfigSchema,
+    ...patientMasterApiConfigSchema,
+    PORT: z.coerce.number().int().positive().optional(),
+    API_PORT: z.coerce.number().int().positive().default(3001),
+    API_PUBLIC_URL: z.string().url(),
+    WEB_ORIGIN: z.string().url(),
+  })
+  .superRefine((config, context) => {
+    if (!config.PATIENT_MASTER_ACCESS_ENABLED) return;
+    if (!config.PATIENT_MASTER_SCOPE_POLICY_APPROVED) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PATIENT_MASTER_SCOPE_POLICY_APPROVED'],
+        message: 'Patient master access requires an approved organization/point scope policy',
+      });
+    }
+    if (!config.PATIENT_MASTER_DP07_APPROVED) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PATIENT_MASTER_DP07_APPROVED'],
+        message: 'Patient master identifier search requires explicit DP-07 approval',
+      });
+    }
+    if (!config.PATIENT_MASTER_SCOPE_POLICY_VERSION) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PATIENT_MASTER_SCOPE_POLICY_VERSION'],
+        message: 'Patient master access requires an approved scope policy version',
+      });
+    }
+  });
+
+export const workerConfigSchema = commonSchema
+  .extend({
+    ...importConfigSchema,
+    ...mipresConfigSchema,
+    ...bulkConfigSchema,
+    ...driveAuditConfigSchema,
+    ...driveAuditSyncConfigSchema,
+    ...reconciliationOperationsConfigSchema,
+    IMPORT_QUEUE_CONCURRENCY: z.coerce.number().int().positive().max(20).default(3),
+    SCHEDULER_ENABLED: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .default('true'),
+    OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(100).default(1000),
+    PATIENT_CHANGES_SYNC_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .min(60_000)
+      .default(60 * 60 * 1000),
+    MTDOM_PATIENT_LOOKUP_ENABLED: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .default('false'),
+    MTDOM_DP07_APPROVED: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .default('false'),
+    MTDOM_PATIENT_IDENTITY_POLICY_VERSION: z.string().min(1).optional().or(z.literal('')),
+    MTDOM_PATIENTS_API_TOKEN: z.string().min(1).optional().or(z.literal('')),
+    MTDOM_PATIENTS_TIMEOUT_MS: z.coerce.number().int().min(100).max(30_000).default(5000),
+  })
+  .superRefine((config, context) => {
+    if (!config.MTDOM_PATIENT_LOOKUP_ENABLED) return;
+    if (!config.MTDOM_DP07_APPROVED) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MTDOM_DP07_APPROVED'],
+        message: 'MTDOM patient lookup requires an explicit DP-07 approval gate',
+      });
+    }
+    if (!config.MTDOM_PATIENT_IDENTITY_POLICY_VERSION) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MTDOM_PATIENT_IDENTITY_POLICY_VERSION'],
+        message: 'MTDOM patient lookup requires an approved identity policy version',
+      });
+    }
+    if (!config.MTDOM_PATIENTS_API_TOKEN) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MTDOM_PATIENTS_API_TOKEN'],
+        message: 'MTDOM patient lookup requires a server-side Bearer token',
+      });
+    }
+  });
 
 export type ApiConfig = z.infer<typeof apiConfigSchema>;
 export type WorkerConfig = z.infer<typeof workerConfigSchema>;

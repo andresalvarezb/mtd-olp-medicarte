@@ -1,18 +1,24 @@
 import { createHash } from 'node:crypto';
 import * as Sentry from '@sentry/node';
-import { Inject, Injectable, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Optional, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import type { WorkerConfig } from '@authorization/config';
 import {
   FOUNDATION_DEAD_LETTER_QUEUE,
   FOUNDATION_JOB_NAME,
   FOUNDATION_JOB_OPTIONS,
   FOUNDATION_QUEUE,
+  PATIENT_LOOKUP_JOB_NAME,
+  PATIENT_LOOKUP_JOB_OPTIONS,
+  PATIENT_LOOKUP_OUTBOX_EVENT_TYPE,
   REALTIME_OUTBOX_EVENT_TYPE,
   REALTIME_REDIS_CHANNEL,
   foundationJobSchema,
+  patientLookupJobSchema,
+  patientLookupOutboxPayloadSchema,
   realtimeInvalidationMessageSchema,
   realtimeOutboxPayloadSchema,
   type FoundationJob,
+  type PatientLookupJob,
 } from '@authorization/contracts';
 import { jobResults, outboxEvents } from '@authorization/database';
 import type { createDatabase } from '@authorization/database';
@@ -20,16 +26,23 @@ import { Queue, QueueEvents, Worker, type Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import IORedis from 'ioredis';
 import pino from 'pino';
-import { DATABASE, WORKER_CONFIG } from './tokens';
+import { DATABASE, PATIENT_CHANGES_SYNC_SCHEDULER, PATIENT_LOOKUP_PROCESSOR, WORKER_CONFIG } from './tokens';
+import { PatientChangesSyncScheduler } from './patient-changes-sync';
 import {
   runInventoryExpirationReleaseSweep,
 } from './inventory-expiration-release';
+import {
+  PatientLookupRetryableError,
+  processPatientLookupJob,
+  type PatientLookupProcessor,
+} from './patient-lookup-processing';
 
 import {
   AuthorizationDriveSupportSync,
 } from './authorization-drive-support-sync';
 
 type Database = ReturnType<typeof createDatabase>;
+type WorkerJob = FoundationJob | PatientLookupJob;
 type OutboxRow = {
   id: string;
   event_type: string;
@@ -40,7 +53,7 @@ type OutboxRow = {
   idempotency_key: string;
   created_at: Date | string;
 };
-type DeadLetterJob = {
+type FoundationDeadLetterJob = {
   sourceQueue: string;
   sourceJobId: string;
   jobName: string;
@@ -48,6 +61,15 @@ type DeadLetterJob = {
   failedReason: string;
   failedAt: string;
 };
+type PatientLookupDeadLetterJob = {
+  sourceQueue: string;
+  sourceJobId: string;
+  jobName: string;
+  payload: { eventId: string };
+  failedReason: 'PATIENT_LOOKUP_RETRYABLE_FAILURE';
+  failedAt: string;
+};
+type DeadLetterJob = FoundationDeadLetterJob | PatientLookupDeadLetterJob;
 
 
 function currentBogotaDate(): string {
@@ -93,10 +115,10 @@ function currentBogotaDate(): string {
 export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger: pino.Logger;
   private readonly connection: IORedis;
-  private readonly queue: Queue<FoundationJob>;
+  private readonly queue: Queue<WorkerJob>;
   private readonly deadLetterQueue: Queue<DeadLetterJob>;
   private readonly queueEvents: QueueEvents;
-  private readonly worker: Worker<FoundationJob>;
+  private readonly worker: Worker<WorkerJob>;
   private timer?: NodeJS.Timeout;
 
   private expirationSweepTimer?:
@@ -116,9 +138,17 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
 
   private dispatching = false;
 
+  private readonly patientLookupInFlight = new Map<string, Promise<{ processed: boolean }>>();
+
   constructor(
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
     @Inject(DATABASE) private readonly database: Database,
+    @Optional()
+    @Inject(PATIENT_LOOKUP_PROCESSOR)
+    private readonly patientLookupProcessor?: PatientLookupProcessor,
+    @Optional()
+    @Inject(PATIENT_CHANGES_SYNC_SCHEDULER)
+    private readonly patientChangesSyncScheduler?: PatientChangesSyncScheduler,
   ) {
     this.logger = pino({ level: config.LOG_LEVEL, base: { service: 'platform-worker' } });
     this.connection = new IORedis(config.REDIS_URL, { maxRetriesPerRequest: null });
@@ -130,6 +160,17 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     this.worker = new Worker(FOUNDATION_QUEUE, (job) => this.process(job), {
       connection: this.connection,
       concurrency: 5,
+      settings: {
+        backoffStrategy: (attemptsMade, type, error) => {
+          if (type !== 'patient-lookup') return -1;
+          const exponentialDelay = 500 * 2 ** Math.max(0, attemptsMade - 1);
+          const retryAfterMs = error instanceof PatientLookupRetryableError
+            ? error.retryAfterMs ?? 0
+            : 0;
+          const minimumDelay = Math.min(5 * 60 * 1000, Math.max(exponentialDelay, retryAfterMs));
+          return Math.min(5 * 60 * 1000, minimumDelay + Math.floor(Math.random() * Math.max(1, minimumDelay * 0.2)));
+        },
+      },
     });
 
     this.driveSupportSync =
@@ -149,6 +190,10 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       void this.moveToDeadLetter(jobId, failedReason);
     });
     if (this.config.SCHEDULER_ENABLED) {
+      if (this.patientChangesSyncScheduler) {
+        this.patientChangesSyncScheduler.start(this.config.PATIENT_CHANGES_SYNC_INTERVAL_MS);
+        void this.patientChangesSyncScheduler.trigger();
+      }
       this.timer = setInterval(
         () => void this.dispatchOutbox(),
         this.config.OUTBOX_POLL_INTERVAL_MS,
@@ -320,6 +365,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
 
   private async dispatchNextEvent(): Promise<boolean> {
     const client = await this.database.pool.connect();
+    let patientEvent = false;
     try {
       await client.query('begin');
       const result = await client.query<OutboxRow>(
@@ -377,28 +423,63 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         return true;
       }
 
-      const parsed = foundationJobSchema.safeParse({
-        name: event.event_type,
-        version: event.version,
-        payload: event.payload,
-        correlationId: event.correlation_id,
-        idempotencyKey: event.idempotency_key,
-      });
-      if (!parsed.success) {
-        await client.query(
-          `update outbox_events
-           set status = 'FAILED', attempts = attempts + 1,
-               last_error = 'Unsupported legacy event; no active processor'
-           where id = $1`,
-          [event.id],
-        );
-        await client.query('commit');
-        return true;
+      let parsedJob: WorkerJob;
+      let queueJobName: string;
+      let queueJobOptions: typeof FOUNDATION_JOB_OPTIONS | typeof PATIENT_LOOKUP_JOB_OPTIONS;
+      if (event.event_type === PATIENT_LOOKUP_OUTBOX_EVENT_TYPE) {
+        patientEvent = true;
+        const outboxPayload = patientLookupOutboxPayloadSchema.safeParse(event.payload);
+        const patientJob = patientLookupJobSchema.safeParse({
+          name: event.event_type,
+          version: event.version,
+          payload: {
+            eventId: event.id,
+            patientId: outboxPayload.success ? outboxPayload.data.patientId : undefined,
+          },
+          correlationId: event.correlation_id,
+          idempotencyKey: event.idempotency_key,
+        });
+        if (!outboxPayload.success || event.version !== 1 || !patientJob.success) {
+          await client.query(
+            `update outbox_events
+             set status = 'FAILED', attempts = attempts + 1,
+                 last_error = 'PATIENT_LOOKUP_INVALID_EVENT'
+             where id = $1`,
+            [event.id],
+          );
+          await client.query('commit');
+          return true;
+        }
+        parsedJob = patientJob.data;
+        queueJobName = PATIENT_LOOKUP_JOB_NAME;
+        queueJobOptions = PATIENT_LOOKUP_JOB_OPTIONS;
+      } else {
+        const foundationJob = foundationJobSchema.safeParse({
+          name: event.event_type,
+          version: event.version,
+          payload: event.payload,
+          correlationId: event.correlation_id,
+          idempotencyKey: event.idempotency_key,
+        });
+        if (!foundationJob.success) {
+          await client.query(
+            `update outbox_events
+             set status = 'FAILED', attempts = attempts + 1,
+                 last_error = 'Unsupported legacy event; no active processor'
+             where id = $1`,
+            [event.id],
+          );
+          await client.query('commit');
+          return true;
+        }
+        parsedJob = foundationJob.data;
+        queueJobName = FOUNDATION_JOB_NAME;
+        queueJobOptions = FOUNDATION_JOB_OPTIONS;
       }
 
       const persisted = await client.query(
         'select 1 from job_results where queue = $1 and idempotency_key = $2',
-        [FOUNDATION_QUEUE, event.idempotency_key],
+        [FOUNDATION_QUEUE, parsedJob.idempotencyKey],
       );
       if (persisted.rowCount) {
         await client.query(
@@ -410,26 +491,28 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       }
 
       const jobId = createHash('sha256')
-        .update(`${FOUNDATION_QUEUE}:${event.idempotency_key}`)
+        .update(`${FOUNDATION_QUEUE}:${parsedJob.idempotencyKey}`)
         .digest('hex');
       const existingJob = await this.queue.getJob(jobId);
       if (existingJob) {
         const state = await existingJob.getState();
         if (state === 'failed' || state === 'completed') {
+          const failure = parsedJob.name === 'patient.lookup'
+            ? state === 'failed'
+              ? 'PATIENT_LOOKUP_RETRYABLE_FAILURE'
+              : 'PATIENT_LOOKUP_COMPLETED_WITHOUT_RESULT'
+            : state === 'failed'
+              ? existingJob.failedReason
+              : 'Completed queue job has no persistent result';
           await client.query(
             `update outbox_events set status = 'FAILED', last_error = $2 where id = $1`,
-            [
-              event.id,
-              state === 'failed'
-                ? existingJob.failedReason
-                : 'Completed queue job has no persistent result',
-            ],
+            [event.id, failure],
           );
           await client.query('commit');
           return true;
         }
       } else {
-        await this.queue.add(FOUNDATION_JOB_NAME, parsed.data, { ...FOUNDATION_JOB_OPTIONS, jobId });
+        await this.queue.add(queueJobName, parsedJob, { ...queueJobOptions, jobId });
       }
       await client.query(
         `update outbox_events
@@ -441,15 +524,35 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       return true;
     } catch (error) {
       await client.query('rollback');
-      this.logger.error({ error }, 'outbox dispatch failed');
-      Sentry.captureException(error);
+      if (patientEvent) {
+        this.logger.error({ code: 'PATIENT_LOOKUP_DISPATCH_FAILURE' }, 'patient event dispatch failed');
+      } else {
+        this.logger.error({ error }, 'outbox dispatch failed');
+        Sentry.captureException(error);
+      }
       return false;
     } finally {
       client.release();
     }
   }
 
-  private async process(rawJob: Job<FoundationJob>): Promise<{ processed: true }> {
+  private async process(rawJob: Job<WorkerJob>): Promise<{ processed: boolean }> {
+    if (rawJob.data.name === 'patient.lookup') {
+      const job = patientLookupJobSchema.parse(rawJob.data);
+      const inFlight = this.patientLookupInFlight.get(job.idempotencyKey);
+      if (inFlight) return inFlight;
+
+      const processing = this.processPatientLookup(job);
+      this.patientLookupInFlight.set(job.idempotencyKey, processing);
+      try {
+        return await processing;
+      } finally {
+        if (this.patientLookupInFlight.get(job.idempotencyKey) === processing) {
+          this.patientLookupInFlight.delete(job.idempotencyKey);
+        }
+      }
+    }
+
     const job = foundationJobSchema.parse(rawJob.data);
     await this.database.db
       .insert(jobResults)
@@ -468,9 +571,45 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     return { processed: true };
   }
 
+  private async processPatientLookup(job: PatientLookupJob): Promise<{ processed: boolean }> {
+    try {
+      const result = await processPatientLookupJob(this.database, this.patientLookupProcessor, job);
+      if (result.terminalCode) {
+        this.logger.error({ code: result.terminalCode }, 'patient lookup stopped in a terminal state');
+      }
+      return result;
+    } catch (error) {
+      if (error instanceof PatientLookupRetryableError) throw error;
+      throw new PatientLookupRetryableError();
+    }
+  }
+
   private async moveToDeadLetter(jobId: string, failedReason: string): Promise<void> {
     const job = await this.queue.getJob(jobId);
     if (!job || job.attemptsMade < (job.opts.attempts ?? 1)) return;
+
+    const patient = patientLookupJobSchema.safeParse(job.data);
+    if (patient.success) {
+      const safeReason = 'PATIENT_LOOKUP_RETRYABLE_FAILURE' as const;
+      await this.database.db
+        .update(outboxEvents)
+        .set({ status: 'FAILED', lastError: safeReason })
+        .where(eq(outboxEvents.id, patient.data.payload.eventId));
+      await this.deadLetterQueue.add(
+        'dead-letter.v1',
+        {
+          sourceQueue: FOUNDATION_QUEUE,
+          sourceJobId: jobId,
+          jobName: job.name,
+          payload: { eventId: patient.data.payload.eventId },
+          failedReason: safeReason,
+          failedAt: new Date().toISOString(),
+        },
+        { jobId: `dlq-${jobId}`, removeOnComplete: false, removeOnFail: false },
+      );
+      return;
+    }
+
     const parsed = foundationJobSchema.safeParse(job.data);
     if (!parsed.success) return;
     await this.database.db
@@ -492,6 +631,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async onApplicationShutdown(): Promise<void> {
+    this.patientChangesSyncScheduler?.stop();
     if (
       this.timer
     ) {

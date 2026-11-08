@@ -5,10 +5,11 @@ import { ALL_NAV_ITEMS, NAV_SECTIONS, isNavGroup } from './nav-config';
 describe('operational navigation', () => {
   const topLevel = NAV_SECTIONS[0]?.items ?? [];
 
-  it('exposes exactly three top-level modules', () => {
+  it('exposes the top-level modules including the patient master', () => {
     expect(topLevel.map((entry) => (isNavGroup(entry) ? entry.title : entry.title))).toEqual([
       'Dashboard',
       'Autorizaciones',
+      'Maestro de pacientes',
       'Inventario',
     ]);
   });
