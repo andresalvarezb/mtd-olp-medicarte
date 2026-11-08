@@ -157,6 +157,7 @@ function createHarness(
   const results = new Map<string, unknown>();
   const databaseUpdates: Array<Record<string, unknown>> = [];
   const patientUpdates: Array<{ patientId: string; status: string; errorCode: string | null }> = [];
+  const profileUpdates: Array<{ patientId: string; profile: Record<string, unknown> }> = [];
   const client = {
     query: async (statement: string, params: unknown[] = []) => {
       await Promise.resolve();
@@ -183,6 +184,16 @@ function createHarness(
         };
       }
       if (query.startsWith('update patients')) {
+        if (query.includes('mtdom_basic_profile')) {
+          const incoming = JSON.parse(String(params[1])) as Record<string, unknown>;
+          profileUpdates.push({
+            patientId: String(params[0]),
+            profile: Object.fromEntries(
+              Object.entries(incoming).filter(([, value]) => value !== null),
+            ),
+          });
+          return { rows: [], rowCount: 1 };
+        }
         patientUpdates.push({
           patientId: String(params[0]),
           status: String(params[1]),
@@ -267,7 +278,16 @@ function createHarness(
   };
   const config = { LOG_LEVEL: 'silent', REDIS_URL: 'redis://synthetic', SCHEDULER_ENABLED: false };
   const service = new WorkerService(config as never, database as never, processor as never);
-  return { service, events, results, databaseUpdates, patientUpdates, database, client };
+  return {
+    service,
+    events,
+    results,
+    databaseUpdates,
+    patientUpdates,
+    profileUpdates,
+    database,
+    client,
+  };
 }
 
 function dispatch(service: WorkerService): Promise<void> {
@@ -316,7 +336,7 @@ afterEach(() => {
 });
 
 describe('patient event outbox on synthetic transport', () => {
-  it('runs outbox → worker → MTDOM client → identity validation → technical state without persisting the profile', async () => {
+  it('runs outbox → worker → MTDOM client → identity validation and persists only the basic allowlist outside job results', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -362,6 +382,14 @@ describe('patient event outbox on synthetic transport', () => {
         errorCode: null,
       },
     ]);
+    expect(harness.profileUpdates).toHaveLength(1);
+    expect(harness.profileUpdates[0]?.profile).toMatchObject({
+      tipo_identificacion: 'CC',
+      identificacion: 'SYNTHETIC-0001',
+      primer_nombre: 'PACIENTE',
+    });
+    expect(harness.profileUpdates[0]?.profile).not.toHaveProperty('fecha_nacimiento');
+    expect(harness.profileUpdates[0]?.profile).not.toHaveProperty('segundo_nombre');
     const persisted = JSON.stringify({
       results: [...harness.results.values()],
       updates: harness.patientUpdates,
@@ -404,6 +432,7 @@ describe('patient event outbox on synthetic transport', () => {
         errorCode: 'PATIENT_IDENTITY_MISMATCH',
       },
     ]);
+    expect(harness.profileUpdates).toEqual([]);
   });
 
   it.each([

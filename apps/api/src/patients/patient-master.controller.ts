@@ -14,6 +14,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   patientMasterDetailSchema,
+  patientMasterPersonalResponseSchema,
   patientMasterSearchRequestSchema,
   patientMasterSearchResponseSchema,
   patientReconciliationCasesQuerySchema,
@@ -89,7 +90,7 @@ export class PatientMasterController {
       'patient_reconciliation.read',
     );
     assertPatientReconciliationReadAllowed(profile, organizationId);
-    const items = await this.service.reconciliationCases(query.limit);
+    const items = await this.service.reconciliationCases(organizationId, query.limit);
     return patientReconciliationCasesResponseSchema.parse({ items });
   }
 
@@ -115,8 +116,51 @@ export class PatientMasterController {
       request.auth.sub,
       dispensingPointId,
     );
-    const response = await this.service.detail(scope, patientId);
-    return patientMasterDetailSchema.parse(response);
+    const response = await this.service.detail(
+      scope,
+      patientId,
+      this.config.PATIENT_MASTER_DP07_APPROVED === true,
+    );
+    return patientMasterDetailSchema.parse({
+      ...response,
+      // DP-07 remains a hard runtime gate; actual services use the strict parsed
+      // production config and the gate defaults closed.
+      basicProfile: this.config.PATIENT_MASTER_DP07_APPROVED ? response.basicProfile : null,
+      basicProfileMetadata: this.config.PATIENT_MASTER_DP07_APPROVED
+        ? response.basicProfileMetadata
+        : null,
+    });
+  }
+
+  @Get(':id/personal')
+  async personalProfile(
+    @Param('id') rawPatientId: string,
+    @Query('dispensingPointId') rawPointId: string | undefined,
+    @Headers('x-organization-id') rawOrganizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    this.assertAccessEnabled();
+    if (!this.config.PATIENT_MASTER_DP07_APPROVED) {
+      throw PatientMasterController.featureUnavailable();
+    }
+    const patientId = uuidSchema.parse(rawPatientId);
+    const dispensingPointId = rawPointId ? uuidSchema.parse(rawPointId) : undefined;
+    const organizationId = uuidSchema.parse(rawOrganizationId);
+    await this.access.requirePermission(request.auth.sub, organizationId, 'patient_master.read');
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organizationId,
+      'patient_master.personal.read',
+    );
+    const scope = resolvePatientMasterScope(
+      profile,
+      organizationId,
+      request.auth.sub,
+      dispensingPointId,
+    );
+    return patientMasterPersonalResponseSchema.parse(
+      await this.service.personalProfile(scope, patientId),
+    );
   }
 
   static featureUnavailable(): ForbiddenException {

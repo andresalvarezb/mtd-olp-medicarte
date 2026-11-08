@@ -347,11 +347,19 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
     'ACTIVE',
     'MTD_ONLY',
   ),
-  permission('patient_master.read', 'patient-master', 'READ_MASTER', 'ACTIVE', 'MEDICARTE_POINT', {
+  permission('patient_master.read', 'patient-master', 'READ_MASTER', 'ACTIVE', 'MTD_ONLY', {
     configurable: false,
     structural: true,
     systemAllowed: false,
   }),
+  permission(
+    'patient_master.personal.read',
+    'patient-master',
+    'READ_PERSONAL_PROFILE',
+    'ACTIVE',
+    'MTD_ONLY',
+    { configurable: false, structural: true, systemAllowed: false },
+  ),
   permission(
     'patient_reconciliation.read',
     'patient-master',
@@ -714,8 +722,8 @@ export function validateAccessRegistry(): void {
     routes.add(module.route);
   }
 
-  if (permissionCodes.size !== 85) {
-    throw new Error(`Expected 85 current permission mappings, got ${permissionCodes.size}`);
+  if (permissionCodes.size !== 86) {
+    throw new Error(`Expected 86 current permission mappings, got ${permissionCodes.size}`);
   }
 }
 

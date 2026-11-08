@@ -64,6 +64,14 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: WEB_ORIGIN
         value: https://authorization-web.onrender.com
+      - key: PATIENT_MASTER_ACCESS_ENABLED
+        value: 'false'
+      - key: PATIENT_MASTER_SCOPE_POLICY_APPROVED
+        value: 'false'
+      - key: PATIENT_MASTER_DP07_APPROVED
+        value: 'false'
+      - key: PATIENT_MASTER_SCOPE_POLICY_VERSION
+        value: ''
 
   - type: worker
     name: authorization-worker

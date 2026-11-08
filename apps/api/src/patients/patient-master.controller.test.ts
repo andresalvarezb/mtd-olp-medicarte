@@ -58,6 +58,38 @@ function fixture(organizationProfile: MeResponse) {
     search: vi.fn().mockResolvedValue(response),
     detail: vi.fn().mockResolvedValue({
       ...response.items[0],
+      basicProfile: {
+        tipo_identificacion: 'SINTETICO',
+        identificacion: 'NO-REAL-001',
+        primer_nombre: 'FICTICIO',
+        segundo_nombre: null,
+        primer_apellido: 'PRUEBA',
+        segundo_apellido: null,
+        sexo: null,
+        ciudad: null,
+        codigo_ciudad: null,
+        departamento: null,
+        codigo_departamento: null,
+        eps: null,
+        codigo_eps: null,
+        plan: null,
+        codigo_plan: null,
+        tipo: null,
+        codigo_tipo: null,
+        condicion: null,
+        activo: null,
+        paciente_vivo: null,
+        fecha_fallecimiento: null,
+        presente_en_fuente_actual: null,
+        registraduria_estado: null,
+        fecha_ultima_validacion_registraduria: null,
+        actualizado_en: '2026-11-08T00:00:00Z',
+      },
+      basicProfileMetadata: {
+        source: 'MTDOM',
+        fetchedAt: '2026-11-08T00:00:00.000Z',
+        sourceUpdatedAt: null,
+      },
       authorizationEvidence: [
         {
           id: '50000000-0000-4000-8000-000000000001',
@@ -69,6 +101,7 @@ function fixture(organizationProfile: MeResponse) {
       ],
     }),
     reconciliationCases: vi.fn().mockResolvedValue([]),
+    personalProfile: vi.fn().mockResolvedValue({ patientId: PATIENT, personalProfile: null }),
   };
   const access = {
     requirePermission: vi.fn().mockResolvedValue(organizationProfile),
@@ -98,6 +131,43 @@ describe('PatientMasterController', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(access.requirePermission).not.toHaveBeenCalled();
     expect(service.search).not.toHaveBeenCalled();
+  });
+
+  it('keeps synthetic profile fields out of the API while DP-07 is closed', async () => {
+    const setup = fixture(
+      profile({
+        organizationId: MTD_ORG,
+        organizationCode: 'MTD',
+        role: 'MTD_ADMIN',
+        permissions: ['patient_master.read'],
+      }),
+    );
+    const response = await setup.controller.detail(PATIENT, undefined, MTD_ORG, request);
+    expect(response.basicProfile).toBeNull();
+    expect(response.basicProfileMetadata).toBeNull();
+    expect(setup.service.detail).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: MTD_ORG }),
+      PATIENT,
+      false,
+    );
+    expect(JSON.stringify(response)).not.toContain('FICTICIO');
+    expect(JSON.stringify(response)).not.toContain('NO-REAL-001');
+  });
+
+  it('blocks personal profile even when a test profile contains its capability while DP-07 is closed', async () => {
+    const setup = fixture(
+      profile({
+        organizationId: MTD_ORG,
+        organizationCode: 'MTD',
+        role: 'MTD_ADMIN',
+        permissions: ['patient_master.personal.read'],
+      }),
+    );
+    await expect(
+      setup.controller.personalProfile(PATIENT, undefined, MTD_ORG, request),
+    ).rejects.toMatchObject({ response: { code: 'PATIENT_MASTER_ACCESS_DISABLED' } });
+    expect(setup.access.requirePermission).not.toHaveBeenCalled();
+    expect(setup.service.personalProfile).not.toHaveBeenCalled();
   });
 
   it('searches only after the dedicated permission and returns a PII-minimized contract', async () => {
@@ -136,7 +206,7 @@ describe('PatientMasterController', () => {
     expect(JSON.stringify(response)).not.toContain('document');
   });
 
-  it('filters the patient-shared authorization result to the explicitly granted point', async () => {
+  it('denies a legacy Medicarte master grant before querying any patient data', async () => {
     const setup = fixture(
       profile({
         organizationId: MEDICARTE_ORG,
@@ -146,16 +216,14 @@ describe('PatientMasterController', () => {
         pointAccess: { kind: 'explicit', accessiblePointIds: [POINT_A] },
       }),
     );
-    await setup.controller.search(
-      { dispensingPointId: POINT_A, page: 1, limit: 25 },
-      MEDICARTE_ORG,
-      request,
-    );
-
-    expect(setup.service.search).toHaveBeenCalledWith(
-      expect.objectContaining({ organizationCode: 'MEDICARTE', dispensingPointId: POINT_A }),
-      expect.objectContaining({ dispensingPointId: POINT_A }),
-    );
+    await expect(
+      setup.controller.search(
+        { dispensingPointId: POINT_A, page: 1, limit: 25 },
+        MEDICARTE_ORG,
+        request,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(setup.service.search).not.toHaveBeenCalled();
   });
 
   it('denies OLP even if a malformed profile contains the master permission', async () => {
@@ -188,5 +256,25 @@ describe('PatientMasterController', () => {
       setup.controller.reconciliationCases({}, MEDICARTE_ORG, request),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(setup.service.reconciliationCases).not.toHaveBeenCalled();
+  });
+
+  it('passes the authorized MTD organization into reconciliation queries', async () => {
+    const setup = fixture(
+      profile({
+        organizationId: MTD_ORG,
+        organizationCode: 'MTD',
+        role: 'MTD_ADMIN',
+        permissions: ['patient_reconciliation.read'],
+      }),
+    );
+
+    await setup.controller.reconciliationCases({ limit: 12 }, MTD_ORG, request);
+
+    expect(setup.access.requirePermission).toHaveBeenCalledWith(
+      USER,
+      MTD_ORG,
+      'patient_reconciliation.read',
+    );
+    expect(setup.service.reconciliationCases).toHaveBeenCalledWith(MTD_ORG, 12);
   });
 });

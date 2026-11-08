@@ -8,6 +8,7 @@ import { NestFactory } from '@nestjs/core';
 import {
   patientMasterDetailSchema,
   patientMasterSearchResponseSchema,
+  patientReconciliationCasesResponseSchema,
 } from '@authorization/contracts';
 import { createDatabase } from '@authorization/database';
 import supertest from 'supertest';
@@ -70,6 +71,8 @@ const fixture = {
   pageAuthorizationIds: Array.from({ length: 26 }, () => randomUUID()),
   pagePatientIds: Array.from({ length: 26 }, () => randomUUID()),
   scheduleIds: [randomUUID(), randomUUID()],
+  reconciliationBatchIds: [randomUUID(), randomUUID()],
+  reconciliationItemIds: [randomUUID(), randomUUID()],
   planningPeriodId: randomUUID(),
   outOfScopePointId: randomUUID(),
   identitySuffix: randomUUID(),
@@ -192,6 +195,59 @@ describe.skipIf(!process.env.DATABASE_URL)(
           [fixture.patientIds[index], `TEST-PAC-${fixture.identitySuffix}-${index}`],
         );
       }
+      await query.query(
+        `update patients
+            set mtdom_basic_profile = $2::jsonb,
+                mtdom_basic_profile_source = 'MTDOM',
+                mtdom_basic_profile_fetched_at = now(),
+                mtdom_basic_profile_source_updated_at = now(),
+                mtdom_personal_profile = $3::jsonb,
+                mtdom_personal_profile_source = 'MTDOM',
+                mtdom_personal_profile_fetched_at = now()
+          where id = $1::uuid`,
+        [
+          fixture.patientIds[0],
+          JSON.stringify({
+            tipo_identificacion: 'TEST',
+            identificacion: `SYN-${fixture.identitySuffix.slice(0, 12)}-0`,
+            primer_nombre: 'FICTICIO',
+            segundo_nombre: null,
+            primer_apellido: 'PRUEBA',
+            segundo_apellido: null,
+            sexo: 'SINTETICO',
+            ciudad: 'CIUDAD-FICTICIA',
+            codigo_ciudad: '00001',
+            departamento: 'DEPARTAMENTO-FICTICIO',
+            codigo_departamento: '00',
+            eps: 'EPS-FICTICIA',
+            codigo_eps: 'EPS-00',
+            plan: 'PLAN-SINTETICO',
+            codigo_plan: 'PL-00',
+            tipo: 'TIPO-SINTETICO',
+            codigo_tipo: 'T-00',
+            condicion: null,
+            activo: true,
+            paciente_vivo: true,
+            fecha_fallecimiento: null,
+            presente_en_fuente_actual: true,
+            registraduria_estado: null,
+            fecha_ultima_validacion_registraduria: null,
+            actualizado_en: '2026-11-08T00:00:00.000Z',
+          }),
+          JSON.stringify({
+            fecha_nacimiento: '2000-01-01',
+            direccion: 'DIRECCION-FICTICIA-001',
+            barrio: 'BARRIO-SINTETICO',
+            zona: 'URBANA-SINTETICA',
+            latitud: 1.1,
+            longitud: -70.2,
+            telefono1: '0000000000',
+            telefono2: null,
+            email: 'synthetic@example.invalid',
+            email_validado: false,
+          }),
+        ],
+      );
 
       const [sharedId, mtdOnlyId, outOfScopeId] = fixture.patientIds;
       const [sharedAuthId, sharedMtdAuthId, outOfScopeAuthId] = fixture.authorizationIds;
@@ -248,6 +304,34 @@ describe.skipIf(!process.env.DATABASE_URL)(
         scheduleId: randomUUID(),
         personSuffix: 'MED-ONLY',
       });
+      const reconciliationCases = [
+        {
+          batchId: fixture.reconciliationBatchIds[0]!,
+          itemId: fixture.reconciliationItemIds[0]!,
+          organizationId: fixture.mtdOrganizationId,
+          authorizationItemId: sharedAuthId,
+        },
+        {
+          batchId: fixture.reconciliationBatchIds[1]!,
+          itemId: fixture.reconciliationItemIds[1]!,
+          organizationId: fixture.medicarteOrganizationId,
+          authorizationItemId: medicarteOnlyAuthorizationId,
+        },
+      ];
+      for (const item of reconciliationCases) {
+        await query.query(
+          `insert into patient_backfill_batches (
+             id, organization_id, policy_version, batch_size
+           ) values ($1, $2, 'SYNTHETIC_SCOPE_TEST_V1', 1)`,
+          [item.batchId, item.organizationId],
+        );
+        await query.query(
+          `insert into patient_backfill_items (
+             id, batch_id, authorization_item_id, status, reason_code
+           ) values ($1, $2, $3, 'NEEDS_RECONCILIATION', 'SYNTHETIC_SCOPE_TEST')`,
+          [item.itemId, item.batchId, item.authorizationItemId],
+        );
+      }
       // Keep the second patient explicitly MTD-only for cross-organization access tests.
       await insertAuthorization({
         id: randomUUID(),
@@ -282,6 +366,12 @@ describe.skipIf(!process.env.DATABASE_URL)(
 
     afterAll(async () => {
       await httpApp?.close();
+      await query.query('delete from patient_backfill_items where batch_id = any($1::uuid[])', [
+        fixture.reconciliationBatchIds,
+      ]);
+      await query.query('delete from patient_backfill_batches where id = any($1::uuid[])', [
+        fixture.reconciliationBatchIds,
+      ]);
       const authorizationIds = await query.query<{ id: string }>(
         `select id from authorization_items where numero_autorizacion like $1`,
         [`TEST-PAC-%-${fixture.identitySuffix}`],
@@ -469,6 +559,19 @@ describe.skipIf(!process.env.DATABASE_URL)(
       expect(sharedBody.items[0]?.linkedAuthorizationCount).toBe(2);
       expect(JSON.stringify(sharedBody)).not.toContain(fixture.identitySuffix);
 
+      const reconciliationCases = await supertest(server)
+        .get('/api/v1/patient-master/reconciliation-cases')
+        .query({ limit: 10 })
+        .set('Authorization', `Bearer ${mtdToken.token}`)
+        .set('X-Organization-Id', fixture.mtdOrganizationId);
+      expect(reconciliationCases.status).toBe(200);
+      const scopedCases = patientReconciliationCasesResponseSchema.parse(
+        reconciliationCases.body as unknown,
+      );
+      expect(scopedCases.items).toHaveLength(1);
+      expect(scopedCases.items[0]?.authorizationItemId).toBe(fixture.authorizationIds[0]);
+      expect(JSON.stringify(scopedCases)).not.toContain(fixture.authorizationIds[3]);
+
       const pointDetail = await supertest(server)
         .get(`/api/v1/patient-master/${fixture.patientIds[0]}`)
         .query({ dispensingPointId: fixture.pointId })
@@ -478,6 +581,15 @@ describe.skipIf(!process.env.DATABASE_URL)(
       expect(
         patientMasterDetailSchema.parse(pointDetail.body as unknown).authorizationEvidence,
       ).toHaveLength(1);
+      expect(patientMasterDetailSchema.parse(pointDetail.body as unknown).basicProfile).toBeNull();
+
+      const personalDenied = await supertest(server)
+        .get(`/api/v1/patient-master/${fixture.patientIds[0]}/personal`)
+        .query({ dispensingPointId: fixture.pointId })
+        .set('Authorization', `Bearer ${medicarteToken.token}`)
+        .set('X-Organization-Id', fixture.medicarteOrganizationId);
+      expect(personalDenied.status).toBe(403);
+      expect(JSON.stringify(personalDenied.body as unknown)).not.toContain('DIRECCION-FICTICIA');
 
       const outOfScopePoint = await supertest(server)
         .post('/api/v1/patient-master/search')
@@ -511,6 +623,39 @@ describe.skipIf(!process.env.DATABASE_URL)(
         .set('X-Organization-Id', fixture.mtdOrganizationId)
         .send({ page: 1, limit: 10 });
       expect(otherOrganization.status).toBe(403);
+    });
+
+    it('maps only the allowlisted synthetic profile objects under repository scope', async () => {
+      const repository = new PatientMasterRepository(database);
+      const scope = {
+        organizationId: fixture.mtdOrganizationId,
+        organizationCode: 'MTD' as const,
+        userId: fixture.mtdUserId,
+        pointAccessKind: 'global' as const,
+        dispensingPointId: null,
+      };
+      const detail = await repository.detail(scope, fixture.patientIds[0]!, true);
+      expect(detail?.basicProfile?.primer_nombre).toBe('FICTICIO');
+      expect(detail?.basicProfileMetadata).toMatchObject({ source: 'MTDOM' });
+      expect(detail?.basicProfile?.identificacion).toMatch(/^SYN-/);
+      expect(JSON.stringify(detail)).not.toContain('DIRECCION-FICTICIA');
+      const personal = await repository.personalProfile(scope, fixture.patientIds[0]!);
+      expect(personal?.personalProfile?.direccion).toBe('DIRECCION-FICTICIA-001');
+      expect(personal?.personalProfileMetadata).toMatchObject({ source: 'MTDOM' });
+      const outOfScope = await repository.personalProfile(
+        { ...scope, organizationId: fixture.olpOrganizationId },
+        fixture.patientIds[2]!,
+      );
+      expect(outOfScope).toBeNull();
+      const forbiddenKey = await query
+        .query(
+          `update patients
+            set mtdom_basic_profile = mtdom_basic_profile || '{"unapproved_field":"synthetic"}'::jsonb
+          where id = $1::uuid`,
+          [fixture.patientIds[0]],
+        )
+        .catch((error: unknown) => error as { code?: string });
+      expect((forbiddenKey as { code?: string }).code).toBe('23514');
     });
   },
 );

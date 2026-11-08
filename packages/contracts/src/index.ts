@@ -158,6 +158,64 @@ export const patientMasterSearchRequestSchema = z
   });
 export type PatientMasterSearchRequest = z.infer<typeof patientMasterSearchRequestSchema>;
 
+// Allowlisted MTDOM profile shapes. These contracts never accept a raw MTDOM payload.
+const nullablePatientText = z.string().max(2048).nullable();
+export const patientMasterBasicProfileSchema = z
+  .object({
+    tipo_identificacion: z.string().max(10),
+    identificacion: z.string().max(30),
+    primer_nombre: nullablePatientText,
+    segundo_nombre: nullablePatientText,
+    primer_apellido: nullablePatientText,
+    segundo_apellido: nullablePatientText,
+    sexo: nullablePatientText,
+    ciudad: nullablePatientText,
+    codigo_ciudad: nullablePatientText,
+    departamento: nullablePatientText,
+    codigo_departamento: nullablePatientText,
+    eps: nullablePatientText,
+    codigo_eps: nullablePatientText,
+    plan: nullablePatientText,
+    codigo_plan: nullablePatientText,
+    tipo: nullablePatientText,
+    codigo_tipo: nullablePatientText,
+    condicion: nullablePatientText,
+    activo: z.boolean().nullable(),
+    paciente_vivo: z.boolean().nullable(),
+    fecha_fallecimiento: nullablePatientText,
+    presente_en_fuente_actual: z.boolean().nullable(),
+    registraduria_estado: nullablePatientText,
+    fecha_ultima_validacion_registraduria: nullablePatientText,
+    actualizado_en: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export type PatientMasterBasicProfile = z.infer<typeof patientMasterBasicProfileSchema>;
+
+export const patientMasterPersonalProfileSchema = z
+  .object({
+    fecha_nacimiento: nullablePatientText,
+    direccion: nullablePatientText,
+    barrio: nullablePatientText,
+    zona: nullablePatientText,
+    latitud: z.number().min(-90).max(90).nullable(),
+    longitud: z.number().min(-180).max(180).nullable(),
+    telefono1: nullablePatientText,
+    telefono2: nullablePatientText,
+    email: z.string().max(320).nullable(),
+    email_validado: z.boolean().nullable(),
+  })
+  .strict();
+export type PatientMasterPersonalProfile = z.infer<typeof patientMasterPersonalProfileSchema>;
+
+export const patientMasterProfileMetadataSchema = z
+  .object({
+    source: z.literal('MTDOM'),
+    fetchedAt: z.string().datetime().nullable(),
+    sourceUpdatedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+export type PatientMasterProfileMetadata = z.infer<typeof patientMasterProfileMetadataSchema>;
+
 export const patientMasterListItemSchema = z.object({
   id: z.string().uuid(),
   identityStatus: z.literal('LOCAL_KEY_RECORDED'),
@@ -198,9 +256,18 @@ export const patientMasterSearchResponseSchema = z.object({
 export type PatientMasterSearchResponse = z.infer<typeof patientMasterSearchResponseSchema>;
 
 export const patientMasterDetailSchema = patientMasterListItemSchema.extend({
+  basicProfile: patientMasterBasicProfileSchema.nullable(),
+  basicProfileMetadata: patientMasterProfileMetadataSchema.nullable(),
   authorizationEvidence: z.array(patientMasterAuthorizationEvidenceSchema),
 });
 export type PatientMasterDetail = z.infer<typeof patientMasterDetailSchema>;
+
+export const patientMasterPersonalResponseSchema = z.object({
+  patientId: z.string().uuid(),
+  personalProfile: patientMasterPersonalProfileSchema.nullable(),
+  personalProfileMetadata: patientMasterProfileMetadataSchema.nullable(),
+});
+export type PatientMasterPersonalResponse = z.infer<typeof patientMasterPersonalResponseSchema>;
 
 export const patientReconciliationCaseSchema = z.object({
   id: z.string().uuid(),

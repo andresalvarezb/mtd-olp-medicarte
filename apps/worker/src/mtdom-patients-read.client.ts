@@ -28,15 +28,20 @@ export type MtdomBasicPatient = Readonly<{
 
 type MtdomErrorEnvelope = Readonly<{ ok: false; error: string; message: string }>;
 export type MtdomLookupResponse =
-  | Readonly<{ kind: 'FOUND'; patient: MtdomBasicPatient }>
-  | Readonly<{ kind: 'NOT_FOUND' }>
-  | Readonly<{ kind: 'AMBIGUOUS' }>;
+  | Readonly<{
+      kind: 'FOUND';
+      patient: MtdomBasicPatient;
+      diagnosticRequestId?: string;
+    }>
+  | Readonly<{ kind: 'NOT_FOUND'; diagnosticRequestId?: string }>
+  | Readonly<{ kind: 'AMBIGUOUS'; diagnosticRequestId?: string }>;
 
 export class MtdomPatientsReadError extends Error {
   constructor(
     readonly code: string,
     readonly retryable: boolean,
     readonly retryAfterMs?: number,
+    readonly diagnosticRequestId?: string,
   ) {
     super(`MTDOM_${code}`);
     this.name = 'MtdomPatientsReadError';
@@ -51,7 +56,11 @@ export type MtdomPatientsReadClientOptions = Readonly<{
 }>;
 
 const API_BASE_URL = 'https://api.mtdom.com';
+const MTDOM_DOCUMENT_TYPE_MAX_LENGTH = 10;
+const MTDOM_DOCUMENT_VALUE_MAX_LENGTH = 30;
 const MAX_RETRY_AFTER_MS = 5 * 60 * 1000;
+const MTDOM_REQUEST_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const BASIC_PATIENT_FIELDS = [
   'tipo_identificacion',
   'identificacion',
@@ -89,6 +98,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function characterLength(value: string): number {
+  return Array.from(value).length;
+}
+
 function parseBasicPatient(value: unknown): MtdomBasicPatient | null {
   if (!isRecord(value)) return null;
   if (
@@ -101,14 +114,14 @@ function parseBasicPatient(value: unknown): MtdomBasicPatient | null {
   }
   if (
     typeof value.tipo_identificacion !== 'string' ||
-    value.tipo_identificacion.length < 1 ||
-    value.tipo_identificacion.length > 80
+    value.tipo_identificacion.trim().length < 1 ||
+    characterLength(value.tipo_identificacion) > MTDOM_DOCUMENT_TYPE_MAX_LENGTH
   )
     return null;
   if (
     typeof value.identificacion !== 'string' ||
-    value.identificacion.length < 1 ||
-    value.identificacion.length > 255
+    value.identificacion.trim().length < 1 ||
+    characterLength(value.identificacion) > MTDOM_DOCUMENT_VALUE_MAX_LENGTH
   )
     return null;
   for (const field of TEXT_PATIENT_FIELDS) {
@@ -146,6 +159,12 @@ function parseErrorEnvelope(value: unknown): MtdomErrorEnvelope | null {
   )
     return null;
   return value as MtdomErrorEnvelope;
+}
+
+function readDiagnosticRequestId(response: Response): string | undefined {
+  const value = response.headers.get('x-request-id');
+  if (!value || !MTDOM_REQUEST_ID_PATTERN.test(value)) return undefined;
+  return value.toLowerCase();
 }
 
 function safeRetryAfterMs(value: string | null, nowMs: number): number | undefined {
@@ -199,9 +218,11 @@ export class MtdomPatientsReadClient {
     };
     if (
       !identity.documentType ||
-      identity.documentType.length > 80 ||
+      !identity.documentType.trim() ||
+      characterLength(identity.documentType.trim()) > MTDOM_DOCUMENT_TYPE_MAX_LENGTH ||
       !identity.documentValue ||
-      identity.documentValue.length > 255
+      !identity.documentValue.trim() ||
+      characterLength(identity.documentValue.trim()) > MTDOM_DOCUMENT_VALUE_MAX_LENGTH
     ) {
       throw new MtdomPatientsReadError('INVALID_LOCAL_IDENTITY', false);
     }
@@ -234,56 +255,114 @@ export class MtdomPatientsReadClient {
   }
 
   private async interpretResponse(response: Response): Promise<MtdomLookupResponse> {
+    const diagnosticRequestId = readDiagnosticRequestId(response);
     if (response.status === 401 || response.status === 403) {
-      throw new MtdomPatientsReadError('AUTH_BLOCKED', false);
+      throw new MtdomPatientsReadError('AUTH_BLOCKED', false, undefined, diagnosticRequestId);
     }
     if (response.status === 404 || response.status === 409) {
-      const error = await this.readErrorEnvelope(response);
+      const error = await this.readErrorEnvelope(response, diagnosticRequestId);
       if (response.status === 404 && error.error === 'PATIENT_NOT_FOUND')
-        return { kind: 'NOT_FOUND' };
+        return { kind: 'NOT_FOUND', ...(diagnosticRequestId ? { diagnosticRequestId } : {}) };
       if (response.status === 409 && error.error === 'AMBIGUOUS_PATIENT_IDENTITY')
-        return { kind: 'AMBIGUOUS' };
-      throw new MtdomPatientsReadError('UNEXPECTED_ERROR_RESPONSE', false);
+        return { kind: 'AMBIGUOUS', ...(diagnosticRequestId ? { diagnosticRequestId } : {}) };
+      throw new MtdomPatientsReadError(
+        'UNEXPECTED_ERROR_RESPONSE',
+        false,
+        undefined,
+        diagnosticRequestId,
+      );
     }
     if (response.status === 429) {
       throw new MtdomPatientsReadError(
         'RATE_LIMITED',
         true,
         safeRetryAfterMs(response.headers.get('retry-after'), Date.now()),
+        diagnosticRequestId,
       );
     }
-    if (response.status >= 500) throw new MtdomPatientsReadError('REMOTE_SERVER_ERROR', true);
-    if (response.status !== 200) throw new MtdomPatientsReadError('UNEXPECTED_HTTP_STATUS', false);
+    if (response.status >= 500)
+      throw new MtdomPatientsReadError('REMOTE_SERVER_ERROR', true, undefined, diagnosticRequestId);
+    if (response.status !== 200)
+      throw new MtdomPatientsReadError(
+        'UNEXPECTED_HTTP_STATUS',
+        false,
+        undefined,
+        diagnosticRequestId,
+      );
     if (!response.headers.get('content-type')?.toLowerCase().includes('application/json')) {
-      throw new MtdomPatientsReadError('UNEXPECTED_CONTENT_TYPE', false);
+      throw new MtdomPatientsReadError(
+        'UNEXPECTED_CONTENT_TYPE',
+        false,
+        undefined,
+        diagnosticRequestId,
+      );
     }
 
     let payload: unknown;
     try {
       payload = await response.json();
     } catch {
-      throw new MtdomPatientsReadError('INVALID_JSON_RESPONSE', false);
+      throw new MtdomPatientsReadError(
+        'INVALID_JSON_RESPONSE',
+        false,
+        undefined,
+        diagnosticRequestId,
+      );
     }
     if (!isRecord(payload) || Object.keys(payload).length !== 2 || payload.ok !== true) {
-      throw new MtdomPatientsReadError('INVALID_SUCCESS_RESPONSE', false);
+      throw new MtdomPatientsReadError(
+        'INVALID_SUCCESS_RESPONSE',
+        false,
+        undefined,
+        diagnosticRequestId,
+      );
     }
     const patient = parseBasicPatient(payload.data);
-    if (!patient) throw new MtdomPatientsReadError('INVALID_SUCCESS_RESPONSE', false);
-    return { kind: 'FOUND', patient };
+    if (!patient)
+      throw new MtdomPatientsReadError(
+        'INVALID_SUCCESS_RESPONSE',
+        false,
+        undefined,
+        diagnosticRequestId,
+      );
+    return {
+      kind: 'FOUND',
+      patient,
+      ...(diagnosticRequestId ? { diagnosticRequestId } : {}),
+    };
   }
 
-  private async readErrorEnvelope(response: Response): Promise<MtdomErrorEnvelope> {
+  private async readErrorEnvelope(
+    response: Response,
+    diagnosticRequestId?: string,
+  ): Promise<MtdomErrorEnvelope> {
     if (!response.headers.get('content-type')?.toLowerCase().includes('application/json')) {
-      throw new MtdomPatientsReadError('UNEXPECTED_ERROR_CONTENT_TYPE', false);
+      throw new MtdomPatientsReadError(
+        'UNEXPECTED_ERROR_CONTENT_TYPE',
+        false,
+        undefined,
+        diagnosticRequestId,
+      );
     }
     let payload: unknown;
     try {
       payload = await response.json();
     } catch {
-      throw new MtdomPatientsReadError('INVALID_ERROR_RESPONSE', false);
+      throw new MtdomPatientsReadError(
+        'INVALID_ERROR_RESPONSE',
+        false,
+        undefined,
+        diagnosticRequestId,
+      );
     }
     const parsed = parseErrorEnvelope(payload);
-    if (!parsed) throw new MtdomPatientsReadError('INVALID_ERROR_RESPONSE', false);
+    if (!parsed)
+      throw new MtdomPatientsReadError(
+        'INVALID_ERROR_RESPONSE',
+        false,
+        undefined,
+        diagnosticRequestId,
+      );
     return parsed;
   }
 }

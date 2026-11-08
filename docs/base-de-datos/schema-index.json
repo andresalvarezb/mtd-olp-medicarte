@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "packages/database/src/schema.ts",
-  "sourceSha256": "651295b217c552abde242c8f87ee10f590fa5c87b930016e1de91934446fdedb",
+  "sourceSha256": "a2a0665bf41738125c78c9449fb1a7a94951844ac18260faf1b754f66eae479b",
   "kind": "drizzle-static",
   "notLiveDatabase": true,
   "groupLabels": {
@@ -8474,6 +8474,62 @@
           "default": null
         },
         {
+          "name": "mtdom_basic_profile",
+          "type": "jsonb",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "mtdom_basic_profile_source",
+          "type": "varchar(20)",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "mtdom_basic_profile_fetched_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "mtdom_basic_profile_source_updated_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "mtdom_personal_profile",
+          "type": "jsonb",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "mtdom_personal_profile_source",
+          "type": "varchar(20)",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "mtdom_personal_profile_fetched_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "mtdom_personal_profile_source_updated_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
           "name": "created_at",
           "type": "timestamp",
           "nullable": false,
@@ -8498,7 +8554,10 @@
       "checks": [
         "patients_identification_type_not_blank_check",
         "patients_identification_value_not_blank_check",
-        "patients_mtdom_lookup_status_check"
+        "patients_mtdom_lookup_status_check",
+        "patients_mtdom_basic_profile_allowlist_check",
+        "patients_mtdom_personal_profile_allowlist_check",
+        "patients_mtdom_profile_provenance_check"
       ]
     },
     {

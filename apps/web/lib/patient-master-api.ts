@@ -1,5 +1,6 @@
 import type {
   PatientMasterDetail,
+  PatientMasterPersonalResponse,
   PatientMasterSearchRequest,
   PatientMasterSearchResponse,
   PatientReconciliationCasesResponse,
@@ -34,6 +35,21 @@ export function getPatientMasterDetail(
       organizationId,
       signal,
     },
+  );
+}
+
+export function getPatientMasterPersonalProfile(
+  organizationId: string,
+  patientId: string,
+  dispensingPointId?: string,
+  signal?: AbortSignal,
+): Promise<PatientMasterPersonalResponse> {
+  const query = dispensingPointId
+    ? `?dispensingPointId=${encodeURIComponent(dispensingPointId)}`
+    : '';
+  return apiRequest<PatientMasterPersonalResponse>(
+    `/patient-master/${encodeURIComponent(patientId)}/personal${query}`,
+    { organizationId, signal },
   );
 }
 

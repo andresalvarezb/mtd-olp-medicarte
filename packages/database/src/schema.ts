@@ -235,6 +235,16 @@ export const patients = pgTable(
     mtdomLastCheckedAt: timestamp('mtdom_last_checked_at', { withTimezone: true }),
     mtdomLastErrorCode: varchar('mtdom_last_error_code', { length: 80 }),
     mtdomChangesSeenAt: timestamp('mtdom_changes_seen_at', { withTimezone: true }),
+    // Explicit profile allowlists are enforced by contracts and DB CHECKs. These remain empty
+    // unless the approved DP-07 runtime gate is enabled. Personal is never fetched by this worker.
+    mtdomBasicProfile: jsonb('mtdom_basic_profile'),
+    mtdomBasicProfileSource: varchar('mtdom_basic_profile_source', { length: 20 }),
+    mtdomBasicProfileFetchedAt: timestamp('mtdom_basic_profile_fetched_at', { withTimezone: true }),
+    mtdomBasicProfileSourceUpdatedAt: timestamp('mtdom_basic_profile_source_updated_at', { withTimezone: true }),
+    mtdomPersonalProfile: jsonb('mtdom_personal_profile'),
+    mtdomPersonalProfileSource: varchar('mtdom_personal_profile_source', { length: 20 }),
+    mtdomPersonalProfileFetchedAt: timestamp('mtdom_personal_profile_fetched_at', { withTimezone: true }),
+    mtdomPersonalProfileSourceUpdatedAt: timestamp('mtdom_personal_profile_source_updated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -254,6 +264,36 @@ export const patients = pgTable(
     check(
       'patients_mtdom_lookup_status_check',
       sql`${table.mtdomLookupStatus} IN ('NOT_REQUESTED', 'MATCHED_PENDING_APPROVAL', 'NOT_FOUND', 'AMBIGUOUS', 'IDENTITY_MISMATCH', 'AUTH_BLOCKED', 'FAILED')`,
+    ),
+    check(
+      'patients_mtdom_basic_profile_allowlist_check',
+      sql`${table.mtdomBasicProfile} IS NULL OR (
+        jsonb_typeof(${table.mtdomBasicProfile}) = 'object'
+        AND ${table.mtdomBasicProfile} - ARRAY[
+          'tipo_identificacion','identificacion','primer_nombre','segundo_nombre','primer_apellido',
+          'segundo_apellido','sexo','ciudad','codigo_ciudad','departamento','codigo_departamento',
+          'eps','codigo_eps','plan','codigo_plan','tipo','codigo_tipo','condicion','activo',
+          'paciente_vivo','fecha_fallecimiento','presente_en_fuente_actual','registraduria_estado',
+          'fecha_ultima_validacion_registraduria','actualizado_en'
+        ]::text[] = '{}'::jsonb
+      )`,
+    ),
+    check(
+      'patients_mtdom_personal_profile_allowlist_check',
+      sql`${table.mtdomPersonalProfile} IS NULL OR (
+        jsonb_typeof(${table.mtdomPersonalProfile}) = 'object'
+        AND ${table.mtdomPersonalProfile} - ARRAY[
+          'fecha_nacimiento','direccion','barrio','zona','latitud','longitud','telefono1',
+          'telefono2','email','email_validado'
+        ]::text[] = '{}'::jsonb
+      )`,
+    ),
+    check(
+      'patients_mtdom_profile_provenance_check',
+      sql`(${table.mtdomBasicProfileSource} IS NULL OR ${table.mtdomBasicProfileSource} = 'MTDOM')
+        AND (${table.mtdomPersonalProfileSource} IS NULL OR ${table.mtdomPersonalProfileSource} = 'MTDOM')
+        AND ((${table.mtdomBasicProfile} IS NULL) = (${table.mtdomBasicProfileSource} IS NULL))
+        AND ((${table.mtdomPersonalProfile} IS NULL) = (${table.mtdomPersonalProfileSource} IS NULL))`,
     ),
   ],
 );

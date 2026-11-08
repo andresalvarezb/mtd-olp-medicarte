@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import type {
   PatientMasterDetail,
+  PatientMasterPersonalResponse,
   PatientMasterSearchResponse,
   PatientReconciliationCase,
 } from '@authorization/contracts';
@@ -12,6 +13,7 @@ import { useRole } from '@/components/layout/role-context';
 import { ApiError } from '@/lib/api-client';
 import {
   getPatientMasterDetail,
+  getPatientMasterPersonalProfile,
   listPatientReconciliationCases,
   searchPatientMaster,
 } from '@/lib/patient-master-api';
@@ -34,6 +36,12 @@ function statusLabel(status: string): string {
   return status.replaceAll('_', ' ');
 }
 
+function profileValue(value: string | number | boolean | null): string {
+  if (value === null) return 'Sin dato reportado';
+  if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+  return String(value);
+}
+
 export function PatientMasterView() {
   const { me, organizationId, hasPermission } = useRole();
   const organization = me?.organizations.find((item) => item.id === organizationId);
@@ -41,6 +49,7 @@ export function PatientMasterView() {
   const accessiblePointIds = organization?.pointAccess.accessiblePointIds ?? [];
   const hasReadPermission = hasPermission('patient_master.read');
   const canReadReconciliation = hasPermission('patient_reconciliation.read');
+  const canReadPersonal = hasPermission('patient_master.personal.read');
 
   const [pointId, setPointId] = useState('');
   const [identityType, setIdentityType] = useState('');
@@ -55,6 +64,8 @@ export function PatientMasterView() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<PatientMasterDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [personal, setPersonal] = useState<PatientMasterPersonalResponse | null>(null);
+  const [personalError, setPersonalError] = useState<string | null>(null);
   const [cases, setCases] = useState<PatientReconciliationCase[] | null>(null);
   const [casesError, setCasesError] = useState<string | null>(null);
   const [showCases, setShowCases] = useState(false);
@@ -120,6 +131,8 @@ export function PatientMasterView() {
   const openDetail = async (patientId: string) => {
     if (!organizationId) return;
     setDetailError(null);
+    setPersonal(null);
+    setPersonalError(null);
     try {
       setSelected(
         await getPatientMasterDetail(organizationId, patientId, isMedicarte ? pointId : undefined),
@@ -127,6 +140,23 @@ export function PatientMasterView() {
     } catch (cause) {
       setSelected(null);
       setDetailError(safeErrorMessage(cause));
+    }
+  };
+
+  const openPersonal = async (patientId: string) => {
+    if (!organizationId || !canReadPersonal) return;
+    setPersonalError(null);
+    try {
+      setPersonal(
+        await getPatientMasterPersonalProfile(
+          organizationId,
+          patientId,
+          isMedicarte ? pointId : undefined,
+        ),
+      );
+    } catch (cause) {
+      setPersonal(null);
+      setPersonalError(safeErrorMessage(cause));
     }
   };
 
@@ -322,6 +352,101 @@ export function PatientMasterView() {
             <dt>Código técnico</dt>
             <dd>{selected.mtdomLastErrorCode ?? '—'}</dd>
           </dl>
+          {selected.basicProfile ? (
+            <>
+              <h3>Perfil básico MTDOM</h3>
+              <dl className={styles.details}>
+                {(
+                  [
+                    ['Tipo de identificación', selected.basicProfile.tipo_identificacion],
+                    ['Identificación', selected.basicProfile.identificacion],
+                    ['Primer nombre', selected.basicProfile.primer_nombre],
+                    ['Segundo nombre', selected.basicProfile.segundo_nombre],
+                    ['Primer apellido', selected.basicProfile.primer_apellido],
+                    ['Segundo apellido', selected.basicProfile.segundo_apellido],
+                    ['Sexo', selected.basicProfile.sexo],
+                    ['Ciudad', selected.basicProfile.ciudad],
+                    ['Código de ciudad', selected.basicProfile.codigo_ciudad],
+                    ['Departamento', selected.basicProfile.departamento],
+                    ['Código de departamento', selected.basicProfile.codigo_departamento],
+                    ['EPS', selected.basicProfile.eps],
+                    ['Código de EPS', selected.basicProfile.codigo_eps],
+                    ['Plan', selected.basicProfile.plan],
+                    ['Código de plan', selected.basicProfile.codigo_plan],
+                    ['Tipo reportado', selected.basicProfile.tipo],
+                    ['Código de tipo', selected.basicProfile.codigo_tipo],
+                    ['Condición', selected.basicProfile.condicion],
+                    ['Activo en MTDOM', selected.basicProfile.activo],
+                    ['Paciente vivo según MTDOM', selected.basicProfile.paciente_vivo],
+                    ['Fecha de fallecimiento reportada', selected.basicProfile.fecha_fallecimiento],
+                    ['Presente en fuente actual', selected.basicProfile.presente_en_fuente_actual],
+                    ['Estado de Registraduría', selected.basicProfile.registraduria_estado],
+                    [
+                      'Última validación de Registraduría',
+                      selected.basicProfile.fecha_ultima_validacion_registraduria,
+                    ],
+                    ['Actualizado en origen', selected.basicProfile.actualizado_en],
+                  ] as const
+                ).map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{profileValue(value)}</dd>
+                  </div>
+                ))}
+                {selected.basicProfileMetadata ? (
+                  <div>
+                    <dt>Origen / consulta en Medicarte</dt>
+                    <dd>
+                      {selected.basicProfileMetadata.source} ·{' '}
+                      {selected.basicProfileMetadata.fetchedAt ?? 'Sin metadato de consulta'}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+            </>
+          ) : (
+            <p role="status">No hay atributos básicos disponibles para este registro.</p>
+          )}
+          {canReadPersonal ? (
+            <div>
+              <button type="button" onClick={() => void openPersonal(selected.id)}>
+                Consultar datos personales autorizados
+              </button>
+              {personalError ? <p role="alert">{personalError}</p> : null}
+              {personal?.personalProfile ? (
+                <>
+                  <p>
+                    Origen {personal.personalProfileMetadata?.source ?? 'no disponible'} · última
+                    consulta {personal.personalProfileMetadata?.fetchedAt ?? 'no disponible'}
+                  </p>
+                  <dl className={styles.details}>
+                    {(
+                      [
+                        ['Fecha de nacimiento', personal.personalProfile.fecha_nacimiento],
+                        ['Dirección', personal.personalProfile.direccion],
+                        ['Barrio', personal.personalProfile.barrio],
+                        ['Zona', personal.personalProfile.zona],
+                        ['Latitud', personal.personalProfile.latitud],
+                        ['Longitud', personal.personalProfile.longitud],
+                        ['Teléfono 1', personal.personalProfile.telefono1],
+                        ['Teléfono 2', personal.personalProfile.telefono2],
+                        ['Correo', personal.personalProfile.email],
+                        ['Correo validado', personal.personalProfile.email_validado],
+                      ] as const
+                    ).map(([label, value]) => (
+                      <div key={label}>
+                        <dt>{label}</dt>
+                        <dd>{profileValue(value)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </>
+              ) : null}
+              {personal && !personal.personalProfile ? (
+                <p role="status">No hay atributos personales disponibles para este registro.</p>
+              ) : null}
+            </div>
+          ) : null}
           <h3>Evidencia de autorizaciones</h3>
           <ul className={styles.authorizationList}>
             {selected.authorizationEvidence.map((item) => (

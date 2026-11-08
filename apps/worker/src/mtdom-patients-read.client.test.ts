@@ -7,6 +7,7 @@ import {
 } from './mtdom-patients-read.client';
 
 const identity = { documentType: 'CC', documentValue: 'SYNTHETIC-0001' };
+const diagnosticRequestId = '12345678-1234-4abc-8def-123456789abc';
 const syntheticPatient: MtdomBasicPatient = {
   tipo_identificacion: 'CC',
   identificacion: 'SYNTHETIC-0001',
@@ -47,6 +48,100 @@ function client(fetchImpl: typeof fetch, token = 'mtdpat_synthetic-only') {
 }
 
 describe('MTDOM Patients Read v1 lookup client', () => {
+  it('preserves a valid X-Request-ID as diagnostic metadata on success and error', async () => {
+    const found = await client(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          response(
+            200,
+            { ok: true, data: syntheticPatient },
+            { 'x-request-id': diagnosticRequestId },
+          ),
+        ),
+    ).lookup(identity);
+    expect(found).toMatchObject({ kind: 'FOUND', diagnosticRequestId });
+
+    const notFound = await client(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          response(
+            404,
+            { ok: false, error: 'PATIENT_NOT_FOUND', message: 'mensaje sintético' },
+            { 'X-Request-ID': diagnosticRequestId },
+          ),
+        ),
+    ).lookup(identity);
+    expect(notFound).toEqual({ kind: 'NOT_FOUND', diagnosticRequestId });
+
+    const authError = await client(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          response(
+            401,
+            { ok: false, error: 'UNAUTHORIZED', message: 'mensaje sintético' },
+            { 'x-request-id': diagnosticRequestId },
+          ),
+        ),
+    )
+      .lookup(identity)
+      .catch((error: unknown) => error);
+    expect(authError).toMatchObject({
+      code: 'AUTH_BLOCKED',
+      diagnosticRequestId,
+    });
+  });
+
+  it.each([
+    ['missing', {}],
+    ['malformed', { 'x-request-id': 'not-a-uuid' }],
+    ['oversized', { 'x-request-id': 'a'.repeat(128) }],
+  ])('omits absent or anomalous X-Request-ID metadata (%s)', async (_case, headers) => {
+    const result = await client(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(response(200, { ok: true, data: syntheticPatient }, headers)),
+    ).lookup(identity);
+    expect(result).toEqual({ kind: 'FOUND', patient: syntheticPatient });
+  });
+
+  it('does not trust a request ID supplied in the JSON response body', async () => {
+    const error = await client(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        response(200, {
+          ok: true,
+          data: syntheticPatient,
+          request_id: diagnosticRequestId,
+        }),
+      ),
+    )
+      .lookup(identity)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code: 'INVALID_SUCCESS_RESPONSE' });
+    expect((error as MtdomPatientsReadError).diagnosticRequestId).toBeUndefined();
+  });
+
+  it('rejects identity lengths outside the MTDOM lookup contract before HTTP', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const tooLongType = await client(fetchImpl)
+      .lookup({ documentType: 'T'.repeat(11), documentValue: identity.documentValue })
+      .catch((error: unknown) => error);
+    const tooLongValue = await client(fetchImpl)
+      .lookup({ documentType: identity.documentType, documentValue: 'D'.repeat(31) })
+      .catch((error: unknown) => error);
+    const blankIdentity = await client(fetchImpl)
+      .lookup({ documentType: ' ', documentValue: '\t' })
+      .catch((error: unknown) => error);
+
+    expect(tooLongType).toMatchObject({ code: 'INVALID_LOCAL_IDENTITY', retryable: false });
+    expect(tooLongValue).toMatchObject({ code: 'INVALID_LOCAL_IDENTITY', retryable: false });
+    expect(blankIdentity).toMatchObject({ code: 'INVALID_LOCAL_IDENTITY', retryable: false });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('runs the HTTP contract against a loopback-only synthetic Patients Read v1 server', async () => {
     const observed: Array<{ authorization: string | undefined; body: unknown }> = [];
     const server = createServer((request, response) => {

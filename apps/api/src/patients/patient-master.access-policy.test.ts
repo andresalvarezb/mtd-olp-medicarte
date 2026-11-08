@@ -50,7 +50,7 @@ describe('patient master access policy (synthetic grants)', () => {
     });
   });
 
-  it('allows only the requested Medicarte point present in explicit grants', () => {
+  it('denies Medicarte even with a legacy grant and explicit point access', () => {
     const actor = profile({
       id: MEDICARTE_ORG,
       code: 'MEDICARTE',
@@ -59,10 +59,9 @@ describe('patient master access policy (synthetic grants)', () => {
       pointAccess: { kind: 'explicit', accessiblePointIds: [POINT_A] },
     });
 
-    expect(resolvePatientMasterScope(actor, MEDICARTE_ORG, USER, POINT_A)).toMatchObject({
-      organizationCode: 'MEDICARTE',
-      dispensingPointId: POINT_A,
-    });
+    expect(() => resolvePatientMasterScope(actor, MEDICARTE_ORG, USER, POINT_A)).toThrow(
+      ForbiddenException,
+    );
     expect(() => resolvePatientMasterScope(actor, MEDICARTE_ORG, USER, POINT_B)).toThrow(
       ForbiddenException,
     );

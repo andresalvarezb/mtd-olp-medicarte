@@ -17,14 +17,6 @@ const mtdScope: PatientMasterScope = {
   dispensingPointId: null,
 };
 
-const medicarteScope: PatientMasterScope = {
-  organizationId: '00000000-0000-4000-8000-000000000003',
-  organizationCode: 'MEDICARTE',
-  userId: '00000000-0000-4000-8000-000000000004',
-  pointAccessKind: 'explicit',
-  dispensingPointId: '00000000-0000-4000-8000-000000000005',
-};
-
 describe('PatientMasterRepository', () => {
   it('uses parameterized raw identity search and returns a minimized DTO', async () => {
     const { repository, query } = makeRepository([
@@ -68,38 +60,23 @@ describe('PatientMasterRepository', () => {
     expect(JSON.stringify(result)).not.toContain('SYNTHETIC-001');
   });
 
-  it('constrains MEDICARTE reads to organization, granted point and active user scope', async () => {
-    const { repository, query } = makeRepository([]);
-    await repository.search(medicarteScope, { page: 1, limit: 10 });
-    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
-    expect(sql).toContain('aio.organization_id = $1::uuid');
-    expect(sql).toContain('dp.id = $2::uuid');
-    expect(sql).toContain('ups.user_id = $3::uuid');
-    expect(sql).toContain('ups.revoked_at IS NULL');
-    expect(values).toEqual([
-      medicarteScope.organizationId,
-      medicarteScope.dispensingPointId,
-      medicarteScope.userId,
-      10,
-      0,
-    ]);
-  });
-
   it('does not expose an out-of-scope or absent patient detail', async () => {
     const { repository } = makeRepository([]);
     await expect(
-      repository.detail(medicarteScope, '00000000-0000-4000-8000-000000000099'),
+      repository.detail(mtdScope, '00000000-0000-4000-8000-000000000099'),
     ).resolves.toBeNull();
   });
 
   it('keeps reconciliation evidence read-only and projects no identity fields', async () => {
     const { repository, query } = makeRepository([]);
-    await expect(repository.reconciliationCases(12)).resolves.toEqual([]);
+    await expect(repository.reconciliationCases(mtdScope.organizationId, 12)).resolves.toEqual([]);
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
     expect(sql).toContain(
       "pbi.status IN ('NEEDS_RECONCILIATION', 'CONFLICT', 'RESOLVED', 'REVERT_CONFLICT')",
     );
+    expect(sql).toContain('pbb.organization_id = $1::uuid');
+    expect(sql).toContain('aio.organization_id = $1::uuid');
     expect(sql).not.toMatch(/identification_value|document|source_data/i);
-    expect(values).toEqual([12]);
+    expect(values).toEqual([mtdScope.organizationId, 12]);
   });
 });

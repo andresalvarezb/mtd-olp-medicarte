@@ -17,9 +17,10 @@ function normalize(
   normalizedType?: string,
 ): string | null {
   try {
-    const normalized = component === 'type'
-      ? policy.normalizeDocumentType(value)
-      : policy.normalizeDocumentValue(value, normalizedType ?? '');
+    const normalized =
+      component === 'type'
+        ? policy.normalizeDocumentType(value)
+        : policy.normalizeDocumentValue(value, normalizedType ?? '');
     return typeof normalized === 'string' && normalized.trim() !== '' ? normalized : null;
   } catch {
     return null;
@@ -82,8 +83,29 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
       return { outcome: 'IDENTITY_MISMATCH' as const };
     }
 
-    // DP-07 is pending. The response is validated in memory and discarded;
-    // only the technical outcome is persisted by the outbox processor.
+    // The processor is only registered by AppModule when DP-07, lookup and the
+    // versioned identity policy are explicitly enabled. Store only the client's
+    // strict basic-profile contract; nulls preserve prior values until a clearing
+    // policy is approved. No payload is returned to BullMQ or job_results.
+    const sourceUpdatedAt = new Date(response.patient.actualizado_en);
+    const sourceUpdatedAtIso = Number.isNaN(sourceUpdatedAt.getTime())
+      ? null
+      : sourceUpdatedAt.toISOString();
+    await this.database.pool.query(
+      `UPDATE patients
+          SET mtdom_basic_profile = COALESCE(mtdom_basic_profile, '{}'::jsonb)
+                || jsonb_strip_nulls($2::jsonb),
+              mtdom_basic_profile_source = 'MTDOM',
+              mtdom_basic_profile_fetched_at = now(),
+              mtdom_basic_profile_source_updated_at = COALESCE(
+                $3::timestamptz,
+                mtdom_basic_profile_source_updated_at
+              )
+        WHERE id = $1::uuid`,
+      [input.patientId, JSON.stringify(response.patient), sourceUpdatedAtIso],
+    );
+
+    // Patient values are deliberately absent from the outbox result.
     return { outcome: 'MATCHED_PENDING_APPROVAL' as const };
   }
 }

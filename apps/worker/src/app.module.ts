@@ -3,9 +3,7 @@ import { Module } from '@nestjs/common';
 import { parseWorkerConfig } from '@authorization/config';
 import { createDatabase } from '@authorization/database';
 import type { WorkerConfig } from '@authorization/config';
-import {
-  MtdomPatientLookupProcessor,
-} from './mtdom-patient-lookup.processor';
+import { MtdomPatientLookupProcessor } from './mtdom-patient-lookup.processor';
 import { MtdomPatientsReadClient } from './mtdom-patients-read.client';
 import { DATABASE, PATIENT_LOOKUP_PROCESSOR, WORKER_CONFIG } from './tokens';
 import { WorkerService } from './worker.service';
@@ -28,7 +26,8 @@ const database = createDatabase(config.DATABASE_URL);
           !workerConfig.MTDOM_DP07_APPROVED ||
           !workerConfig.MTDOM_PATIENT_IDENTITY_POLICY_VERSION ||
           !workerConfig.MTDOM_PATIENTS_API_TOKEN
-        ) return undefined;
+        )
+          return undefined;
         // The config schema requires both approval flags, a versioned identity
         // policy and a server-side token before this provider can be enabled.
         const policy = {

@@ -202,7 +202,7 @@ export const NAV_SECTIONS: NavSection[] = [
         title: 'Maestro de pacientes',
         icon: 'search',
         permission: 'patient_master.read',
-        roles: [...MTD_ROLES, 'MEDICARTE'],
+        roles: MTD_ROLES,
       },
 
       {

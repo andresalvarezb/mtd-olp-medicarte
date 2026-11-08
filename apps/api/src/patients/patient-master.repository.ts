@@ -2,9 +2,15 @@ import { Inject, Injectable } from '@nestjs/common';
 import type {
   PatientMasterDetail,
   PatientMasterListItem,
+  PatientMasterPersonalResponse,
+  PatientMasterProfileMetadata,
   PatientMasterSearchRequest,
   PatientMasterSearchResponse,
   PatientReconciliationCase,
+} from '@authorization/contracts';
+import {
+  patientMasterBasicProfileSchema,
+  patientMasterPersonalProfileSchema,
 } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
 import type { QueryResultRow } from 'pg';
@@ -13,6 +19,19 @@ import { DATABASE } from '../tokens';
 
 type Database = ReturnType<typeof createDatabase>;
 type DateValue = Date | string | null;
+
+function profileMetadata(
+  source: string | null,
+  fetchedAt: DateValue,
+  sourceUpdatedAt: DateValue,
+): PatientMasterProfileMetadata | null {
+  if (source !== 'MTDOM') return null;
+  return {
+    source: 'MTDOM',
+    fetchedAt: iso(fetchedAt),
+    sourceUpdatedAt: iso(sourceUpdatedAt),
+  };
+}
 
 type VisibleRow = Readonly<{
   patient_id: string;
@@ -69,62 +88,27 @@ function scopedPatientAuthorizationCte(
     return `$${params.length}${cast}`;
   };
 
-  let authorizationScope: string;
-  let scopedOrganizationCodes: string;
-  let scopedPointId: string;
-
-  if (scope.organizationCode === 'MTD') {
-    const organizationId = bind(scope.organizationId, '::uuid');
-    authorizationScope = `
+  const organizationId = bind(scope.organizationId, '::uuid');
+  let authorizationScope = `
       EXISTS (
         SELECT 1 FROM authorization_item_organizations aio
         WHERE aio.authorization_item_id = ai.id
           AND aio.organization_id = ${organizationId}
       )`;
-    scopedOrganizationCodes = `
+  const scopedOrganizationCodes = `
       SELECT o.code
       FROM authorization_item_organizations aio
       JOIN organizations o ON o.id = aio.organization_id
       WHERE aio.authorization_item_id = ai.id
         AND aio.organization_id = ${organizationId}`;
-    if (scope.dispensingPointId) {
-      const pointId = bind(scope.dispensingPointId, '::uuid');
-      authorizationScope += ` AND EXISTS (
+  let scopedPointId: string = 'NULL::uuid';
+  if (scope.dispensingPointId) {
+    const pointId = bind(scope.dispensingPointId, '::uuid');
+    authorizationScope += ` AND EXISTS (
         SELECT 1 FROM patient_schedules ps
         WHERE ps.authorization_item_id = ai.id
           AND ps.dispensing_point_id = ${pointId}
       )`;
-      scopedPointId = pointId;
-    } else {
-      scopedPointId = 'NULL::uuid';
-    }
-  } else {
-    const organizationId = bind(scope.organizationId, '::uuid');
-    const pointId = bind(scope.dispensingPointId, '::uuid');
-    const userId = bind(scope.userId, '::uuid');
-    authorizationScope = `
-      EXISTS (
-        SELECT 1 FROM authorization_item_organizations aio
-        WHERE aio.authorization_item_id = ai.id
-          AND aio.organization_id = ${organizationId}
-      )
-      AND EXISTS (
-        SELECT 1
-        FROM patient_schedules ps
-        JOIN dispensing_points dp ON dp.id = ps.dispensing_point_id
-        JOIN user_point_scopes ups ON ups.dispensing_point_id = dp.id
-        WHERE ps.authorization_item_id = ai.id
-          AND dp.id = ${pointId}
-          AND dp.organization_id = ${organizationId}
-          AND ups.user_id = ${userId}
-          AND ups.revoked_at IS NULL
-      )`;
-    scopedOrganizationCodes = `
-      SELECT o.code
-      FROM authorization_item_organizations aio
-      JOIN organizations o ON o.id = aio.organization_id
-      WHERE aio.authorization_item_id = ai.id
-        AND aio.organization_id = ${organizationId}`;
     scopedPointId = pointId;
   }
 
@@ -242,7 +226,11 @@ export class PatientMasterRepository {
     };
   }
 
-  async detail(scope: PatientMasterScope, patientId: string): Promise<PatientMasterDetail | null> {
+  async detail(
+    scope: PatientMasterScope,
+    patientId: string,
+    includeBasicProfile = false,
+  ): Promise<PatientMasterDetail | null> {
     const cte = scopedPatientAuthorizationCte(scope, { patientId });
     const summary = await this.database.pool.query<SummaryQueryRow>(
       `${cte.sql}, grouped AS (
@@ -268,9 +256,34 @@ export class PatientMasterRepository {
        LIMIT 500`,
       cte.params,
     );
+    const profile = includeBasicProfile
+      ? await this.database.pool.query<{
+          mtdom_basic_profile: unknown;
+          mtdom_basic_profile_source: string | null;
+          mtdom_basic_profile_fetched_at: DateValue;
+          mtdom_basic_profile_source_updated_at: DateValue;
+        }>(
+          `SELECT p.mtdom_basic_profile, p.mtdom_basic_profile_source,
+                  p.mtdom_basic_profile_fetched_at, p.mtdom_basic_profile_source_updated_at
+             FROM patients p
+            WHERE p.id = $1::uuid`,
+          [patientId],
+        )
+      : null;
     const item = mapListItem(summaryRow);
     return {
       ...item,
+      basicProfile:
+        profile?.rows[0]?.mtdom_basic_profile == null
+          ? null
+          : patientMasterBasicProfileSchema.parse(profile.rows[0].mtdom_basic_profile),
+      basicProfileMetadata: profile?.rows[0]
+        ? profileMetadata(
+            profile.rows[0].mtdom_basic_profile_source,
+            profile.rows[0].mtdom_basic_profile_fetched_at,
+            profile.rows[0].mtdom_basic_profile_source_updated_at,
+          )
+        : null,
       authorizationEvidence: evidence.rows.map((row) => ({
         id: String(row.id),
         authorizationNumber: String(row.authorization_number),
@@ -281,21 +294,60 @@ export class PatientMasterRepository {
     };
   }
 
-  async reconciliationCases(limit = 100): Promise<PatientReconciliationCase[]> {
+  async personalProfile(
+    scope: PatientMasterScope,
+    patientId: string,
+  ): Promise<PatientMasterPersonalResponse | null> {
+    const cte = scopedPatientAuthorizationCte(scope, { patientId });
+    const result = await this.database.pool.query<{
+      mtdom_personal_profile: unknown;
+      mtdom_personal_profile_source: string | null;
+      mtdom_personal_profile_fetched_at: DateValue;
+      mtdom_personal_profile_source_updated_at: DateValue;
+    }>(
+      `${cte.sql}
+       SELECT p.mtdom_personal_profile, p.mtdom_personal_profile_source,
+              p.mtdom_personal_profile_fetched_at, p.mtdom_personal_profile_source_updated_at
+         FROM patients p
+        WHERE EXISTS (SELECT 1 FROM visible WHERE visible.patient_id = p.id)
+        LIMIT 1`,
+      cte.params,
+    );
+    if (!result.rows[0]) return null;
+    return {
+      patientId,
+      personalProfile:
+        result.rows[0].mtdom_personal_profile == null
+          ? null
+          : patientMasterPersonalProfileSchema.parse(result.rows[0].mtdom_personal_profile),
+      personalProfileMetadata: profileMetadata(
+        result.rows[0].mtdom_personal_profile_source,
+        result.rows[0].mtdom_personal_profile_fetched_at,
+        result.rows[0].mtdom_personal_profile_source_updated_at,
+      ),
+    };
+  }
+
+  async reconciliationCases(
+    organizationId: string,
+    limit = 100,
+  ): Promise<PatientReconciliationCase[]> {
     const result = await this.database.pool.query<ReconciliationCaseRow>(
       `SELECT pbi.id, pbi.authorization_item_id, pbi.status, pbi.reason_code,
               pbi.processed_at, pbi.resolution_code, pbi.decided_at
        FROM patient_backfill_items pbi
        JOIN patient_backfill_batches pbb ON pbb.id = pbi.batch_id
        JOIN authorization_items ai ON ai.id = pbi.authorization_item_id
-       WHERE pbi.status IN ('NEEDS_RECONCILIATION', 'CONFLICT', 'RESOLVED', 'REVERT_CONFLICT')
+       WHERE pbb.organization_id = $1::uuid
+         AND pbi.status IN ('NEEDS_RECONCILIATION', 'CONFLICT', 'RESOLVED', 'REVERT_CONFLICT')
          AND EXISTS (
            SELECT 1 FROM authorization_item_organizations aio
            WHERE aio.authorization_item_id = ai.id
+             AND aio.organization_id = $1::uuid
          )
        ORDER BY pbi.processed_at DESC, pbi.id
-       LIMIT $1`,
-      [limit],
+       LIMIT $2`,
+      [organizationId, limit],
     );
     return result.rows.map((row) => ({
       id: String(row.id),

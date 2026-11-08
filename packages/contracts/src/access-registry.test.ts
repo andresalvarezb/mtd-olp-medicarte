@@ -10,8 +10,8 @@ import {
 describe('ESP-020 access registry', () => {
   it('covers every current permission exactly once', () => {
     validateAccessRegistry();
-    expect(ACCESS_PERMISSION_REGISTRY).toHaveLength(85);
-    expect(new Set(ACCESS_PERMISSION_REGISTRY.map((entry) => entry.permissionCode)).size).toBe(85);
+    expect(ACCESS_PERMISSION_REGISTRY).toHaveLength(86);
+    expect(new Set(ACCESS_PERMISSION_REGISTRY.map((entry) => entry.permissionCode)).size).toBe(86);
     expect(new Set(ACCESS_RETIRED_PERMISSION_CODES).size).toBe(6);
 
     const mipresDecision = ACCESS_PERMISSION_REGISTRY.find(
@@ -50,7 +50,14 @@ describe('ESP-020 access registry', () => {
     ).toMatchObject([
       {
         permissionCode: 'patient_master.read',
-        actorBoundary: 'MEDICARTE_POINT',
+        actorBoundary: 'MTD_ONLY',
+        configurable: false,
+        structural: true,
+        systemAllowed: false,
+      },
+      {
+        permissionCode: 'patient_master.personal.read',
+        actorBoundary: 'MTD_ONLY',
         configurable: false,
         structural: true,
         systemAllowed: false,

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { apiRequest } from './api-client';
 import {
   getPatientMasterDetail,
+  getPatientMasterPersonalProfile,
   listPatientReconciliationCases,
   searchPatientMaster,
 } from './patient-master-api';
@@ -34,6 +35,18 @@ describe('patient master API client', () => {
 
     expect(apiRequest).toHaveBeenCalledWith(
       '/patient-master/patient-id?dispensingPointId=point-id',
+      {
+        organizationId: 'organization-id',
+        signal: undefined,
+      },
+    );
+  });
+
+  it('uses the field-level personal endpoint and preserves organization/point scope', () => {
+    vi.mocked(apiRequest).mockClear();
+    void getPatientMasterPersonalProfile('organization-id', 'patient-id', 'point-id');
+    expect(apiRequest).toHaveBeenCalledWith(
+      '/patient-master/patient-id/personal?dispensingPointId=point-id',
       {
         organizationId: 'organization-id',
         signal: undefined,
