@@ -126,3 +126,21 @@ contaron como activación.
 Las cinco sesiones finalizaron con código 0. Las trazas JSONL se conservaron
 fuera del repositorio. No se editaron archivos desde Codex, no se ejecutaron
 migraciones o SQL y no se accedió a producción ni a datos reales.
+
+## Smoke test `patient-master-integrity` — 2026-11-07
+
+Se ejecutaron dos sesiones efímeras independientes con Codex CLI
+`0.164.0-alpha.11.1`, ambas con `--sandbox read-only` y sin incluir el nombre de
+la skill en el prompt. Se evaluó lectura real del archivo `SKILL.md` en eventos
+`command_execution`:
+
+| Caso | Prompt resumido | Evidencia | Resultado |
+| --- | --- | --- | --- |
+| Positivo | Analizar fuentes y plan de backfill histórico RF-PAC-001, ambigüedad, `source_data` y pruebas, sin cambios ni SQL. | La traza muestra lectura de `.agents/skills/patient-master-integrity/SKILL.md`. | Aprobado. |
+| Negativo | Ajustar texto/espaciado de la vista de programación de pacientes, sin impacto en identidad, relaciones, acceso, datos u operación. | No se observan lecturas de `SKILL.md` de skills locales en la traza. | Aprobado; sin falso positivo. |
+
+Las trazas completas se dejaron fuera del repositorio en el directorio temporal
+local (`patient-master-integrity-positive.jsonl` y
+`patient-master-integrity-negative.jsonl`). Esta ejecución de una repetición
+por caso confirma una ruta positiva y un control negativo; no es evaluación
+A/B, no satisface tres repeticiones y no permite generalizar a otros prompts.

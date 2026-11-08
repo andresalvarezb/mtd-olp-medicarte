@@ -43,4 +43,18 @@ describe('ESP-020 actor boundaries', () => {
       assertPermissionAllowedForActor('OLP', 'OLP_OPERATOR', 'patient_applications.manage'),
     ).toThrow(ActorBoundaryPolicyError);
   });
+
+  it('limits patient master and reconciliation to their explicit actor boundaries', () => {
+    expect(
+      isPermissionAllowedForActor('MEDICARTE', 'MEDICARTE_OPERATOR', 'patient_master.read'),
+    ).toBe(true);
+    expect(isPermissionAllowedForActor('MTD', 'MTD_ADMIN', 'patient_master.read')).toBe(true);
+    expect(isPermissionAllowedForActor('MTD', 'MTD_AUDITORIA', 'patient_reconciliation.read')).toBe(
+      true,
+    );
+    expect(isPermissionAllowedForActor('OLP', 'OLP_OPERATOR', 'patient_master.read')).toBe(false);
+    expect(
+      isPermissionAllowedForActor('MEDICARTE', 'MEDICARTE_OPERATOR', 'patient_reconciliation.read'),
+    ).toBe(false);
+  });
 });

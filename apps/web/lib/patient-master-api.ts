@@ -1,0 +1,49 @@
+import type {
+  PatientMasterDetail,
+  PatientMasterSearchRequest,
+  PatientMasterSearchResponse,
+  PatientReconciliationCasesResponse,
+} from '@authorization/contracts';
+import { apiRequest } from './api-client';
+
+export function searchPatientMaster(
+  organizationId: string,
+  query: PatientMasterSearchRequest,
+  signal?: AbortSignal,
+): Promise<PatientMasterSearchResponse> {
+  return apiRequest<PatientMasterSearchResponse>('/patient-master/search', {
+    method: 'POST',
+    organizationId,
+    body: JSON.stringify(query),
+    signal,
+  });
+}
+
+export function getPatientMasterDetail(
+  organizationId: string,
+  patientId: string,
+  dispensingPointId?: string,
+  signal?: AbortSignal,
+): Promise<PatientMasterDetail> {
+  const query = dispensingPointId
+    ? `?dispensingPointId=${encodeURIComponent(dispensingPointId)}`
+    : '';
+  return apiRequest<PatientMasterDetail>(
+    `/patient-master/${encodeURIComponent(patientId)}${query}`,
+    {
+      organizationId,
+      signal,
+    },
+  );
+}
+
+export function listPatientReconciliationCases(
+  organizationId: string,
+  limit = 50,
+  signal?: AbortSignal,
+): Promise<PatientReconciliationCasesResponse> {
+  return apiRequest<PatientReconciliationCasesResponse>(
+    `/patient-master/reconciliation-cases?limit=${limit}`,
+    { organizationId, signal },
+  );
+}

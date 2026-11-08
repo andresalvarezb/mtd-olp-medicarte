@@ -78,6 +78,18 @@
       ]
     },
     {
+      "id": "patient-master-backfill",
+      "category": "positive",
+      "expectedSkills": ["patient-master-integrity", "drizzle-schema-safety"],
+      "shouldTrigger": true,
+      "prompt": "Sin editar archivos ni ejecutar SQL, diseña el backfill histórico de RF-PAC-001 con enlace nullable authorization_items.patient_id e identidad compuesta MTDOM. Revisa ambigüedad, idempotencia y conservación de source_data.",
+      "criteria": [
+        "Lee patient-master-integrity y drizzle-schema-safety",
+        "No enlaza automáticamente identidades ambiguas ni cambia source_data",
+        "No ejecuta migraciones ni modifica datos"
+      ]
+    },
+    {
       "id": "negative-doc-typo",
       "category": "negative",
       "expectedSkills": [],
@@ -111,6 +123,18 @@
         "No lee ninguna skill Medicarte",
         "No amplía el alcance a API o base de datos",
         "Se limita a presentación"
+      ]
+    },
+    {
+      "id": "negative-patient-schedule-presentation",
+      "category": "negative",
+      "expectedSkills": [],
+      "shouldTrigger": false,
+      "prompt": "Sin editar archivos, revisa el texto y espaciado de la vista de programación de pacientes. El cambio es solo de presentación: no modifica identidad, relaciones de autorización, permisos, datos ni comportamiento operacional.",
+      "criteria": [
+        "No lee patient-master-integrity ni otras skills de dominio",
+        "No amplía la tarea a maestro, API, persistencia o permisos",
+        "Se limita a la presentación"
       ]
     },
     {

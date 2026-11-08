@@ -31,6 +31,18 @@ JOIN permissions p ON (r.code, p.code) IN (
 )
 ON CONFLICT DO NOTHING;
 
+-- Test-only patient-master grants for the named synthetic users above.
+-- OLP intentionally receives no patient-master or reconciliation permission.
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON (r.code, p.code) IN (
+  ('MTD_ADMIN', 'patient_master.read'),
+  ('MTD_ADMIN', 'patient_reconciliation.read'),
+  ('MEDICARTE_OPERATOR', 'patient_master.read')
+)
+ON CONFLICT DO NOTHING;
+
 INSERT INTO user_organization_roles (user_id, organization_id, role_id)
 SELECT x.user_id::uuid, o.id, r.id
 FROM (VALUES
@@ -307,7 +319,17 @@ BEGIN
   IF (SELECT count(*) FROM users WHERE username LIKE 'test-%') <> 3 THEN
     RAISE EXCEPTION 'TEST_FIXTURE_ASSERT_USERS';
   END IF;
-  IF (SELECT count(*) FROM authorization_items WHERE numero_autorizacion LIKE 'TEST-AUTH-%') <> 6 THEN
+  -- Other test suites share this isolated database and create unrelated TEST-AUTH-* rows.
+  -- Assert this fixture by its stable IDs and expected compound business keys only.
+  IF (SELECT count(*) FROM authorization_items
+      WHERE (id, numero_autorizacion, codigo_medicamento) IN (
+        ('e0000000-0000-4000-8000-000000000001'::uuid, 'TEST-AUTH-RESERVED-001', 'TEST-MED-001'),
+        ('e0000000-0000-4000-8000-000000000002'::uuid, 'TEST-AUTH-PARTIAL-001', 'TEST-MED-001'),
+        ('e0000000-0000-4000-8000-000000000003'::uuid, 'TEST-AUTH-COMPLETE-001', 'TEST-MED-001'),
+        ('e0000000-0000-4000-8000-000000000004'::uuid, 'TEST-AUTH-MULTI-001', 'TEST-MED-001'),
+        ('e0000000-0000-4000-8000-000000000005'::uuid, 'TEST-AUTH-MULTI-001', 'TEST-MED-002'),
+        ('e0000000-0000-4000-8000-000000000006'::uuid, 'TEST-AUTH-NO-RESERVATION-001', 'TEST-MED-002')
+      )) <> 6 THEN
     RAISE EXCEPTION 'TEST_FIXTURE_ASSERT_AUTHORIZATIONS';
   END IF;
   IF (SELECT count(*) FROM authorization_fulfillments WHERE id IN (

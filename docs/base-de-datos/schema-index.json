@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "packages/database/src/schema.ts",
-  "sourceSha256": "b8332777748aae558c804aad261b4e2d05d81959f53ed13e864683578f3eb370",
+  "sourceSha256": "651295b217c552abde242c8f87ee10f590fa5c87b930016e1de91934446fdedb",
   "kind": "drizzle-static",
   "notLiveDatabase": true,
   "groupLabels": {
@@ -1119,6 +1119,13 @@
           "default": "defaultRandom()"
         },
         {
+          "name": "patient_id",
+          "type": "uuid",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
           "name": "numero_autorizacion",
           "type": "varchar(255)",
           "nullable": false,
@@ -1402,6 +1409,16 @@
       "fks": [
         {
           "columns": [
+            "patient_id"
+          ],
+          "to": "patients",
+          "toColumns": [
+            "id"
+          ],
+          "source": "references"
+        },
+        {
+          "columns": [
             "mipres_manual_concept_code"
           ],
           "to": "mipres_manual_decision_concepts",
@@ -1465,6 +1482,10 @@
         {
           "name": "authorization_items_identity_idx",
           "kind": "uniqueIndex"
+        },
+        {
+          "name": "authorization_items_patient_id_idx",
+          "kind": "index"
         },
         {
           "name": "authorization_items_id_code_unique",
@@ -6007,6 +6028,13 @@
           "default": "'PENDING'"
         },
         {
+          "name": "processing_attempts",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
           "name": "attempts",
           "type": "integer",
           "nullable": false,
@@ -6072,7 +6100,8 @@
         }
       ],
       "checks": [
-        "outbox_events_status_check"
+        "outbox_events_status_check",
+        "outbox_events_processing_attempts_check"
       ]
     },
     {
@@ -6573,6 +6602,288 @@
         "patient_applications_schedule_revision_check",
         "patient_applications_version_check",
         "patient_applications_status_check"
+      ]
+    },
+    {
+      "name": "patient_backfill_batches",
+      "variable": "patientBackfillBatches",
+      "group": "otros",
+      "pk": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "pk": true,
+          "default": "defaultRandom()"
+        },
+        {
+          "name": "organization_id",
+          "type": "uuid",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "policy_version",
+          "type": "varchar(120)",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "status",
+          "type": "varchar(30)",
+          "nullable": false,
+          "pk": false,
+          "default": "'PENDING'"
+        },
+        {
+          "name": "batch_size",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "summary",
+          "type": "jsonb",
+          "nullable": false,
+          "pk": false,
+          "default": "{}"
+        },
+        {
+          "name": "last_error_code",
+          "type": "varchar(80)",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "started_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "completed_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "reverted_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": "defaultNow()"
+        }
+      ],
+      "fks": [
+        {
+          "columns": [
+            "organization_id"
+          ],
+          "to": "organizations",
+          "toColumns": [
+            "id"
+          ],
+          "source": "references"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "patient_backfill_batches_org_created_idx",
+          "kind": "index"
+        }
+      ],
+      "checks": [
+        "patient_backfill_batches_status_check",
+        "patient_backfill_batches_size_check",
+        "patient_backfill_batches_policy_not_blank_check"
+      ]
+    },
+    {
+      "name": "patient_backfill_items",
+      "variable": "patientBackfillItems",
+      "group": "otros",
+      "pk": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "pk": true,
+          "default": "defaultRandom()"
+        },
+        {
+          "name": "batch_id",
+          "type": "uuid",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "authorization_item_id",
+          "type": "uuid",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "status",
+          "type": "varchar(30)",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "reason_code",
+          "type": "varchar(80)",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "previous_patient_id",
+          "type": "uuid",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "applied_patient_id",
+          "type": "uuid",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "created_patient",
+          "type": "boolean",
+          "nullable": false,
+          "pk": false,
+          "default": "false"
+        },
+        {
+          "name": "resolution_code",
+          "type": "varchar(80)",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "decision_reference",
+          "type": "varchar(255)",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "decided_by",
+          "type": "uuid",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "decided_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "processed_at",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": "defaultNow()"
+        }
+      ],
+      "fks": [
+        {
+          "columns": [
+            "batch_id"
+          ],
+          "to": "patient_backfill_batches",
+          "toColumns": [
+            "id"
+          ],
+          "source": "references"
+        },
+        {
+          "columns": [
+            "authorization_item_id"
+          ],
+          "to": "authorization_items",
+          "toColumns": [
+            "id"
+          ],
+          "source": "references"
+        },
+        {
+          "columns": [
+            "previous_patient_id"
+          ],
+          "to": "patients",
+          "toColumns": [
+            "id"
+          ],
+          "source": "references"
+        },
+        {
+          "columns": [
+            "applied_patient_id"
+          ],
+          "to": "patients",
+          "toColumns": [
+            "id"
+          ],
+          "source": "references"
+        },
+        {
+          "columns": [
+            "decided_by"
+          ],
+          "to": "users",
+          "toColumns": [
+            "id"
+          ],
+          "source": "references"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "patient_backfill_items_batch_authorization_uq",
+          "kind": "unique"
+        },
+        {
+          "name": "patient_backfill_items_batch_status_idx",
+          "kind": "index"
+        },
+        {
+          "name": "patient_backfill_items_authorization_idx",
+          "kind": "index"
+        }
+      ],
+      "checks": [
+        "patient_backfill_items_status_check",
+        "patient_backfill_items_reconciliation_decision_check",
+        "patient_backfill_items_link_provenance_check"
       ]
     },
     {
@@ -7904,6 +8215,290 @@
         "patient_schedules_late_handling_check",
         "patient_schedules_late_handling_coherence_check",
         "patient_schedules_deferred_period_check"
+      ]
+    },
+    {
+      "name": "patient_sync_checkpoints",
+      "variable": "patientSyncCheckpoints",
+      "group": "otros",
+      "pk": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "pk": true,
+          "default": "defaultRandom()"
+        },
+        {
+          "name": "feed_key",
+          "type": "varchar(80)",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "profile",
+          "type": "varchar(20)",
+          "nullable": false,
+          "pk": false,
+          "default": "'basic'"
+        },
+        {
+          "name": "sync_as_of",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": false,
+          "pk": false,
+          "default": "'IDLE'"
+        },
+        {
+          "name": "run_id",
+          "type": "uuid",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "lease_token",
+          "type": "uuid",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "pending_as_of",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "next_cursor",
+          "type": "text",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "cursor_fingerprints",
+          "type": "jsonb",
+          "nullable": false,
+          "pk": false,
+          "default": "[]"
+        },
+        {
+          "name": "last_page_patient_ids",
+          "type": "jsonb",
+          "nullable": false,
+          "pk": false,
+          "default": "[]"
+        },
+        {
+          "name": "pages_processed",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
+          "name": "records_seen",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
+          "name": "local_patients_matched",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
+          "name": "unrelated_records_skipped",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
+          "name": "ambiguous_local_records_skipped",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
+          "name": "boundary_duplicates_skipped",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
+          "name": "stale_records_skipped",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
+          "name": "retries",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
+          "name": "last_error_code",
+          "type": "varchar(80)",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "run_started_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "last_success_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": "defaultNow()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": "defaultNow()"
+        }
+      ],
+      "fks": [],
+      "indexes": [
+        {
+          "name": "patient_sync_checkpoints_status_lease_idx",
+          "kind": "index"
+        }
+      ],
+      "checks": [
+        "patient_sync_checkpoints_profile_check",
+        "patient_sync_checkpoints_status_check",
+        "patient_sync_checkpoints_lease_state_check",
+        "patient_sync_checkpoints_counters_check",
+        "patient_sync_checkpoints_arrays_check"
+      ]
+    },
+    {
+      "name": "patients",
+      "variable": "patients",
+      "group": "identidad",
+      "pk": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "pk": true,
+          "default": "defaultRandom()"
+        },
+        {
+          "name": "identification_type_raw",
+          "type": "varchar(80)",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "identification_value_raw",
+          "type": "varchar(255)",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "mtdom_lookup_status",
+          "type": "varchar(40)",
+          "nullable": false,
+          "pk": false,
+          "default": "'NOT_REQUESTED'"
+        },
+        {
+          "name": "mtdom_last_checked_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "mtdom_last_error_code",
+          "type": "varchar(80)",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "mtdom_changes_seen_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": "defaultNow()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": "defaultNow()"
+        }
+      ],
+      "fks": [],
+      "indexes": [
+        {
+          "name": "patients_identification_raw_idx",
+          "kind": "index"
+        }
+      ],
+      "checks": [
+        "patients_identification_type_not_blank_check",
+        "patients_identification_value_not_blank_check",
+        "patients_mtdom_lookup_status_check"
       ]
     },
     {

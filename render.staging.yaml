@@ -1,0 +1,154 @@
+version: '1'
+
+# Standalone blueprint. Register this file as a NEW Render Blueprint only after
+# explicit approval. Do not replace or resync the production render.yaml.
+# No preview environments or automatic service deploys are created from commits.
+previews:
+  generation: 'off'
+
+projects:
+  - name: mtd-olp-medicarte-staging
+    environments:
+      - name: RF-PAC-001
+        networking:
+          isolation: enabled
+        permissions:
+          protection: enabled
+        services:
+          - type: web
+            name: authorization-staging-web
+            runtime: docker
+            region: virginia
+            plan: 0.5c-512mb
+            dockerfilePath: ./infra/docker/web.Dockerfile
+            dockerContext: .
+            autoDeployTrigger: 'off'
+            healthCheckPath: /
+            envVars:
+              - key: PORT
+                value: '10000'
+              - key: HOSTNAME
+                value: 0.0.0.0
+              - key: NEXT_PUBLIC_API_URL
+                fromService:
+                  name: authorization-staging-api
+                  type: web
+                  envVarKey: RENDER_EXTERNAL_URL
+
+          - type: web
+            name: authorization-staging-api
+            runtime: docker
+            region: virginia
+            # Keep production's observed 1c-2g size; do not inherit the stale
+            # 0.5c-512mb value in the production render.yaml.
+            plan: 1c-2g
+            dockerfilePath: ./infra/docker/api.Dockerfile
+            dockerContext: .
+            autoDeployTrigger: 'off'
+            healthCheckPath: /api/v1/health
+            # API is the sole migration runner in this environment.
+            preDeployCommand: node packages/database/dist/migrate.js
+            envVars:
+              - key: PORT
+                value: '10000'
+              - key: NODE_ENV
+                value: production
+              - key: LOG_LEVEL
+                value: warn
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: authorization-staging-db
+                  property: connectionString
+              - key: REDIS_URL
+                fromService:
+                  name: authorization-staging-keyvalue
+                  type: keyvalue
+                  property: connectionString
+              - key: AUTH_JWT_SECRET
+                generateValue: true
+              - key: AUTH_JWT_TTL_SECONDS
+                value: '3600'
+              - key: AUTH_BOOTSTRAP_ADMIN_USERNAME
+                value: staging-foundation-admin
+              - key: AUTH_BOOTSTRAP_ADMIN_PASSWORD
+                sync: false
+              - key: AUTH_BOOTSTRAP_MTD_GENERAL_PASSWORD
+                sync: false
+              - key: AUTH_BOOTSTRAP_MTD_AUDITORIA_PASSWORD
+                sync: false
+              - key: API_PUBLIC_URL
+                fromService:
+                  name: authorization-staging-api
+                  type: web
+                  envVarKey: RENDER_EXTERNAL_URL
+              - key: WEB_ORIGIN
+                fromService:
+                  name: authorization-staging-web
+                  type: web
+                  envVarKey: RENDER_EXTERNAL_URL
+              - key: PATIENT_MASTER_ACCESS_ENABLED
+                value: 'false'
+              - key: PATIENT_MASTER_SCOPE_POLICY_APPROVED
+                value: 'false'
+              - key: PATIENT_MASTER_DP07_APPROVED
+                value: 'false'
+              - key: PATIENT_MASTER_SCOPE_POLICY_VERSION
+                value: ''
+
+          - type: worker
+            name: authorization-staging-worker
+            runtime: docker
+            region: virginia
+            plan: 0.5c-512mb
+            dockerfilePath: ./infra/docker/worker.Dockerfile
+            dockerContext: .
+            autoDeployTrigger: 'off'
+            # No preDeployCommand here: avoid a second migration runner.
+            envVars:
+              - key: NODE_ENV
+                value: production
+              - key: LOG_LEVEL
+                value: warn
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: authorization-staging-db
+                  property: connectionString
+              - key: REDIS_URL
+                fromService:
+                  name: authorization-staging-keyvalue
+                  type: keyvalue
+                  property: connectionString
+              # Needed for real outbox/BullMQ tests. The database is synthetic
+              # and isolated; operational schedulers in this worker can mutate
+              # only staging records while those tests run.
+              - key: SCHEDULER_ENABLED
+                value: 'true'
+              - key: RECONCILIATION_SCHEDULER_ENABLED
+                value: 'false'
+              - key: GOOGLE_DRIVE_AUDIT_SYNC_ENABLED
+                value: 'false'
+              - key: MTDOM_PATIENT_LOOKUP_ENABLED
+                value: 'false'
+              - key: MTDOM_DP07_APPROVED
+                value: 'false'
+              - key: MTDOM_PATIENT_IDENTITY_POLICY_VERSION
+                value: ''
+
+          - type: keyvalue
+            name: authorization-staging-keyvalue
+            region: virginia
+            plan: 256mb
+            ipAllowList: []
+            maxmemoryPolicy: noeviction
+            persistenceMode: journal-snapshot
+
+        databases:
+          - name: authorization-staging-db
+            region: virginia
+            plan: 0.5c-1g
+            postgresMajorVersion: '17'
+            databaseName: authorization_rf_pac_staging
+            user: authorization_rf_pac_staging
+            diskSizeGB: 5
+            storageAutoscalingEnabled: false
+            ipAllowList: []

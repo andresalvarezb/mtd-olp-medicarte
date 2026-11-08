@@ -47,7 +47,7 @@ const GROUPS = Object.freeze([
 
 const TABLE_GROUPS = Object.freeze({
   identidad: ['organizations', 'users', 'roles', 'role_organization_scopes',
-    'permissions', 'role_permissions', 'user_organization_roles', 'user_point_scopes'],
+    'permissions', 'role_permissions', 'user_organization_roles', 'user_point_scopes', 'patients'],
   autorizaciones: ['authorization_items', 'authorization_mipres_decision_history',
     'coverage_evaluations', 'mipres_checks', 'mipres_directions',
     'mipres_manual_decision_concepts', 'authorization_item_organizations'],

@@ -750,6 +750,48 @@
       "when": 1793758434002,
       "tag": "0106_restore_released_source_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1793758434003,
+      "tag": "0107_patient_master_additive",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1794070000000,
+      "tag": "0108_patient_lookup_outbox_processing",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1794070001000,
+      "tag": "0109_patient_mtdom_lookup_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1794070005000,
+      "tag": "0110_patient_backfill_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1794070006000,
+      "tag": "0111_patient_sync_checkpoint",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1794070007000,
+      "tag": "0112_patient_master_read_permissions",
+      "breakpoints": true
     }
   ]
 }

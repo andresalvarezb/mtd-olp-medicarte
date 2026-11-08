@@ -5,4 +5,20 @@ erDiagram
     uuid registered_by FK
     uuid organization_id FK
   }
+  patient_backfill_batches {
+    uuid id PK
+    uuid organization_id FK
+  }
+  patient_backfill_items {
+    uuid id PK
+    uuid batch_id FK
+    uuid authorization_item_id FK
+    uuid previous_patient_id FK
+    uuid applied_patient_id FK
+    uuid decided_by FK
+  }
+  patient_sync_checkpoints {
+    uuid id PK
+  }
+  patient_backfill_batches ||--o{ patient_backfill_items : "batch_id"
   %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.

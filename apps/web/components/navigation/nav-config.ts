@@ -74,6 +74,7 @@ export type ViewId =
   | 'operationalIndicators'
   | 'authorizations'
   | 'authorizationQuery'
+  | 'patientMaster'
   | 'purchaseOrders'
   | 'purchaseConfiguration'
   | 'inventoryAvailability'
@@ -193,6 +194,15 @@ export const NAV_SECTIONS: NavSection[] = [
             roles: [...MTD_ROLES, 'MEDICARTE', 'COMPENSAR'],
           },
         ],
+      },
+
+      {
+        view: 'patientMaster',
+        href: '/pacientes',
+        title: 'Maestro de pacientes',
+        icon: 'search',
+        permission: 'patient_master.read',
+        roles: [...MTD_ROLES, 'MEDICARTE'],
       },
 
       {

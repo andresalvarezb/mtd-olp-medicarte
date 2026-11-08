@@ -218,10 +218,51 @@ export const mipresManualDecisionConcepts = pgTable(
   ],
 );
 
+/**
+ * Maestro local mínimo de pacientes relacionado con autorizaciones.
+ * Los campos de identificación conservan el valor de origen sin normalizar;
+ * no imponer unicidad compuesta hasta aprobar la regla de normalización.
+ */
+export const patients = pgTable(
+  'patients',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    identificationTypeRaw: varchar('identification_type_raw', { length: 80 }).notNull(),
+    identificationValueRaw: varchar('identification_value_raw', { length: 255 }).notNull(),
+    mtdomLookupStatus: varchar('mtdom_lookup_status', { length: 40 })
+      .notNull()
+      .default('NOT_REQUESTED'),
+    mtdomLastCheckedAt: timestamp('mtdom_last_checked_at', { withTimezone: true }),
+    mtdomLastErrorCode: varchar('mtdom_last_error_code', { length: 80 }),
+    mtdomChangesSeenAt: timestamp('mtdom_changes_seen_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    index('patients_identification_raw_idx').on(
+      table.identificationTypeRaw,
+      table.identificationValueRaw,
+    ),
+    check(
+      'patients_identification_type_not_blank_check',
+      sql`length(btrim(${table.identificationTypeRaw})) > 0`,
+    ),
+    check(
+      'patients_identification_value_not_blank_check',
+      sql`length(btrim(${table.identificationValueRaw})) > 0`,
+    ),
+    check(
+      'patients_mtdom_lookup_status_check',
+      sql`${table.mtdomLookupStatus} IN ('NOT_REQUESTED', 'MATCHED_PENDING_APPROVAL', 'NOT_FOUND', 'AMBIGUOUS', 'IDENTITY_MISMATCH', 'AUTH_BLOCKED', 'FAILED')`,
+    ),
+  ],
+);
+
 export const authorizationItems = pgTable(
   'authorization_items',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    patientId: uuid('patient_id').references(() => patients.id, { onDelete: 'restrict' }),
     numeroAutorizacion: varchar('numero_autorizacion', { length: 255 }).notNull(),
     codigoMedicamento: varchar('codigo_medicamento', { length: 255 }).notNull(),
     authorizationKey: varchar('authorization_key', { length: 511 }).notNull(),
@@ -296,6 +337,7 @@ export const authorizationItems = pgTable(
       table.numeroAutorizacion,
       table.codigoMedicamento,
     ),
+    index('authorization_items_patient_id_idx').on(table.patientId),
     unique('authorization_items_id_code_unique').on(table.id, table.codigoMedicamento),
     uniqueIndex('authorization_items_authorization_key_idx').on(table.authorizationKey),
     index('authorization_items_coverage_idx').on(table.coverageType, table.enablementStatus),
@@ -2263,6 +2305,140 @@ export const authorizationItemOrganizations = pgTable(
   ],
 );
 
+/** Durable execution ledger; item rows also hold unresolved reconciliation cases. */
+export const patientBackfillBatches = pgTable(
+  'patient_backfill_batches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id').notNull().references(() => organizations.id, {
+      onDelete: 'restrict',
+    }),
+    policyVersion: varchar('policy_version', { length: 120 }).notNull(),
+    status: varchar('status', { length: 30 }).notNull().default('PENDING'),
+    batchSize: integer('batch_size').notNull(),
+    summary: jsonb('summary').notNull().default({}),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    revertedAt: timestamp('reverted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    check(
+      'patient_backfill_batches_status_check',
+      sql`${table.status} IN ('PENDING', 'RUNNING', 'COMPLETED', 'PARTIAL', 'FAILED', 'REVERTED')`,
+    ),
+    check(
+      'patient_backfill_batches_size_check',
+      sql`${table.batchSize} BETWEEN 1 AND 500`,
+    ),
+    check(
+      'patient_backfill_batches_policy_not_blank_check',
+      sql`length(btrim(${table.policyVersion})) > 0`,
+    ),
+    index('patient_backfill_batches_org_created_idx').on(table.organizationId, table.createdAt),
+  ],
+);
+
+export const patientBackfillItems = pgTable(
+  'patient_backfill_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    batchId: uuid('batch_id').notNull().references(() => patientBackfillBatches.id, {
+      onDelete: 'restrict',
+    }),
+    authorizationItemId: uuid('authorization_item_id').notNull().references(() => authorizationItems.id, {
+      onDelete: 'restrict',
+    }),
+    status: varchar('status', { length: 30 }).notNull(),
+    reasonCode: varchar('reason_code', { length: 80 }).notNull(),
+    previousPatientId: uuid('previous_patient_id').references(() => patients.id, {
+      onDelete: 'restrict',
+    }),
+    appliedPatientId: uuid('applied_patient_id').references(() => patients.id, {
+      onDelete: 'restrict',
+    }),
+    createdPatient: boolean('created_patient').notNull().default(false),
+    resolutionCode: varchar('resolution_code', { length: 80 }),
+    decisionReference: varchar('decision_reference', { length: 255 }),
+    decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'restrict' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    unique('patient_backfill_items_batch_authorization_uq').on(
+      table.batchId,
+      table.authorizationItemId,
+    ),
+    check(
+      'patient_backfill_items_status_check',
+      sql`${table.status} IN ('LINKED', 'ALREADY_LINKED', 'NEEDS_RECONCILIATION', 'CONFLICT', 'RESOLVED', 'REVERTED', 'REVERT_CONFLICT')`,
+    ),
+    check(
+      'patient_backfill_items_reconciliation_decision_check',
+      sql`((${table.resolutionCode} IS NULL AND ${table.decisionReference} IS NULL AND ${table.decidedBy} IS NULL AND ${table.decidedAt} IS NULL) OR (${table.resolutionCode} IS NOT NULL AND ${table.decisionReference} IS NOT NULL AND ${table.decidedBy} IS NOT NULL AND ${table.decidedAt} IS NOT NULL)) AND (${table.status} <> 'RESOLVED' OR ${table.resolutionCode} IS NOT NULL)`,
+    ),
+    check(
+      'patient_backfill_items_link_provenance_check',
+      sql`(${table.status} NOT IN ('LINKED', 'ALREADY_LINKED', 'REVERTED', 'REVERT_CONFLICT') OR ${table.appliedPatientId} IS NOT NULL) AND (${table.status} <> 'LINKED' OR ${table.previousPatientId} IS NULL) AND (${table.status} <> 'ALREADY_LINKED' OR (${table.previousPatientId} IS NOT NULL AND ${table.previousPatientId} = ${table.appliedPatientId}))`,
+    ),
+    index('patient_backfill_items_batch_status_idx').on(table.batchId, table.status),
+    index('patient_backfill_items_authorization_idx').on(table.authorizationItemId),
+  ],
+);
+
+/** One checkpoint/run lease for the MTDOM changes feed; cursor stays opaque. */
+export const patientSyncCheckpoints = pgTable(
+  'patient_sync_checkpoints',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    feedKey: varchar('feed_key', { length: 80 }).notNull().unique(),
+    profile: varchar('profile', { length: 20 }).notNull().default('basic'),
+    syncAsOf: timestamp('sync_as_of', { withTimezone: true }).notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('IDLE'),
+    runId: uuid('run_id'),
+    leaseToken: uuid('lease_token'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    pendingAsOf: timestamp('pending_as_of', { withTimezone: true }),
+    nextCursor: text('next_cursor'),
+    cursorFingerprints: jsonb('cursor_fingerprints').notNull().default([]),
+    lastPagePatientIds: jsonb('last_page_patient_ids').notNull().default([]),
+    pagesProcessed: integer('pages_processed').notNull().default(0),
+    recordsSeen: integer('records_seen').notNull().default(0),
+    localPatientsMatched: integer('local_patients_matched').notNull().default(0),
+    unrelatedRecordsSkipped: integer('unrelated_records_skipped').notNull().default(0),
+    ambiguousLocalRecordsSkipped: integer('ambiguous_local_records_skipped').notNull().default(0),
+    boundaryDuplicatesSkipped: integer('boundary_duplicates_skipped').notNull().default(0),
+    staleRecordsSkipped: integer('stale_records_skipped').notNull().default(0),
+    retries: integer('retries').notNull().default(0),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    runStartedAt: timestamp('run_started_at', { withTimezone: true }),
+    lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    check('patient_sync_checkpoints_profile_check', sql`${table.profile} = 'basic'`),
+    check(
+      'patient_sync_checkpoints_status_check',
+      sql`${table.status} IN ('IDLE', 'RUNNING', 'FAILED')`,
+    ),
+    check(
+      'patient_sync_checkpoints_lease_state_check',
+      sql`(${table.status} = 'RUNNING' AND ${table.runId} IS NOT NULL AND ${table.leaseToken} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL) OR (${table.status} = 'FAILED' AND ${table.runId} IS NOT NULL AND ${table.leaseToken} IS NULL AND ${table.leaseExpiresAt} IS NULL) OR (${table.status} = 'IDLE' AND ${table.runId} IS NULL AND ${table.leaseToken} IS NULL AND ${table.leaseExpiresAt} IS NULL AND ${table.pendingAsOf} IS NULL AND ${table.nextCursor} IS NULL)`,
+    ),
+    check(
+      'patient_sync_checkpoints_counters_check',
+      sql`${table.pagesProcessed} >= 0 AND ${table.recordsSeen} >= 0 AND ${table.localPatientsMatched} >= 0 AND ${table.unrelatedRecordsSkipped} >= 0 AND ${table.ambiguousLocalRecordsSkipped} >= 0 AND ${table.boundaryDuplicatesSkipped} >= 0 AND ${table.staleRecordsSkipped} >= 0 AND ${table.retries} >= 0`,
+    ),
+    check(
+      'patient_sync_checkpoints_arrays_check',
+      sql`jsonb_typeof(${table.cursorFingerprints}) = 'array' AND jsonb_typeof(${table.lastPagePatientIds}) = 'array'`,
+    ),
+    index('patient_sync_checkpoints_status_lease_idx').on(table.status, table.leaseExpiresAt),
+  ],
+);
+
 export const importSourceFiles = pgTable(
   'import_source_files',
   {
@@ -2371,6 +2547,8 @@ export const outboxEvents = pgTable(
     }),
     idempotencyKey: varchar('idempotency_key', { length: 200 }).notNull(),
     status: varchar('status', { length: 30 }).notNull().default('PENDING'),
+    /** Delivery attempts are `attempts`; processor executions are separate. */
+    processingAttempts: integer('processing_attempts').notNull().default(0),
     attempts: integer('attempts').notNull().default(0),
     availableAt: timestamp('available_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -2385,6 +2563,7 @@ export const outboxEvents = pgTable(
       'outbox_events_status_check',
       sql`${table.status} IN ('PENDING', 'DISPATCHED', 'PROCESSED', 'FAILED')`,
     ),
+    check('outbox_events_processing_attempts_check', sql`${table.processingAttempts} >= 0`),
   ],
 );
 

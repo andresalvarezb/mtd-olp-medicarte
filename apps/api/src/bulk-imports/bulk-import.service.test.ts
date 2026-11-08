@@ -64,6 +64,7 @@ function createService() {
     createJob: vi.fn().mockResolvedValue({ id: 'job-1' }),
     findJob: vi.fn().mockResolvedValue({ id: 'job-1', status: 'READY' }),
     listRows: vi.fn(),
+    executeClaimedRow: vi.fn(),
     getAuthorizationKeysForRejected: vi.fn().mockResolvedValue(new Map<number, string>()),
     getRetrospectiveRenewalReasons: vi.fn().mockResolvedValue(new Map<number, string>()),
     getLegacyRejectedRows: vi.fn().mockResolvedValue(null),
@@ -484,6 +485,43 @@ describe('BulkImportService', () => {
     );
     expect(rows[1]?.[0]).toBe('CLAVE-CON-FORMATO-PROPIO');
     expect(rows[1]?.[1]).toContain('Procesamiento interrumpido');
+  });
+
+  it('ejecuta la confirmación de autorización dentro de la transacción reclamada por fila', async () => {
+    const { service, repository } = createService();
+    const tx = { transactionMarker: 'synthetic-row-transaction' };
+    const payload = {
+      NUMERO_AUTORIZACION: 'SYNTHETIC-AUTH-1',
+      CODIGO_COMERCIAL: 'TAR-001',
+      TIPO_IDENTIFICACION: 'CC',
+      IDENTIFICACION_PACIENTE: '000123',
+    };
+    const upsert = vi.fn().mockResolvedValue({ id: 'authorization-item-1' });
+    Object.assign(repository, {
+      findJob: vi.fn().mockResolvedValue({ id: 'job-1', status: 'READY', totalRows: 1 }),
+      markJobProcessing: vi.fn().mockResolvedValue({
+        previousStatus: 'READY', waveStartedAt: new Date().toISOString(),
+      }),
+      recordAudit: vi.fn().mockResolvedValue(undefined),
+      claimNextRow: vi.fn().mockResolvedValueOnce({
+        id: 'row-1', rowNumber: 1, attemptCount: 1,
+        claimToken: 'claim-1', claimGeneration: 1,
+        reclaimed: false, normalizedPayload: payload,
+      }).mockResolvedValueOnce(null),
+      executeClaimedRow: vi.fn(async (input: {
+        execute: (transaction: typeof tx) => Promise<{ id: string }>;
+      }) => ({
+        result: await input.execute(tx),
+        committedByRowTransaction: true,
+      })),
+      upsertAuthorizationInTx: upsert,
+      finalizeFromRows: vi.fn().mockResolvedValue({ id: 'job-1', status: 'COMPLETED' }),
+    });
+
+    await service.confirm('job-1', actor);
+
+    expect(repository.executeClaimedRow).toHaveBeenCalledOnce();
+    expect(upsert).toHaveBeenCalledWith(tx, { actor, payload, jobId: 'job-1' });
   });
 
   it('no exporta históricos no autorizados', async () => {

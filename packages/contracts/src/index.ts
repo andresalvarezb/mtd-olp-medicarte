@@ -99,6 +99,141 @@ export const foundationJobSchema = z.object({
 });
 export type FoundationJob = z.infer<typeof foundationJobSchema>;
 
+/** Only an internal patient UUID crosses BullMQ; identity values stay in PostgreSQL. */
+export const patientLookupOutboxPayloadSchema = z
+  .object({
+    patientId: z.string().uuid(),
+  })
+  .strict();
+export type PatientLookupOutboxPayload = z.infer<typeof patientLookupOutboxPayloadSchema>;
+
+export const patientLookupJobSchema = z
+  .object({
+    name: z.literal('patient.lookup'),
+    version: z.literal(1),
+    payload: z
+      .object({
+        eventId: z.string().uuid(),
+        patientId: z.string().uuid(),
+      })
+      .strict(),
+    correlationId: correlationIdSchema,
+    idempotencyKey: idempotencyKeySchema,
+  })
+  .strict();
+export type PatientLookupJob = z.infer<typeof patientLookupJobSchema>;
+
+export const patientLookupResultSchema = z
+  .object({
+    outcome: z.enum([
+      'MATCHED_PENDING_APPROVAL',
+      'NOT_FOUND',
+      'AMBIGUOUS',
+      'IDENTITY_MISMATCH',
+      'SIMULATED_MATCH',
+      'SIMULATED_NOT_FOUND',
+    ]),
+  })
+  .strict();
+export type PatientLookupResult = z.infer<typeof patientLookupResultSchema>;
+
+/** Search is a POST payload so documentary identifiers do not enter request URLs. */
+export const patientMasterSearchRequestSchema = z
+  .object({
+    identificationType: z.string().min(1).max(80).optional(),
+    identificationValue: z.string().min(1).max(255).optional(),
+    dispensingPointId: z.string().uuid().optional(),
+    page: z.coerce.number().int().min(1).max(100_000).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(25),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (Boolean(input.identificationType) !== Boolean(input.identificationValue)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Exact identity search requires both identification components',
+        path: ['identificationValue'],
+      });
+    }
+  });
+export type PatientMasterSearchRequest = z.infer<typeof patientMasterSearchRequestSchema>;
+
+export const patientMasterListItemSchema = z.object({
+  id: z.string().uuid(),
+  identityStatus: z.literal('LOCAL_KEY_RECORDED'),
+  mtdomLookupStatus: z.enum([
+    'NOT_REQUESTED',
+    'MATCHED_PENDING_APPROVAL',
+    'NOT_FOUND',
+    'AMBIGUOUS',
+    'IDENTITY_MISMATCH',
+    'AUTH_BLOCKED',
+    'FAILED',
+  ]),
+  mtdomLastCheckedAt: z.string().datetime().nullable(),
+  mtdomLastErrorCode: z.string().max(80).nullable(),
+  mtdomChangesSeenAt: z.string().datetime().nullable(),
+  linkedAuthorizationCount: z.number().int().nonnegative(),
+  historicalCandidateAuthorizationCount: z.number().int().nonnegative(),
+});
+export type PatientMasterListItem = z.infer<typeof patientMasterListItemSchema>;
+
+export const patientMasterAuthorizationEvidenceSchema = z.object({
+  id: z.string().uuid(),
+  authorizationNumber: z.string().max(255),
+  linkage: z.enum(['LINKED', 'HISTORICAL_EXACT_CANDIDATE']),
+  organizationCodes: z.array(z.string().max(50)),
+  dispensingPointId: z.string().uuid().nullable(),
+});
+export type PatientMasterAuthorizationEvidence = z.infer<
+  typeof patientMasterAuthorizationEvidenceSchema
+>;
+
+export const patientMasterSearchResponseSchema = z.object({
+  items: z.array(patientMasterListItemSchema),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+});
+export type PatientMasterSearchResponse = z.infer<typeof patientMasterSearchResponseSchema>;
+
+export const patientMasterDetailSchema = patientMasterListItemSchema.extend({
+  authorizationEvidence: z.array(patientMasterAuthorizationEvidenceSchema),
+});
+export type PatientMasterDetail = z.infer<typeof patientMasterDetailSchema>;
+
+export const patientReconciliationCaseSchema = z.object({
+  id: z.string().uuid(),
+  authorizationItemId: z.string().uuid(),
+  status: z.enum(['NEEDS_RECONCILIATION', 'CONFLICT', 'RESOLVED', 'REVERT_CONFLICT']),
+  reasonCode: z.string().max(80),
+  processedAt: z.string().datetime(),
+  resolutionCode: z.string().max(80).nullable(),
+  decidedAt: z.string().datetime().nullable(),
+});
+export type PatientReconciliationCase = z.infer<typeof patientReconciliationCaseSchema>;
+
+export const patientReconciliationCasesResponseSchema = z.object({
+  items: z.array(patientReconciliationCaseSchema),
+});
+export type PatientReconciliationCasesResponse = z.infer<
+  typeof patientReconciliationCasesResponseSchema
+>;
+
+export const patientReconciliationCasesQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type PatientReconciliationCasesQuery = z.infer<typeof patientReconciliationCasesQuerySchema>;
+
+export const PATIENT_LOOKUP_OUTBOX_EVENT_TYPE = 'patient.lookup';
+export const PATIENT_LOOKUP_JOB_NAME = 'patient.lookup.v1';
+export const PATIENT_LOOKUP_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'patient-lookup' as const, delay: 500 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail: false,
+};
+
 export const FOUNDATION_QUEUE = 'foundation';
 export const FOUNDATION_DEAD_LETTER_QUEUE = 'foundation.dead-letter';
 export const FOUNDATION_JOB_NAME = 'foundation.event.v1';
@@ -2676,10 +2811,7 @@ export const authorizationDriveSupportStatusSchema = z.enum([
   'WITHOUT_SUPPORT',
 ]);
 
-export type AuthorizationDriveSupportStatus = z.infer<
-  typeof authorizationDriveSupportStatusSchema
->;
-
+export type AuthorizationDriveSupportStatus = z.infer<typeof authorizationDriveSupportStatusSchema>;
 
 export const authorizationBillingAuditResponseSchema = z.object({
   id: z.string().uuid(),
@@ -2708,11 +2840,9 @@ export const authorizationBillingAuditResponseSchema = z.object({
 
   updatedAt: isoDateTimeSchema,
 
-  driveSupportStatus:
-    authorizationDriveSupportStatusSchema,
+  driveSupportStatus: authorizationDriveSupportStatusSchema,
 
-  driveSupportLastCheckedAt:
-    isoDateTimeSchema.nullable(),
+  driveSupportLastCheckedAt: isoDateTimeSchema.nullable(),
 
   evidence: z.array(authorizationBillingAuditEvidenceSchema),
 });

@@ -21,12 +21,18 @@ describe('parseApiConfig', () => {
     const config = parseApiConfig(base);
     expect(config.IMPORT_MAX_FILE_BYTES).toBe(20 * 1024 * 1024);
     expect(config.AUTHORIZATION_IMPORT_MAX_FILE_BYTES).toBe(50 * 1024 * 1024);
-    expect(parseApiConfig({
-      ...base, AUTHORIZATION_IMPORT_MAX_FILE_BYTES: String(50 * 1024 * 1024),
-    }).AUTHORIZATION_IMPORT_MAX_FILE_BYTES).toBe(50 * 1024 * 1024);
-    expect(() => parseApiConfig({
-      ...base, AUTHORIZATION_IMPORT_MAX_FILE_BYTES: String(50 * 1024 * 1024 + 1),
-    })).toThrow();
+    expect(
+      parseApiConfig({
+        ...base,
+        AUTHORIZATION_IMPORT_MAX_FILE_BYTES: String(50 * 1024 * 1024),
+      }).AUTHORIZATION_IMPORT_MAX_FILE_BYTES,
+    ).toBe(50 * 1024 * 1024);
+    expect(() =>
+      parseApiConfig({
+        ...base,
+        AUTHORIZATION_IMPORT_MAX_FILE_BYTES: String(50 * 1024 * 1024 + 1),
+      }),
+    ).toThrow();
   });
 
   it('rejects insecure public production URLs', () => {
@@ -58,6 +64,23 @@ describe('parseApiConfig', () => {
     expect(config.RECONCILIATION_OPERATION_LEASE_SECONDS).toBe(120);
     expect(config.RECONCILIATION_MAX_ATTEMPTS).toBe(3);
   });
+
+  it('keeps patient master APIs disabled until scope and DP-07 gates are approved', () => {
+    const config = parseApiConfig(base);
+    expect(config.PATIENT_MASTER_ACCESS_ENABLED).toBe(false);
+    expect(config.PATIENT_MASTER_SCOPE_POLICY_APPROVED).toBe(false);
+    expect(config.PATIENT_MASTER_DP07_APPROVED).toBe(false);
+    expect(() => parseApiConfig({ ...base, PATIENT_MASTER_ACCESS_ENABLED: 'true' })).toThrow();
+    expect(() =>
+      parseApiConfig({
+        ...base,
+        PATIENT_MASTER_ACCESS_ENABLED: 'true',
+        PATIENT_MASTER_SCOPE_POLICY_APPROVED: 'true',
+        PATIENT_MASTER_DP07_APPROVED: 'true',
+        PATIENT_MASTER_SCOPE_POLICY_VERSION: 'SYNTHETIC_SCOPE_TEST_V1',
+      }),
+    ).not.toThrow();
+  });
 });
 
 describe('parseWorkerConfig', () => {
@@ -69,6 +92,22 @@ describe('parseWorkerConfig', () => {
     });
     expect(config.SCHEDULER_ENABLED).toBe(true);
     expect(config.RECONCILIATION_SCHEDULER_ENABLED).toBe(false);
+    expect(config.MTDOM_PATIENT_LOOKUP_ENABLED).toBe(false);
+    expect(config.MTDOM_DP07_APPROVED).toBe(false);
+    expect(config.PATIENT_CHANGES_SYNC_INTERVAL_MS).toBe(3_600_000);
+  });
+
+  it('allows configuring the changes scheduler interval without enabling a remote feed', () => {
+    const config = parseWorkerConfig({
+      NODE_ENV: 'test',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/authorization',
+      REDIS_URL: 'redis://localhost:6379',
+      PATIENT_CHANGES_SYNC_INTERVAL_MS: '7200000',
+    });
+    expect(config.PATIENT_CHANGES_SYNC_INTERVAL_MS).toBe(7_200_000);
+    expect(config.MTDOM_PATIENT_LOOKUP_ENABLED).toBe(false);
+    expect(config).not.toHaveProperty('MTDOM_PATIENT_CHANGES_ENABLED');
+    expect(config).not.toHaveProperty('MTDOM_PATIENT_CHANGES_URL');
   });
 
   it('allows enabling reconciliation scheduler explicitly', () => {
@@ -79,5 +118,23 @@ describe('parseWorkerConfig', () => {
       RECONCILIATION_SCHEDULER_ENABLED: 'true',
     });
     expect(config.RECONCILIATION_SCHEDULER_ENABLED).toBe(true);
+  });
+
+  it('requires explicit privacy, identity policy and server token gates before lookup can be enabled', () => {
+    const base = {
+      NODE_ENV: 'test',
+      DATABASE_URL: 'postgresql://user:password@database:5432/authorization',
+      REDIS_URL: 'redis://redis:6379',
+      MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
+    };
+    expect(() => parseWorkerConfig(base)).toThrow();
+    expect(() =>
+      parseWorkerConfig({
+        ...base,
+        MTDOM_DP07_APPROVED: 'true',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'v-test-policy',
+        MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
+      }),
+    ).not.toThrow();
   });
 });

@@ -96,6 +96,7 @@ type ImportRow = {
 
 type AuthorizationSnapshot = {
   id: string;
+  patient_id: string | null;
   version: number;
   updated_at: Date;
   updated_by: string | null;
@@ -504,6 +505,7 @@ async function snapshot(
   const result = await database.query<AuthorizationSnapshot>(
     `select
        id,
+       patient_id,
        version,
        updated_at,
        updated_by,
@@ -790,6 +792,11 @@ async function cleanup(): Promise<void> {
   );
 
   await database.query(
+    `delete from patients where identification_value_raw = $1`,
+    [`DOC-${suffix}`],
+  );
+
+  await database.query(
     `delete from bulk_import_jobs
       where original_filename like 'm2cd-%'`,
   );
@@ -878,6 +885,16 @@ describe('Macro 2 / 2C + 2D — smart reload + purchase order lineage', () => {
 
     expect(first.confirmed.succeededRows).toBe(1);
 
+    const unlinked = await snapshot(AUTH_NOOP, CODE_NOOP);
+    const patient = await database.query<{ id: string }>(
+      `insert into patients (identification_type_raw, identification_value_raw)
+       values ('CC', $1) returning id`,
+      [`DOC-${suffix}`],
+    );
+    await database.query(
+      `update authorization_items set patient_id = $1 where id = $2`,
+      [patient.rows[0]!.id, unlinked.id],
+    );
     const before = await snapshot(AUTH_NOOP, CODE_NOOP);
 
     const second = await uploadAndConfirm({
@@ -898,6 +915,7 @@ describe('Macro 2 / 2C + 2D — smart reload + purchase order lineage', () => {
     expect(after.updated_by).toBe(before.updated_by);
     expect(after.last_load_id).toBe(before.last_load_id);
     expect(after.source_data).toEqual(before.source_data);
+    expect(after.patient_id).toBe(patient.rows[0]!.id);
   });
 
   it('3. cambio semántico libre hace UPDATE conservando id e incrementando version', async () => {

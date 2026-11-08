@@ -40,4 +40,38 @@ describe('clinical authorization repository', () => {
     expect(query).not.toContain('lugar_dispensacion');
     expect(query).not.toContain('audit_status');
   });
+
+  it('keeps the scheduling projection identical for linked and unlinked historical authorizations', async () => {
+    const sourceProjection = {
+      id: '10000000-0000-4000-8000-000000000002',
+      numero_autorizacion: 'AUTH-2',
+      authorization_key: 'AUTH-2:COD002',
+      codigo_medicamento: 'COD002',
+      enablement_status: 'ENABLED',
+      coverage_type: 'PBS',
+      direction_status: 'NOT_APPLICABLE',
+      mipres_manual_decision: 'PENDING_MANUAL_ENABLEMENT',
+      patient_document: '0009001',
+      patient_name: 'SYNTHETIC PATIENT',
+      authorized_quantity: '4',
+      expiration_raw: '2031-12-31',
+    };
+    const scope = { organizationId: 'org-synthetic', bypassOrganizationScope: false };
+    const read = async (patientId: string | null) => {
+      const fixture = databaseWithRows([{ ...sourceProjection, patient_id: patientId }]);
+      const repository = new ClinicalAuthorizationRepository(fixture.database);
+      const result = await repository.findForSchedulingById(sourceProjection.id, scope);
+      const query = fixture.query.mock.calls[0]?.[0] as string;
+      expect(query).toContain("source_data->>'IDENTIFICACION_PACIENTE'");
+      expect(query).toContain('authorization_item_organizations');
+      expect(query).not.toMatch(/join\s+patients\b/i);
+      expect(query).not.toMatch(/\bpatient_id\b/i);
+      return result;
+    };
+
+    const linked = await read('20000000-0000-4000-8000-000000000002');
+    const unlinked = await read(null);
+    expect(linked).toEqual(unlinked);
+    expect(linked).toMatchObject({ patientDocument: '0009001', patientName: 'SYNTHETIC PATIENT' });
+  });
 });
