@@ -3,9 +3,20 @@ import { Module } from '@nestjs/common';
 import { parseWorkerConfig } from '@authorization/config';
 import { createDatabase } from '@authorization/database';
 import type { WorkerConfig } from '@authorization/config';
+import pino from 'pino';
 import { MtdomPatientLookupProcessor } from './mtdom-patient-lookup.processor';
 import { MtdomPatientsReadClient } from './mtdom-patients-read.client';
-import { DATABASE, PATIENT_LOOKUP_PROCESSOR, WORKER_CONFIG } from './tokens';
+import {
+  DATABASE,
+  PATIENT_LOOKUP_PROCESSOR,
+  PATIENT_LOOKUP_SYNC_SCHEDULER,
+  WORKER_CONFIG,
+} from './tokens';
+import {
+  PatientLocalLookupSyncScheduler,
+  PatientLocalLookupSyncService,
+  PgPatientLocalLookupSyncRepository,
+} from './patient-local-lookup-sync';
 import { WorkerService } from './worker.service';
 
 const config = parseWorkerConfig(process.env);
@@ -45,9 +56,44 @@ const database = createDatabase(config.DATABASE_URL);
         );
       },
     },
-    // Intentionally no PATIENT_CHANGES_SYNC_SCHEDULER provider: the documented
-    // changes feed is global and has no approval to be consumed by this app.
-    // Synthetic tests may inject a fake source and scheduler explicitly.
+    {
+      provide: PATIENT_LOOKUP_SYNC_SCHEDULER,
+      inject: [DATABASE, WORKER_CONFIG, PATIENT_LOOKUP_PROCESSOR],
+      useFactory: (
+        patientDatabase: typeof database,
+        workerConfig: WorkerConfig,
+        processor: MtdomPatientLookupProcessor | undefined,
+      ) => {
+        if (!processor) return undefined;
+        const logger = pino({
+          level: workerConfig.LOG_LEVEL,
+          base: { service: 'platform-worker' },
+        });
+        const sync = new PatientLocalLookupSyncService(
+          new PgPatientLocalLookupSyncRepository(patientDatabase.pool),
+          { intervalMs: workerConfig.PATIENT_CHANGES_SYNC_INTERVAL_MS },
+        );
+        return new PatientLocalLookupSyncScheduler(sync, (result) => {
+          const metrics = {
+            status: result.status,
+            pagesProcessed: result.pagesProcessed,
+            patientsQueued: result.patientsQueued,
+            retries: result.retries,
+            ...(result.code ? { code: result.code } : {}),
+          };
+          if (result.status === 'FAILED') {
+            logger.error(metrics, 'patient local lookup sync failed');
+            Sentry.captureMessage('patient local lookup sync failed', {
+              level: 'error',
+              tags: { code: result.code ?? 'UNKNOWN' },
+              extra: metrics,
+            });
+          } else {
+            logger.info(metrics, 'patient local lookup sync completed');
+          }
+        });
+      },
+    },
   ],
 })
 export class AppModule {}

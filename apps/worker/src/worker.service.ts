@@ -26,8 +26,8 @@ import { Queue, QueueEvents, Worker, type Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import IORedis from 'ioredis';
 import pino from 'pino';
-import { DATABASE, PATIENT_CHANGES_SYNC_SCHEDULER, PATIENT_LOOKUP_PROCESSOR, WORKER_CONFIG } from './tokens';
-import { PatientChangesSyncScheduler } from './patient-changes-sync';
+import { DATABASE, PATIENT_LOOKUP_SYNC_SCHEDULER, PATIENT_LOOKUP_PROCESSOR, WORKER_CONFIG } from './tokens';
+import { PatientLocalLookupSyncScheduler } from './patient-local-lookup-sync';
 import {
   runInventoryExpirationReleaseSweep,
 } from './inventory-expiration-release';
@@ -147,8 +147,8 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     @Inject(PATIENT_LOOKUP_PROCESSOR)
     private readonly patientLookupProcessor?: PatientLookupProcessor,
     @Optional()
-    @Inject(PATIENT_CHANGES_SYNC_SCHEDULER)
-    private readonly patientChangesSyncScheduler?: PatientChangesSyncScheduler,
+    @Inject(PATIENT_LOOKUP_SYNC_SCHEDULER)
+    private readonly patientLookupSyncScheduler?: PatientLocalLookupSyncScheduler,
   ) {
     this.logger = pino({ level: config.LOG_LEVEL, base: { service: 'platform-worker' } });
     this.connection = new IORedis(config.REDIS_URL, { maxRetriesPerRequest: null });
@@ -190,9 +190,9 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       void this.moveToDeadLetter(jobId, failedReason);
     });
     if (this.config.SCHEDULER_ENABLED) {
-      if (this.patientChangesSyncScheduler) {
-        this.patientChangesSyncScheduler.start(this.config.PATIENT_CHANGES_SYNC_INTERVAL_MS);
-        void this.patientChangesSyncScheduler.trigger();
+      if (this.patientLookupSyncScheduler) {
+        this.patientLookupSyncScheduler.start(this.config.PATIENT_CHANGES_SYNC_INTERVAL_MS);
+        void this.patientLookupSyncScheduler.trigger();
       }
       this.timer = setInterval(
         () => void this.dispatchOutbox(),
@@ -631,7 +631,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async onApplicationShutdown(): Promise<void> {
-    this.patientChangesSyncScheduler?.stop();
+    this.patientLookupSyncScheduler?.stop();
     if (
       this.timer
     ) {

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "packages/database/src/schema.ts",
-  "sourceSha256": "a2a0665bf41738125c78c9449fb1a7a94951844ac18260faf1b754f66eae479b",
+  "sourceSha256": "d21e4e3269d3690fdfeff9d21eb1577cd358e0f1aa2057b67082b4fb4a1e84c3",
   "kind": "drizzle-static",
   "notLiveDatabase": true,
   "groupLabels": {
