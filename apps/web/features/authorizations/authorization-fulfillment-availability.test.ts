@@ -19,6 +19,17 @@ describe('authorization fulfillment availability', () => {
     expect(authorizationFulfillmentBlockMessage('CURRENT')).toBeNull();
   });
 
+  it('offers fulfillment for a partially fulfilled authorization with assigned balance', () => {
+    expect(
+      canStartAuthorizationFulfillment({
+        ...reservedAuthorization,
+        operationalStatus: 'PARTIALLY_ASSIGNED',
+        remainingAuthorizedQuantity: 6,
+        remainingAssignedQuantity: 3,
+      }),
+    ).toBe(true);
+  });
+
   it.each(['GRACE', 'PARTIAL_CONTINUATION'])(
     'allows fulfillment during %s when a reservation remains',
     (status) => {

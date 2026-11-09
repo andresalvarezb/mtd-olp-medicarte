@@ -15,6 +15,7 @@ import {
   adminLogin,
   ensureOperatorTokens,
   ensureUser,
+  grantMedicarteOperatorPoints,
 } from './helpers/auth';
 
 
@@ -339,6 +340,9 @@ async function createPurchaseOrder(
       quantity:
         number;
 
+      dispensingPointId?:
+        string;
+
       acceptedByOlp?:
         boolean;
     }>,
@@ -441,7 +445,7 @@ async function createPurchaseOrder(
       [
         purchaseOrderId,
         input.commercialCode,
-        dispensingPointId,
+        input.dispensingPointId ?? dispensingPointId,
         input.quantity,
       ],
     );
@@ -500,6 +504,9 @@ async function createAllocation(
 
       quantity:
         number;
+
+      dispensingPointId?:
+        string;
     }>,
 ) {
   const batch =
@@ -594,7 +601,7 @@ async function createAllocation(
         input.authorizationItemId,
         input.purchaseOrderId,
         input.commercialCode,
-        dispensingPointId,
+        input.dispensingPointId ?? dispensingPointId,
         input.quantity,
         input.authorizationVersion,
         foundationUserId,
@@ -898,6 +905,11 @@ beforeAll(
 
     dispensingPointId =
       point.rows[0]!.id;
+
+    await grantMedicarteOperatorPoints(
+      database,
+      [dispensingPointId],
+    );
 
 
     // Reutilizar únicamente períodos creados por este gate.
@@ -1510,6 +1522,128 @@ afterAll(
 describe(
   'Manual authorization edit',
   () => {
+
+    it('MEDICARTE conserva una AUTO parcialmente atendida con saldo asignado y deniega UUID sin asignación', async () => {
+      const partial = await createAuthorization({ quantity: 10 });
+      const po = await createPurchaseOrder({
+        authorizationItemId: partial.id,
+        commercialCode: partial.commercialCode,
+        quantity: 7,
+        acceptedByOlp: true,
+      });
+      const allocationId = await createAllocation({
+        authorizationItemId: partial.id,
+        authorizationVersion: partial.version,
+        purchaseOrderId: po.purchaseOrderId,
+        commercialCode: partial.commercialCode,
+        quantity: 7,
+      });
+      await database.query(
+        `update inventory_authorization_allocations
+         set consumed_quantity = 4, status = 'PARTIALLY_CONSUMED'
+         where id = $1`,
+        [allocationId],
+      );
+
+      const list = await apiCall(
+        'GET',
+        `/authorization-query?authorizationNumber=${encodeURIComponent(partial.authorizationNumber)}`,
+        undefined,
+        medicarteToken,
+        ORGANIZATION_IDS.MEDICARTE,
+      );
+      expect(list.status).toBe(200);
+      const payload = await list.json() as {
+        total: number;
+        items: Array<{
+          id: string;
+          operationalStatus: string;
+          fulfillmentProgressStatus: string;
+          authorizedQuantity: number;
+          fulfilledQuantity: number;
+          remainingAuthorizedQuantity: number;
+          remainingAssignedQuantity: number;
+        }>;
+      };
+      expect(payload.total).toBe(1);
+      expect(payload.items[0]).toMatchObject({
+        id: partial.id,
+        operationalStatus: 'PARTIALLY_ASSIGNED',
+        fulfillmentProgressStatus: 'PARTIAL',
+        authorizedQuantity: 10,
+        fulfilledQuantity: 4,
+        remainingAuthorizedQuantity: 6,
+        remainingAssignedQuantity: 3,
+      });
+
+      const detail = await apiCall(
+        'GET',
+        `/authorization-query/${partial.id}`,
+        undefined,
+        medicarteToken,
+        ORGANIZATION_IDS.MEDICARTE,
+      );
+      expect(detail.status).toBe(200);
+
+      const history = await apiCall(
+        'GET',
+        `/authorization-query/${partial.id}/history`,
+        undefined,
+        medicarteToken,
+        ORGANIZATION_IDS.MEDICARTE,
+      );
+      expect(history.status).toBe(200);
+
+      const unassigned = await createAuthorization({ quantity: 10 });
+      const hiddenDetail = await apiCall(
+        'GET',
+        `/authorization-query/${unassigned.id}`,
+        undefined,
+        medicarteToken,
+        ORGANIZATION_IDS.MEDICARTE,
+      );
+      expect(hiddenDetail.status).toBe(404);
+
+      const hiddenList = await apiCall(
+        'GET',
+        `/authorization-query?authorizationNumber=${encodeURIComponent(unassigned.authorizationNumber)}&operationalStatus=UNASSIGNED`,
+        undefined,
+        medicarteToken,
+        ORGANIZATION_IDS.MEDICARTE,
+      );
+      expect(hiddenList.status).toBe(200);
+      expect(await hiddenList.json()).toMatchObject({ total: 0, items: [] });
+
+      const ungrantedPoint = await database.query<{ id: string }>(
+        `insert into dispensing_points (organization_id, code, name, created_by)
+         values ($1, $2, 'Ungrantable test point', $3) returning id`,
+        [ORGANIZATION_IDS.MEDICARTE, `ME-OTHER-POINT-${suffix}`, foundationUserId],
+      );
+      const otherPointAuthorization = await createAuthorization({ quantity: 5 });
+      const otherPointOrder = await createPurchaseOrder({
+        authorizationItemId: otherPointAuthorization.id,
+        commercialCode: otherPointAuthorization.commercialCode,
+        quantity: 5,
+        acceptedByOlp: true,
+        dispensingPointId: ungrantedPoint.rows[0]!.id,
+      });
+      await createAllocation({
+        authorizationItemId: otherPointAuthorization.id,
+        authorizationVersion: otherPointAuthorization.version,
+        purchaseOrderId: otherPointOrder.purchaseOrderId,
+        commercialCode: otherPointAuthorization.commercialCode,
+        quantity: 5,
+        dispensingPointId: ungrantedPoint.rows[0]!.id,
+      });
+      const otherPointDetail = await apiCall(
+        'GET',
+        `/authorization-query/${otherPointAuthorization.id}`,
+        undefined,
+        medicarteToken,
+        ORGANIZATION_IDS.MEDICARTE,
+      );
+      expect(otherPointDetail.status).toBe(404);
+    }, 60_000);
 
     it('AUTO 10 con OC1=4 y OC2=6 libera compromisos y reservas sin borrar historia', async () => {
       const item = await createAuthorization({ quantity: 10 });

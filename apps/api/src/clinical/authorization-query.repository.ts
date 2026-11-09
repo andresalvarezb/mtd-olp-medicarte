@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -26,6 +27,7 @@ import {
 } from '../common/date-time';
 
 import {
+  AUTHORIZATION_FULFILLMENT_GRACE_DAYS,
   evaluateAuthorizationFulfillmentWindow,
   evaluateEffectiveMipresEligibility,
 } from '@authorization/domain';
@@ -275,6 +277,72 @@ export class AuthorizationQueryRepository {
       `;
     }
 
+    if (
+      scope.organizationCode ===
+      'MEDICARTE'
+    ) {
+      const remainingAuthorizedQuantity =
+        this.remainingAuthorizedQuantitySql();
+
+      const remainingAssignedQuantity =
+        this.remainingAssignedQuantitySql(scope);
+
+      const today =
+        authorizationQueryValidityWindow().today;
+
+      const graceStart =
+        new Date(
+          Date.parse(`${today}T00:00:00.000Z`)
+          - AUTHORIZATION_FULFILLMENT_GRACE_DAYS * 86_400_000,
+        )
+          .toISOString()
+          .slice(0, 10)
+          .replace(/-/g, '');
+
+      const validityEndDateKey =
+        this.sourceDateKey('FECHA_FINAL_VIGENCIA');
+
+      return sql`
+        (
+          ${this.operationalEligibility()}
+        )
+
+        and
+
+        (
+          ${remainingAuthorizedQuantity}
+        ) > 0
+
+        and
+
+        (
+          ${remainingAssignedQuantity}
+        ) > 0
+
+        and
+
+        (
+          ${this.validityStatusSql()} = 'IN_WINDOW'
+
+          or
+
+          (
+            ${this.validityStatusSql()} = 'EXPIRED'
+
+            and
+
+            (
+              ${validityEndDateKey} >= ${graceStart}
+
+              or
+
+              ${this.fulfilledQuantitySql()} > 0
+            )
+          )
+        )
+      `;
+    }
+
     /*
      * Comportamiento operacional existente para
      * los demás actores.
@@ -475,8 +543,9 @@ export class AuthorizationQueryRepository {
    *
    * Los limites son inclusivos.
    *
-   * La vigencia NO controla visibilidad:
-   * todas las AUTO permitidas por scope son consultables.
+   * Para otras organizaciones, la vigencia no controla
+   * visibilidad. MEDICARTE aplica además su ventana de
+   * cumplimiento en visibility(scope).
    *
    * Esta ventana se usa para prioridad y elegibilidad
    * de las acciones operacionales.
@@ -1001,7 +1070,22 @@ export class AuthorizationQueryRepository {
   }
 
 
-  private remainingAssignedQuantitySql(): SQL {
+  private remainingAssignedQuantitySql(
+    scope?: Scope,
+  ): SQL {
+    const pointScope =
+      scope?.organizationCode === 'MEDICARTE'
+        ? sql`
+            and exists (
+              select 1
+              from dispensing_points dp_assigned_scope
+              where dp_assigned_scope.id = iaa_progress.dispensing_point_id
+                and dp_assigned_scope.organization_id = ${scope.organizationId}::uuid
+                and ${applyPointScope(sql`dp_assigned_scope.id`, scope)}
+            )
+          `
+        : sql``;
+
     return sql`
       coalesce(
         (
@@ -1029,6 +1113,8 @@ export class AuthorizationQueryRepository {
               'ALLOCATED',
               'PARTIALLY_CONSUMED'
             )
+
+            ${pointScope}
         ),
         0
       )
@@ -1043,6 +1129,13 @@ export class AuthorizationQueryRepository {
     scope:
       Scope,
   ) {
+    if (filters.patient && !scope.readSensitive) {
+      throw new ForbiddenException({
+        code: 'SENSITIVE_AUTHORIZATION_READ_REQUIRED',
+        message: 'Sensitive authorization access is required for patient searches.',
+      });
+    }
+
     const conditions: SQL[] = [
       this.visibility(
         scope,
@@ -1193,7 +1286,7 @@ export class AuthorizationQueryRepository {
       this.remainingAuthorizedQuantitySql();
 
     const remainingAssignedQuantityFilter =
-      this.remainingAssignedQuantitySql();
+      this.remainingAssignedQuantitySql(scope);
 
     const fulfilledQuantityFilter =
       this.fulfilledQuantitySql();
@@ -1426,6 +1519,7 @@ export class AuthorizationQueryRepository {
           (row) =>
             this.toResponse(
               row,
+              scope,
             ),
         ),
 
@@ -1484,6 +1578,7 @@ export class AuthorizationQueryRepository {
     const response =
       this.toResponse(
         row,
+        scope,
       );
 
     /*
@@ -1751,7 +1846,7 @@ export class AuthorizationQueryRepository {
         'Autorización registrada',
 
       description:
-        `Se registró la autorización ${authorization.authorization_number}${authorization.patient_name ? ` para ${authorization.patient_name}` : ''}.`,
+        `Se registró la autorización ${authorization.authorization_number}${scope.readSensitive && authorization.patient_name ? ` para ${authorization.patient_name}` : ''}.`,
 
       actorName:
         authorization.created_by_name,
@@ -2194,13 +2289,13 @@ export class AuthorizationQueryRepository {
 
 
       const originReference =
-        row.origin_patient_name
+        scope.readSensitive && row.origin_patient_name
           ? `${originNumber} · ${row.origin_patient_name}`
           : originNumber;
 
 
       const destinationReference =
-        row.destination_patient_name
+        scope.readSensitive && row.destination_patient_name
           ? `${destinationNumber} · ${row.destination_patient_name}`
           : destinationNumber;
 
@@ -3908,11 +4003,8 @@ export class AuthorizationQueryRepository {
      * NO depende de inventory_authorization_allocations.
      *
      * MTD puede consultar la relación operacional completa.
-     *
-     * MEDICARTE conserva la frontera ya existente:
-     * - OLP debe haber aceptado la OC.
-     * - el punto debe pertenecer a la organización.
-     * - se respeta el scope de puntos del usuario.
+     * MEDICARTE solo recibe relaciones de puntos de su
+     * organización concedidos al usuario.
      */
     /*
      * Relación durable de consulta.
@@ -3927,10 +4019,13 @@ export class AuthorizationQueryRepository {
      *
      * Esto NO modifica operationalStatus.
      */
-    void scope;
-
     const orderScope =
-      sql`true`;
+      scope.organizationCode === 'MEDICARTE'
+        ? sql`
+            dp_link.organization_id = ${scope.organizationId}::uuid
+            and ${applyPointScope(sql`dp_link.id`, scope)}
+          `
+        : sql`true`;
 
     const result =
       await this.database.db.execute<{
@@ -4272,6 +4367,16 @@ export class AuthorizationQueryRepository {
               sql`dp_eligibility.id`,
               scope,
             )}
+          `
+        : sql`true`;
+
+    const allocationScope =
+      scope.organizationCode === 'MEDICARTE'
+        ? sql`
+            dp_allocation.organization_id =
+              ${scope.organizationId}::uuid
+
+            and ${applyPointScope(sql`dp_allocation.id`, scope)}
           `
         : sql`true`;
 
@@ -5271,14 +5376,14 @@ export class AuthorizationQueryRepository {
 
           string_agg(
             distinct
-              dp.code,
+              dp_allocation.code,
             ', '
           )
             as dispensing_point_code,
 
           string_agg(
             distinct
-              dp.name,
+              dp_allocation.name,
             ', '
           )
             as dispensing_point_name
@@ -5290,8 +5395,8 @@ export class AuthorizationQueryRepository {
           on po.id =
              iaa.purchase_order_id
 
-        join dispensing_points dp
-          on dp.id =
+        join dispensing_points dp_allocation
+          on dp_allocation.id =
              iaa.dispensing_point_id
 
         where
@@ -5303,6 +5408,8 @@ export class AuthorizationQueryRepository {
             'PARTIALLY_CONSUMED',
             'CONSUMED'
           )
+
+          and ${allocationScope}
       ) allocation
         on true
 
@@ -5432,6 +5539,9 @@ export class AuthorizationQueryRepository {
   private toResponse(
     row:
       AuthorizationQueryRow,
+
+    scope:
+      Scope,
   ) {
     const authorizedQuantity =
       Math.max(
@@ -5591,6 +5701,12 @@ export class AuthorizationQueryRepository {
     const operationalEligible =
       initialValidationStatus ===
         'PASSED'
+      && evaluateEffectiveMipresEligibility({
+        coverageType: row.coverage_type,
+        directionStatus: row.direction_status,
+        manualDecision: row.mipres_manual_decision,
+      }).eligible
+      && fulfillmentWindow.eligible
       &&
       evaluateEffectiveMipresEligibility({
         coverageType:
@@ -5625,13 +5741,19 @@ export class AuthorizationQueryRepository {
         row.product_description,
 
       patientDocument:
-        row.patient_document,
+        scope.readSensitive
+          ? row.patient_document
+          : null,
 
       patientName:
-        row.patient_name,
+        scope.readSensitive
+          ? row.patient_name
+          : null,
 
       dosage:
-        row.dosage,
+        scope.readSensitive
+          ? row.dosage
+          : null,
 
       quantity:
         row.quantity,

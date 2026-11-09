@@ -1496,13 +1496,24 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
       token: medicarteToken,
       organizationId: ORGANIZATION_IDS.MEDICARTE,
     });
-    const historyItems = Array.isArray(history.body.items) ? history.body.items : [];
-    const applicationEvents = historyItems.filter((event) => asObject(event)?.type === 'APPLICATION_RECORDED');
-    record('Authorization history retains both successful applications', history.status === 200 && applicationEvents.length === 2, '200 / 2 APPLICATION_RECORDED events', `${history.status} / ${applicationEvents.length}`, 'CRITICAL', history.body);
+    record(
+      'Medicarte cannot read authorization history after assigned balance is exhausted',
+      history.status === 404 && bodyCode(history.body) === 'AUTHORIZATION_NOT_FOUND',
+      '404 AUTHORIZATION_NOT_FOUND',
+      `${history.status} ${bodyCode(history.body)}`,
+      'CRITICAL',
+      history.body,
+    );
 
-    const fulfillmentTotals = await database.query<{ count: number; quantity: number; receipt_quantity: number }>(
+    const fulfillmentTotals = await database.query<{
+      count: number;
+      application_count: number;
+      quantity: number;
+      receipt_quantity: number;
+    }>(
       `select
          (select count(*)::int from authorization_fulfillments where authorization_item_id = $1) as count,
+         (select count(*)::int from authorization_fulfillments where authorization_item_id = $1 and fulfillment_type = 'APPLICATION') as application_count,
          (select coalesce(sum(quantity), 0)::int from authorization_fulfillments where authorization_item_id = $1) as quantity,
          (select coalesce(sum(im.quantity_delta), 0)::int
             from inventory_movements im
@@ -1512,7 +1523,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
            where d.purchase_order_id = $2 and im.movement_type = 'RECEIPT') as receipt_quantity`,
       [authorizationItemId, poId],
     );
-    record('Recorded consumption matches real receipt without creating stock', fulfillmentTotals.rows[0]?.count === 2 && fulfillmentTotals.rows[0]?.quantity === 17 && fulfillmentTotals.rows[0]?.receipt_quantity === 17, '2 fulfillments=17 / receipt inventory=17', fulfillmentTotals.rows[0], 'CRITICAL');
+    record('Both applications remain persisted when Medicarte cannot read the exhausted authorization history', fulfillmentTotals.rows[0]?.count === 2 && fulfillmentTotals.rows[0]?.application_count === 2 && fulfillmentTotals.rows[0]?.quantity === 17 && fulfillmentTotals.rows[0]?.receipt_quantity === 17, '2 APPLICATION fulfillments=17 / receipt inventory=17', fulfillmentTotals.rows[0], 'CRITICAL');
 
     // 20) Final safety snapshot: source DB must not be the target.
     const currentDb = await database.query<{ db: string }>('select current_database() db');
@@ -1560,7 +1571,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
           'Day-six partial attention continues within the physical reserved balance',
           'Partial plus final fulfillment consumes exactly the receipt reservation',
           'Medicarte rejects fulfillment after the reserved balance is exhausted',
-          'Authorization history retains both successful applications',
+          'Medicarte cannot read authorization history after assigned balance is exhausted',
           'Recorded consumption matches real receipt without creating stock',
           'Test executed only on ephemeral E2E database',
         ].includes(f.name),
