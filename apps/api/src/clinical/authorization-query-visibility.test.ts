@@ -19,7 +19,10 @@ const scope: Scope = {
 
 function fixture() {
   const execute = vi.fn().mockResolvedValue({ rows: [] });
-  const database = { db: { execute } } as unknown as Database;
+  const database = {
+    db: { execute },
+    pool: { totalCount: 0, idleCount: 0, waitingCount: 0, options: { max: 4 } },
+  } as unknown as Database;
   return {
     repository: new AuthorizationQueryRepository(database),
     execute,
@@ -34,25 +37,33 @@ function queryText(query: unknown): string {
 describe('authorization query MEDICARTE visibility', () => {
   it('applies the operational and point scope before counting or paging', async () => {
     const { repository, execute } = fixture();
-    execute.mockResolvedValueOnce({ rows: [{ total: 0 }] });
+    execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 0 }] });
 
     await repository.list({ page: 1, limit: 50 }, scope);
 
-    expect(execute).toHaveBeenCalledTimes(2);
-    const countQuery = queryText(execute.mock.calls[0]?.[0]);
-    const pageQuery = queryText(execute.mock.calls[1]?.[0]);
+    expect(execute).toHaveBeenCalledTimes(1);
+    const pageQuery = queryText(execute.mock.calls[0]?.[0]);
 
-    for (const query of [countQuery, pageQuery]) {
-      expect(query).toContain('i.mipres_manual_decision');
-      expect(query).toContain('coverage_type');
-      expect(query).toContain('authorization_fulfillments');
-      expect(query).toContain('authorization_item_id');
-      expect(query).toContain('inventory_authorization_allocations');
-      expect(query).toContain('dispensing_points');
-      expect(query).toContain('user_point_scopes');
-      expect(query).toContain("'PARTIALLY_CONSUMED'");
-      expect(query).toContain('> 0');
-    }
+    expect(pageQuery).toContain('matching_authorizations as materialized');
+    expect(pageQuery).toContain('query_total as materialized');
+    expect(pageQuery).toContain('assignment_date_key');
+    expect(pageQuery).toContain('validity_end_date_key');
+    expect(pageQuery).toContain('join matching_authorizations matched');
+    expect(pageQuery).toContain('i.mipres_manual_decision');
+    expect(pageQuery).toContain('coverage_type');
+    expect(pageQuery).toContain('authorization_fulfillments');
+    expect(pageQuery).toContain('authorization_item_id');
+    expect(pageQuery).toContain('inventory_authorization_allocations');
+    expect(pageQuery).toContain('dispensing_points');
+    expect(pageQuery).toContain('user_point_scopes');
+    expect(pageQuery).toContain("'PARTIALLY_CONSUMED'");
+    expect(pageQuery).toContain('> 0');
+    expect(pageQuery).toContain('sort_closed asc');
+    expect(pageQuery).toContain('sort_validation asc');
+    expect(pageQuery).toContain('sort_validity asc');
+    expect(pageQuery).toContain('sort_operational asc');
+    expect(pageQuery).toContain('limit $');
+    expect(pageQuery).toContain('offset $');
   });
 
   it('uses the same visibility predicate for UUID detail lookup', async () => {
@@ -109,23 +120,43 @@ describe('authorization query MEDICARTE visibility', () => {
 
   it('keeps MTD and COMPENSAR list visibility policies distinct from MEDICARTE', async () => {
     const mtd = fixture();
-    mtd.execute.mockResolvedValueOnce({ rows: [{ total: 0 }] });
+    mtd.execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 0 }] });
     await mtd.repository.list(
       { page: 1, limit: 50 },
       { ...scope, organizationCode: 'MTD', pointAccessKind: 'unrestricted' },
     );
-    const mtdCount = queryText(mtd.execute.mock.calls[0]?.[0]);
-    expect(mtdCount).not.toContain('authorization_item_organizations');
-    expect(mtdCount).not.toContain('user_point_scopes');
+    const mtdQuery = queryText(mtd.execute.mock.calls[0]?.[0]);
+    expect(mtdQuery).not.toContain('authorization_item_organizations');
+    expect(mtdQuery).not.toContain('user_point_scopes');
 
     const compensar = fixture();
-    compensar.execute.mockResolvedValueOnce({ rows: [{ total: 0 }] });
+    compensar.execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 0 }] });
     await compensar.repository.list(
       { page: 1, limit: 50 },
       { ...scope, organizationCode: 'COMPENSAR', pointAccessKind: 'unrestricted' },
     );
-    const compensarCount = queryText(compensar.execute.mock.calls[0]?.[0]);
-    expect(compensarCount).toContain('authorization_item_organizations');
-    expect(compensarCount).not.toContain('user_point_scopes');
+    const compensarQuery = queryText(compensar.execute.mock.calls[0]?.[0]);
+    expect(compensarQuery).toContain('authorization_item_organizations');
+    expect(compensarQuery).not.toContain('user_point_scopes');
+  });
+
+  it('keeps patient search inside the shared filtered set', async () => {
+    const { repository, execute } = fixture();
+    execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 0 }] });
+
+    await repository.list(
+      { page: 2, limit: 10, patient: 'SYNTHETIC-001' },
+      { ...scope, readSensitive: true },
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    const query = queryText(execute.mock.calls[0]?.[0]);
+    expect(query).toContain("'IDENTIFICACION_PACIENTE'");
+    expect(query).toContain("'NUM_DOCUMENTO'");
+    expect(query).toContain("'NOMBRE_PACIENTE'");
+    expect(query).toContain('SYNTHETIC-001');
+    expect(query).toContain('limit $');
+    expect(query).toContain('offset $');
+    expect(query).toContain('user_point_scopes');
   });
 });

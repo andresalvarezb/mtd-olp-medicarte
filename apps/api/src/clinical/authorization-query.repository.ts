@@ -95,7 +95,9 @@ export interface AuthorizationQueryFilters {
 
 interface AuthorizationQueryRow
   extends Record<string, unknown> {
-  id: string;
+  id: string | null;
+
+  total_count: number;
 
   authorization_number: string;
 
@@ -230,6 +232,18 @@ interface AuthorizationQueryRow
 
   updated_at:
     Date | string;
+}
+
+type AuthorizationQueryItemRow =
+  AuthorizationQueryRow
+  & {
+    id: string;
+  };
+
+function isAuthorizationQueryItemRow(
+  row: AuthorizationQueryRow,
+): row is AuthorizationQueryItemRow {
+  return row.id !== null;
 }
 
 @Injectable()
@@ -1464,25 +1478,12 @@ export class AuthorizationQueryRepository {
       *
       filters.limit;
 
-    const countStartedAt = performance.now();
-
-    const count =
-      await this.database.db.execute<{
-        total: number;
-      }>(sql`
-        select
-          count(*)::int
-            as total
-
-        from
-          authorization_items i
-
-        where
-          ${where}
-      `);
-
-    const countMs = Math.round(performance.now() - countStartedAt);
-    const pageStartedAt = performance.now();
+    const poolBefore = {
+      total: this.database.pool.totalCount,
+      idle: this.database.pool.idleCount,
+      waiting: this.database.pool.waitingCount,
+    };
+    const queryStartedAt = performance.now();
 
     const result =
       await this.queryRows(
@@ -1492,15 +1493,23 @@ export class AuthorizationQueryRepository {
         scope,
       );
 
-    const pageMs = Math.round(performance.now() - pageStartedAt);
+    const queryMs = Math.round(performance.now() - queryStartedAt);
 
-    if (countMs + pageMs >= 1000) {
+    if (queryMs >= 1000) {
       this.logger.warn(JSON.stringify({
         code: 'AUTHORIZATION_QUERY_SLOW',
-        countMs,
-        pageMs,
+        queryMs,
         page: filters.page,
         limit: filters.limit,
+        pool: {
+          max: this.database.pool.options.max,
+          before: poolBefore,
+          after: {
+            total: this.database.pool.totalCount,
+            idle: this.database.pool.idleCount,
+            waiting: this.database.pool.waitingCount,
+          },
+        },
         filters: {
           authorization: Boolean(filters.authorizationNumber),
           commercialCode: Boolean(filters.commercialCode),
@@ -1515,18 +1524,14 @@ export class AuthorizationQueryRepository {
 
     return {
       items:
-        result.rows.map(
-          (row) =>
-            this.toResponse(
-              row,
-              scope,
-            ),
-        ),
+        result.rows
+          .filter(isAuthorizationQueryItemRow)
+          .map((row) => this.toResponse(row, scope)),
 
       total:
         Number(
-          count.rows[0]
-            ?.total
+          result.rows[0]
+            ?.total_count
           ??
           0,
         ),
@@ -1565,7 +1570,7 @@ export class AuthorizationQueryRepository {
     const row =
       result.rows[0];
 
-    if (!row) {
+    if (!row || !isAuthorizationQueryItemRow(row)) {
       return null;
     }
 
@@ -4518,15 +4523,8 @@ export class AuthorizationQueryRepository {
         '',
       );
 
-    const assignmentDateKey =
-      this.sourceDateKey(
-        'FECHA_ASIGNACION',
-      );
-
-    const validityEndDateKey =
-      this.sourceDateKey(
-        'FECHA_FINAL_VIGENCIA',
-      );
+    const assignmentDateKey = sql`matched.assignment_date_key`;
+    const validityEndDateKey = sql`matched.validity_end_date_key`;
 
     /*
      * Refleja validityStatus:
@@ -4539,11 +4537,6 @@ export class AuthorizationQueryRepository {
     const validityPriority =
       sql`
         case
-          when (
-            ${this.validityWindow()}
-          )
-          then 0
-
           when
             ${assignmentDateKey}
               is null
@@ -4566,7 +4559,7 @@ export class AuthorizationQueryRepository {
             ${horizonKey}
           then 1
 
-          else 3
+          else 0
         end
       `;
 
@@ -4652,6 +4645,9 @@ export class AuthorizationQueryRepository {
 
       from authorization_items i
 
+      join matching_authorizations matched
+        on matched.id = i.id
+
       left join lateral (
         select
           ${this.fulfilledQuantitySql()}::int
@@ -4701,8 +4697,6 @@ export class AuthorizationQueryRepository {
       ) allocation
         on true
 
-      where ${where}
-
       order by
         sort_closed asc,
         sort_validation asc,
@@ -4720,11 +4714,30 @@ export class AuthorizationQueryRepository {
     return this.database.db.execute<
       AuthorizationQueryRow
     >(sql`
-      with page_selection as materialized (
+      with matching_authorizations as materialized (
+        select
+          i.id,
+          ${this.sourceDateKey('FECHA_ASIGNACION')} as assignment_date_key,
+          ${this.sourceDateKey('FECHA_FINAL_VIGENCIA')} as validity_end_date_key
+
+        from authorization_items i
+
+        where ${where}
+      ),
+
+      query_total as materialized (
+        select count(*)::int as total
+
+        from matching_authorizations
+      ),
+
+      page_selection as materialized (
         ${selectPageQuery}
       )
 
       select
+        query_total.total as total_count,
+
         i.id,
 
         i.numero_autorizacion
@@ -5149,10 +5162,12 @@ export class AuthorizationQueryRepository {
 
         i.updated_at
 
-      from
-        page_selection page
+      from query_total
 
-      join authorization_items i
+      left join page_selection page
+        on true
+
+      left join authorization_items i
         on i.id = page.authorization_id
 
       left join lateral (
@@ -5538,7 +5553,7 @@ export class AuthorizationQueryRepository {
 
   private toResponse(
     row:
-      AuthorizationQueryRow,
+      AuthorizationQueryItemRow,
 
     scope:
       Scope,

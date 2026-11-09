@@ -5,6 +5,30 @@ import type { Response } from 'express';
 import { ZodError } from 'zod';
 import type { AuthenticatedRequest } from '../types';
 
+function isTransientDatabaseConnectionError(exception: unknown): boolean {
+  const visited = new Set<unknown>();
+  let current = exception;
+
+  while (typeof current === 'object' && current !== null && !visited.has(current)) {
+    visited.add(current);
+    const error = current as { code?: unknown; message?: unknown; cause?: unknown };
+    const code = typeof error.code === 'string' ? error.code : '';
+    const message = typeof error.message === 'string' ? error.message : '';
+
+    if (
+      code.startsWith('08') ||
+      ['53300', '57P01', '57P02', '57P03', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE'].includes(code) ||
+      /timeout exceeded when trying to connect|connection terminated unexpectedly/i.test(message)
+    ) {
+      return true;
+    }
+
+    current = error.cause;
+  }
+
+  return false;
+}
+
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(ApiExceptionFilter.name);
@@ -13,6 +37,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const context = host.switchToHttp();
     const request = context.getRequest<AuthenticatedRequest>();
     const response = context.getResponse<Response>();
+    const databaseUnavailable = isTransientDatabaseConnectionError(exception);
     const multerFileTooLarge =
       typeof exception === 'object' &&
       exception !== null &&
@@ -22,30 +47,36 @@ export class ApiExceptionFilter implements ExceptionFilter {
       ? HttpStatus.PAYLOAD_TOO_LARGE
       : exception instanceof ZodError
         ? HttpStatus.BAD_REQUEST
-        : exception instanceof HttpException
-          ? exception.getStatus()
-          : HttpStatus.INTERNAL_SERVER_ERROR;
+        : databaseUnavailable
+          ? HttpStatus.SERVICE_UNAVAILABLE
+          : exception instanceof HttpException
+            ? exception.getStatus()
+            : HttpStatus.INTERNAL_SERVER_ERROR;
     const raw = exception instanceof HttpException ? exception.getResponse() : undefined;
     const message = multerFileTooLarge
       ? 'Import file exceeds the 20 MB limit'
       : exception instanceof ZodError
         ? 'Request validation failed'
-        : typeof raw === 'object' && raw && 'message' in raw
-          ? Array.isArray(raw.message)
-            ? raw.message.join(', ')
-            : String(raw.message)
-          : status === 500
-            ? 'Internal server error'
-            : typeof raw === 'string'
-              ? raw
-              : 'Request failed';
+        : databaseUnavailable
+          ? 'Database is temporarily unavailable'
+          : typeof raw === 'object' && raw && 'message' in raw
+            ? Array.isArray(raw.message)
+              ? raw.message.join(', ')
+              : String(raw.message)
+            : status === 500
+              ? 'Internal server error'
+              : typeof raw === 'string'
+                ? raw
+                : 'Request failed';
     const code = multerFileTooLarge
       ? 'IMPORT_FILE_TOO_LARGE'
       : exception instanceof ZodError
         ? 'VALIDATION_ERROR'
-        : typeof raw === 'object' && raw && 'code' in raw
-          ? String(raw.code)
-          : `HTTP_${status}`;
+        : databaseUnavailable
+          ? 'DATABASE_UNAVAILABLE'
+          : typeof raw === 'object' && raw && 'code' in raw
+            ? String(raw.code)
+            : `HTTP_${status}`;
     const fields =
       exception instanceof ZodError
         ? Object.fromEntries(

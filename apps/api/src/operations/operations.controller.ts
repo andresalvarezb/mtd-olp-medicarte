@@ -44,11 +44,17 @@ export class OperationsController {
   })
   async health(): Promise<{ status: string; checks: Record<string, string> }> {
     const checks: Record<string, string> = { api: 'up', database: 'down', redis: 'down' };
-    try {
-      await this.database.pool.query('select 1');
-      checks.database = 'up';
-      if ((await this.redis.ping()) === 'PONG') checks.redis = 'up';
-    } catch {
+    const [databaseResult, redisResult] = await Promise.allSettled([
+      this.database.pool.query('select 1'),
+      this.redis.ping(),
+    ]);
+
+    if (databaseResult.status === 'fulfilled') checks.database = 'up';
+    if (redisResult.status === 'fulfilled' && redisResult.value === 'PONG') {
+      checks.redis = 'up';
+    }
+
+    if (checks.database === 'down' || checks.redis === 'down') {
       throw new ServiceUnavailableException({
         code: 'DEPENDENCY_UNAVAILABLE',
         message: 'A required dependency is unavailable',
