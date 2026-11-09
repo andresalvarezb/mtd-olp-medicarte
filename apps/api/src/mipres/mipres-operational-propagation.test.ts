@@ -28,49 +28,62 @@ describe('MIPRES WAVE 4 operational propagation', () => {
       'src/clinical/authorization-query.repository.ts',
     );
 
-    const start = value.indexOf(
+    const validationSqlStart = value.indexOf(
       'private initialValidationStatusSql(): SQL {',
     );
 
-    expect(start).toBeGreaterThanOrEqual(0);
+    expect(validationSqlStart).toBeGreaterThanOrEqual(0);
 
-    const end = value.indexOf(
+    const validationSqlEnd = value.indexOf(
       '\n  private ',
-      start + 1,
+      validationSqlStart + 1,
     );
 
-    expect(end).toBeGreaterThan(start);
+    expect(validationSqlEnd).toBeGreaterThan(validationSqlStart);
 
-    const block = value.slice(
-      start,
-      end,
+    const validationSql = value.slice(
+      validationSqlStart,
+      validationSqlEnd,
     );
 
-    expect(block).toContain(
-      'i.enablement_status',
+    expect(validationSql).toContain(
+      "this.initialValidationStatusFor(\n      sql.raw('i')",
     );
 
-    expect(block).toContain(
-      'i.tariff_membership_status',
+    const validationRuleStart = value.indexOf(
+      'private initialValidationStatusFor(',
     );
 
-    expect(block).toContain(
-      'i.coverage_type',
+    const validationRuleEnd = value.indexOf(
+      '\n  private ',
+      validationRuleStart + 1,
     );
 
-    expect(block).toContain(
-      "'PBS'",
+    expect(validationRuleStart).toBeGreaterThan(validationSqlEnd);
+    expect(validationRuleEnd).toBeGreaterThan(validationRuleStart);
+
+    const validationRules = value.slice(
+      validationRuleStart,
+      validationRuleEnd,
     );
 
-    expect(block).toContain(
-      "'NO_PBS'",
+    expect(validationRules).toContain(
+      '${rowAlias}.enablement_status',
     );
 
-    expect(block).not.toContain(
+    expect(validationRules).toContain(
+      '${rowAlias}.tariff_membership_status',
+    );
+
+    expect(validationRules).toContain(
+      '${rowAlias}.coverage_type in (\'PBS\', \'NO_PBS\')',
+    );
+
+    expect(validationRules).not.toContain(
       'i.mipres_manual_decision',
     );
 
-    expect(block).not.toContain(
+    expect(validationRules).not.toContain(
       'i.direction_status',
     );
   });
@@ -79,29 +92,41 @@ describe('MIPRES WAVE 4 operational propagation', () => {
       'src/clinical/authorization-query.repository.ts',
     );
 
-    const block = windowAfter(
+    const validationStart = value.indexOf(
+      'authorization_validation as materialized (',
+    );
+
+    const operationalGate = value.indexOf(
+      "validated.mipres_manual_decision = 'MANUALLY_ENABLED'",
+      validationStart,
+    );
+
+    expect(validationStart).toBeGreaterThanOrEqual(0);
+    expect(operationalGate).toBeGreaterThan(validationStart);
+
+    const validationRules = windowAfter(
       value,
-      'const validationPriority =',
-      4500,
+      'private initialValidationStatusFor(',
+      1800,
     );
 
-    expect(block).toContain(
-      'i.enablement_status',
+    expect(validationRules).toContain(
+      '${rowAlias}.enablement_status',
     );
 
-    expect(block).toContain(
-      'i.tariff_membership_status',
+    expect(validationRules).toContain(
+      '${rowAlias}.tariff_membership_status',
     );
 
-    expect(block).toContain(
-      'i.coverage_type',
+    expect(validationRules).toContain(
+      '${rowAlias}.coverage_type in (\'PBS\', \'NO_PBS\')',
     );
 
-    expect(block).not.toContain(
+    expect(validationRules).not.toContain(
       'i.mipres_manual_decision',
     );
 
-    expect(block).not.toContain(
+    expect(validationRules).not.toContain(
       'i.direction_status',
     );
   });
