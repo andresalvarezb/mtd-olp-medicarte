@@ -43,12 +43,18 @@ describe('authorization query MEDICARTE visibility', () => {
 
     expect(execute).toHaveBeenCalledTimes(1);
     const pageQuery = queryText(execute.mock.calls[0]?.[0]);
+    const compiledQuery = new PgDialect().sqlToQuery(execute.mock.calls[0]?.[0] as never);
 
     expect(pageQuery).toContain('matching_authorizations as materialized');
     expect(pageQuery).toContain('query_total as materialized');
+    expect(pageQuery).toContain('restricted_authorizations as materialized');
+    expect(pageQuery).toContain('authorization_calculations as materialized');
+    expect(pageQuery).toContain('authorization_validation as materialized');
+    expect(pageQuery).toContain('operational_candidates as materialized');
+    expect(pageQuery).toContain('authorization_classification as materialized');
     expect(pageQuery).toContain('assignment_date_key');
     expect(pageQuery).toContain('validity_end_date_key');
-    expect(pageQuery).toContain('join matching_authorizations matched');
+    expect(pageQuery).toContain('from matching_authorizations matched');
     expect(pageQuery).toContain('i.mipres_manual_decision');
     expect(pageQuery).toContain('coverage_type');
     expect(pageQuery).toContain('authorization_fulfillments');
@@ -56,6 +62,13 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(pageQuery).toContain('inventory_authorization_allocations');
     expect(pageQuery).toContain('dispensing_points');
     expect(pageQuery).toContain('user_point_scopes');
+    expect(pageQuery).toContain("validated.initial_validation_status = 'PASSED'");
+    expect(pageQuery).toContain("validated.mipres_manual_decision = 'MANUALLY_ENABLED'");
+    expect(pageQuery).toContain("validated.validity_status in ('IN_WINDOW', 'EXPIRED')");
+    expect(pageQuery).toContain('classified.remaining_authorized_quantity > 0');
+    expect(pageQuery).toContain('classified.remaining_assigned_quantity > 0');
+    expect(pageQuery).toContain('classified.validity_end_date_key >=');
+    expect(pageQuery).toContain('classified.fulfilled_quantity > 0');
     expect(pageQuery).toContain("'PARTIALLY_CONSUMED'");
     expect(pageQuery).toContain('> 0');
     expect(pageQuery).toContain('sort_closed asc');
@@ -64,6 +77,14 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(pageQuery).toContain('sort_operational asc');
     expect(pageQuery).toContain('limit $');
     expect(pageQuery).toContain('offset $');
+    expect(pageQuery.match(/from\s+authorization_fulfillments\s+af_progress/g))
+      .toHaveLength(1);
+    expect(pageQuery.match(/from\s+patient_applications\s+pa_progress/g))
+      .toHaveLength(1);
+    expect(pageQuery.match(/from\s+inventory_authorization_allocations\s+iaa_progress/g))
+      .toHaveLength(2);
+    expect(compiledQuery.params).not.toContain('FECHA_ASIGNACION');
+    expect(compiledQuery.params).not.toContain('FECHA_FINAL_VIGENCIA');
   });
 
   it('keeps source date keys out of the repeated SQL parameter list', async () => {
@@ -172,5 +193,18 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(query).toContain('limit $');
     expect(query).toContain('offset $');
     expect(query).toContain('user_point_scopes');
+  });
+
+  it('keeps the exact total when the selected page has no rows', async () => {
+    const { repository, execute } = fixture();
+    execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 23 }] });
+
+    const result = await repository.list({ page: 99, limit: 10 }, {
+      ...scope,
+      organizationCode: 'MTD',
+      pointAccessKind: 'unrestricted',
+    });
+
+    expect(result).toMatchObject({ items: [], total: 23, page: 99, pageSize: 10 });
   });
 });
