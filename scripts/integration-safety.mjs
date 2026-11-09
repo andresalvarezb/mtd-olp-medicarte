@@ -105,6 +105,8 @@ export function assertReusableIntegrationProject(
       '-X',
       '-v',
       'ON_ERROR_STOP=1',
+      '-h',
+      '127.0.0.1',
       '-U',
       EXPECTED_DATABASE_USER,
       '-d',

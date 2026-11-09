@@ -4,6 +4,7 @@ import { Inject, Injectable, Optional, type OnApplicationShutdown, type OnModule
 import type { WorkerConfig } from '@authorization/config';
 import {
   FOUNDATION_DEAD_LETTER_QUEUE,
+  PATIENT_MASTER_LIVE_LOOKUP_CHANNEL,
   FOUNDATION_JOB_NAME,
   FOUNDATION_JOB_OPTIONS,
   FOUNDATION_QUEUE,
@@ -15,6 +16,7 @@ import {
   foundationJobSchema,
   patientLookupJobSchema,
   patientLookupOutboxPayloadSchema,
+  patientMasterLiveLookupWorkerRequestSchema,
   realtimeInvalidationMessageSchema,
   realtimeOutboxPayloadSchema,
   type FoundationJob,
@@ -115,6 +117,7 @@ function currentBogotaDate(): string {
 export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger: pino.Logger;
   private readonly connection: IORedis;
+  private readonly patientMasterLookupSubscriber: IORedis;
   private readonly queue: Queue<WorkerJob>;
   private readonly deadLetterQueue: Queue<DeadLetterJob>;
   private readonly queueEvents: QueueEvents;
@@ -152,6 +155,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   ) {
     this.logger = pino({ level: config.LOG_LEVEL, base: { service: 'platform-worker' } });
     this.connection = new IORedis(config.REDIS_URL, { maxRetriesPerRequest: null });
+    this.patientMasterLookupSubscriber = this.connection.duplicate({ maxRetriesPerRequest: null });
     this.queue = new Queue(FOUNDATION_QUEUE, { connection: this.connection });
     this.deadLetterQueue = new Queue(FOUNDATION_DEAD_LETTER_QUEUE, {
       connection: this.connection,
@@ -182,6 +186,12 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   }
 
   onModuleInit(): void {
+    this.patientMasterLookupSubscriber.on('message', (channel, raw) => {
+      if (channel === PATIENT_MASTER_LIVE_LOOKUP_CHANNEL) {
+        void this.handlePatientMasterLiveLookup(raw);
+      }
+    });
+    void this.patientMasterLookupSubscriber.subscribe(PATIENT_MASTER_LIVE_LOOKUP_CHANNEL);
     this.worker.on('error', (error) => {
       this.logger.error({ error }, 'worker error');
       Sentry.captureException(error);
@@ -243,6 +253,39 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         void this.runDriveSupportSync();
       }
     }
+  }
+
+  private async handlePatientMasterLiveLookup(raw: string): Promise<void> {
+    let payload: unknown;
+    try {
+      payload = JSON.parse(raw) as unknown;
+    } catch {
+      return;
+    }
+    const parsed = patientMasterLiveLookupWorkerRequestSchema.safeParse(payload);
+    if (!parsed.success) return;
+    const identity = {
+      documentType: parsed.data.identificationType,
+      documentValue: parsed.data.identificationValue,
+    };
+    const result = this.patientLookupProcessor?.lookupLiveWithResponse
+      ? await Promise.race([
+          this.patientLookupProcessor
+            .lookupLiveWithResponse(identity)
+            .catch(() => ({ status: 'UNAVAILABLE' as const })),
+          new Promise<{ status: 'UNAVAILABLE' }>((resolve) =>
+            setTimeout(() => resolve({ status: 'UNAVAILABLE' }), 18_000),
+          ),
+        ])
+      : { status: 'UNAVAILABLE' as const };
+    await this.connection.publish(
+      parsed.data.responseChannel,
+      JSON.stringify({
+        requestId: parsed.data.requestId,
+        status: result.status,
+        ...(result.status === 'FOUND' ? { basicProfile: result.basicProfile } : {}),
+      }),
+    );
   }
 
 
@@ -659,6 +702,8 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
 
 
     await this.worker.close();
+    await this.patientMasterLookupSubscriber.unsubscribe(PATIENT_MASTER_LIVE_LOOKUP_CHANNEL);
+    await this.patientMasterLookupSubscriber.quit();
     await this.queueEvents.close();
     await this.queue.close();
     await this.deadLetterQueue.close();

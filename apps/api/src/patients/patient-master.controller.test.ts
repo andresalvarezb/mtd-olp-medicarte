@@ -8,6 +8,7 @@ const MTD_ORG = '10000000-0000-4000-8000-000000000001';
 const MEDICARTE_ORG = '10000000-0000-4000-8000-000000000004';
 const OLP_ORG = '10000000-0000-4000-8000-000000000003';
 const POINT_A = '20000000-0000-4000-8000-000000000001';
+const POINT_B = '20000000-0000-4000-8000-000000000002';
 const PATIENT = '40000000-0000-4000-8000-000000000001';
 
 function profile(input: {
@@ -30,15 +31,17 @@ function profile(input: {
         roles: [input.role],
         isSystemAdmin: false,
         permissions: input.permissions,
-        pointAccess: input.pointAccess ?? (input.organizationCode === 'MTD'
-          ? { kind: 'global', accessiblePointIds: [] }
-          : { kind: 'unrestricted', accessiblePointIds: [] }),
+        pointAccess:
+          input.pointAccess ??
+          (input.organizationCode === 'MTD'
+            ? { kind: 'global', accessiblePointIds: [] }
+            : { kind: 'unrestricted', accessiblePointIds: [] }),
       },
     ],
   };
 }
 
-function fixture(organizationProfile: MeResponse) {
+function fixture(organizationProfile: MeResponse, dp07Approved = true) {
   const response: PatientMasterSearchResponse = {
     items: [
       {
@@ -104,14 +107,46 @@ function fixture(organizationProfile: MeResponse) {
     }),
     reconciliationCases: vi.fn().mockResolvedValue([]),
     personalProfile: vi.fn().mockResolvedValue({ patientId: PATIENT, personalProfile: null }),
+    isAuthorizedLiveLookup: vi.fn().mockResolvedValue(true),
+    lookupLive: vi.fn().mockResolvedValue({
+      status: 'FOUND',
+      basicProfile: {
+        tipo_identificacion: 'CC',
+        identificacion: 'NO-REAL-001',
+        primer_nombre: 'FICTICIO',
+        segundo_nombre: null,
+        primer_apellido: 'PRUEBA',
+        segundo_apellido: null,
+        sexo: null,
+        ciudad: null,
+        codigo_ciudad: null,
+        departamento: null,
+        codigo_departamento: null,
+        eps: null,
+        codigo_eps: null,
+        plan: null,
+        codigo_plan: null,
+        tipo: null,
+        codigo_tipo: null,
+        condicion: null,
+        activo: true,
+        paciente_vivo: true,
+        fecha_fallecimiento: null,
+        presente_en_fuente_actual: true,
+        registraduria_estado: null,
+        fecha_ultima_validacion_registraduria: null,
+        actualizado_en: '2026-11-08T00:00:00Z',
+      },
+    }),
   };
   const access = {
     requirePermission: vi.fn().mockResolvedValue(organizationProfile),
+    getMedicartePointGrants: vi.fn().mockResolvedValue([POINT_A]),
   };
   const controller = new PatientMasterController(
     service as never,
     access as never,
-    { PATIENT_MASTER_ACCESS_ENABLED: true } as never,
+    { PATIENT_MASTER_ACCESS_ENABLED: true, PATIENT_MASTER_DP07_APPROVED: dp07Approved } as never,
   );
   return { controller, service, access };
 }
@@ -135,6 +170,145 @@ describe('PatientMasterController', () => {
     expect(service.search).not.toHaveBeenCalled();
   });
 
+  it('requires effective MTD permission and refuses MEDICARTE and OLP live lookup', async () => {
+    for (const [organizationId, organizationCode, role] of [
+      [MEDICARTE_ORG, 'MEDICARTE', 'MEDICARTE_OPERATOR'],
+      [OLP_ORG, 'OLP', 'OLP_OPERATOR'],
+    ] as const) {
+      const setup = fixture(
+        profile({ organizationId, organizationCode, role, permissions: ['patient_master.read'] }),
+      );
+      await expect(
+        setup.controller.lookup(
+          { identificationType: 'CC', identificationValue: '000123' },
+          organizationId,
+          request,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(setup.service.lookupLive).not.toHaveBeenCalled();
+    }
+    const denied = fixture(
+      profile({
+        organizationId: MTD_ORG,
+        organizationCode: 'MTD',
+        role: 'MTD_OPERATOR',
+        permissions: [],
+      }),
+    );
+    denied.access.requirePermission.mockRejectedValue(new ForbiddenException());
+    await expect(
+      denied.controller.lookup(
+        { identificationType: 'CC', identificationValue: '000123' },
+        MTD_ORG,
+        request,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(denied.service.isAuthorizedLiveLookup).not.toHaveBeenCalled();
+  });
+
+  it('checks MTD permission, exact authorization scope, then returns basic profile without a local patient ID', async () => {
+    const setup = fixture(
+      profile({
+        organizationId: MTD_ORG,
+        organizationCode: 'MTD',
+        role: 'MTD_ADMIN',
+        permissions: ['patient_master.read'],
+        pointAccess: { kind: 'global', accessiblePointIds: [] },
+      }),
+    );
+    const result = await setup.controller.lookup(
+      {
+        identificationType: 'CC',
+        identificationValue: '000123',
+      },
+      MTD_ORG,
+      request,
+    );
+    expect(setup.access.requirePermission).toHaveBeenCalledWith(
+      USER,
+      MTD_ORG,
+      'patient_master.read',
+    );
+    expect(setup.access.getMedicartePointGrants).toHaveBeenCalledWith(USER);
+    expect(setup.service.isAuthorizedLiveLookup).toHaveBeenCalledWith(
+      expect.objectContaining({ pointAccessKind: 'global', accessiblePointIds: [] }),
+      { identificationType: 'CC', identificationValue: '000123' },
+    );
+    expect(result).toMatchObject({ status: 'FOUND', basicProfile: { primer_nombre: 'FICTICIO' } });
+    expect(setup.service.lookupLive).toHaveBeenCalledWith({
+      identificationType: 'CC',
+      identificationValue: '000123',
+    });
+  });
+
+  it('does not call MTDOM when the authorization evidence or point is outside scope', async () => {
+    const setup = fixture(
+      profile({
+        organizationId: MTD_ORG,
+        organizationCode: 'MTD',
+        role: 'MTD_OPERATOR',
+        permissions: ['patient_master.read'],
+        pointAccess: { kind: 'global', accessiblePointIds: [] },
+      }),
+    );
+    await expect(
+      setup.controller.lookup(
+        {
+          identificationType: 'CC',
+          identificationValue: '000123',
+          dispensingPointId: POINT_B,
+        },
+        MTD_ORG,
+        request,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(setup.service.isAuthorizedLiveLookup).not.toHaveBeenCalled();
+    expect(setup.service.lookupLive).not.toHaveBeenCalled();
+    setup.service.isAuthorizedLiveLookup.mockResolvedValue(false);
+    await expect(
+      setup.controller.lookup(
+        {
+          identificationType: 'CC',
+          identificationValue: '000123',
+        },
+        MTD_ORG,
+        request,
+      ),
+    ).resolves.toEqual({ status: 'NOT_FOUND' });
+    expect(setup.service.lookupLive).not.toHaveBeenCalled();
+  });
+
+  it('limits MTD_OPERATOR live lookup to active MEDICARTE point grants', async () => {
+    const setup = fixture(
+      profile({
+        organizationId: MTD_ORG,
+        organizationCode: 'MTD',
+        role: 'MTD_OPERATOR',
+        permissions: ['patient_master.read'],
+        pointAccess: { kind: 'global', accessiblePointIds: [] },
+      }),
+    );
+    setup.access.getMedicartePointGrants.mockResolvedValue([]);
+    await expect(
+      setup.controller.lookup(
+        { identificationType: 'CC', identificationValue: '000123' },
+        MTD_ORG,
+        request,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(setup.service.isAuthorizedLiveLookup).not.toHaveBeenCalled();
+    setup.access.getMedicartePointGrants.mockResolvedValue([POINT_A]);
+    await setup.controller.lookup(
+      { identificationType: 'CC', identificationValue: '000123' },
+      MTD_ORG,
+      request,
+    );
+    expect(setup.service.isAuthorizedLiveLookup).toHaveBeenCalledWith(
+      expect.objectContaining({ pointAccessKind: 'explicit', accessiblePointIds: [POINT_A] }),
+      { identificationType: 'CC', identificationValue: '000123' },
+    );
+  });
+
   it('keeps synthetic profile fields out of the API while DP-07 is closed', async () => {
     const setup = fixture(
       profile({
@@ -143,6 +317,7 @@ describe('PatientMasterController', () => {
         role: 'MTD_ADMIN',
         permissions: ['patient_master.read'],
       }),
+      false,
     );
     const response = await setup.controller.detail(PATIENT, undefined, MTD_ORG, request);
     expect(response.basicProfile).toBeNull();
@@ -164,6 +339,7 @@ describe('PatientMasterController', () => {
         role: 'MTD_ADMIN',
         permissions: ['patient_master.personal.read'],
       }),
+      false,
     );
     await expect(
       setup.controller.personalProfile(PATIENT, undefined, MTD_ORG, request),
@@ -278,7 +454,8 @@ describe('PatientMasterController', () => {
       'patient_reconciliation.read',
     );
     expect(setup.service.reconciliationCases).toHaveBeenCalledWith(
-      expect.objectContaining({ organizationId: MTD_ORG, pointAccessKind: 'global' }), 12,
+      expect.objectContaining({ organizationId: MTD_ORG, pointAccessKind: 'global' }),
+      12,
     );
   });
 });

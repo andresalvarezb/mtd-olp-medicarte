@@ -34,6 +34,25 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
     private readonly identityPolicy?: PatientIdentityNormalizationPolicy,
   ) {}
 
+  async lookupLiveWithResponse(
+    identity: Readonly<{ documentType: string; documentValue: string }>,
+  ) {
+    try {
+      const response = await this.client.lookup(identity);
+      if (response.kind === 'NOT_FOUND') return { status: 'NOT_FOUND' as const };
+      if (response.kind === 'AMBIGUOUS') return { status: 'AMBIGUOUS' as const };
+      if (
+        response.patient.tipo_identificacion !== identity.documentType ||
+        response.patient.identificacion !== identity.documentValue
+      ) {
+        return { status: 'IDENTITY_MISMATCH' as const };
+      }
+      return { status: 'FOUND' as const, basicProfile: response.patient };
+    } catch {
+      return { status: 'UNAVAILABLE' as const };
+    }
+  }
+
   async execute(input: Readonly<{ patientId: string }>) {
     const policy = this.identityPolicy;
     if (!policy || !policy.version.trim()) {

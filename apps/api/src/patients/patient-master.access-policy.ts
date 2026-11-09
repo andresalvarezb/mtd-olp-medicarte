@@ -29,13 +29,16 @@ export function resolvePatientMasterScope(
   if (pointAccess.kind === 'unrestricted') {
     throw new ForbiddenException({ code: 'PATIENT_MASTER_ACCESS_DENIED' });
   }
-  const accessiblePointIds = pointAccess.kind === 'explicit'
-    ? [...new Set(pointAccess.accessiblePointIds)]
-    : [];
+  const accessiblePointIds =
+    pointAccess.kind === 'explicit' ? [...new Set(pointAccess.accessiblePointIds)] : [];
   if (pointAccess.kind === 'explicit' && accessiblePointIds.length === 0) {
     throw new ForbiddenException({ code: 'PATIENT_MASTER_ACCESS_DENIED' });
   }
-  if (requestedPointId && pointAccess.kind === 'explicit' && !accessiblePointIds.includes(requestedPointId)) {
+  if (
+    requestedPointId &&
+    pointAccess.kind === 'explicit' &&
+    !accessiblePointIds.includes(requestedPointId)
+  ) {
     throw new ForbiddenException({ code: 'PATIENT_MASTER_ACCESS_DENIED' });
   }
   return {
@@ -46,6 +49,34 @@ export function resolvePatientMasterScope(
     accessiblePointIds,
     dispensingPointId: requestedPointId ?? null,
   };
+}
+
+export function resolvePatientMasterLiveLookupScope(
+  profile: MeResponse,
+  organizationId: string,
+  userId: string,
+  grantedMedicartePointIds: readonly string[],
+  requestedPointId?: string,
+): PatientMasterScope {
+  const scope = resolvePatientMasterScope(profile, organizationId, userId);
+  const organization = profile.organizations.find((item) => item.id === organizationId);
+  const requiresPointGrant =
+    organization?.roles.some((role) => ['MTD_OPERATOR', 'MTD_AUDITORIA'].includes(role)) ?? false;
+  const pointIds = [...new Set(grantedMedicartePointIds)];
+  if (requiresPointGrant && pointIds.length === 0) {
+    throw new ForbiddenException({ code: 'PATIENT_MASTER_ACCESS_DENIED' });
+  }
+  if (requestedPointId && !pointIds.includes(requestedPointId)) {
+    throw new ForbiddenException({ code: 'PATIENT_MASTER_ACCESS_DENIED' });
+  }
+  return requiresPointGrant
+    ? {
+        ...scope,
+        pointAccessKind: 'explicit',
+        accessiblePointIds: pointIds,
+        dispensingPointId: null,
+      }
+    : { ...scope, dispensingPointId: requestedPointId ?? null };
 }
 
 export function assertPatientReconciliationReadAllowed(

@@ -262,6 +262,42 @@ export const patientMasterDetailSchema = patientMasterListItemSchema.extend({
 });
 export type PatientMasterDetail = z.infer<typeof patientMasterDetailSchema>;
 
+export const PATIENT_MASTER_LIVE_LOOKUP_CHANNEL = 'authorization.patient-master.lookup.v1';
+export const PATIENT_MASTER_LIVE_LOOKUP_TIMEOUT_MS = 20_000;
+export const patientMasterLiveLookupWorkerRequestSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    responseChannel: z.string().regex(/^authorization\.patient-master\.response\.[0-9a-f-]{36}$/),
+    identificationType: z.string().min(1).max(10),
+    identificationValue: z.string().min(1).max(30),
+  })
+  .strict();
+export const patientMasterLiveLookupWorkerResponseSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    status: z.enum(['FOUND', 'NOT_FOUND', 'AMBIGUOUS', 'IDENTITY_MISMATCH', 'UNAVAILABLE']),
+    basicProfile: patientMasterBasicProfileSchema.optional(),
+  })
+  .strict();
+
+export const patientMasterLiveLookupRequestSchema = z
+  .object({
+    identificationType: z.string().min(1).max(10),
+    identificationValue: z.string().min(1).max(30),
+    dispensingPointId: z.string().uuid().optional(),
+  })
+  .strict();
+export type PatientMasterLiveLookupRequest = z.infer<typeof patientMasterLiveLookupRequestSchema>;
+
+export const patientMasterLiveLookupResponseSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('FOUND'), basicProfile: patientMasterBasicProfileSchema }),
+  z.object({ status: z.literal('NOT_FOUND') }),
+  z.object({ status: z.literal('AMBIGUOUS') }),
+  z.object({ status: z.literal('IDENTITY_MISMATCH') }),
+  z.object({ status: z.literal('UNAVAILABLE') }),
+]);
+export type PatientMasterLiveLookupResponse = z.infer<typeof patientMasterLiveLookupResponseSchema>;
+
 export const patientMasterPersonalResponseSchema = z.object({
   patientId: z.string().uuid(),
   personalProfile: patientMasterPersonalProfileSchema.nullable(),

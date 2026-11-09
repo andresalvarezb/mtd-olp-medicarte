@@ -3,6 +3,7 @@ import {
   PATIENT_LOOKUP_JOB_NAME,
   PATIENT_LOOKUP_JOB_OPTIONS,
   patientLookupResultSchema,
+  type PatientMasterBasicProfile,
   type PatientLookupJob,
   type PatientLookupResult,
 } from '@authorization/contracts';
@@ -11,6 +12,12 @@ import type { createDatabase } from '@authorization/database';
 type Database = ReturnType<typeof createDatabase>;
 
 export interface PatientLookupProcessor {
+  lookupLiveWithResponse?(
+    identity: Readonly<{ documentType: string; documentValue: string }>,
+  ): Promise<
+    | { status: 'FOUND'; basicProfile: PatientMasterBasicProfile }
+    | { status: 'NOT_FOUND' | 'AMBIGUOUS' | 'IDENTITY_MISMATCH' | 'UNAVAILABLE' }
+  >;
   execute(input: Readonly<{ patientId: string }>): Promise<PatientLookupResult>;
 }
 

@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type {
   PatientMasterDetail,
   PatientMasterListItem,
+  PatientMasterLiveLookupRequest,
   PatientMasterPersonalResponse,
   PatientMasterProfileMetadata,
   PatientMasterSearchRequest,
@@ -209,6 +210,47 @@ function mapListItem(row: {
 @Injectable()
 export class PatientMasterRepository {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
+
+  async isAuthorizedLiveLookup(
+    scope: PatientMasterScope,
+    identity: PatientMasterLiveLookupRequest,
+  ): Promise<boolean> {
+    const params: unknown[] = [identity.identificationType, identity.identificationValue];
+    let pointSql = '';
+    if (scope.pointAccessKind === 'explicit') {
+      params.push(scope.accessiblePointIds);
+      pointSql += ` AND EXISTS (
+        SELECT 1 FROM patient_schedules ps
+        WHERE ps.authorization_item_id = ai.id
+          AND ps.dispensing_point_id = ANY($${params.length}::uuid[])
+      )`;
+    }
+    if (scope.dispensingPointId) {
+      params.push(scope.dispensingPointId);
+      pointSql += ` AND EXISTS (
+        SELECT 1 FROM patient_schedules ps
+        WHERE ps.authorization_item_id = ai.id
+          AND ps.dispensing_point_id = $${params.length}::uuid
+      )`;
+    }
+    const result = await this.database.pool.query<{ visible: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM authorization_items ai
+           JOIN authorization_item_organizations aio ON aio.authorization_item_id = ai.id
+           JOIN organizations org ON org.id = aio.organization_id AND org.code = 'MEDICARTE'
+          WHERE ai.source_data->>'TIPO_IDENTIFICACION' = $1
+            AND COALESCE(NULLIF(ai.source_data->>'IDENTIFICACION_PACIENTE', ''),
+                         NULLIF(ai.source_data->>'NUM_DOCUMENTO', '')) = $2
+            AND (NULLIF(ai.source_data->>'IDENTIFICACION_PACIENTE', '') IS NULL
+                 OR NULLIF(ai.source_data->>'NUM_DOCUMENTO', '') IS NULL
+                 OR ai.source_data->>'IDENTIFICACION_PACIENTE' = ai.source_data->>'NUM_DOCUMENTO')
+            ${pointSql}
+       ) AS visible`,
+      params,
+    );
+    return result.rows[0]?.visible === true;
+  }
 
   async search(
     scope: PatientMasterScope,

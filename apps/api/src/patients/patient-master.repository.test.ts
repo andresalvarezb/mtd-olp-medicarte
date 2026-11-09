@@ -68,6 +68,47 @@ describe('PatientMasterRepository', () => {
     ).resolves.toBeNull();
   });
 
+  it('checks exact identity against MEDICARTE authorization evidence and point grants before live lookup', async () => {
+    const { repository, query } = makeRepository([{ visible: true }]);
+    await expect(
+      repository.isAuthorizedLiveLookup(
+        {
+          ...mtdScope,
+          pointAccessKind: 'explicit',
+          accessiblePointIds: ['00000000-0000-4000-8000-000000000003'],
+        },
+        {
+          identificationType: 'CC',
+          identificationValue: '000123',
+        },
+      ),
+    ).resolves.toBe(true);
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain("org.code = 'MEDICARTE'");
+    expect(sql).toContain("ai.source_data->>'TIPO_IDENTIFICACION' = $1");
+    expect(values).toEqual(['CC', '000123', ['00000000-0000-4000-8000-000000000003']]);
+
+    const explicitScope = {
+      ...mtdScope,
+      pointAccessKind: 'explicit' as const,
+      accessiblePointIds: ['00000000-0000-4000-8000-000000000003'],
+      dispensingPointId: '00000000-0000-4000-8000-000000000003',
+    };
+    await repository.isAuthorizedLiveLookup(explicitScope, {
+      identificationType: 'CC',
+      identificationValue: '000123',
+    });
+    const [scopedSql, scopedValues] = query.mock.calls[1] as unknown as [string, unknown[]];
+    expect(scopedSql).toContain('ps.dispensing_point_id = ANY($3::uuid[])');
+    expect(scopedSql).toContain('ps.dispensing_point_id = $4::uuid');
+    expect(scopedValues).toEqual([
+      'CC',
+      '000123',
+      explicitScope.accessiblePointIds,
+      explicitScope.dispensingPointId,
+    ]);
+  });
+
   it('keeps reconciliation evidence read-only and projects no identity fields', async () => {
     const { repository, query } = makeRepository([]);
     await expect(repository.reconciliationCases(mtdScope, 12)).resolves.toEqual([]);
@@ -82,7 +123,11 @@ describe('PatientMasterRepository', () => {
   });
 
   it('restricts explicit-point searches even when no point is requested', async () => {
-    const scope = { ...mtdScope, pointAccessKind: 'explicit' as const, accessiblePointIds: ['00000000-0000-4000-8000-000000000003'] };
+    const scope = {
+      ...mtdScope,
+      pointAccessKind: 'explicit' as const,
+      accessiblePointIds: ['00000000-0000-4000-8000-000000000003'],
+    };
     const { repository, query } = makeRepository([]);
     await repository.search(scope, { page: 1, limit: 10 });
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];

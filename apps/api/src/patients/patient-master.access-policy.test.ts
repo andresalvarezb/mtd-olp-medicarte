@@ -4,6 +4,7 @@ import { ForbiddenException } from '@nestjs/common';
 import {
   assertPatientReconciliationReadAllowed,
   resolvePatientMasterScope,
+  resolvePatientMasterLiveLookupScope,
 } from './patient-master.access-policy';
 
 const MTD_ORG = '10000000-0000-4000-8000-000000000001';
@@ -53,14 +54,22 @@ describe('patient master access policy (synthetic grants)', () => {
 
   it('keeps explicit grants limited to their points and rejects requested-point escalation', () => {
     const actor = profile({
-      id: MTD_ORG, code: 'MTD', permissions: ['patient_master.read'],
+      id: MTD_ORG,
+      code: 'MTD',
+      permissions: ['patient_master.read'],
       pointAccess: { kind: 'explicit', accessiblePointIds: [POINT_A] },
     });
     expect(resolvePatientMasterScope(actor, MTD_ORG, USER)).toMatchObject({
-      pointAccessKind: 'explicit', accessiblePointIds: [POINT_A], dispensingPointId: null,
+      pointAccessKind: 'explicit',
+      accessiblePointIds: [POINT_A],
+      dispensingPointId: null,
     });
-    expect(resolvePatientMasterScope(actor, MTD_ORG, USER, POINT_A).dispensingPointId).toBe(POINT_A);
-    expect(() => resolvePatientMasterScope(actor, MTD_ORG, USER, POINT_B)).toThrow(ForbiddenException);
+    expect(resolvePatientMasterScope(actor, MTD_ORG, USER, POINT_A).dispensingPointId).toBe(
+      POINT_A,
+    );
+    expect(() => resolvePatientMasterScope(actor, MTD_ORG, USER, POINT_B)).toThrow(
+      ForbiddenException,
+    );
   });
 
   it('denies MTD users without effective point grants', () => {
@@ -69,10 +78,47 @@ describe('patient master access policy (synthetic grants)', () => {
       { kind: 'unrestricted' as const, accessiblePointIds: [] },
     ]) {
       const actor = profile({
-        id: MTD_ORG, code: 'MTD', permissions: ['patient_master.read'], pointAccess,
+        id: MTD_ORG,
+        code: 'MTD',
+        permissions: ['patient_master.read'],
+        pointAccess,
       });
       expect(() => resolvePatientMasterScope(actor, MTD_ORG, USER)).toThrow(ForbiddenException);
     }
+  });
+
+  it('keeps regular MTD access policy separate from live point-grant policy', () => {
+    const operator = profile({
+      id: MTD_ORG,
+      code: 'MTD',
+      roles: ['MTD_OPERATOR'],
+      permissions: ['patient_master.read'],
+      pointAccess: { kind: 'global', accessiblePointIds: [] },
+    });
+    expect(resolvePatientMasterScope(operator, MTD_ORG, USER)).toMatchObject({
+      pointAccessKind: 'global',
+    });
+  });
+
+  it('requires actual MEDICARTE point grants for live MTD_OPERATOR lookup', () => {
+    const operator = profile({
+      id: MTD_ORG,
+      code: 'MTD',
+      roles: ['MTD_OPERATOR'],
+      permissions: ['patient_master.read'],
+      pointAccess: { kind: 'explicit', accessiblePointIds: [POINT_A] },
+    });
+    expect(() => resolvePatientMasterLiveLookupScope(operator, MTD_ORG, USER, [])).toThrow(
+      ForbiddenException,
+    );
+    expect(resolvePatientMasterLiveLookupScope(operator, MTD_ORG, USER, [POINT_A])).toMatchObject({
+      pointAccessKind: 'explicit',
+      accessiblePointIds: [POINT_A],
+      dispensingPointId: null,
+    });
+    expect(() =>
+      resolvePatientMasterLiveLookupScope(operator, MTD_ORG, USER, [POINT_A], POINT_B),
+    ).toThrow(ForbiddenException);
   });
 
   it('denies Medicarte even with a legacy grant and explicit point access', () => {

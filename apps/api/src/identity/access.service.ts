@@ -2,6 +2,7 @@ import { Inject, Injectable, ForbiddenException, UnauthorizedException } from '@
 import type { MeResponse } from '@authorization/contracts';
 import { and, eq, isNull } from 'drizzle-orm';
 import {
+  dispensingPoints,
   organizations,
   permissions,
   rolePermissions,
@@ -130,6 +131,29 @@ export class AccessService {
         };
       }),
     };
+  }
+
+  async getMedicartePointGrants(userId: string): Promise<string[]> {
+    const rows = await this.database.db
+      .select({ dispensingPointId: userPointScopes.dispensingPointId })
+      .from(userPointScopes)
+      .innerJoin(
+        dispensingPoints,
+        and(
+          eq(dispensingPoints.id, userPointScopes.dispensingPointId),
+          eq(dispensingPoints.active, true),
+        ),
+      )
+      .innerJoin(
+        organizations,
+        and(
+          eq(organizations.id, dispensingPoints.organizationId),
+          eq(organizations.code, 'MEDICARTE'),
+          eq(organizations.active, true),
+        ),
+      )
+      .where(and(eq(userPointScopes.userId, userId), isNull(userPointScopes.revokedAt)));
+    return [...new Set(rows.map((row) => row.dispensingPointId))];
   }
 
   async requirePermission(
