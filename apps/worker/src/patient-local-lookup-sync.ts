@@ -208,21 +208,21 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
       const nextPatientId = ids.at(-1) ?? input.checkpoint.nextPatientId;
       const updated = await client.query(
         `update patient_sync_checkpoints
-            set status = $2,
-                sync_as_of = case when $2 = 'IDLE' then $3 else sync_as_of end,
-                pending_as_of = case when $2 = 'IDLE' then null else pending_as_of end,
-                next_cursor = case when $2 = 'IDLE' then null else $4 end,
-                run_id = case when $2 = 'IDLE' then null else run_id end,
-                lease_token = case when $2 = 'IDLE' then null else lease_token end,
-                lease_expires_at = case when $2 = 'IDLE' then null else $5 end,
-                pages_processed = pages_processed + case when $6 > 0 then 1 else 0 end,
-                records_seen = records_seen + $6,
-                local_patients_matched = local_patients_matched + $6,
-                last_success_at = case when $2 = 'IDLE' then now() else last_success_at end,
-                run_started_at = case when $2 = 'IDLE' then null else run_started_at end,
+            set status = $2::varchar,
+                sync_as_of = case when $2::varchar = 'IDLE' then $3::timestamptz else sync_as_of end,
+                pending_as_of = case when $2::varchar = 'IDLE' then null else pending_as_of end,
+                next_cursor = case when $2::varchar = 'IDLE' then null else $4::text end,
+                run_id = case when $2::varchar = 'IDLE' then null else run_id end,
+                lease_token = case when $2::varchar = 'IDLE' then null else lease_token end,
+                lease_expires_at = case when $2::varchar = 'IDLE' then null else $5::timestamptz end,
+                pages_processed = pages_processed + case when $6::integer > 0 then 1 else 0 end,
+                records_seen = records_seen + $6::integer,
+                local_patients_matched = local_patients_matched + $6::integer,
+                last_success_at = case when $2::varchar = 'IDLE' then now() else last_success_at end,
+                run_started_at = case when $2::varchar = 'IDLE' then null else run_started_at end,
                 last_error_code = null, updated_at = now()
-          where feed_key = $1 and run_id = $7 and lease_token = $8
-            and lease_expires_at > $3`,
+          where feed_key = $1::varchar and run_id = $7::uuid and lease_token = $8::uuid
+            and lease_expires_at > $3::timestamptz`,
         [
           CHECKPOINT_KEY,
           completed ? 'IDLE' : 'RUNNING',
