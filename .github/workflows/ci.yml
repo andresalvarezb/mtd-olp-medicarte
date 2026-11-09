@@ -12,15 +12,15 @@ concurrency:
 
 jobs:
   quality-and-gate-f1:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       POSTGRES_DB: authorization_test_integration
       COMPOSE_PROJECT_NAME: mtd-olp-medicarte-integration-ci-${{ github.run_id }}-${{ github.run_attempt }}
       INTEGRATION_COMPOSE_PROJECT_NAME: mtd-olp-medicarte-integration-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
