@@ -359,13 +359,18 @@ export class AuthorizationQueryRepository {
       | 'FECHA_ASIGNACION'
       | 'FECHA_FINAL_VIGENCIA',
   ): SQL {
+    const jsonField =
+      field === 'FECHA_ASIGNACION'
+        ? sql.raw("'FECHA_ASIGNACION'")
+        : sql.raw("'FECHA_FINAL_VIGENCIA'");
+
     const value =
       sql`
         btrim(
           coalesce(
             i.source_data
               ->>
-              ${field},
+              ${jsonField},
             ''
           )
         )
