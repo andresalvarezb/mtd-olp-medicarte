@@ -348,9 +348,9 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
     'MTD_ONLY',
   ),
   permission('patient_master.read', 'patient-master', 'READ_MASTER', 'ACTIVE', 'MTD_ONLY', {
-    configurable: false,
-    structural: true,
-    systemAllowed: false,
+    configurable: true,
+    structural: false,
+    systemAllowed: true,
   }),
   permission(
     'patient_master.personal.read',

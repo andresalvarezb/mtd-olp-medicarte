@@ -85,6 +85,9 @@ vi.mock('bullmq', () => {
 
 vi.mock('ioredis', () => ({
   default: class RedisMock {
+    duplicate() {
+      return new RedisMock();
+    }
     async publish(channel: string, message: string) {
       await Promise.resolve();
       transport.publishCalls.push({ channel, message });

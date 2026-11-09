@@ -44,16 +44,16 @@ describe('ESP-020 access registry', () => {
     }
   });
 
-  it('keeps patient master permissions structurally ungrantable until scope approval', () => {
+  it('keeps patient basic read MTD-only and configurable while personal data stays closed', () => {
     expect(
       ACCESS_PERMISSION_REGISTRY.filter((entry) => entry.moduleCode === 'patient-master'),
     ).toMatchObject([
       {
         permissionCode: 'patient_master.read',
         actorBoundary: 'MTD_ONLY',
-        configurable: false,
-        structural: true,
-        systemAllowed: false,
+        configurable: true,
+        structural: false,
+        systemAllowed: true,
       },
       {
         permissionCode: 'patient_master.personal.read',

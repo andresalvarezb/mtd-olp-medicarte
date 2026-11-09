@@ -17,6 +17,8 @@ import {
   patientMasterPersonalResponseSchema,
   patientMasterSearchRequestSchema,
   patientMasterSearchResponseSchema,
+  patientMasterLiveLookupRequestSchema,
+  patientMasterLiveLookupResponseSchema,
   patientReconciliationCasesQuerySchema,
   patientReconciliationCasesResponseSchema,
 } from '@authorization/contracts';
@@ -28,6 +30,7 @@ import { API_CONFIG } from '../tokens';
 import type { AuthenticatedRequest } from '../types';
 import {
   assertPatientReconciliationReadAllowed,
+  resolvePatientMasterLiveLookupScope,
   resolvePatientMasterScope,
 } from './patient-master.access-policy';
 import { PatientMasterService } from './patient-master.service';
@@ -75,6 +78,41 @@ export class PatientMasterController {
     return patientMasterSearchResponseSchema.parse(response);
   }
 
+  @Post('lookup')
+  async lookup(
+    @Body() rawBody: unknown,
+    @Headers('x-organization-id') rawOrganizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    this.assertAccessEnabled();
+    if (!this.config.PATIENT_MASTER_DP07_APPROVED) {
+      throw PatientMasterController.featureUnavailable();
+    }
+    const body = patientMasterLiveLookupRequestSchema.parse(rawBody);
+    const organizationId = uuidSchema.parse(rawOrganizationId);
+    const profile = await this.access.requirePermission(
+      request.auth.sub,
+      organizationId,
+      'patient_master.read',
+    );
+    const grantedPoints = await this.access.getMedicartePointGrants(request.auth.sub);
+    const scope = resolvePatientMasterLiveLookupScope(
+      profile,
+      organizationId,
+      request.auth.sub,
+      grantedPoints,
+      body.dispensingPointId,
+    );
+    const identity = {
+      identificationType: body.identificationType,
+      identificationValue: body.identificationValue,
+    };
+    if (!(await this.service.isAuthorizedLiveLookup(scope, identity))) {
+      return patientMasterLiveLookupResponseSchema.parse({ status: 'NOT_FOUND' });
+    }
+    return patientMasterLiveLookupResponseSchema.parse(await this.service.lookupLive(identity));
+  }
+
   @Get('reconciliation-cases')
   async reconciliationCases(
     @Query() rawQuery: unknown,
@@ -91,7 +129,11 @@ export class PatientMasterController {
     );
     assertPatientReconciliationReadAllowed(profile, organizationId);
     const scope = resolvePatientMasterScope(
-      profile, organizationId, request.auth.sub, undefined, 'patient_reconciliation.read',
+      profile,
+      organizationId,
+      request.auth.sub,
+      undefined,
+      'patient_reconciliation.read',
     );
     const items = await this.service.reconciliationCases(scope, query.limit);
     return patientReconciliationCasesResponseSchema.parse({ items });

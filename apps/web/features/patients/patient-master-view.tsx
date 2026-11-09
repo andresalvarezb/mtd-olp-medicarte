@@ -6,6 +6,7 @@ import type {
   PatientMasterDetail,
   PatientMasterPersonalResponse,
   PatientMasterSearchResponse,
+  PatientMasterLiveLookupResponse,
   PatientReconciliationCase,
 } from '@authorization/contracts';
 import { PageHeader } from '@/components/ui/page-header';
@@ -15,6 +16,7 @@ import {
   getPatientMasterDetail,
   getPatientMasterPersonalProfile,
   listPatientReconciliationCases,
+  lookupPatientMaster,
   searchPatientMaster,
 } from '@/lib/patient-master-api';
 import styles from './patient-master-demo-view.module.css';
@@ -46,6 +48,7 @@ export function PatientMasterView() {
   const { me, organizationId, hasPermission } = useRole();
   const organization = me?.organizations.find((item) => item.id === organizationId);
   const isMedicarte = organization?.code === 'MEDICARTE';
+  const isMtd = organization?.code === 'MTD';
   const accessiblePointIds = organization?.pointAccess.accessiblePointIds ?? [];
   const hasReadPermission = hasPermission('patient_master.read');
   const canReadReconciliation = hasPermission('patient_reconciliation.read');
@@ -58,6 +61,8 @@ export function PatientMasterView() {
     identificationType?: string;
     identificationValue?: string;
   }>({});
+  const [liveLookup, setLiveLookup] = useState<PatientMasterLiveLookupResponse | null>(null);
+  const [liveLookupLoading, setLiveLookupLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [list, setList] = useState<PatientMasterSearchResponse | null>(null);
   const [state, setState] = useState<'loading' | 'denied' | 'error' | 'ready'>('loading');
@@ -91,7 +96,12 @@ export function PatientMasterView() {
   );
 
   useEffect(() => {
-    if (!organizationId || !hasReadPermission || (isMedicarte && !pointId)) {
+    if (
+      !organizationId ||
+      !hasReadPermission ||
+      (isMedicarte && !pointId) ||
+      (isMtd && !appliedIdentity.identificationType)
+    ) {
       setState('denied');
       setList(null);
       return;
@@ -111,7 +121,44 @@ export function PatientMasterView() {
         setList(null);
       });
     return () => abort.abort();
-  }, [hasReadPermission, isMedicarte, organizationId, pointId, query]);
+  }, [
+    appliedIdentity.identificationType,
+    hasReadPermission,
+    isMedicarte,
+    isMtd,
+    organizationId,
+    pointId,
+    query,
+  ]);
+
+  useEffect(() => {
+    if (
+      !organizationId ||
+      !hasReadPermission ||
+      !isMtd ||
+      !appliedIdentity.identificationType ||
+      !appliedIdentity.identificationValue
+    ) {
+      setLiveLookup(null);
+      return;
+    }
+    const abort = new AbortController();
+    setLiveLookupLoading(true);
+    setLiveLookup(null);
+    void lookupPatientMaster(
+      organizationId,
+      appliedIdentity as Required<typeof appliedIdentity>,
+      abort.signal,
+    )
+      .then(setLiveLookup)
+      .catch((cause: unknown) => {
+        if (!abort.signal.aborted) setError(safeErrorMessage(cause));
+      })
+      .finally(() => {
+        if (!abort.signal.aborted) setLiveLookupLoading(false);
+      });
+    return () => abort.abort();
+  }, [appliedIdentity, hasReadPermission, isMtd, organizationId]);
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -122,6 +169,7 @@ export function PatientMasterView() {
       return;
     }
     setError(null);
+    setLiveLookup(null);
     setAppliedIdentity(
       type && value ? { identificationType: type, identificationValue: value } : {},
     );
@@ -263,6 +311,67 @@ export function PatientMasterView() {
           de la lista vienen de la API; no se muestran perfiles personales de MTDOM.
         </p>
         {error ? <p role="alert">{error}</p> : null}
+        {liveLookupLoading ? <p role="status">Consultando perfil básico en MTDOM…</p> : null}
+        {liveLookup?.status === 'NOT_FOUND' ? (
+          <p role="status">MTDOM no encontró esa identidad exacta.</p>
+        ) : null}
+        {liveLookup?.status === 'AMBIGUOUS' ? (
+          <p role="status">MTDOM encontró más de una coincidencia; verifica tipo y número.</p>
+        ) : null}
+        {liveLookup?.status === 'IDENTITY_MISMATCH' ? (
+          <p role="alert">
+            El documento devuelto por MTDOM no coincide exactamente; no se muestra el perfil.
+          </p>
+        ) : null}
+        {liveLookup?.status === 'UNAVAILABLE' ? (
+          <p role="alert">
+            MTDOM no está disponible para esta consulta. Intenta de nuevo más tarde.
+          </p>
+        ) : null}
+        {liveLookup?.status === 'FOUND' ? (
+          <section className={styles.card} aria-label="Perfil básico consultado en MTDOM">
+            <h2>Perfil básico MTDOM</h2>
+            <dl className={styles.details}>
+              {(
+                [
+                  ['Tipo de identificación', liveLookup.basicProfile.tipo_identificacion],
+                  ['Identificación', liveLookup.basicProfile.identificacion],
+                  ['Primer nombre', liveLookup.basicProfile.primer_nombre],
+                  ['Segundo nombre', liveLookup.basicProfile.segundo_nombre],
+                  ['Primer apellido', liveLookup.basicProfile.primer_apellido],
+                  ['Segundo apellido', liveLookup.basicProfile.segundo_apellido],
+                  ['Sexo', liveLookup.basicProfile.sexo],
+                  ['Ciudad', liveLookup.basicProfile.ciudad],
+                  ['Código de ciudad', liveLookup.basicProfile.codigo_ciudad],
+                  ['Departamento', liveLookup.basicProfile.departamento],
+                  ['Código de departamento', liveLookup.basicProfile.codigo_departamento],
+                  ['EPS', liveLookup.basicProfile.eps],
+                  ['Código de EPS', liveLookup.basicProfile.codigo_eps],
+                  ['Plan', liveLookup.basicProfile.plan],
+                  ['Código de plan', liveLookup.basicProfile.codigo_plan],
+                  ['Tipo reportado', liveLookup.basicProfile.tipo],
+                  ['Código de tipo', liveLookup.basicProfile.codigo_tipo],
+                  ['Condición', liveLookup.basicProfile.condicion],
+                  ['Activo en MTDOM', liveLookup.basicProfile.activo],
+                  ['Paciente vivo', liveLookup.basicProfile.paciente_vivo],
+                  ['Fecha de fallecimiento', liveLookup.basicProfile.fecha_fallecimiento],
+                  ['Presente en fuente actual', liveLookup.basicProfile.presente_en_fuente_actual],
+                  ['Estado Registraduría', liveLookup.basicProfile.registraduria_estado],
+                  [
+                    'Última validación Registraduría',
+                    liveLookup.basicProfile.fecha_ultima_validacion_registraduria,
+                  ],
+                  ['Actualizado en origen', liveLookup.basicProfile.actualizado_en],
+                ] as const
+              ).map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{profileValue(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ) : null}
         {state === 'loading' ? <p role="status">Cargando pacientes…</p> : null}
         {state === 'denied' ? (
           <p role="status">

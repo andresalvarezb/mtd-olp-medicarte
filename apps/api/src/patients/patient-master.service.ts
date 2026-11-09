@@ -5,19 +5,43 @@ import type {
   PatientMasterSearchRequest,
   PatientMasterSearchResponse,
   PatientReconciliationCase,
+  PatientMasterLiveLookupRequest,
+  PatientMasterLiveLookupResponse,
 } from '@authorization/contracts';
 import type { PatientMasterScope } from './patient-master.access-policy';
 import { PatientMasterRepository } from './patient-master.repository';
 
+const unavailableLiveLookup = {
+  lookup() {
+    return Promise.resolve({ status: 'NOT_FOUND' as const });
+  },
+};
+
 @Injectable()
 export class PatientMasterService {
-  constructor(private readonly repository: PatientMasterRepository) {}
+  constructor(
+    private readonly repository: PatientMasterRepository,
+    private readonly liveLookup: {
+      lookup(identity: PatientMasterLiveLookupRequest): Promise<PatientMasterLiveLookupResponse>;
+    } = unavailableLiveLookup,
+  ) {}
 
   async search(
     scope: PatientMasterScope,
     input: PatientMasterSearchRequest,
   ): Promise<PatientMasterSearchResponse> {
     return this.repository.search(scope, input);
+  }
+
+  isAuthorizedLiveLookup(
+    scope: PatientMasterScope,
+    identity: PatientMasterLiveLookupRequest,
+  ): Promise<boolean> {
+    return this.repository.isAuthorizedLiveLookup(scope, identity);
+  }
+
+  lookupLive(identity: PatientMasterLiveLookupRequest): Promise<PatientMasterLiveLookupResponse> {
+    return this.liveLookup.lookup(identity);
   }
 
   async detail(
@@ -43,7 +67,10 @@ export class PatientMasterService {
     return result;
   }
 
-  reconciliationCases(scope: PatientMasterScope, limit: number): Promise<PatientReconciliationCase[]> {
+  reconciliationCases(
+    scope: PatientMasterScope,
+    limit: number,
+  ): Promise<PatientReconciliationCase[]> {
     return this.repository.reconciliationCases(scope, limit);
   }
 }

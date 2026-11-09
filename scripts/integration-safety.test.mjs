@@ -112,7 +112,10 @@ test('la reutilización verifica todos los servicios y puerto de PostgreSQL', ()
   const calls = [];
   const run = (_command, args) => {
     calls.push(args);
-    if (args.includes('psql')) return 'authorization_test_integration|authorization|5432';
+    if (args.includes('psql')) {
+      assert.equal(args[args.indexOf('-h') + 1], '127.0.0.1');
+      return 'authorization_test_integration|authorization|5432';
+    }
     if (args.includes('--services')) return 'api\nmipres-mock\npostgres\nredis\nworker\n';
     return '0.0.0.0:25432\n';
   };

@@ -10,13 +10,16 @@ import { MtdomPatientsReadClient } from './mtdom-patients-read.client';
 const databaseUrl =
   process.env.DATABASE_URL ?? 'postgresql://mtd_test@127.0.0.1:55439/mtd_olp_medicarte_test';
 const target = new URL(databaseUrl);
-if (
-  target.hostname !== '127.0.0.1' ||
-  target.port !== '55439' ||
-  target.pathname !== '/mtd_olp_medicarte_test'
-) {
+const integrationTarget =
+  target.hostname === 'localhost' &&
+  target.port === (process.env.POSTGRES_HOST_PORT ?? '25432') &&
+  target.pathname === '/authorization_test_integration';
+const testTarget =
+  target.hostname === '127.0.0.1' &&
+  target.port === '55439' &&
+  target.pathname === '/mtd_olp_medicarte_test';
+if (!integrationTarget && !testTarget)
   throw new Error('Refusing patient profile integration test outside isolated PostgreSQL');
-}
 
 const database = createDatabase(databaseUrl);
 const patientId = randomUUID();
@@ -173,6 +176,109 @@ describe.skipIf(!process.env.DATABASE_URL)(
       } finally {
         await database.pool.query('delete from patients where id = $1::uuid', [patientId]);
       }
+    });
+
+    it('serves ephemeral exact, missing, ambiguous and mismatched basic lookups without persisting profile data', async () => {
+      const calls: string[] = [];
+      server = createServer((request, response) => {
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+          const input = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<
+            string,
+            unknown
+          >;
+          const value = String(input.identificacion);
+          calls.push(value);
+          response.setHeader('content-type', 'application/json');
+          if (value.endsWith('MISSING')) {
+            response
+              .writeHead(404)
+              .end(JSON.stringify({ ok: false, error: 'PATIENT_NOT_FOUND', message: 'synthetic' }));
+          } else if (value.endsWith('AMBIGUOUS')) {
+            response.writeHead(409).end(
+              JSON.stringify({
+                ok: false,
+                error: 'AMBIGUOUS_PATIENT_IDENTITY',
+                message: 'synthetic',
+              }),
+            );
+          } else {
+            const returned = value.endsWith('MISMATCH')
+              ? { ...patient, identificacion: `${value}-X` }
+              : value.endsWith('CASE')
+                ? { ...patient, tipo_identificacion: 'CC', identificacion: value }
+                : { ...patient, identificacion: value };
+            response.writeHead(200).end(JSON.stringify({ ok: true, data: returned }));
+          }
+        });
+      });
+      await new Promise<void>((resolve, reject) => {
+        server!.once('error', reject);
+        server!.listen(0, '127.0.0.1', resolve);
+      });
+      const address = server.address();
+      if (!address || typeof address === 'string')
+        throw new Error('Synthetic HTTP server unavailable');
+      const fetchLoopback: typeof fetch = (input, init) => {
+        const source =
+          input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+        const sourceUrl = new URL(source);
+        return fetch(`http://127.0.0.1:${address.port}${sourceUrl.pathname}`, init);
+      };
+      const processor = new MtdomPatientLookupProcessor(
+        database,
+        new MtdomPatientsReadClient({
+          token: 'mtdpat_synthetic_loopback_only',
+          timeoutMs: 1000,
+          fetchImpl: fetchLoopback,
+        }),
+        identityPolicy,
+      );
+      const foundId = `${documentValue}-FOUND`;
+      const found = await processor.lookupLiveWithResponse({
+        documentType: 'TEST',
+        documentValue: foundId,
+      });
+      expect(found).toMatchObject({ status: 'FOUND', basicProfile: { identificacion: foundId } });
+      expect(
+        await processor.lookupLiveWithResponse({
+          documentType: 'TEST',
+          documentValue: `${documentValue}-MISSING`,
+        }),
+      ).toEqual({ status: 'NOT_FOUND' });
+      expect(
+        await processor.lookupLiveWithResponse({
+          documentType: 'TEST',
+          documentValue: `${documentValue}-AMBIGUOUS`,
+        }),
+      ).toEqual({ status: 'AMBIGUOUS' });
+      expect(
+        await processor.lookupLiveWithResponse({
+          documentType: 'TEST',
+          documentValue: `${documentValue}-MISMATCH`,
+        }),
+      ).toEqual({ status: 'IDENTITY_MISMATCH' });
+      expect(
+        await processor.lookupLiveWithResponse({
+          documentType: 'cc',
+          documentValue: `${documentValue}-CASE`,
+        }),
+      ).toEqual({ status: 'IDENTITY_MISMATCH' });
+      expect(calls).toHaveLength(5);
+      const stored = await database.pool.query(
+        `select id from patients where identification_value_raw = any($1::text[])`,
+        [
+          [
+            foundId,
+            `${documentValue}-MISSING`,
+            `${documentValue}-AMBIGUOUS`,
+            `${documentValue}-MISMATCH`,
+            `${documentValue}-CASE`,
+          ],
+        ],
+      );
+      expect(stored.rowCount).toBe(0);
     });
   },
 );

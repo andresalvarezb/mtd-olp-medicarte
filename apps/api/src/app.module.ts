@@ -129,6 +129,7 @@ import { MipresReadRepository } from './mipres/mipres-read.repository';
 import { PatientMasterController } from './patients/patient-master.controller';
 import { PatientMasterRepository } from './patients/patient-master.repository';
 import { PatientMasterService } from './patients/patient-master.service';
+import { PatientMasterLiveLookupService } from './patients/patient-master-live-lookup.service';
 
 import { MipresRecheckController } from './mipres/mipres-recheck.controller';
 import { MipresRecheckService } from './mipres/mipres-recheck.service';
@@ -313,7 +314,15 @@ new Gauge({
     MipresReadRepository,
     MipresDecisionService,
     PatientMasterRepository,
-    PatientMasterService,
+    PatientMasterLiveLookupService,
+    {
+      provide: PatientMasterService,
+      inject: [PatientMasterRepository, PatientMasterLiveLookupService],
+      useFactory: (
+        repository: PatientMasterRepository,
+        liveLookup: PatientMasterLiveLookupService,
+      ) => new PatientMasterService(repository, liveLookup),
+    },
     { provide: API_CONFIG, useValue: config },
     { provide: DATABASE, useValue: database },
     { provide: REDIS, useValue: redis },

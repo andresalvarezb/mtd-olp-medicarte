@@ -3,6 +3,8 @@ import type {
   PatientMasterPersonalResponse,
   PatientMasterSearchRequest,
   PatientMasterSearchResponse,
+  PatientMasterLiveLookupRequest,
+  PatientMasterLiveLookupResponse,
   PatientReconciliationCasesResponse,
 } from '@authorization/contracts';
 import { apiRequest } from './api-client';
@@ -13,6 +15,19 @@ export function searchPatientMaster(
   signal?: AbortSignal,
 ): Promise<PatientMasterSearchResponse> {
   return apiRequest<PatientMasterSearchResponse>('/patient-master/search', {
+    method: 'POST',
+    organizationId,
+    body: JSON.stringify(query),
+    signal,
+  });
+}
+
+export function lookupPatientMaster(
+  organizationId: string,
+  query: PatientMasterLiveLookupRequest,
+  signal?: AbortSignal,
+): Promise<PatientMasterLiveLookupResponse> {
+  return apiRequest<PatientMasterLiveLookupResponse>('/patient-master/lookup', {
     method: 'POST',
     organizationId,
     body: JSON.stringify(query),
