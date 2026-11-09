@@ -20,6 +20,10 @@ export function createDatabase(databaseUrl: string) {
     connectionTimeoutMillis: 10_000,
   });
 
+  pool.on('connect', (client) => {
+    // pg-pool removes its idle error listener while a client is checked out.
+    client.on('error', () => undefined);
+  });
   pool.on('error', (error) => {
     console.error('[database] PostgreSQL idle client error', {
       name: error.name,

@@ -38,13 +38,24 @@ function result<Row extends Record<string, unknown>>(
 
 function databaseFor(
   expirationRaw: string,
-  options: { contendOnce?: boolean; noAllocations?: boolean; noSources?: boolean; hasConfirmedAttention?: boolean } = {},
+  options: {
+    contendOnce?: boolean;
+    noAllocations?: boolean;
+    noSources?: boolean;
+    hasConfirmedAttention?: boolean;
+    hasConfirmedAttentionAfterSelection?: boolean;
+    failCandidateQuery?: boolean;
+    failRollback?: boolean;
+    emitConnectionError?: boolean;
+  } = {},
 ) {
   const calls: Array<{
     sql: string;
     values: unknown[] | undefined;
   }> = [];
   let contended = false;
+  let emittedConnectionError = false;
+  let connectionErrorListener: ((error: Error) => void) | undefined;
 
   const client = {
     query: vi.fn(
@@ -57,6 +68,15 @@ function databaseFor(
           sql: normalized,
           values,
         });
+
+        if (normalized === 'begin' && options.emitConnectionError && !emittedConnectionError) {
+          emittedConnectionError = true;
+          connectionErrorListener?.(new Error('connection interrupted'));
+        }
+
+        if (normalized === 'rollback' && options.failRollback) {
+          throw new Error('connection interrupted during rollback');
+        }
 
         if (
           ['begin', 'commit', 'rollback'].includes(normalized)
@@ -73,6 +93,10 @@ function databaseFor(
         if (
           normalized.includes('with linked_authorizations as')
         ) {
+          if (options.failCandidateQuery) {
+            throw new Error('connection interrupted during candidate query');
+          }
+          if (options.hasConfirmedAttention) return result([]);
           return result([{
             id: AUTHORIZATION_ID,
             expiration_raw: expirationRaw,
@@ -101,7 +125,9 @@ function databaseFor(
         }
 
         if (normalized.includes('has_confirmed_attention')) {
-          return result([{ has_confirmed_attention: options.hasConfirmedAttention ?? false }]);
+          return result([{
+            has_confirmed_attention: options.hasConfirmedAttentionAfterSelection ?? false,
+          }]);
         }
 
         if (
@@ -166,6 +192,10 @@ function databaseFor(
         );
       },
     ),
+    on: vi.fn((_event: 'error', listener: (error: Error) => void) => {
+      connectionErrorListener = listener;
+    }),
+    removeListener: vi.fn(),
     release: vi.fn(),
   };
 
@@ -376,10 +406,43 @@ describe(
       expect(fixture.calls.some((call) => call.sql.startsWith('update inventory_authorization_allocations'))).toBe(false);
       expect(fixture.calls.some((call) => call.sql.startsWith('update purchase_order_authorization_sources'))).toBe(false);
 
-      const evidenceQuery = fixture.calls.find((call) => call.sql.includes('has_confirmed_attention'))?.sql;
-      expect(evidenceQuery).toContain('authorization_fulfillments');
-      expect(evidenceQuery).toContain('patient_applications');
-      expect(evidenceQuery).toContain('consumed_quantity > 0');
+      const candidatesQuery = fixture.calls.find((call) => call.sql.includes('with linked_authorizations as'))?.sql;
+      expect(candidatesQuery).toContain('from authorization_fulfillments af');
+      expect(candidatesQuery).toContain('from patient_applications pa');
+      expect(candidatesQuery).toContain('iaa.consumed_quantity > 0');
+      expect(fixture.calls.some((call) => call.sql.includes('as has_confirmed_attention'))).toBe(false);
+      expect(fixture.calls.filter((call) => call.sql === 'rollback')).toHaveLength(0);
+      expect(fixture.calls.filter((call) => call.sql === 'commit')).toHaveLength(2);
+    });
+
+    it('rechecks confirmed attention under the authorization lock after candidate selection', async () => {
+      const fixture = databaseFor('2026-10-01', { hasConfirmedAttentionAfterSelection: true });
+      const outcome = await runInventoryExpirationReleaseSweep(fixture.database, '2026-10-31');
+
+      expect(outcome.releasedAllocations).toBe(0);
+      expect(outcome.releasedPurchaseOrderSources).toBe(0);
+      expect(fixture.calls.some((call) => call.sql.includes('as has_confirmed_attention'))).toBe(true);
+      expect(fixture.calls.some((call) => call.sql.startsWith('update inventory_authorization_allocations'))).toBe(false);
+      expect(fixture.calls.filter((call) => call.sql === 'rollback')).toHaveLength(0);
+    });
+
+    it('destroys an interrupted connection when rollback also fails', async () => {
+      const fixture = databaseFor('2026-10-01', {
+        failCandidateQuery: true,
+        failRollback: true,
+      });
+
+      await expect(runInventoryExpirationReleaseSweep(fixture.database, '2026-10-31'))
+        .rejects.toThrow('connection interrupted during candidate query');
+      expect(fixture.client.release).toHaveBeenCalledWith(true);
+    });
+
+    it('handles pg client errors and releases the damaged connection', async () => {
+      const fixture = databaseFor('2026-10-28', { emitConnectionError: true });
+      await runInventoryExpirationReleaseSweep(fixture.database, '2026-11-03');
+
+      expect(fixture.client.on).toHaveBeenCalledWith('error', expect.any(Function));
+      expect(fixture.client.release).toHaveBeenCalledWith(expect.any(Error));
     });
 
     it('cede ante un lock ocupado y reintenta en el siguiente barrido', async () => {

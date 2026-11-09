@@ -248,6 +248,8 @@ function createHarness(
       }
       throw new Error(`unexpected synthetic SQL: ${query}`);
     },
+    on: vi.fn(),
+    removeListener: vi.fn(),
     release: () => undefined,
   };
   const database = {
@@ -339,6 +341,18 @@ afterEach(() => {
 });
 
 describe('patient event outbox on synthetic transport', () => {
+  it('contains a transient pool.connect failure and resumes dispatch on the next poll', async () => {
+    const harness = createHarness([patientEvent()]);
+    vi.spyOn(harness.database.pool, 'connect')
+      .mockRejectedValueOnce(new Error('synthetic PostgreSQL interruption'));
+
+    await expect(dispatch(harness.service)).resolves.toBeUndefined();
+    await expect(dispatch(harness.service)).resolves.toBeUndefined();
+
+    expect(harness.events[0]?.status).toBe('DISPATCHED');
+    expect(transport.addCalls).toHaveLength(1);
+  });
+
   it('runs outbox → worker → MTDOM client → identity validation and persists only the basic allowlist outside job results', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(

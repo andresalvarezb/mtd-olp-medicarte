@@ -197,12 +197,19 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       Sentry.captureException(error);
     });
     this.queueEvents.on('failed', ({ jobId, failedReason }) => {
-      void this.moveToDeadLetter(jobId, failedReason);
+      void this.moveToDeadLetter(jobId, failedReason).catch((error) => {
+        this.reportBackgroundTaskError(error, 'failed to move worker job to dead letter queue');
+      });
     });
     if (this.config.SCHEDULER_ENABLED) {
       if (this.patientLookupSyncScheduler) {
-        this.patientLookupSyncScheduler.start(this.config.PATIENT_CHANGES_SYNC_INTERVAL_MS);
-        void this.patientLookupSyncScheduler.trigger();
+        this.patientLookupSyncScheduler.start(
+          this.config.PATIENT_CHANGES_SYNC_INTERVAL_MS,
+          (error) => this.reportBackgroundTaskError(error, 'patient local lookup sync failed'),
+        );
+        void this.patientLookupSyncScheduler.trigger().catch((error) => {
+          this.reportBackgroundTaskError(error, 'patient local lookup sync failed');
+        });
       }
       this.timer = setInterval(
         () => void this.dispatchOutbox(),
@@ -401,6 +408,8 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       for (let index = 0; index < 20; index += 1) {
         if (!(await this.dispatchNextEvent())) break;
       }
+    } catch (error) {
+      this.reportBackgroundTaskError(error, 'outbox dispatch failed');
     } finally {
       this.dispatching = false;
     }
@@ -409,8 +418,19 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   private async dispatchNextEvent(): Promise<boolean> {
     const client = await this.database.pool.connect();
     let patientEvent = false;
+    let connectionError: Error | boolean | undefined;
+    let transactionOpen = false;
+    const onClientError = (error: Error) => {
+      connectionError = error;
+    };
+    client.on('error', onClientError);
+    const commit = async () => {
+      await client.query('commit');
+      transactionOpen = false;
+    };
     try {
       await client.query('begin');
+      transactionOpen = true;
       const result = await client.query<OutboxRow>(
         `select id, event_type, version, payload, correlation_id, organization_id,
                 idempotency_key, created_at
@@ -423,7 +443,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       );
       const event = result.rows[0];
       if (!event) {
-        await client.query('commit');
+        await commit();
         return false;
       }
 
@@ -438,7 +458,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
              where id = $1`,
             [event.id],
           );
-          await client.query('commit');
+          await commit();
           return true;
         }
 
@@ -462,7 +482,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
            where id = $1`,
           [event.id],
         );
-        await client.query('commit');
+        await commit();
         return true;
       }
 
@@ -490,7 +510,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
              where id = $1`,
             [event.id],
           );
-          await client.query('commit');
+          await commit();
           return true;
         }
         parsedJob = patientJob.data;
@@ -512,7 +532,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
              where id = $1`,
             [event.id],
           );
-          await client.query('commit');
+          await commit();
           return true;
         }
         parsedJob = foundationJob.data;
@@ -529,7 +549,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
           `update outbox_events set status = 'PROCESSED', processed_at = now(), last_error = null where id = $1`,
           [event.id],
         );
-        await client.query('commit');
+        await commit();
         return true;
       }
 
@@ -551,7 +571,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
             `update outbox_events set status = 'FAILED', last_error = $2 where id = $1`,
             [event.id, failure],
           );
-          await client.query('commit');
+          await commit();
           return true;
         }
       } else {
@@ -563,10 +583,18 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
          where id = $1`,
         [event.id],
       );
-      await client.query('commit');
+      await commit();
       return true;
     } catch (error) {
-      await client.query('rollback');
+      if (transactionOpen) {
+        try {
+          await client.query('rollback');
+          transactionOpen = false;
+        } catch (rollbackError) {
+          connectionError = true;
+          this.logger.error({ error: rollbackError }, 'outbox transaction rollback failed');
+        }
+      }
       if (patientEvent) {
         this.logger.error({ code: 'PATIENT_LOOKUP_DISPATCH_FAILURE' }, 'patient event dispatch failed');
       } else {
@@ -575,8 +603,15 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       }
       return false;
     } finally {
-      client.release();
+      client.removeListener('error', onClientError);
+      if (connectionError) client.release(connectionError);
+      else client.release();
     }
+  }
+
+  private reportBackgroundTaskError(error: unknown, message: string): void {
+    this.logger.error({ error }, message);
+    Sentry.captureException(error);
   }
 
   private async process(rawJob: Job<WorkerJob>): Promise<{ processed: boolean }> {
