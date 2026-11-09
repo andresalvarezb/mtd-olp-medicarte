@@ -632,6 +632,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
         organizationCode: 'MTD' as const,
         userId: fixture.mtdUserId,
         pointAccessKind: 'global' as const,
+        accessiblePointIds: [],
         dispensingPointId: null,
       };
       const detail = await repository.detail(scope, fixture.patientIds[0]!, true);

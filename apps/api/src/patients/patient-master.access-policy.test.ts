@@ -35,7 +35,7 @@ function profile(
 }
 
 describe('patient master access policy (synthetic grants)', () => {
-  it('allows an explicitly granted MTD master read without point restriction', () => {
+  it('allows an explicitly global MTD master read', () => {
     const actor = profile({
       id: MTD_ORG,
       code: 'MTD',
@@ -47,7 +47,32 @@ describe('patient master access policy (synthetic grants)', () => {
     expect(resolvePatientMasterScope(actor, MTD_ORG, USER)).toMatchObject({
       organizationCode: 'MTD',
       dispensingPointId: null,
+      pointAccessKind: 'global',
     });
+  });
+
+  it('keeps explicit grants limited to their points and rejects requested-point escalation', () => {
+    const actor = profile({
+      id: MTD_ORG, code: 'MTD', permissions: ['patient_master.read'],
+      pointAccess: { kind: 'explicit', accessiblePointIds: [POINT_A] },
+    });
+    expect(resolvePatientMasterScope(actor, MTD_ORG, USER)).toMatchObject({
+      pointAccessKind: 'explicit', accessiblePointIds: [POINT_A], dispensingPointId: null,
+    });
+    expect(resolvePatientMasterScope(actor, MTD_ORG, USER, POINT_A).dispensingPointId).toBe(POINT_A);
+    expect(() => resolvePatientMasterScope(actor, MTD_ORG, USER, POINT_B)).toThrow(ForbiddenException);
+  });
+
+  it('denies MTD users without effective point grants', () => {
+    for (const pointAccess of [
+      { kind: 'explicit' as const, accessiblePointIds: [] },
+      { kind: 'unrestricted' as const, accessiblePointIds: [] },
+    ]) {
+      const actor = profile({
+        id: MTD_ORG, code: 'MTD', permissions: ['patient_master.read'], pointAccess,
+      });
+      expect(() => resolvePatientMasterScope(actor, MTD_ORG, USER)).toThrow(ForbiddenException);
+    }
   });
 
   it('denies Medicarte even with a legacy grant and explicit point access', () => {

@@ -14,6 +14,7 @@ const mtdScope: PatientMasterScope = {
   organizationCode: 'MTD',
   userId: '00000000-0000-4000-8000-000000000002',
   pointAccessKind: 'global',
+  accessiblePointIds: [],
   dispensingPointId: null,
 };
 
@@ -69,7 +70,7 @@ describe('PatientMasterRepository', () => {
 
   it('keeps reconciliation evidence read-only and projects no identity fields', async () => {
     const { repository, query } = makeRepository([]);
-    await expect(repository.reconciliationCases(mtdScope.organizationId, 12)).resolves.toEqual([]);
+    await expect(repository.reconciliationCases(mtdScope, 12)).resolves.toEqual([]);
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
     expect(sql).toContain(
       "pbi.status IN ('NEEDS_RECONCILIATION', 'CONFLICT', 'RESOLVED', 'REVERT_CONFLICT')",
@@ -78,5 +79,14 @@ describe('PatientMasterRepository', () => {
     expect(sql).toContain('aio.organization_id = $1::uuid');
     expect(sql).not.toMatch(/identification_value|document|source_data/i);
     expect(values).toEqual([mtdScope.organizationId, 12]);
+  });
+
+  it('restricts explicit-point searches even when no point is requested', async () => {
+    const scope = { ...mtdScope, pointAccessKind: 'explicit' as const, accessiblePointIds: ['00000000-0000-4000-8000-000000000003'] };
+    const { repository, query } = makeRepository([]);
+    await repository.search(scope, { page: 1, limit: 10 });
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain('ps.dispensing_point_id = ANY($2::uuid[])');
+    expect(values).toEqual([scope.organizationId, scope.accessiblePointIds, 10, 0]);
   });
 });

@@ -102,7 +102,23 @@ function scopedPatientAuthorizationCte(
       WHERE aio.authorization_item_id = ai.id
         AND aio.organization_id = ${organizationId}`;
   let scopedPointId: string = 'NULL::uuid';
-  if (scope.dispensingPointId) {
+  if (scope.pointAccessKind === 'explicit') {
+    const pointIds = bind(scope.accessiblePointIds, '::uuid[]');
+    authorizationScope += ` AND EXISTS (
+        SELECT 1 FROM patient_schedules ps
+        WHERE ps.authorization_item_id = ai.id
+          AND ps.dispensing_point_id = ANY(${pointIds})
+      )`;
+    if (scope.dispensingPointId) {
+      const pointId = bind(scope.dispensingPointId, '::uuid');
+      authorizationScope += ` AND EXISTS (
+        SELECT 1 FROM patient_schedules ps
+        WHERE ps.authorization_item_id = ai.id
+          AND ps.dispensing_point_id = ${pointId}
+      )`;
+      scopedPointId = pointId;
+    }
+  } else if (scope.dispensingPointId) {
     const pointId = bind(scope.dispensingPointId, '::uuid');
     authorizationScope += ` AND EXISTS (
         SELECT 1 FROM patient_schedules ps
@@ -329,9 +345,21 @@ export class PatientMasterRepository {
   }
 
   async reconciliationCases(
-    organizationId: string,
+    scope: PatientMasterScope,
     limit = 100,
   ): Promise<PatientReconciliationCase[]> {
+    const params: unknown[] = [scope.organizationId];
+    let pointFilter = '';
+    if (scope.pointAccessKind === 'explicit') {
+      params.push(scope.accessiblePointIds);
+      pointFilter = `AND EXISTS (
+           SELECT 1 FROM patient_schedules ps
+           WHERE ps.authorization_item_id = ai.id
+             AND ps.dispensing_point_id = ANY($2::uuid[])
+         )`;
+    }
+    params.push(limit);
+    const limitParam = `$${params.length}`;
     const result = await this.database.pool.query<ReconciliationCaseRow>(
       `SELECT pbi.id, pbi.authorization_item_id, pbi.status, pbi.reason_code,
               pbi.processed_at, pbi.resolution_code, pbi.decided_at
@@ -345,9 +373,10 @@ export class PatientMasterRepository {
            WHERE aio.authorization_item_id = ai.id
              AND aio.organization_id = $1::uuid
          )
+         ${pointFilter}
        ORDER BY pbi.processed_at DESC, pbi.id
-       LIMIT $2`,
-      [organizationId, limit],
+       LIMIT ${limitParam}`,
+      params,
     );
     return result.rows.map((row) => ({
       id: String(row.id),
