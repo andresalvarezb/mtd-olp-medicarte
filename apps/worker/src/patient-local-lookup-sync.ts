@@ -358,8 +358,12 @@ export class PatientLocalLookupSyncScheduler {
     private readonly report: (result: PatientLocalLookupSyncResult) => void,
   ) {}
 
-  start(intervalMs: number): void {
-    if (!this.timer) this.timer = setInterval(() => void this.trigger(), intervalMs);
+  start(intervalMs: number, onError: (error: unknown) => void): void {
+    if (!this.timer) {
+      this.timer = setInterval(() => {
+        void this.trigger().catch(onError);
+      }, intervalMs);
+    }
   }
 
   async trigger(): Promise<PatientLocalLookupSyncResult | null> {

@@ -19,7 +19,10 @@ type QueryClient = {
     values?: unknown[],
   ): Promise<QueryResult<Row>>;
 
-  release(): void;
+  on?(event: 'error', listener: (error: Error) => void): unknown;
+  removeListener?(event: 'error', listener: (error: Error) => void): unknown;
+
+  release(error?: Error | boolean): void;
 };
 
 
@@ -181,11 +184,36 @@ export async function runInventoryExpirationReleaseSweep(
 ): Promise<InventoryExpirationReleaseResult> {
   const client =
     (await database.pool.connect()) as QueryClient;
+  let connectionError: Error | boolean | undefined;
+  let transactionOpen = false;
+  const onClientError = (error: Error) => {
+    connectionError = error;
+  };
+  client.on?.('error', onClientError);
+
+  const begin = async () => {
+    await client.query('BEGIN');
+    transactionOpen = true;
+  };
+  const commit = async () => {
+    await client.query('COMMIT');
+    transactionOpen = false;
+  };
+  const rollback = async (): Promise<boolean> => {
+    if (!transactionOpen) return true;
+    try {
+      await client.query('ROLLBACK');
+      return true;
+    } catch {
+      connectionError = true;
+      return false;
+    } finally {
+      transactionOpen = false;
+    }
+  };
 
   try {
-    await client.query(
-      'BEGIN',
-    );
+    await begin();
 
     const lock =
       await client.query<{
@@ -207,9 +235,7 @@ export async function runInventoryExpirationReleaseSweep(
       lock.rows[0]?.locked !==
       true
     ) {
-      await client.query(
-        'ROLLBACK',
-      );
+      await commit();
 
       return {
         expiredAuthorizations: 0,
@@ -321,6 +347,33 @@ export async function runInventoryExpirationReleaseSweep(
           WHERE
             expiration_date < $1::text
 
+            AND NOT (
+              EXISTS (
+                SELECT 1
+                FROM authorization_fulfillments af
+                WHERE af.authorization_item_id = authorization_dates.id
+                  AND af.quantity > 0
+                  AND af.confirmed_at IS NOT NULL
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM patient_applications pa
+                JOIN patient_application_lines pal
+                  ON pal.patient_application_id = pa.id
+                WHERE pa.authorization_item_id = authorization_dates.id
+                  AND pa.status = 'CONFIRMED'
+                  AND pa.confirmed_by IS NOT NULL
+                  AND pa.confirmed_at IS NOT NULL
+                  AND pal.quantity > 0
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM inventory_authorization_allocations iaa
+                WHERE iaa.authorization_item_id = authorization_dates.id
+                  AND iaa.consumed_quantity > 0
+              )
+            )
+
           ORDER BY
             id
         `,
@@ -329,7 +382,7 @@ export async function runInventoryExpirationReleaseSweep(
         ],
       );
 
-    await client.query('COMMIT');
+    await commit();
 
     for (
       const candidate of
@@ -348,7 +401,7 @@ export async function runInventoryExpirationReleaseSweep(
         continue;
       }
 
-      await client.query('BEGIN');
+      await begin();
       const previousCounts = {
         expiredAuthorizations,
         releasedAllocations,
@@ -460,7 +513,7 @@ export async function runInventoryExpirationReleaseSweep(
         ||
         lockedExpiration >= releaseCutoffDate
       ) {
-        await client.query('ROLLBACK');
+        await commit();
         continue;
       }
 
@@ -497,7 +550,7 @@ export async function runInventoryExpirationReleaseSweep(
       );
 
       if (attentionEvidence.rows[0]?.has_confirmed_attention === true) {
-        await client.query('ROLLBACK');
+        await commit();
         continue;
       }
 
@@ -569,7 +622,7 @@ export async function runInventoryExpirationReleaseSweep(
         allocations.rows.length === 0
         && (sources.rows.length === 0 || !releasePurchaseSources)
       ) {
-        await client.query('ROLLBACK');
+        await commit();
         continue;
       }
 
@@ -962,9 +1015,9 @@ export async function runInventoryExpirationReleaseSweep(
       }
 
       expiredAuthorizations += 1;
-      await client.query('COMMIT');
+      await commit();
       } catch (error) {
-        await client.query('ROLLBACK');
+        const rollbackSucceeded = await rollback();
         ({
           expiredAuthorizations,
           releasedAllocations,
@@ -973,7 +1026,7 @@ export async function runInventoryExpirationReleaseSweep(
           releasedPurchaseSourceSnapshotQuantity,
           clearedAuthorizations,
         } = previousCounts);
-        if ((error as { code?: string }).code === '55P03') {
+        if (rollbackSucceeded && (error as { code?: string }).code === '55P03') {
           continue;
         }
         throw error;
@@ -984,7 +1037,7 @@ export async function runInventoryExpirationReleaseSweep(
      * Las vistas también deben refrescarse cuando cambia la clasificación
      * temporal aunque no haya reservas o compromisos que liberar.
      */
-    await client.query('BEGIN');
+    await begin();
     await client.query(
       `
         INSERT INTO outbox_events (
@@ -1047,9 +1100,7 @@ export async function runInventoryExpirationReleaseSweep(
       ],
     );
 
-    await client.query(
-      'COMMIT',
-    );
+    await commit();
 
     return {
       expiredAuthorizations,
@@ -1062,12 +1113,12 @@ export async function runInventoryExpirationReleaseSweep(
   } catch (
     error
   ) {
-    await client.query(
-      'ROLLBACK',
-    );
+    await rollback();
 
     throw error;
   } finally {
-    client.release();
+    client.removeListener?.('error', onClientError);
+    if (connectionError) client.release(connectionError);
+    else client.release();
   }
 }
