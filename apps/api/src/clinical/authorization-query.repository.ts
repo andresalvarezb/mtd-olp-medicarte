@@ -335,24 +335,13 @@ export class AuthorizationQueryRepository {
 
         and
 
+        /* operationalEligibility already limits dates to IN_WINDOW or EXPIRED. */
         (
-          ${this.validityStatusSql()} = 'IN_WINDOW'
+          ${validityEndDateKey} >= ${graceStart}
 
           or
 
-          (
-            ${this.validityStatusSql()} = 'EXPIRED'
-
-            and
-
-            (
-              ${validityEndDateKey} >= ${graceStart}
-
-              or
-
-              ${this.fulfilledQuantitySql()} > 0
-            )
-          )
+          ${this.fulfilledQuantitySql()} > 0
         )
       `;
     }
