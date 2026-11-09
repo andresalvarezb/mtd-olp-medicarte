@@ -234,6 +234,18 @@ interface AuthorizationQueryRow
     Date | string;
 }
 
+type AuthorizationQueryItemRow =
+  AuthorizationQueryRow
+  & {
+    id: string;
+  };
+
+function isAuthorizationQueryItemRow(
+  row: AuthorizationQueryRow,
+): row is AuthorizationQueryItemRow {
+  return row.id !== null;
+}
+
 @Injectable()
 export class AuthorizationQueryRepository {
   private readonly logger = new Logger(AuthorizationQueryRepository.name);
@@ -1513,7 +1525,7 @@ export class AuthorizationQueryRepository {
     return {
       items:
         result.rows
-          .filter((row) => row.id !== null)
+          .filter(isAuthorizationQueryItemRow)
           .map((row) => this.toResponse(row, scope)),
 
       total:
@@ -1558,7 +1570,7 @@ export class AuthorizationQueryRepository {
     const row =
       result.rows[0];
 
-    if (!row || row.id === null) {
+    if (!row || !isAuthorizationQueryItemRow(row)) {
       return null;
     }
 
@@ -5541,7 +5553,7 @@ export class AuthorizationQueryRepository {
 
   private toResponse(
     row:
-      AuthorizationQueryRow,
+      AuthorizationQueryItemRow,
 
     scope:
       Scope,
