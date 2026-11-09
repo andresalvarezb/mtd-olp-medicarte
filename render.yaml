@@ -65,13 +65,13 @@ services:
       - key: WEB_ORIGIN
         value: https://authorization-web.onrender.com
       - key: PATIENT_MASTER_ACCESS_ENABLED
-        value: 'false'
+        sync: false
       - key: PATIENT_MASTER_SCOPE_POLICY_APPROVED
-        value: 'false'
+        sync: false
       - key: PATIENT_MASTER_DP07_APPROVED
-        value: 'false'
+        sync: false
       - key: PATIENT_MASTER_SCOPE_POLICY_VERSION
-        value: ''
+        sync: false
 
   - type: worker
     name: authorization-worker
@@ -98,11 +98,11 @@ services:
       - key: SCHEDULER_ENABLED
         value: 'true'
       - key: MTDOM_PATIENT_LOOKUP_ENABLED
-        value: 'false'
+        sync: false
       - key: MTDOM_DP07_APPROVED
-        value: 'false'
+        sync: false
       - key: MTDOM_PATIENT_IDENTITY_POLICY_VERSION
-        value: ''
+        sync: false
       - key: MIPRES_BASE_URL
         value: https://wsmipres.sispro.gov.co/WSSUMMIPRESNOPBS
       - key: MIPRES_NIT
