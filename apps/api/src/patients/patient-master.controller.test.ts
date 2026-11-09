@@ -30,7 +30,9 @@ function profile(input: {
         roles: [input.role],
         isSystemAdmin: false,
         permissions: input.permissions,
-        pointAccess: input.pointAccess ?? { kind: 'unrestricted', accessiblePointIds: [] },
+        pointAccess: input.pointAccess ?? (input.organizationCode === 'MTD'
+          ? { kind: 'global', accessiblePointIds: [] }
+          : { kind: 'unrestricted', accessiblePointIds: [] }),
       },
     ],
   };
@@ -275,6 +277,8 @@ describe('PatientMasterController', () => {
       MTD_ORG,
       'patient_reconciliation.read',
     );
-    expect(setup.service.reconciliationCases).toHaveBeenCalledWith(MTD_ORG, 12);
+    expect(setup.service.reconciliationCases).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: MTD_ORG, pointAccessKind: 'global' }), 12,
+    );
   });
 });

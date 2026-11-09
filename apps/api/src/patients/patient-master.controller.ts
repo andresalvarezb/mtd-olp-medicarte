@@ -90,7 +90,10 @@ export class PatientMasterController {
       'patient_reconciliation.read',
     );
     assertPatientReconciliationReadAllowed(profile, organizationId);
-    const items = await this.service.reconciliationCases(organizationId, query.limit);
+    const scope = resolvePatientMasterScope(
+      profile, organizationId, request.auth.sub, undefined, 'patient_reconciliation.read',
+    );
+    const items = await this.service.reconciliationCases(scope, query.limit);
     return patientReconciliationCasesResponseSchema.parse({ items });
   }
 

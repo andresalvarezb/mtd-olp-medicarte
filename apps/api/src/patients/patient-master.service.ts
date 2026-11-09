@@ -43,7 +43,7 @@ export class PatientMasterService {
     return result;
   }
 
-  reconciliationCases(organizationId: string, limit: number): Promise<PatientReconciliationCase[]> {
-    return this.repository.reconciliationCases(organizationId, limit);
+  reconciliationCases(scope: PatientMasterScope, limit: number): Promise<PatientReconciliationCase[]> {
+    return this.repository.reconciliationCases(scope, limit);
   }
 }

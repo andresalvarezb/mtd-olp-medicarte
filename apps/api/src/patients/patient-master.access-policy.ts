@@ -6,6 +6,7 @@ export type PatientMasterScope = Readonly<{
   organizationCode: 'MTD';
   userId: string;
   pointAccessKind: 'global' | 'explicit' | 'unrestricted';
+  accessiblePointIds: readonly string[];
   dispensingPointId: string | null;
 }>;
 
@@ -14,20 +15,35 @@ export function resolvePatientMasterScope(
   organizationId: string,
   userId: string,
   requestedPointId?: string,
+  requiredPermission: 'patient_master.read' | 'patient_reconciliation.read' = 'patient_master.read',
 ): PatientMasterScope {
   const organization = profile.organizations.find((item) => item.id === organizationId);
-  if (!organization || !organization.permissions.includes('patient_master.read')) {
+  if (!organization || !organization.permissions.includes(requiredPermission)) {
     throw new ForbiddenException({ code: 'PATIENT_MASTER_ACCESS_DENIED' });
   }
 
   if (organization.code !== 'MTD') {
     throw new ForbiddenException({ code: 'PATIENT_MASTER_ACCESS_DENIED' });
   }
+  const pointAccess = organization.pointAccess;
+  if (pointAccess.kind === 'unrestricted') {
+    throw new ForbiddenException({ code: 'PATIENT_MASTER_ACCESS_DENIED' });
+  }
+  const accessiblePointIds = pointAccess.kind === 'explicit'
+    ? [...new Set(pointAccess.accessiblePointIds)]
+    : [];
+  if (pointAccess.kind === 'explicit' && accessiblePointIds.length === 0) {
+    throw new ForbiddenException({ code: 'PATIENT_MASTER_ACCESS_DENIED' });
+  }
+  if (requestedPointId && pointAccess.kind === 'explicit' && !accessiblePointIds.includes(requestedPointId)) {
+    throw new ForbiddenException({ code: 'PATIENT_MASTER_ACCESS_DENIED' });
+  }
   return {
     organizationId,
     organizationCode: 'MTD',
     userId,
-    pointAccessKind: 'global',
+    pointAccessKind: pointAccess.kind,
+    accessiblePointIds,
     dispensingPointId: requestedPointId ?? null,
   };
 }
