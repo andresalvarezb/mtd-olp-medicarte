@@ -66,6 +66,20 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(pageQuery).toContain('offset $');
   });
 
+  it('keeps source date keys out of the repeated SQL parameter list', async () => {
+    const { repository, execute } = fixture();
+    execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 0 }] });
+
+    await repository.list({ page: 1, limit: 10 }, scope);
+
+    const compiled = new PgDialect().sqlToQuery(execute.mock.calls[0]?.[0] as never);
+    expect(compiled.sql).toMatch(/->>\s*'FECHA_ASIGNACION'/);
+    expect(compiled.sql).toMatch(/->>\s*'FECHA_FINAL_VIGENCIA'/);
+    expect(compiled.params).not.toContain('FECHA_ASIGNACION');
+    expect(compiled.params).not.toContain('FECHA_FINAL_VIGENCIA');
+    expect(compiled.params.length).toBeLessThan(100);
+  });
+
   it('uses the same visibility predicate for UUID detail lookup', async () => {
     const { repository, execute } = fixture();
 
