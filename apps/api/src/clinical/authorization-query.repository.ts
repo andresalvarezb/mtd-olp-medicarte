@@ -255,6 +255,22 @@ export class AuthorizationQueryRepository {
       Database,
   ) {}
 
+  private organizationVisibility(scope: Scope): SQL {
+    if (scope.organizationCode !== 'COMPENSAR') {
+      return sql`true`;
+    }
+
+    return sql`
+      exists (
+        select 1
+        from authorization_item_organizations aio_scope
+        where aio_scope.authorization_item_id = i.id
+          and aio_scope.organization_id = ${scope.organizationId}::uuid
+      )
+    `;
+  }
+
+
   private visibility(
     scope: Scope,
   ): SQL {
@@ -272,23 +288,7 @@ export class AuthorizationQueryRepository {
       scope.organizationCode ===
       'COMPENSAR'
     ) {
-      return sql`
-        exists (
-          select
-            1
-
-          from
-            authorization_item_organizations
-              aio_scope
-
-          where
-            aio_scope.authorization_item_id =
-              i.id
-
-            and aio_scope.organization_id =
-              ${scope.organizationId}::uuid
-        )
-      `;
+      return this.organizationVisibility(scope);
     }
 
     if (
@@ -364,181 +364,50 @@ export class AuthorizationQueryRepository {
         ? sql.raw("'FECHA_ASIGNACION'")
         : sql.raw("'FECHA_FINAL_VIGENCIA'");
 
-    const value =
-      sql`
-        btrim(
-          coalesce(
-            i.source_data
-              ->>
-              ${jsonField},
-            ''
-          )
-        )
-      `;
-
-    const compact =
-      sql`
-        case
-          when
-            ${value}
-            ~
-            '^[0-9]{8}$'
-          then
-            ${value}
-
-          when
-            ${value}
-            ~
-            '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-          then
-            replace(
-              substring(
-                ${value}
-                from 1 for 10
-              ),
-              '-',
-              ''
-            )
-
-          else
-            null
-        end
-      `;
-
-    const year =
-      sql`
-        substring(
-          ${compact}
-          from 1 for 4
-        )::int
-      `;
-
-    const month =
-      sql`
-        substring(
-          ${compact}
-          from 5 for 2
-        )::int
-      `;
-
-    const day =
-      sql`
-        substring(
-          ${compact}
-          from 7 for 2
-        )::int
-      `;
-
-    const maximumDay =
-      sql`
-        case
-          when
-            ${month}
-            in (
-              1,
-              3,
-              5,
-              7,
-              8,
-              10,
-              12
-            )
-          then
-            31
-
-          when
-            ${month}
-            in (
-              4,
-              6,
-              9,
-              11
-            )
-          then
-            30
-
-          when
-            ${month}
-            =
-            2
-          then
-            case
-              when
-                (
-                  ${year}
-                  %
-                  400
-                )
-                =
-                0
-
-                or
-
-                (
-                  (
-                    ${year}
-                    %
-                    4
-                  )
-                  =
-                  0
-
-                  and
-
-                  (
-                    ${year}
-                    %
-                    100
-                  )
-                  <>
-                  0
-                )
-              then
-                29
-
-              else
-                28
-            end
-
-          else
-            0
-        end
-      `;
-
     return sql`
-      case
-        when
-          ${compact}
-            is null
-        then
-          null
-
-        when
-          ${month}
-            < 1
-
-          or
-
-          ${month}
-            > 12
-        then
-          null
-
-        when
-          ${day}
-            < 1
-
-          or
-
-          ${day}
-            >
-          ${maximumDay}
-        then
-          null
-
-        else
-          ${compact}
-      end
+      (
+        select
+          case
+            when normalized.compact is null
+            then null
+            when date_parts.month < 1 or date_parts.month > 12
+            then null
+            when date_parts.day < 1 or date_parts.day >
+              case
+                when date_parts.month in (1, 3, 5, 7, 8, 10, 12) then 31
+                when date_parts.month in (4, 6, 9, 11) then 30
+                when date_parts.month = 2 then
+                  case
+                    when date_parts.year % 400 = 0
+                      or (date_parts.year % 4 = 0 and date_parts.year % 100 <> 0)
+                    then 29
+                    else 28
+                  end
+                else 0
+              end
+            then null
+            else normalized.compact
+          end
+        from (
+          select btrim(coalesce(i.source_data ->> ${jsonField}, '')) as raw_value
+        ) date_input
+        cross join lateral (
+          select
+            case
+              when date_input.raw_value ~ '^[0-9]{8}$'
+              then date_input.raw_value
+              when date_input.raw_value ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+              then replace(substring(date_input.raw_value from 1 for 10), '-', '')
+              else null
+            end as compact
+        ) normalized
+        cross join lateral (
+          select
+            substring(normalized.compact from 1 for 4)::int as year,
+            substring(normalized.compact from 5 for 2)::int as month,
+            substring(normalized.compact from 7 for 2)::int as day
+        ) date_parts
+      )
     `;
   }
 
@@ -593,35 +462,30 @@ export class AuthorizationQueryRepository {
         'FECHA_FINAL_VIGENCIA',
       );
 
+    return this.validityStatusForKeys(
+      assignmentDate,
+      validityEndDate,
+      todayKey,
+      horizonKey,
+    );
+  }
+
+
+  private validityStatusForKeys(
+    assignmentDate: SQL,
+    validityEndDate: SQL,
+    todayKey = authorizationQueryValidityWindow().today.replace(/-/g, ''),
+    horizonKey = authorizationQueryValidityWindow().horizon.replace(/-/g, ''),
+  ): SQL {
     return sql`
       case
-        when
-          ${assignmentDate}
-            is null
-
-          or
-
-          ${validityEndDate}
-            is null
-        then
-          'INVALID_DATE'
-
-        when
-          ${validityEndDate}
-            <
-          ${todayKey}
-        then
-          'EXPIRED'
-
-        when
-          ${assignmentDate}
-            >
-          ${horizonKey}
-        then
-          'OUTSIDE_HORIZON'
-
-        else
-          'IN_WINDOW'
+        when ${assignmentDate} is null or ${validityEndDate} is null
+        then 'INVALID_DATE'
+        when ${validityEndDate} < ${todayKey}
+        then 'EXPIRED'
+        when ${assignmentDate} > ${horizonKey}
+        then 'OUTSIDE_HORIZON'
+        else 'IN_WINDOW'
       end
     `;
   }
@@ -697,75 +561,36 @@ export class AuthorizationQueryRepository {
         )
       `;
 
+    return this.initialValidationStatusFor(
+      sql.raw('i'),
+      quantityNumeric,
+      minimumQuantity,
+    );
+  }
+
+
+  private initialValidationStatusFor(
+    rowAlias: SQL,
+    quantityNumeric: SQL,
+    minimumQuantity: SQL,
+  ): SQL {
     return sql`
       case
-        when
-          coalesce(
-            i.enablement_status,
-            ''
-          )
-          <>
-          'ENABLED'
-        then
-          'FAILED'
-
-        when
-          i.tariff_membership_status =
-          'NOT_LISTED'
-        then
-          'FAILED'
-
-        when
-          coalesce(
-            i.tariff_membership_status,
-            ''
-          )
-          <>
-          'LISTED'
-        then
-          'PENDING'
-
-        when
-          ${quantityNumeric}
-            is null
-
-          or
-
-          ${quantityNumeric}
-            <= 0
-
-          or
-
-          trunc(
-            ${quantityNumeric}
-          )
-          <>
-          ${quantityNumeric}
-
-          or
-
-          ${minimumQuantity}
-            <= 0
-
-          or
-
-          ${quantityNumeric}
-            <
-          ${minimumQuantity}
-        then
-          'FAILED'
-
-        when
-          i.coverage_type
-          in (
-            'PBS',
-            'NO_PBS'
-          )
-        then
-          'PASSED'
-
-        else
-          'PENDING'
+        when coalesce(${rowAlias}.enablement_status, '') <> 'ENABLED'
+        then 'FAILED'
+        when ${rowAlias}.tariff_membership_status = 'NOT_LISTED'
+        then 'FAILED'
+        when coalesce(${rowAlias}.tariff_membership_status, '') <> 'LISTED'
+        then 'PENDING'
+        when ${quantityNumeric} is null
+          or ${quantityNumeric} <= 0
+          or trunc(${quantityNumeric}) <> ${quantityNumeric}
+          or ${minimumQuantity} <= 0
+          or ${quantityNumeric} < ${minimumQuantity}
+        then 'FAILED'
+        when ${rowAlias}.coverage_type in ('PBS', 'NO_PBS')
+        then 'PASSED'
+        else 'PENDING'
       end
     `;
   }
@@ -1144,325 +969,6 @@ export class AuthorizationQueryRepository {
       });
     }
 
-    const conditions: SQL[] = [
-      this.visibility(
-        scope,
-      ),
-    ];
-
-    if (
-      filters.authorizationNumber
-    ) {
-      conditions.push(sql`
-        (
-          i.numero_autorizacion
-          ilike
-          ${`%${filters.authorizationNumber}%`}
-
-          or
-
-          i.authorization_key
-          ilike
-          ${`%${filters.authorizationNumber}%`}
-        )
-      `);
-    }
-
-    if (
-      filters.commercialCode
-    ) {
-      conditions.push(sql`
-        (
-          i.codigo_medicamento
-          ilike
-          ${`%${filters.commercialCode}%`}
-
-          or exists (
-            select 1
-
-            from
-              tariff_annex_products tap_filter
-
-            where
-              tap_filter.codigo_producto =
-                i.codigo_medicamento
-
-              and tap_filter.active =
-                true
-
-              and (
-                coalesce(
-                  tap_filter.descripcion_comercial,
-                  ''
-                )
-                ilike
-                ${`%${filters.commercialCode}%`}
-
-                or
-
-                coalesce(
-                  tap_filter.descripcion_generica,
-                  ''
-                )
-                ilike
-                ${`%${filters.commercialCode}%`}
-              )
-          )
-        )
-      `);
-    }
-
-    if (
-      filters.patient
-    ) {
-      conditions.push(sql`
-        (
-          coalesce(
-            i.source_data
-              ->>
-              'IDENTIFICACION_PACIENTE',
-
-            i.source_data
-              ->>
-              'NUM_DOCUMENTO',
-
-            ''
-          )
-          ilike
-          ${`%${filters.patient}%`}
-
-          or
-
-          coalesce(
-            i.source_data
-              ->>
-              'NOMBRE_PACIENTE',
-
-            ''
-          )
-          ilike
-          ${`%${filters.patient}%`}
-        )
-      `);
-    }
-
-    if (
-      filters.enablementStatus
-    ) {
-      conditions.push(sql`
-        i.enablement_status =
-        ${filters.enablementStatus}
-      `);
-    }
-
-    if (
-      filters.lifecycleEnablement
-    ) {
-      conditions.push(sql`
-        (
-          ${this.lifecycleEnablementSql()}
-        )
-        =
-        ${filters.lifecycleEnablement}
-      `);
-    }
-
-    if (
-      filters.coverageType
-    ) {
-      conditions.push(sql`
-        i.coverage_type =
-        ${filters.coverageType}
-      `);
-    }
-
-    /*
-     * Estado operacional acumulado.
-     *
-     * CLOSED solamente cuando:
-     *
-     * fulfilled >= authorized.
-     *
-     * La cobertura física se compara contra el
-     * saldo autorizado pendiente, no contra la
-     * cantidad original.
-     */
-    const authorizedQuantityFilter =
-      this.authorizedQuantitySql();
-
-    const remainingAuthorizedQuantityFilter =
-      this.remainingAuthorizedQuantitySql();
-
-    const remainingAssignedQuantityFilter =
-      this.remainingAssignedQuantitySql(scope);
-
-    const fulfilledQuantityFilter =
-      this.fulfilledQuantitySql();
-
-
-    if (
-      filters.fulfillmentProgressStatus ===
-        'PENDING'
-    ) {
-      conditions.push(sql`
-        ${fulfilledQuantityFilter}
-          <= 0
-      `);
-    }
-
-
-    if (
-      filters.fulfillmentProgressStatus ===
-        'PARTIAL'
-    ) {
-      conditions.push(sql`
-        ${fulfilledQuantityFilter}
-          > 0
-
-        and
-
-        not (
-          ${authorizedQuantityFilter}
-            > 0
-
-          and
-
-          ${remainingAuthorizedQuantityFilter}
-            = 0
-        )
-      `);
-    }
-
-
-    if (
-      filters.fulfillmentProgressStatus ===
-        'COMPLETE'
-    ) {
-      conditions.push(sql`
-        ${authorizedQuantityFilter}
-          > 0
-
-        and
-
-        ${remainingAuthorizedQuantityFilter}
-          = 0
-      `);
-    }
-
-
-    if (
-      filters.operationalStatus ===
-        'CLOSED'
-    ) {
-      conditions.push(sql`
-        ${authorizedQuantityFilter}
-          > 0
-
-        and
-
-        ${remainingAuthorizedQuantityFilter}
-          = 0
-      `);
-    }
-
-
-    if (
-      filters.operationalStatus ===
-        'ASSIGNED'
-    ) {
-      conditions.push(sql`
-        ${this.operationalEligibility()}
-
-        and
-
-        ${remainingAuthorizedQuantityFilter}
-          > 0
-
-        and
-
-        ${remainingAssignedQuantityFilter}
-          >=
-        ${remainingAuthorizedQuantityFilter}
-      `);
-    }
-
-
-    if (
-      filters.operationalStatus ===
-        'PARTIALLY_ASSIGNED'
-    ) {
-      conditions.push(sql`
-        ${this.operationalEligibility()}
-
-        and
-
-        ${remainingAuthorizedQuantityFilter}
-          > 0
-
-        and
-
-        ${remainingAssignedQuantityFilter}
-          > 0
-
-        and
-
-        ${remainingAssignedQuantityFilter}
-          <
-        ${remainingAuthorizedQuantityFilter}
-      `);
-    }
-
-
-    if (
-      filters.operationalStatus ===
-        'UNASSIGNED'
-    ) {
-      conditions.push(sql`
-        ${this.operationalEligibility()}
-
-        and
-
-        ${remainingAuthorizedQuantityFilter}
-          > 0
-
-        and
-
-        ${remainingAssignedQuantityFilter}
-          <= 0
-      `);
-    }
-
-
-    if (
-      filters.operationalStatus ===
-        'OUT_OF_OPERATION'
-    ) {
-      conditions.push(sql`
-        not (
-          ${authorizedQuantityFilter}
-            > 0
-
-          and
-
-          ${remainingAuthorizedQuantityFilter}
-            = 0
-        )
-
-        and
-
-        not (
-          ${this.operationalEligibility()}
-        )
-      `);
-    }
-
-
-    const where =
-      sql.join(
-        conditions,
-        sql` and `,
-      );
-
     const offset =
       (
         filters.page
@@ -1481,7 +987,7 @@ export class AuthorizationQueryRepository {
 
     const result =
       await this.queryRows(
-        where,
+        filters,
         filters.limit,
         offset,
         scope,
@@ -1542,23 +1048,13 @@ export class AuthorizationQueryRepository {
     id: string,
     scope: Scope,
   ) {
-    const conditions: SQL[] = [
-      sql`i.id = ${id}`,
-
-      this.visibility(
-        scope,
-      ),
-    ];
-
     const result =
       await this.queryRows(
-        sql.join(
-          conditions,
-          sql` and `,
-        ),
+        undefined,
         1,
         0,
         scope,
+        id,
       );
 
     const row =
@@ -4341,8 +3837,8 @@ export class AuthorizationQueryRepository {
 
 
   private queryRows(
-    where:
-      SQL,
+    filters:
+      AuthorizationQueryFilters | undefined,
 
     limit:
       number,
@@ -4352,6 +3848,9 @@ export class AuthorizationQueryRepository {
 
     scope:
       Scope,
+
+    authorizationId?:
+      string,
   ) {
     const eligibilityScope =
       scope.organizationCode ===
@@ -4379,318 +3878,197 @@ export class AuthorizationQueryRepository {
           `
         : sql`true`;
 
-    /*
-     * PRIORIDAD VISUAL DE CONSULTA
-     * ============================
-     *
-     * La prioridad usa las mismas dimensiones que ya ve
-     * el usuario en la tabla:
-     *
-     * 1. Cerradas siempre al final.
-     * 2. Validación:
-     *    Cumple -> Pendiente -> No cumple.
-     * 3. Vigencia:
-     *    Dentro de rango -> Fuera +30 -> Vencida -> Fecha inválida.
-     * 4. Estado operativo:
-     *    Lista para entrega/aplicación -> Pendiente.
-     *
-     * No modifica estados ni reglas funcionales.
-     */
+    const restrictions: SQL[] = [];
 
-    const quantityText =
-      sql`
-        btrim(
-          coalesce(
-            i.source_data
-              ->>
-              'CANTIDAD',
-            ''
+    if (authorizationId) {
+      restrictions.push(sql`i.id = ${authorizationId}`);
+    }
+
+    restrictions.push(this.organizationVisibility(scope));
+
+    if (filters?.authorizationNumber) {
+      restrictions.push(sql`
+        (
+          i.numero_autorizacion ilike ${`%${filters.authorizationNumber}%`}
+          or i.authorization_key ilike ${`%${filters.authorizationNumber}%`}
+        )
+      `);
+    }
+
+    if (filters?.commercialCode) {
+      restrictions.push(sql`
+        (
+          i.codigo_medicamento ilike ${`%${filters.commercialCode}%`}
+          or exists (
+            select 1
+            from tariff_annex_products tap_filter
+            where tap_filter.codigo_producto = i.codigo_medicamento
+              and tap_filter.active = true
+              and (
+                coalesce(tap_filter.descripcion_comercial, '') ilike ${`%${filters.commercialCode}%`}
+                or coalesce(tap_filter.descripcion_generica, '') ilike ${`%${filters.commercialCode}%`}
+              )
           )
         )
-      `;
+      `);
+    }
 
-    const quantityNumeric =
-      sql`
-        case
-          when
-            ${quantityText}
-            ~
-            '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
-          then
-            (${quantityText})::numeric
+    if (filters?.patient) {
+      restrictions.push(sql`
+        (
+          coalesce(i.source_data ->> 'IDENTIFICACION_PACIENTE', i.source_data ->> 'NUM_DOCUMENTO', '')
+            ilike ${`%${filters.patient}%`}
+          or coalesce(i.source_data ->> 'NOMBRE_PACIENTE', '')
+            ilike ${`%${filters.patient}%`}
+        )
+      `);
+    }
 
-          else null
-        end
-      `;
+    if (filters?.enablementStatus) {
+      restrictions.push(sql`i.enablement_status = ${filters.enablementStatus}`);
+    }
 
-    /*
-     * Debe reflejar exactamente initialValidationStatus:
-     *
-     * 0 = PASSED
-     * 1 = PENDING
-     * 2 = FAILED
-     */
-    const validationPriority =
-      sql`
-        case
-          when
-            coalesce(
-              i.enablement_status,
-              ''
-            ) <>
-            'ENABLED'
-          then 2
+    if (filters?.coverageType) {
+      restrictions.push(sql`i.coverage_type = ${filters.coverageType}`);
+    }
 
-          when
-            i.tariff_membership_status =
-            'NOT_LISTED'
-          then 2
+    const validityWindow = authorizationQueryValidityWindow();
+    const todayKey = validityWindow.today.replace(/-/g, '');
+    const horizonKey = validityWindow.horizon.replace(/-/g, '');
+    const graceStart = new Date(
+      Date.parse(`${validityWindow.today}T00:00:00.000Z`)
+      - AUTHORIZATION_FULFILLMENT_GRACE_DAYS * 86_400_000,
+    ).toISOString().slice(0, 10).replace(/-/g, '');
 
-          when
-            coalesce(
-              i.tariff_membership_status,
-              ''
-            ) <>
-            'LISTED'
-          then 1
+    const quantityText = sql`btrim(coalesce(i.source_data ->> 'CANTIDAD', ''))`;
+    const quantityNumeric = sql`
+      case
+        when ${quantityText} ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
+        then (${quantityText})::numeric
+        else null
+      end
+    `;
 
-          when
-            ${quantityNumeric}
-              is null
+    const assignedRemaining = this.remainingAssignedQuantitySql(scope);
+    const initialValidation = this.initialValidationStatusFor(
+      sql.raw('validated'),
+      sql`validated.quantity_numeric`,
+      sql`coalesce(validated.minimum_quantity, 1)`,
+    );
+    const validityStatus = this.validityStatusForKeys(
+      sql`validated.assignment_date_key`,
+      sql`validated.validity_end_date_key`,
+      todayKey,
+      horizonKey,
+    );
 
-            or
+    const derivedConditions: SQL[] = [];
+    if (scope.organizationCode === 'MEDICARTE') {
+      derivedConditions.push(sql`
+        classified.operational_eligible
+        and classified.remaining_authorized_quantity > 0
+        and classified.remaining_assigned_quantity > 0
+        and (
+          classified.validity_end_date_key >= ${graceStart}
+          or classified.fulfilled_quantity > 0
+        )
+      `);
+    }
 
-            ${quantityNumeric}
-              <= 0
+    if (filters?.lifecycleEnablement) {
+      derivedConditions.push(sql`
+        classified.lifecycle_enablement = ${filters.lifecycleEnablement}
+      `);
+    }
 
-            or
+    if (filters?.fulfillmentProgressStatus === 'PENDING') {
+      derivedConditions.push(sql`classified.fulfilled_quantity <= 0`);
+    }
 
-            trunc(
-              ${quantityNumeric}
-            ) <>
-            ${quantityNumeric}
+    if (filters?.fulfillmentProgressStatus === 'PARTIAL') {
+      derivedConditions.push(sql`
+        classified.fulfilled_quantity > 0
+        and not (
+          classified.authorized_quantity > 0
+          and classified.remaining_authorized_quantity = 0
+        )
+      `);
+    }
 
-            or
+    if (filters?.fulfillmentProgressStatus === 'COMPLETE'
+      || filters?.operationalStatus === 'CLOSED') {
+      derivedConditions.push(sql`
+        classified.authorized_quantity > 0
+        and classified.remaining_authorized_quantity = 0
+      `);
+    }
 
-            coalesce(
-              product.minimum_quantity,
-              1
-            ) <= 0
+    if (filters?.operationalStatus === 'ASSIGNED') {
+      derivedConditions.push(sql`
+        classified.operational_eligible
+        and classified.remaining_authorized_quantity > 0
+        and classified.remaining_assigned_quantity >= classified.remaining_authorized_quantity
+      `);
+    }
 
-            or
+    if (filters?.operationalStatus === 'PARTIALLY_ASSIGNED') {
+      derivedConditions.push(sql`
+        classified.operational_eligible
+        and classified.remaining_authorized_quantity > 0
+        and classified.remaining_assigned_quantity > 0
+        and classified.remaining_assigned_quantity < classified.remaining_authorized_quantity
+      `);
+    }
 
-            ${quantityNumeric}
-              <
-            coalesce(
-              product.minimum_quantity,
-              1
-            )
-          then 2
+    if (filters?.operationalStatus === 'UNASSIGNED') {
+      derivedConditions.push(sql`
+        classified.operational_eligible
+        and classified.remaining_authorized_quantity > 0
+        and classified.remaining_assigned_quantity <= 0
+      `);
+    }
 
-          when
-            i.coverage_type
-            in (
-              'PBS',
-              'NO_PBS'
-            )
-          then 0
+    if (filters?.operationalStatus === 'OUT_OF_OPERATION') {
+      derivedConditions.push(sql`
+        not (
+          classified.authorized_quantity > 0
+          and classified.remaining_authorized_quantity = 0
+        )
+        and not classified.operational_eligible
+      `);
+    }
 
-          else 1
-        end
-      `;
-
-    const {
-      today,
-      horizon,
-    } =
-      authorizationQueryValidityWindow();
-
-    const todayKey =
-      today.replace(
-        /-/g,
-        '',
-      );
-
-    const horizonKey =
-      horizon.replace(
-        /-/g,
-        '',
-      );
-
-    const assignmentDateKey = sql`matched.assignment_date_key`;
-    const validityEndDateKey = sql`matched.validity_end_date_key`;
-
-    /*
-     * Refleja validityStatus:
-     *
-     * 0 = IN_WINDOW
-     * 1 = OUTSIDE_HORIZON
-     * 2 = EXPIRED
-     * 3 = INVALID_DATE
-     */
-    const validityPriority =
-      sql`
-        case
-          when
-            ${assignmentDateKey}
-              is null
-
-            or
-
-            ${validityEndDateKey}
-              is null
-          then 3
-
-          when
-            ${validityEndDateKey}
-              <
-            ${todayKey}
-          then 2
-
-          when
-            ${assignmentDateKey}
-              >
-            ${horizonKey}
-          then 1
-
-          else 0
-        end
-      `;
-
-    const authorizedQuantity =
-      this.authorizedQuantitySql();
-
-    // Reutilizar el progreso calculado para esta AUTO.
-    const fulfilledQuantity =
-      sql`fulfillment_progress.fulfilled_quantity`;
-
-    const remainingAuthorizedQuantity =
-      sql`greatest(${authorizedQuantity} - ${fulfilledQuantity}, 0)`;
-
-
-    /*
-     * CLOSED tiene prioridad absoluta de salida:
-     * cualquier AUTO cerrada va después de todas las
-     * AUTO que aún requieren gestión.
-     */
-    const closedPriority =
-      sql`
-        case
-          when
-            ${authorizedQuantity}
-              > 0
-
-            and
-
-            ${remainingAuthorizedQuantity}
-              = 0
-
-          then
-            1
-
-          else
-            0
-        end
-      `;
-
-
-    /*
-     * Entre AUTO activas:
-     *
-     * 0 = ASSIGNED / lista para entrega-aplicación
-     * 1 = UNASSIGNED / pendiente recepción-asignación
-     */
-    const operationalPriority =
-      sql`
-        case
-          when
-            coalesce(
-              allocation.remaining_quantity,
-              0
-            ) > 0
-          then 0
-
-          else 1
-        end
-      `;
-
-
-    const selectPageQuery = sql`
+    const pageSelection = sql`
       select
-        i.id as authorization_id,
-        ${closedPriority} as sort_closed,
-        ${validationPriority} as sort_validation,
-        ${validityPriority} as sort_validity,
-        ${operationalPriority} as sort_operational,
-
+        matched.id as authorization_id,
         case
-          when ${validityPriority} = 0
-          then ${validityEndDateKey}
-          else null
-        end as sort_validity_end,
-
-        case
-          when ${validityPriority} = 1
-          then ${assignmentDateKey}
-          else null
-        end as sort_assignment_date,
-
-        i.created_at as sort_created_at
-
-      from authorization_items i
-
-      join matching_authorizations matched
-        on matched.id = i.id
-
-      left join lateral (
-        select
-          ${this.fulfilledQuantitySql()}::int
-            as fulfilled_quantity
-      ) fulfillment_progress
-        on true
-
-      left join lateral (
-        select
-          tap.minimum_quantity
-
-        from tariff_annex_products tap
-
-        where tap.codigo_producto = i.codigo_medicamento
-          and tap.active = true
-
-        order by tap.updated_at desc, tap.id desc
-        limit 1
-      ) product
-        on true
-
-      left join lateral (
-        select
-          coalesce(
-            sum(
-              greatest(
-                iaa.allocated_quantity
-                - iaa.consumed_quantity
-                - iaa.released_quantity,
-                0
-              )
-            ),
-            0
-          )::int as remaining_quantity
-
-        from inventory_authorization_allocations iaa
-
-        -- Ambas FK son NOT NULL y referencian claves primarias.
-        -- Estos JOIN no filtran filas ni modifican la suma.
-        where iaa.authorization_item_id = i.id
-
-          and iaa.status in (
-            'ALLOCATED',
-            'PARTIALLY_CONSUMED',
-            'CONSUMED'
-          )
-      ) allocation
-        on true
-
+          when matched.authorized_quantity > 0
+            and matched.remaining_authorized_quantity = 0
+          then 1 else 0
+        end as sort_closed,
+        case matched.initial_validation_status
+          when 'PASSED' then 0
+          when 'PENDING' then 1
+          else 2
+        end as sort_validation,
+        case matched.validity_status
+          when 'IN_WINDOW' then 0
+          when 'OUTSIDE_HORIZON' then 1
+          when 'EXPIRED' then 2
+          else 3
+        end as sort_validity,
+        case when matched.allocation_remaining_quantity > 0 then 0 else 1 end as sort_operational,
+        case when matched.validity_status = 'IN_WINDOW'
+          then matched.validity_end_date_key else null end as sort_validity_end,
+        case when matched.validity_status = 'OUTSIDE_HORIZON'
+          then matched.assignment_date_key else null end as sort_assignment_date,
+        i.created_at as sort_created_at,
+        matched.authorized_quantity,
+        matched.fulfilled_quantity,
+        matched.remaining_authorized_quantity,
+        matched.minimum_quantity
+      from matching_authorizations matched
+      join authorization_items i on i.id = matched.id
       order by
         sort_closed asc,
         sort_validation asc,
@@ -4700,23 +4078,147 @@ export class AuthorizationQueryRepository {
         sort_assignment_date asc nulls last,
         sort_created_at desc,
         authorization_id desc
-
       limit ${limit}
       offset ${offset}
     `;
 
+    const initialWhere = restrictions.length > 0
+      ? sql.join(restrictions, sql` and `)
+      : sql`true`;
+
+    const assignedRemainingProjection = scope.organizationCode === 'MEDICARTE'
+      || filters?.operationalStatus === 'ASSIGNED'
+      || filters?.operationalStatus === 'PARTIALLY_ASSIGNED'
+      || filters?.operationalStatus === 'UNASSIGNED'
+      ? sql`${assignedRemaining}::int`
+      : sql`0::int`;
+
+    const authorizedQuantity = sql`page.authorized_quantity`;
+    const fulfilledQuantity = sql`page.fulfilled_quantity`;
+    const remainingAuthorizedQuantity = sql`page.remaining_authorized_quantity`;
+
     return this.database.db.execute<
       AuthorizationQueryRow
     >(sql`
-      with matching_authorizations as materialized (
+      with restricted_authorizations as materialized (
+        select
+          i.id
+        from authorization_items i
+        where ${initialWhere}
+      ),
+
+      authorization_facts as materialized (
         select
           i.id,
+          i.enablement_status,
+          i.tariff_membership_status,
+          i.coverage_type,
+          i.mipres_manual_decision,
           ${this.sourceDateKey('FECHA_ASIGNACION')} as assignment_date_key,
-          ${this.sourceDateKey('FECHA_FINAL_VIGENCIA')} as validity_end_date_key
-
+          ${this.sourceDateKey('FECHA_FINAL_VIGENCIA')} as validity_end_date_key,
+          ${quantityNumeric} as quantity_numeric,
+          ${this.authorizedQuantitySql()}::int as authorized_quantity,
+          product.minimum_quantity
         from authorization_items i
+        join restricted_authorizations restricted on restricted.id = i.id
+        left join lateral (
+          select tap.minimum_quantity
+          from tariff_annex_products tap
+          where tap.codigo_producto = i.codigo_medicamento
+            and tap.active = true
+          order by tap.updated_at desc, tap.id desc
+          limit 1
+        ) product on true
+      ),
 
-        where ${where}
+      authorization_validation as materialized (
+        select
+          validated.*,
+          ${initialValidation} as initial_validation_status,
+          ${validityStatus} as validity_status
+        from authorization_facts validated
+      ),
+
+      operational_candidates as materialized (
+        select validated.*
+        from authorization_validation validated
+        where ${scope.organizationCode === 'MEDICARTE'
+          ? sql`
+              validated.initial_validation_status = 'PASSED'
+              and (
+                validated.coverage_type = 'PBS'
+                or (
+                  validated.coverage_type = 'NO_PBS'
+                  and validated.mipres_manual_decision = 'MANUALLY_ENABLED'
+                )
+              )
+              and validated.validity_status in ('IN_WINDOW', 'EXPIRED')
+            `
+          : sql`true`}
+      ),
+
+      authorization_calculations as materialized (
+        select
+          candidate.*,
+          fulfillment_progress.fulfilled_quantity,
+          ${assignedRemainingProjection} as remaining_assigned_quantity,
+          coalesce(allocation.allocation_remaining_quantity, 0)::int
+            as allocation_remaining_quantity
+        from operational_candidates candidate
+        join authorization_items i on i.id = candidate.id
+        left join lateral (
+          select ${this.fulfilledQuantitySql()}::int as fulfilled_quantity
+        ) fulfillment_progress on true
+        left join lateral (
+          select coalesce(
+            sum(greatest(
+              iaa.allocated_quantity - iaa.consumed_quantity - iaa.released_quantity,
+              0
+            )),
+            0
+          )::int as allocation_remaining_quantity
+          from inventory_authorization_allocations iaa
+          where iaa.authorization_item_id = i.id
+            and iaa.status in ('ALLOCATED', 'PARTIALLY_CONSUMED', 'CONSUMED')
+        ) allocation on true
+      ),
+
+      authorization_classification as materialized (
+        select
+          calculated.*,
+          greatest(
+            calculated.authorized_quantity - calculated.fulfilled_quantity,
+            0
+          )::int as remaining_authorized_quantity,
+          case
+            when calculated.initial_validation_status = 'FAILED'
+              or calculated.validity_status in ('INVALID_DATE', 'EXPIRED')
+            then 'DISABLED'
+            when calculated.initial_validation_status = 'PENDING'
+              or calculated.validity_status = 'OUTSIDE_HORIZON'
+            then 'PENDING'
+            else 'ENABLED'
+          end as lifecycle_enablement,
+          (
+            calculated.initial_validation_status = 'PASSED'
+            and (
+              calculated.coverage_type = 'PBS'
+              or (
+                calculated.coverage_type = 'NO_PBS'
+                and calculated.mipres_manual_decision = 'MANUALLY_ENABLED'
+              )
+            )
+            and calculated.validity_status in ('IN_WINDOW', 'EXPIRED')
+          ) as operational_eligible
+        from authorization_calculations calculated
+      ),
+
+      matching_authorizations as materialized (
+        select classified.*
+        from authorization_classification classified
+        where ${derivedConditions.length > 0
+          ? sql.join(derivedConditions, sql` and `)
+          : sql`true`}
       ),
 
       query_total as materialized (
@@ -4726,7 +4228,7 @@ export class AuthorizationQueryRepository {
       ),
 
       page_selection as materialized (
-        ${selectPageQuery}
+        ${pageSelection}
       )
 
       select
@@ -4742,7 +4244,7 @@ export class AuthorizationQueryRepository {
 
         product.product_description,
 
-        product.minimum_quantity,
+        page.minimum_quantity,
 
         coalesce(
           i.source_data
@@ -5166,13 +4668,6 @@ export class AuthorizationQueryRepository {
 
       left join lateral (
         select
-          ${this.fulfilledQuantitySql()}::int
-            as fulfilled_quantity
-      ) fulfillment_progress
-        on true
-
-      left join lateral (
-        select
           coalesce(
             nullif(
               btrim(
@@ -5188,9 +4683,7 @@ export class AuthorizationQueryRepository {
               ''
             )
           )
-            as product_description,
-
-          tap.minimum_quantity
+            as product_description
 
         from
           tariff_annex_products tap
