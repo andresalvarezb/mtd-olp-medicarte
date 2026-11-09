@@ -282,6 +282,34 @@ async function readAuthorization(number: string) {
   return row!;
 }
 
+async function importPurchaseOrder(number: string, purchaseOrder: string) {
+  const buffer = workbook(number, purchaseOrder);
+  const form = new FormData();
+  form.append(
+    'file',
+    new Blob([new Uint8Array(buffer)], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }),
+    `${purchaseOrder}.xlsx`,
+  );
+
+  const response = await fetch(`${apiUrl}/api/v1/purchase-orders/import`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'x-organization-id': ORGANIZATION_IDS.MTD,
+    },
+    body: form,
+  });
+
+  const payload = (await response.json()) as {
+    results?: Array<Record<string, unknown>>;
+  };
+
+  expect(response.status, JSON.stringify(payload)).toBe(201);
+  return payload;
+}
+
 function workbook(
   number: string,
 
@@ -469,6 +497,10 @@ describe('W4 MIPRES manual operational propagation', () => {
       initialValidationStatus: 'PASSED',
 
       lifecycleEnablement: 'ENABLED',
+
+      operationalEligible: false,
+
+      operationalStatus: 'OUT_OF_OPERATION',
     });
   });
 
@@ -489,6 +521,8 @@ describe('W4 MIPRES manual operational propagation', () => {
       initialValidationStatus: 'PASSED',
 
       lifecycleEnablement: 'ENABLED',
+
+      operationalEligible: true,
     });
   });
 
@@ -509,6 +543,10 @@ describe('W4 MIPRES manual operational propagation', () => {
       initialValidationStatus: 'PASSED',
 
       lifecycleEnablement: 'ENABLED',
+
+      operationalEligible: false,
+
+      operationalStatus: 'OUT_OF_OPERATION',
     });
   });
 
@@ -532,6 +570,20 @@ describe('W4 MIPRES manual operational propagation', () => {
     const enabled = await purchase(enabledNumber, `${poPrefix}-E`);
 
     expect(enabled.results[0]?.errorCode).not.toBe('PURCHASE_ORDER_DESTINATION_NOT_ENABLED');
+  });
+
+  it('purchase-order import API rejects pending and disabled destinations', async () => {
+    const pending = await importPurchaseOrder(pendingNumber, `${poPrefix}-API-P`);
+    expect(pending.results?.[0]).toMatchObject({
+      status: 'REJECTED',
+      errorCode: 'PURCHASE_ORDER_DESTINATION_NOT_ENABLED',
+    });
+
+    const disabled = await importPurchaseOrder(disabledNumber, `${poPrefix}-API-D`);
+    expect(disabled.results?.[0]).toMatchObject({
+      status: 'REJECTED',
+      errorCode: 'PURCHASE_ORDER_DESTINATION_NOT_ENABLED',
+    });
   });
 
   it('inventory blocks pending and disabled while enabled reaches point validation', async () => {
@@ -662,6 +714,9 @@ describe('W4 MIPRES manual operational propagation', () => {
 
         lifecycleEnablement:
           'ENABLED',
+
+        operationalEligible:
+          true,
       });
 
       const result =
@@ -733,6 +788,9 @@ describe('W4 MIPRES manual operational propagation', () => {
 
         lifecycleEnablement:
           'ENABLED',
+
+        operationalEligible:
+          true,
       });
 
       const result =
@@ -806,6 +864,9 @@ describe('W4 MIPRES manual operational propagation', () => {
 
         lifecycleEnablement:
           'ENABLED',
+
+        operationalEligible:
+          true,
       });
 
       const result =

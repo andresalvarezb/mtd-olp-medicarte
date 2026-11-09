@@ -25,7 +25,10 @@ import {
   toIsoTimestamp,
 } from '../common/date-time';
 
-import { evaluateAuthorizationFulfillmentWindow } from '@authorization/domain';
+import {
+  evaluateAuthorizationFulfillmentWindow,
+  evaluateEffectiveMipresEligibility,
+} from '@authorization/domain';
 
 import {
   DATABASE,
@@ -5588,6 +5591,17 @@ export class AuthorizationQueryRepository {
     const operationalEligible =
       initialValidationStatus ===
         'PASSED'
+      &&
+      evaluateEffectiveMipresEligibility({
+        coverageType:
+          row.coverage_type,
+
+        directionStatus:
+          row.direction_status,
+
+        manualDecision:
+          row.mipres_manual_decision,
+      }).eligible
       &&
       (
         validityStatus ===
