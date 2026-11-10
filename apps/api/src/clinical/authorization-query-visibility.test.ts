@@ -48,7 +48,11 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(pageQuery).toContain('matching_authorizations as materialized');
     expect(pageQuery).toContain('query_total as materialized');
     expect(pageQuery).toContain('restricted_authorizations as materialized');
+    expect(pageQuery).toContain('from authorization_items i');
     expect(pageQuery).toContain('from inventory_authorization_allocations allocation_scope');
+    expect(pageQuery).toContain('allocation_scope.authorization_item_id = i.id');
+    expect(pageQuery).toContain('and exists');
+    expect(pageQuery).not.toContain('select distinct i.id');
     expect(pageQuery).toContain('join dispensing_points dp_scope');
     expect(pageQuery.replace(/\s+/g, ' ')).toContain(
       "allocation_scope.status in ( 'ALLOCATED', 'PARTIALLY_CONSUMED' )",

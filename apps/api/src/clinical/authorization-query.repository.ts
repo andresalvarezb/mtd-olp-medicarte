@@ -4209,19 +4209,22 @@ export class AuthorizationQueryRepository {
 
     const restrictedAuthorizations = scope.organizationCode === 'MEDICARTE' && !authorizationId
       ? sql`
-          select distinct i.id
-          from inventory_authorization_allocations allocation_scope
-          join dispensing_points dp_scope
-            on dp_scope.id = allocation_scope.dispensing_point_id
-          join authorization_items i
-            on i.id = allocation_scope.authorization_item_id
-          where allocation_scope.status in (
-            'ALLOCATED',
-            'PARTIALLY_CONSUMED'
-          )
-            and dp_scope.organization_id = ${scope.organizationId}::uuid
-            and ${applyPointScope(sql`dp_scope.id`, scope)}
-            and ${initialWhere}
+          select i.id
+          from authorization_items i
+          where ${initialWhere}
+            and exists (
+              select 1
+              from inventory_authorization_allocations allocation_scope
+              join dispensing_points dp_scope
+                on dp_scope.id = allocation_scope.dispensing_point_id
+              where allocation_scope.authorization_item_id = i.id
+                and allocation_scope.status in (
+                  'ALLOCATED',
+                  'PARTIALLY_CONSUMED'
+                )
+                and dp_scope.organization_id = ${scope.organizationId}::uuid
+                and ${applyPointScope(sql`dp_scope.id`, scope)}
+            )
         `
       : sql`
           select i.id
