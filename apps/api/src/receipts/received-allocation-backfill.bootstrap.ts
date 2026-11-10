@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
 
 import {
   Inject,
@@ -32,6 +33,10 @@ type Database =
   ReturnType<
     typeof createDatabase
   >;
+
+const MAX_BACKFILL_BATCHES = 10_000;
+const BACKFILL_LOCK_KEY =
+  'mtd-olp-medicarte:received-allocation-backfill';
 
 
 @Injectable()
@@ -77,7 +82,66 @@ export class ReceivedAllocationBackfillBootstrapService
 
 
   private async run() {
+    const runId =
+      randomUUID();
+
+    let lockClient:
+      PoolClient | undefined;
+
+    let lockAcquired =
+      false;
+
     try {
+      const poolMax =
+        this.database.pool.options.max ??
+        4;
+
+      if (poolMax > 1) {
+        lockClient =
+          await this.database.pool.connect();
+
+        const lock =
+          await lockClient.query<{
+            acquired: boolean;
+          }>(
+            `select pg_try_advisory_lock(hashtextextended($1, 0)) as acquired`,
+            [BACKFILL_LOCK_KEY],
+          );
+
+        lockAcquired =
+          Boolean(
+            lock.rows[0]?.acquired,
+          );
+
+        if (!lockAcquired) {
+          this.logger.log(
+            JSON.stringify({
+              event:
+                'RECEIVED_AUTO_BACKFILL_SKIPPED',
+
+              reason:
+                'ALREADY_RUNNING',
+
+              runId,
+            }),
+          );
+
+          return;
+        }
+      } else {
+        this.logger.warn(
+          JSON.stringify({
+            event:
+              'RECEIVED_AUTO_BACKFILL_DISTRIBUTED_LOCK_UNAVAILABLE',
+
+            reason:
+              'DATABASE_POOL_MAX_MUST_EXCEED_ONE',
+
+            runId,
+          }),
+        );
+      }
+
       const actor =
         await this.database.db.execute<{
           organization_id:
@@ -143,7 +207,15 @@ export class ReceivedAllocationBackfillBootstrapService
 
       if (!row) {
         this.logger.error(
-          'RECEIVED_AUTO_BACKFILL_SKIPPED: MTD_ADMIN actor not found',
+          JSON.stringify({
+            event:
+              'RECEIVED_AUTO_BACKFILL_SKIPPED',
+
+            reason:
+              'MTD_ADMIN_ACTOR_NOT_FOUND',
+
+            runId,
+          }),
         );
 
         return;
@@ -168,10 +240,13 @@ export class ReceivedAllocationBackfillBootstrapService
       let totalAssigned =
         0;
 
+      let hasMore =
+        false;
+
 
       while (
         batch <
-        10_000
+        MAX_BACKFILL_BATCHES
       ) {
         batch +=
           1;
@@ -245,6 +320,8 @@ export class ReceivedAllocationBackfillBootstrapService
             event:
               'RECEIVED_AUTO_BACKFILL_BATCH',
 
+            runId,
+
             batch,
 
             scanned:
@@ -267,6 +344,28 @@ export class ReceivedAllocationBackfillBootstrapService
 
             nextCursor:
               result.nextCursor,
+
+            failedItems:
+              result.items
+                .filter(
+                  (item) =>
+                    item.status === 'FAILED',
+                )
+                .map(
+                  (item) => ({
+                    purchaseOrderId:
+                      item.purchaseOrderId,
+
+                    error:
+                      (
+                        item.error ??
+                        'UNKNOWN_RECONCILIATION_ERROR'
+                      ).slice(
+                        0,
+                        256,
+                      ),
+                  }),
+                ),
           }),
         );
 
@@ -275,9 +374,15 @@ export class ReceivedAllocationBackfillBootstrapService
           !result.hasMore ||
           !result.nextCursor
         ) {
+          hasMore =
+            false;
+
           break;
         }
 
+
+        hasMore =
+          true;
 
         cursor =
           result.nextCursor;
@@ -300,11 +405,19 @@ export class ReceivedAllocationBackfillBootstrapService
 
       this.logger.log(
         JSON.stringify({
-          event:
-            'RECEIVED_AUTO_BACKFILL_COMPLETED',
+          event: hasMore
+            ? 'RECEIVED_AUTO_BACKFILL_LIMIT_REACHED'
+            : 'RECEIVED_AUTO_BACKFILL_COMPLETED',
+
+          runId,
 
           batches:
             batch,
+
+          nextCursor:
+            hasMore
+              ? cursor
+              : null,
 
           scanned:
             totalScanned,
@@ -323,11 +436,52 @@ export class ReceivedAllocationBackfillBootstrapService
       cause
     ) {
       this.logger.error(
-        'RECEIVED_AUTO_BACKFILL_FATAL',
+        JSON.stringify({
+          event:
+            'RECEIVED_AUTO_BACKFILL_FATAL',
+
+          runId,
+        }),
         cause instanceof Error
           ? cause.stack
           : String(cause),
       );
+    } finally {
+      if (lockClient) {
+        if (lockAcquired) {
+          try {
+            await lockClient.query(
+              `select pg_advisory_unlock(hashtextextended($1, 0))`,
+              [BACKFILL_LOCK_KEY],
+            );
+          } catch (cause) {
+            this.logger.error(
+              JSON.stringify({
+                event:
+                  'RECEIVED_AUTO_BACKFILL_LOCK_RELEASE_FAILED',
+
+                runId,
+              }),
+              cause instanceof Error
+                ? cause.stack
+                : String(cause),
+            );
+
+            lockClient.release(
+              cause instanceof Error
+                ? cause
+                : new Error(
+                    'RECEIVED_AUTO_BACKFILL_LOCK_RELEASE_FAILED',
+                  ),
+            );
+
+            lockClient =
+              undefined;
+          }
+        }
+
+        lockClient?.release();
+      }
     }
   }
 }
