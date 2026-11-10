@@ -12,6 +12,10 @@ export type Scope = Readonly<{
   isFoundationAdmin: boolean;
   canCrossOrganizationOperationalExport: boolean;
   pointAccessKind: PointAccessKind;
+  realtimeBatchIds?: readonly string[];
+  realtimeEventIds?: readonly string[];
+  realtimeCorrelationIds?: readonly string[];
+  realtimeOccurredAt?: string;
 }>;
 
 export function pointAccessKindFor(
@@ -48,5 +52,9 @@ export function scopeFromProfile(
       organization.code === 'MTD' &&
       organization.permissions.includes('operational_exports.create'),
     pointAccessKind: pointAccessKindFor(organization.code, organization.roles),
+    ...(request.realtimeBatchIds ? { realtimeBatchIds: request.realtimeBatchIds } : {}),
+    ...(request.realtimeEventIds ? { realtimeEventIds: request.realtimeEventIds } : {}),
+    ...(request.realtimeCorrelationIds ? { realtimeCorrelationIds: request.realtimeCorrelationIds } : {}),
+    ...(request.realtimeOccurredAt ? { realtimeOccurredAt: request.realtimeOccurredAt } : {}),
   };
 }

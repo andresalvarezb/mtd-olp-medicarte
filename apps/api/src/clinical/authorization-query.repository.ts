@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 
 import {
   sql,
@@ -58,6 +59,47 @@ type Database =
   ReturnType<
     typeof createDatabase
   >;
+
+type InFlightAuthorizationQuery = Readonly<{
+  queryCorrelationId: string;
+  promise: Promise<unknown>;
+}>;
+
+const TRACE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function traceMetadata(scope: Scope) {
+  return {
+    realtimeBatchIds: scope.realtimeBatchIds ?? [],
+    realtimeEventIds: scope.realtimeEventIds ?? [],
+    realtimeCorrelationIds: scope.realtimeCorrelationIds ?? [],
+    realtimeOccurredAt: scope.realtimeOccurredAt ?? null,
+  };
+}
+
+function traceSqlComment(scope: Scope): SQL {
+  const identifiers = [
+    ['request', scope.correlationId],
+    ...(scope.realtimeBatchIds ?? []).map((id) => ['batch', id] as const),
+    ...(scope.realtimeEventIds ?? []).map((id) => ['event', id] as const),
+    ...(scope.realtimeCorrelationIds ?? []).map((id) => ['source', id] as const),
+  ]
+    .filter(([, id]) => TRACE_UUID_PATTERN.test(id))
+    .map(([kind, id]) => `${kind}=${id}`);
+
+  return sql.raw(`/* authorization_query ${identifiers.join(' ')} */`);
+}
+
+function filterFlags(filters: AuthorizationQueryFilters) {
+  return {
+    authorization: Boolean(filters.authorizationNumber),
+    commercialCode: Boolean(filters.commercialCode),
+    patient: Boolean(filters.patient),
+    lifecycle: Boolean(filters.lifecycleEnablement),
+    operational: Boolean(filters.operationalStatus),
+    fulfillment: Boolean(filters.fulfillmentProgressStatus),
+    coverage: Boolean(filters.coverageType),
+  };
+}
 
 export interface AuthorizationQueryFilters {
   authorizationNumber?: string;
@@ -249,6 +291,8 @@ function isAuthorizationQueryItemRow(
 @Injectable()
 export class AuthorizationQueryRepository {
   private readonly logger = new Logger(AuthorizationQueryRepository.name);
+  private readonly inFlightLists = new Map<string, InFlightAuthorizationQuery>();
+
   constructor(
     @Inject(DATABASE)
     private readonly database:
@@ -969,6 +1013,77 @@ export class AuthorizationQueryRepository {
       });
     }
 
+    // Explicit point grants can change independently of the actor profile. Do not
+    // share an in-flight result across that mutable scope boundary.
+    if (scope.pointAccessKind === 'explicit') return this.loadList(filters, scope);
+
+    const key = this.listRequestKey(filters, scope);
+    const existing = this.inFlightLists.get(key);
+    if (existing) {
+      const startedAt = performance.now();
+      let succeeded = false;
+      try {
+        const result = await existing.promise;
+        succeeded = true;
+        return result as Awaited<ReturnType<typeof this.loadList>>;
+      } finally {
+        this.logger.log(JSON.stringify({
+          code: 'AUTHORIZATION_QUERY_COALESCED',
+          correlationId: scope.correlationId,
+          queryCorrelationId: existing.queryCorrelationId,
+          ...traceMetadata(scope),
+          waitMs: Math.round(performance.now() - startedAt),
+          page: filters.page,
+          limit: filters.limit,
+          filters: filterFlags(filters),
+          succeeded,
+        }));
+      }
+    }
+
+    const entry: InFlightAuthorizationQuery = {
+      queryCorrelationId: scope.correlationId,
+      promise: this.loadList(filters, scope),
+    };
+    this.inFlightLists.set(key, entry);
+    try {
+      return await entry.promise as Awaited<ReturnType<typeof this.loadList>>;
+    } finally {
+      if (this.inFlightLists.get(key) === entry) this.inFlightLists.delete(key);
+    }
+  }
+
+  private listRequestKey(filters: AuthorizationQueryFilters, scope: Scope): string {
+    return createHash('sha256')
+      .update(JSON.stringify({
+        organizationId: scope.organizationId,
+        organizationCode: scope.organizationCode,
+        userId: scope.userId,
+        readSensitive: scope.readSensitive,
+        isFoundationAdmin: scope.isFoundationAdmin,
+        canCrossOrganizationOperationalExport: scope.canCrossOrganizationOperationalExport,
+        pointAccessKind: scope.pointAccessKind,
+        filters: {
+          authorizationNumber: filters.authorizationNumber ?? null,
+          commercialCode: filters.commercialCode ?? null,
+          patient: filters.patient ?? null,
+          enablementStatus: filters.enablementStatus ?? null,
+          lifecycleEnablement: filters.lifecycleEnablement ?? null,
+          operationalStatus: filters.operationalStatus ?? null,
+          fulfillmentProgressStatus: filters.fulfillmentProgressStatus ?? null,
+          coverageType: filters.coverageType ?? null,
+          page: filters.page,
+          limit: filters.limit,
+        },
+      }))
+      .digest('hex');
+  }
+
+  private async loadList(
+    filters: AuthorizationQueryFilters,
+    scope: Scope,
+  ) {
+
     const offset =
       (
         filters.page
@@ -994,35 +1109,7 @@ export class AuthorizationQueryRepository {
       );
 
     const queryMs = Math.round(performance.now() - queryStartedAt);
-
-    if (queryMs >= 1000) {
-      this.logger.warn(JSON.stringify({
-        code: 'AUTHORIZATION_QUERY_SLOW',
-        queryMs,
-        page: filters.page,
-        limit: filters.limit,
-        pool: {
-          max: this.database.pool.options.max,
-          before: poolBefore,
-          after: {
-            total: this.database.pool.totalCount,
-            idle: this.database.pool.idleCount,
-            waiting: this.database.pool.waitingCount,
-          },
-        },
-        filters: {
-          authorization: Boolean(filters.authorizationNumber),
-          commercialCode: Boolean(filters.commercialCode),
-          patient: Boolean(filters.patient),
-          lifecycle: Boolean(filters.lifecycleEnablement),
-          operational: Boolean(filters.operationalStatus),
-          fulfillment: Boolean(filters.fulfillmentProgressStatus),
-          coverage: Boolean(filters.coverageType),
-        },
-      }));
-    }
-
-    return {
+    const response = {
       items:
         result.rows
           .filter(isAuthorizationQueryItemRow)
@@ -1042,6 +1129,41 @@ export class AuthorizationQueryRepository {
       pageSize:
         filters.limit,
     };
+
+    const poolAfter = {
+      total: this.database.pool.totalCount,
+      idle: this.database.pool.idleCount,
+      waiting: this.database.pool.waitingCount,
+    };
+    const trace = traceMetadata(scope);
+    const queryLog = {
+      code: 'AUTHORIZATION_QUERY_EXECUTED',
+      correlationId: scope.correlationId,
+      queryCorrelationId: scope.correlationId,
+      ...trace,
+      queryMs,
+      dbQueryCount: 1,
+      realtimeUpdateLatencyMs: trace.realtimeOccurredAt
+        ? Math.max(0, Date.now() - Date.parse(trace.realtimeOccurredAt))
+        : null,
+      page: filters.page,
+      limit: filters.limit,
+      itemCount: response.items.length,
+      total: response.total,
+      pool: {
+        max: this.database.pool.options.max,
+        before: poolBefore,
+        after: poolAfter,
+      },
+      filters: filterFlags(filters),
+    };
+    this.logger.log(JSON.stringify(queryLog));
+
+    if (queryMs >= 1000) {
+      this.logger.warn(JSON.stringify({ ...queryLog, code: 'AUTHORIZATION_QUERY_SLOW' }));
+    }
+
+    return response;
   }
 
   async detail(
@@ -4140,9 +4262,12 @@ export class AuthorizationQueryRepository {
       group by page.authorization_id
     `;
 
+    const traceComment = traceSqlComment(scope);
+
     return this.database.db.execute<
       AuthorizationQueryRow
     >(sql`
+      ${traceComment}
       with restricted_authorizations as materialized (
         select
           i.id

@@ -7,7 +7,11 @@ import {
   useState,
 } from 'react';
 import type { RealtimeTopic } from '@authorization/contracts';
-import { useRealtimeRevision } from '@/components/realtime/realtime-context';
+import {
+  useRealtimeRequestTrace,
+  useRealtimeRevision,
+  type RealtimeRequestTrace,
+} from '@/components/realtime/realtime-context';
 
 interface UseApiDataResult<T> {
   data: T | null;
@@ -18,7 +22,7 @@ interface UseApiDataResult<T> {
 
 /** Obtiene datos de la API y reconcilia en segundo plano tras invalidaciones realtime. */
 export function useApiData<T>(
-  fetcher: (signal: AbortSignal) => Promise<T>,
+  fetcher: (signal: AbortSignal, realtimeTrace?: RealtimeRequestTrace) => Promise<T>,
   deps: unknown[],
   realtimeTopics: readonly RealtimeTopic[] = [],
 ): UseApiDataResult<T> {
@@ -27,6 +31,7 @@ export function useApiData<T>(
   const [loading, setLoading] = useState(true);
   const [nonce, setNonce] = useState(0);
   const realtimeRevision = useRealtimeRevision(realtimeTopics);
+  const realtimeTrace = useRealtimeRequestTrace(realtimeTopics);
 
   /*
    * Toda consulta recibe una generación monotónica.
@@ -39,6 +44,7 @@ export function useApiData<T>(
     useRef(
       0,
     );
+  const lastFetchedRealtimeRevision = useRef(realtimeRevision);
 
   useEffect(() => {
     const generation =
@@ -48,11 +54,13 @@ export function useApiData<T>(
       false;
 
     const controller = new AbortController();
+    const isRealtimeRefresh = lastFetchedRealtimeRevision.current !== realtimeRevision;
+    lastFetchedRealtimeRevision.current = realtimeRevision;
 
     setLoading(true);
     setError(null);
 
-    fetcher(controller.signal)
+    fetcher(controller.signal, isRealtimeRefresh ? realtimeTrace ?? undefined : undefined)
       .then((result) => {
         if (
           cancelled ||
@@ -120,6 +128,7 @@ export function useApiData<T>(
     ...deps,
     nonce,
     realtimeRevision,
+    realtimeTrace,
   ]);
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);

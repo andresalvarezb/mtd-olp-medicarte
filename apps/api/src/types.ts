@@ -9,4 +9,8 @@ export interface RequestAuth {
 export type AuthenticatedRequest = Request & {
   auth: RequestAuth;
   correlationId: string;
+  realtimeBatchIds?: readonly string[];
+  realtimeEventIds?: readonly string[];
+  realtimeCorrelationIds?: readonly string[];
+  realtimeOccurredAt?: string;
 };
