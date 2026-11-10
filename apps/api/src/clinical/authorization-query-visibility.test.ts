@@ -51,7 +51,12 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(pageQuery).toContain('authorization_calculations as materialized');
     expect(pageQuery).toContain('authorization_validation as materialized');
     expect(pageQuery).toContain('operational_candidates as materialized');
+    expect(pageQuery).toContain('confirmed_fulfillment_progress as (');
+    expect(pageQuery).toContain('confirmed_application_progress as (');
+    expect(pageQuery).toContain('inventory_allocation_progress as materialized');
+    expect(pageQuery).toContain('authorization_fulfillment_progress as materialized');
     expect(pageQuery).toContain('authorization_classification as materialized');
+    expect(pageQuery).toContain('page_allocation_details as materialized');
     expect(pageQuery).toContain('assignment_date_key');
     expect(pageQuery).toContain('validity_end_date_key');
     expect(pageQuery).toContain('from matching_authorizations matched');
@@ -62,6 +67,7 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(pageQuery).toContain('inventory_authorization_allocations');
     expect(pageQuery).toContain('dispensing_points');
     expect(pageQuery).toContain('user_point_scopes');
+    expect(pageQuery).toContain('dp_assigned_scope.organization_id');
     expect(pageQuery).toContain("validated.initial_validation_status = 'PASSED'");
     expect(pageQuery).toContain("validated.mipres_manual_decision = 'MANUALLY_ENABLED'");
     expect(pageQuery).toContain("validated.validity_status in ('IN_WINDOW', 'EXPIRED')");
@@ -77,12 +83,24 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(pageQuery).toContain('sort_operational asc');
     expect(pageQuery).toContain('limit $');
     expect(pageQuery).toContain('offset $');
-    expect(pageQuery.match(/from\s+authorization_fulfillments\s+af_progress/g))
+    expect(pageQuery.match(/join\s+authorization_fulfillments\s+af_progress/g))
       .toHaveLength(1);
-    expect(pageQuery.match(/from\s+patient_applications\s+pa_progress/g))
+    expect(pageQuery.match(/join\s+patient_applications\s+pa_progress/g))
       .toHaveLength(1);
-    expect(pageQuery.match(/from\s+inventory_authorization_allocations\s+iaa_progress/g))
+    expect(pageQuery.match(/join\s+inventory_authorization_allocations\s+iaa_progress/g))
+      .toHaveLength(1);
+    expect(pageQuery).toContain('group by af_progress.authorization_item_id');
+    expect(pageQuery).toContain('group by pa_progress.authorization_item_id');
+    expect(pageQuery).toContain('group by iaa_progress.authorization_item_id');
+    expect(pageQuery).toMatch(
+      /greatest\(\s*coalesce\(fulfillment_progress\.fulfilled_quantity,\s*0\),\s*coalesce\(application_progress\.fulfilled_quantity,\s*0\),\s*coalesce\(allocation_progress\.fulfilled_quantity,\s*0\)\s*\)/,
+    );
+    expect(pageQuery).toContain('from page_selection page');
+    expect(pageQuery).toContain('left join page_allocation_details allocation');
+    expect(pageQuery.match(/left join tariff_annex_products product/g))
       .toHaveLength(2);
+    expect(pageQuery.indexOf('page_selection as materialized'))
+      .toBeLessThan(pageQuery.indexOf('page_allocation_details as materialized'));
     expect(compiledQuery.params).not.toContain('FECHA_ASIGNACION');
     expect(compiledQuery.params).not.toContain('FECHA_FINAL_VIGENCIA');
   });

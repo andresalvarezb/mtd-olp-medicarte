@@ -3949,7 +3949,6 @@ export class AuthorizationQueryRepository {
       end
     `;
 
-    const assignedRemaining = this.remainingAssignedQuantitySql(scope);
     const initialValidation = this.initialValidationStatusFor(
       sql.raw('validated'),
       sql`validated.quantity_numeric`,
@@ -4090,12 +4089,56 @@ export class AuthorizationQueryRepository {
       || filters?.operationalStatus === 'ASSIGNED'
       || filters?.operationalStatus === 'PARTIALLY_ASSIGNED'
       || filters?.operationalStatus === 'UNASSIGNED'
-      ? sql`${assignedRemaining}::int`
+      ? sql`coalesce(allocation_progress.remaining_assigned_quantity, 0)::int`
       : sql`0::int`;
+
+    const assignedPointScope = scope.organizationCode === 'MEDICARTE'
+      ? sql`
+          exists (
+            select 1
+            from dispensing_points dp_assigned_scope
+            where dp_assigned_scope.id = iaa_progress.dispensing_point_id
+              and dp_assigned_scope.organization_id = ${scope.organizationId}::uuid
+              and ${applyPointScope(sql`dp_assigned_scope.id`, scope)}
+          )
+        `
+      : sql`true`;
 
     const authorizedQuantity = sql`page.authorized_quantity`;
     const fulfilledQuantity = sql`page.fulfilled_quantity`;
     const remainingAuthorizedQuantity = sql`page.remaining_authorized_quantity`;
+
+    const pageAllocationDetails = sql`
+      select
+        page.authorization_id,
+        sum(iaa.allocated_quantity)::int as allocated_quantity,
+        sum(greatest(
+          iaa.allocated_quantity - iaa.consumed_quantity - iaa.released_quantity,
+          0
+        ))::int as remaining_quantity,
+        string_agg(
+          distinct coalesce(po.purchase_order_code, po.id::text),
+          ', '
+        ) as purchase_order,
+        string_agg(distinct dp_allocation.code, ', ')
+          as dispensing_point_code,
+        string_agg(distinct dp_allocation.name, ', ')
+          as dispensing_point_name
+      from page_selection page
+      join inventory_authorization_allocations iaa
+        on iaa.authorization_item_id = page.authorization_id
+      join purchase_orders po
+        on po.id = iaa.purchase_order_id
+      join dispensing_points dp_allocation
+        on dp_allocation.id = iaa.dispensing_point_id
+      where iaa.status in (
+        'ALLOCATED',
+        'PARTIALLY_CONSUMED',
+        'CONSUMED'
+      )
+        and ${allocationScope}
+      group by page.authorization_id
+    `;
 
     return this.database.db.execute<
       AuthorizationQueryRow
@@ -4121,14 +4164,9 @@ export class AuthorizationQueryRepository {
           product.minimum_quantity
         from authorization_items i
         join restricted_authorizations restricted on restricted.id = i.id
-        left join lateral (
-          select tap.minimum_quantity
-          from tariff_annex_products tap
-          where tap.codigo_producto = i.codigo_medicamento
-            and tap.active = true
-          order by tap.updated_at desc, tap.id desc
-          limit 1
-        ) product on true
+        left join tariff_annex_products product
+          on product.codigo_producto = i.codigo_medicamento
+          and product.active = true
       ),
 
       authorization_validation as materialized (
@@ -4157,30 +4195,101 @@ export class AuthorizationQueryRepository {
           : sql`true`}
       ),
 
+      confirmed_fulfillment_progress as (
+        select
+          af_progress.authorization_item_id,
+          sum(af_progress.quantity)::int as fulfilled_quantity
+        from operational_candidates candidate
+        join authorization_fulfillments af_progress
+          on af_progress.authorization_item_id = candidate.id
+        where af_progress.confirmed_at is not null
+        group by af_progress.authorization_item_id
+      ),
+
+      confirmed_application_progress as (
+        select
+          pa_progress.authorization_item_id,
+          sum(pal_progress.quantity)::int as fulfilled_quantity
+        from operational_candidates candidate
+        join patient_applications pa_progress
+          on pa_progress.authorization_item_id = candidate.id
+        join patient_application_lines pal_progress
+          on pal_progress.patient_application_id = pa_progress.id
+        where pa_progress.status = 'CONFIRMED'
+          and pa_progress.confirmed_by is not null
+          and pa_progress.confirmed_at is not null
+        group by pa_progress.authorization_item_id
+      ),
+
+      inventory_allocation_progress as materialized (
+        select
+          iaa_progress.authorization_item_id,
+          sum(iaa_progress.consumed_quantity)::int as fulfilled_quantity,
+          coalesce(
+            sum(greatest(
+              iaa_progress.allocated_quantity
+                - iaa_progress.consumed_quantity
+                - iaa_progress.released_quantity,
+              0
+            )) filter (
+              where iaa_progress.status in (
+                'ALLOCATED',
+                'PARTIALLY_CONSUMED',
+                'CONSUMED'
+              )
+            ),
+            0
+          )::int as allocation_remaining_quantity,
+          coalesce(
+            sum(greatest(
+              iaa_progress.allocated_quantity
+                - iaa_progress.consumed_quantity
+                - iaa_progress.released_quantity,
+              0
+            )) filter (
+              where iaa_progress.status in (
+                'ALLOCATED',
+                'PARTIALLY_CONSUMED'
+              )
+                and ${assignedPointScope}
+            ),
+            0
+          )::int as remaining_assigned_quantity
+        from operational_candidates candidate
+        join inventory_authorization_allocations iaa_progress
+          on iaa_progress.authorization_item_id = candidate.id
+        group by iaa_progress.authorization_item_id
+      ),
+
+      authorization_fulfillment_progress as materialized (
+        select
+          candidate.id as authorization_item_id,
+          greatest(
+            coalesce(fulfillment_progress.fulfilled_quantity, 0),
+            coalesce(application_progress.fulfilled_quantity, 0),
+            coalesce(allocation_progress.fulfilled_quantity, 0)
+          )::int as fulfilled_quantity
+        from operational_candidates candidate
+        left join confirmed_fulfillment_progress fulfillment_progress
+          on fulfillment_progress.authorization_item_id = candidate.id
+        left join confirmed_application_progress application_progress
+          on application_progress.authorization_item_id = candidate.id
+        left join inventory_allocation_progress allocation_progress
+          on allocation_progress.authorization_item_id = candidate.id
+      ),
+
       authorization_calculations as materialized (
         select
           candidate.*,
           fulfillment_progress.fulfilled_quantity,
           ${assignedRemainingProjection} as remaining_assigned_quantity,
-          coalesce(allocation.allocation_remaining_quantity, 0)::int
+          coalesce(allocation_progress.allocation_remaining_quantity, 0)::int
             as allocation_remaining_quantity
         from operational_candidates candidate
-        join authorization_items i on i.id = candidate.id
-        left join lateral (
-          select ${this.fulfilledQuantitySql()}::int as fulfilled_quantity
-        ) fulfillment_progress on true
-        left join lateral (
-          select coalesce(
-            sum(greatest(
-              iaa.allocated_quantity - iaa.consumed_quantity - iaa.released_quantity,
-              0
-            )),
-            0
-          )::int as allocation_remaining_quantity
-          from inventory_authorization_allocations iaa
-          where iaa.authorization_item_id = i.id
-            and iaa.status in ('ALLOCATED', 'PARTIALLY_CONSUMED', 'CONSUMED')
-        ) allocation on true
+        left join authorization_fulfillment_progress fulfillment_progress
+          on fulfillment_progress.authorization_item_id = candidate.id
+        left join inventory_allocation_progress allocation_progress
+          on allocation_progress.authorization_item_id = candidate.id
       ),
 
       authorization_classification as materialized (
@@ -4229,6 +4338,10 @@ export class AuthorizationQueryRepository {
 
       page_selection as materialized (
         ${pageSelection}
+      ),
+
+      page_allocation_details as materialized (
+        ${pageAllocationDetails}
       )
 
       select
@@ -4242,7 +4355,10 @@ export class AuthorizationQueryRepository {
         i.codigo_medicamento
           as commercial_code,
 
-        product.product_description,
+        coalesce(
+          nullif(btrim(product.descripcion_generica), ''),
+          nullif(btrim(product.descripcion_comercial), '')
+        ) as product_description,
 
         page.minimum_quantity,
 
@@ -4666,42 +4782,9 @@ export class AuthorizationQueryRepository {
       left join authorization_items i
         on i.id = page.authorization_id
 
-      left join lateral (
-        select
-          coalesce(
-            nullif(
-              btrim(
-                tap.descripcion_generica
-              ),
-              ''
-            ),
-
-            nullif(
-              btrim(
-                tap.descripcion_comercial
-              ),
-              ''
-            )
-          )
-            as product_description
-
-        from
-          tariff_annex_products tap
-
-        where
-          tap.codigo_producto =
-            i.codigo_medicamento
-
-          and tap.active =
-            true
-
-        order by
-          tap.updated_at desc,
-          tap.id desc
-
-        limit 1
-      ) product
-        on true
+      left join tariff_annex_products product
+        on product.codigo_producto = i.codigo_medicamento
+        and product.active = true
 
       left join lateral (
         select
@@ -4841,79 +4924,8 @@ export class AuthorizationQueryRepository {
         on true
 
 
-      left join lateral (
-        select
-          coalesce(
-            sum(
-              iaa.allocated_quantity
-            ),
-            0
-          )::int
-            as allocated_quantity,
-
-          coalesce(
-            sum(
-              greatest(
-                iaa.allocated_quantity
-                -
-                iaa.consumed_quantity
-                -
-                iaa.released_quantity,
-                0
-              )
-            ),
-            0
-          )::int
-            as remaining_quantity,
-
-          string_agg(
-            distinct
-              coalesce(
-                po.purchase_order_code,
-                po.id::text
-              ),
-            ', '
-          )
-            as purchase_order,
-
-          string_agg(
-            distinct
-              dp_allocation.code,
-            ', '
-          )
-            as dispensing_point_code,
-
-          string_agg(
-            distinct
-              dp_allocation.name,
-            ', '
-          )
-            as dispensing_point_name
-
-        from
-          inventory_authorization_allocations iaa
-
-        join purchase_orders po
-          on po.id =
-             iaa.purchase_order_id
-
-        join dispensing_points dp_allocation
-          on dp_allocation.id =
-             iaa.dispensing_point_id
-
-        where
-          iaa.authorization_item_id =
-            i.id
-
-          and iaa.status in (
-            'ALLOCATED',
-            'PARTIALLY_CONSUMED',
-            'CONSUMED'
-          )
-
-          and ${allocationScope}
-      ) allocation
-        on true
+      left join page_allocation_details allocation
+        on allocation.authorization_id = i.id
 
       left join lateral (
         select
