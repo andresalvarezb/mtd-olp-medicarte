@@ -4207,6 +4207,28 @@ export class AuthorizationQueryRepository {
       ? sql.join(restrictions, sql` and `)
       : sql`true`;
 
+    const restrictedAuthorizations = scope.organizationCode === 'MEDICARTE' && !authorizationId
+      ? sql`
+          select distinct i.id
+          from inventory_authorization_allocations allocation_scope
+          join dispensing_points dp_scope
+            on dp_scope.id = allocation_scope.dispensing_point_id
+          join authorization_items i
+            on i.id = allocation_scope.authorization_item_id
+          where allocation_scope.status in (
+            'ALLOCATED',
+            'PARTIALLY_CONSUMED'
+          )
+            and dp_scope.organization_id = ${scope.organizationId}::uuid
+            and ${applyPointScope(sql`dp_scope.id`, scope)}
+            and ${initialWhere}
+        `
+      : sql`
+          select i.id
+          from authorization_items i
+          where ${initialWhere}
+        `;
+
     const assignedRemainingProjection = scope.organizationCode === 'MEDICARTE'
       || filters?.operationalStatus === 'ASSIGNED'
       || filters?.operationalStatus === 'PARTIALLY_ASSIGNED'
@@ -4269,10 +4291,7 @@ export class AuthorizationQueryRepository {
     >(sql`
       ${traceComment}
       with restricted_authorizations as materialized (
-        select
-          i.id
-        from authorization_items i
-        where ${initialWhere}
+        ${restrictedAuthorizations}
       ),
 
       authorization_facts as materialized (
