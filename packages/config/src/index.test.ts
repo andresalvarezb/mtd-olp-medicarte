@@ -97,6 +97,22 @@ describe('parseWorkerConfig', () => {
     expect(config.PATIENT_CHANGES_SYNC_INTERVAL_MS).toBe(3_600_000);
   });
 
+  it('keeps the Drive sync scope compatible and accepts recent loads', () => {
+    const base = {
+      NODE_ENV: 'test',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/authorization',
+      REDIS_URL: 'redis://localhost:6379',
+    };
+
+    expect(parseWorkerConfig(base).GOOGLE_DRIVE_AUDIT_SYNC_SCOPE).toBe('ALL');
+    expect(
+      parseWorkerConfig({
+        ...base,
+        GOOGLE_DRIVE_AUDIT_SYNC_SCOPE: 'RECENT_10_DAYS',
+      }).GOOGLE_DRIVE_AUDIT_SYNC_SCOPE,
+    ).toBe('RECENT_10_DAYS');
+  });
+
   it('allows configuring the changes scheduler interval without enabling a remote feed', () => {
     const config = parseWorkerConfig({
       NODE_ENV: 'test',
