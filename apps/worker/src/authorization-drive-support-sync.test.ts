@@ -7,6 +7,15 @@ import { AuthorizationDriveSupportSync } from './authorization-drive-support-syn
 type Database = ReturnType<typeof createDatabase>;
 type Candidate = { id: string; authorization_number: string };
 type SyncInternals = { findCandidates(): Promise<Candidate[]> };
+type RunInternals = {
+  findCandidates(): Promise<Candidate[]>;
+  findEvidence(
+    authorizationNumber: string,
+    rootIds: readonly string[],
+    drive: unknown,
+  ): Promise<unknown[]>;
+  persistSuccess(id: string, files: readonly unknown[]): Promise<void>;
+};
 
 function candidateQuery(scope: WorkerConfig['GOOGLE_DRIVE_AUDIT_SYNC_SCOPE']) {
   const query = vi.fn().mockResolvedValue({ rows: [] });
@@ -60,5 +69,55 @@ describe('AuthorizationDriveSupportSync candidate scope', () => {
     expect(statement).toContain('greatest(');
     expect(statement).not.toContain('import_batches recent_load');
     expect(query.mock.calls[0]?.[1]).toEqual(['CLOSED_ONLY', 10]);
+  });
+
+  it('logs batch and advisory-lock durations after releasing the lock', async () => {
+    const lockQuery = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
+      .mockResolvedValueOnce({ rows: [{ pg_advisory_unlock: true }] });
+    const release = vi.fn();
+    const connect = vi.fn().mockResolvedValue({ query: lockQuery, release });
+    const info = vi.fn();
+    const sync = new AuthorizationDriveSupportSync(
+      {
+        GOOGLE_DRIVE_AUDIT_SYNC_ENABLED: true,
+        GOOGLE_DRIVE_AUDIT_ROOT_FOLDER_ID: 'root-folder',
+        GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: `${process.cwd()}/package.json`,
+        GOOGLE_DRIVE_AUDIT_SYNC_SCOPE: 'RECENT_10_DAYS',
+        GOOGLE_DRIVE_AUDIT_SYNC_BATCH_SIZE: 10,
+        GOOGLE_DRIVE_AUDIT_SYNC_CONCURRENCY: 1,
+      } as WorkerConfig,
+      { pool: { connect } } as unknown as Database,
+      { info } as unknown as Logger,
+    );
+    const internals = sync as unknown as RunInternals;
+    vi.spyOn(internals, 'findCandidates').mockResolvedValue([
+      { id: 'authorization-id', authorization_number: 'AUTH-1' },
+    ]);
+    vi.spyOn(internals, 'findEvidence').mockResolvedValue([]);
+    vi.spyOn(internals, 'persistSuccess').mockResolvedValue(undefined);
+
+    await sync.run();
+
+    const [payload, message] = info.mock.calls[0] as [Record<string, unknown>, string];
+    expect(payload).toMatchObject({
+      selected: 1,
+      processed: 1,
+      failures: 0,
+      evidenceFound: 0,
+      scope: 'RECENT_10_DAYS',
+      status: 'completed',
+    });
+    expect(message).toBe('authorization drive support sync batch completed');
+    expect(typeof payload.poolConnectionAcquireMs).toBe('number');
+    expect(typeof payload.candidateSelectionMs).toBe('number');
+    expect(typeof payload.durationMs).toBe('number');
+    expect(typeof payload.lockHeldMs).toBe('number');
+    expect(lockQuery).toHaveBeenCalledTimes(2);
+    expect(lockQuery.mock.invocationCallOrder[1] ?? 0).toBeLessThan(
+      info.mock.invocationCallOrder[0] ?? -1,
+    );
+    expect(release).toHaveBeenCalledOnce();
   });
 });

@@ -86,6 +86,8 @@ export class AuthorizationDriveSupportSync {
 
 
   async run(): Promise<void> {
+    const runStartedAt = performance.now();
+
     if (
       !this.config
         .GOOGLE_DRIVE_AUDIT_SYNC_ENABLED
@@ -129,8 +131,39 @@ export class AuthorizationDriveSupportSync {
     }
 
 
+    const poolConnectStartedAt =
+      performance.now();
+
     const lockClient =
       await this.database.pool.connect();
+
+    const poolConnectionAcquireMs =
+      Math.round(
+        performance.now()
+        -
+        poolConnectStartedAt,
+      );
+
+    let lockAcquiredAt:
+      number | null =
+        null;
+
+    let candidateSelectionMs =
+      0;
+
+    let batchStats:
+      {
+        selected: number;
+        processed: number;
+        failures: number;
+        evidenceFound: number;
+      }
+      | null =
+        null;
+
+    let batchStatus:
+      'completed' | 'failed' =
+        'completed';
 
 
     try {
@@ -157,6 +190,10 @@ export class AuthorizationDriveSupportSync {
       ) {
         return;
       }
+
+
+      lockAcquiredAt =
+        performance.now();
 
 
       try {
@@ -186,8 +223,18 @@ export class AuthorizationDriveSupportSync {
           });
 
 
+        const candidateSelectionStartedAt =
+          performance.now();
+
         const candidates =
           await this.findCandidates();
+
+        candidateSelectionMs =
+          Math.round(
+            performance.now()
+            -
+            candidateSelectionStartedAt,
+          );
 
 
         if (
@@ -198,14 +245,23 @@ export class AuthorizationDriveSupportSync {
         }
 
 
-        let processed =
-          0;
+        const stats =
+          {
+            selected:
+              candidates.length,
 
-        let failures =
-          0;
+            processed:
+              0,
 
-        let evidenceFound =
-          0;
+            failures:
+              0,
+
+            evidenceFound:
+              0,
+          };
+
+        batchStats =
+          stats;
 
 
         let cursor =
@@ -268,15 +324,15 @@ export class AuthorizationDriveSupportSync {
                   );
 
 
-                  processed +=
+                  stats.processed +=
                     1;
 
-                  evidenceFound +=
+                  stats.evidenceFound +=
                     evidence.length;
                 } catch (
                   error
                 ) {
-                  failures +=
+                  stats.failures +=
                     1;
 
 
@@ -304,28 +360,16 @@ export class AuthorizationDriveSupportSync {
           );
 
 
-        await Promise.all(
-          workers,
-        );
+        try {
+          await Promise.all(
+            workers,
+          );
+        } catch (error) {
+          batchStatus =
+            'failed';
 
-
-        this.logger.info(
-          {
-            selected:
-              candidates.length,
-
-            processed,
-
-            failures,
-
-            evidenceFound,
-
-            scope:
-              this.config
-                .GOOGLE_DRIVE_AUDIT_SYNC_SCOPE,
-          },
-          'authorization drive support sync batch completed',
-        );
+          throw error;
+        }
       } finally {
         await lockClient.query(
           `
@@ -338,6 +382,47 @@ export class AuthorizationDriveSupportSync {
             DRIVE_SUPPORT_SYNC_LOCK,
           ],
         );
+
+
+        if (
+          batchStats
+          &&
+          lockAcquiredAt !== null
+        ) {
+          this.logger.info(
+            {
+              ...batchStats,
+
+              status:
+                batchStatus,
+
+              scope:
+                this.config
+                  .GOOGLE_DRIVE_AUDIT_SYNC_SCOPE,
+
+              poolConnectionAcquireMs,
+
+              candidateSelectionMs,
+
+              durationMs:
+                Math.round(
+                  performance.now()
+                  -
+                  runStartedAt,
+                ),
+
+              lockHeldMs:
+                Math.round(
+                  performance.now()
+                  -
+                  lockAcquiredAt,
+                ),
+            },
+            batchStatus === 'completed'
+              ? 'authorization drive support sync batch completed'
+              : 'authorization drive support sync batch failed',
+          );
+        }
       }
     } finally {
       lockClient.release();
