@@ -38,6 +38,26 @@ describe('ESP-020 actor boundaries', () => {
     ).toBe(false);
   });
 
+  it('allows sensitive authorization reads in every supported organization', () => {
+    for (const organization of ['MTD', 'MEDICARTE', 'OLP', 'COMPENSAR']) {
+      expect(
+        isPermissionAllowedForActor(
+          organization,
+          'CUSTOM_AUTHORIZATION_READER',
+          'authorizations.read_sensitive',
+        ),
+      ).toBe(true);
+    }
+
+    expect(
+      isPermissionAllowedForActor(
+        'UNKNOWN',
+        'CUSTOM_AUTHORIZATION_READER',
+        'authorizations.read_sensitive',
+      ),
+    ).toBe(false);
+  });
+
   it('throws a typed error for a forbidden actor capability', () => {
     expect(() =>
       assertPermissionAllowedForActor('OLP', 'OLP_OPERATOR', 'patient_applications.manage'),
