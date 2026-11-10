@@ -29,7 +29,9 @@ describe('RF-PAC-001 local patient lookup checkpoint integration', () => {
     const schemaName = `rf_pac_001_sync_${randomUUID().replaceAll('-', '')}`;
     const organizationId = randomUUID();
     const authorizationItemId = randomUUID();
+    const excludedAuthorizationItemId = randomUUID();
     const patientId = randomUUID();
+    const excludedPatientId = randomUUID();
     const now = new Date('2026-11-09T12:00:00.000Z');
 
     await database.query(`create schema "${schemaName}"`);
@@ -74,18 +76,25 @@ describe('RF-PAC-001 local patient lookup checkpoint integration', () => {
       ]);
       await database.query(
         `insert into patients (id, identification_type_raw, identification_value_raw)
-         values ($1, 'TEST', $2)`,
-        [patientId, `SYNTH-${patientId}`],
+         values ($1, 'TEST', $2), ($3, 'TEST', $4)`,
+        [patientId, `SYNTH-${patientId}`, excludedPatientId, `SYNTH-${excludedPatientId}`],
       );
       await database.query(
         `insert into authorization_items (id, authorization_key, source_data, patient_id)
-         values ($1, $2, '{}'::jsonb, $3)`,
-        [authorizationItemId, `RF-PAC-001-${authorizationItemId}`, patientId],
+         values ($1, $2, '{}'::jsonb, $3), ($4, $5, '{}'::jsonb, $6)`,
+        [
+          authorizationItemId,
+          `RF-PAC-001-${authorizationItemId}`,
+          patientId,
+          excludedAuthorizationItemId,
+          `RF-PAC-001-${excludedAuthorizationItemId}`,
+          excludedPatientId,
+        ],
       );
       await database.query(
         `insert into authorization_item_organizations (authorization_item_id, organization_id)
-         values ($1, $2)`,
-        [authorizationItemId, organizationId],
+         values ($1, $2), ($3, $2)`,
+        [authorizationItemId, organizationId, excludedAuthorizationItemId],
       );
 
       const repository = new PgPatientLocalLookupSyncRepository({
@@ -94,7 +103,7 @@ describe('RF-PAC-001 local patient lookup checkpoint integration', () => {
             query: database.query.bind(database),
             release: () => undefined,
           }),
-      } as never);
+      } as never, [patientId]);
       const claimed = await repository.claim({ now, intervalMs: 60 * 60 * 1000, leaseMs: 60_000 });
       expect(claimed.status).toBe('CLAIMED');
       if (claimed.status !== 'CLAIMED' || !claimed.checkpoint) throw new Error('claim failed');
@@ -127,7 +136,8 @@ describe('RF-PAC-001 local patient lookup checkpoint integration', () => {
         `select count(*) from outbox_events where event_type = 'patient.lookup'`,
       );
       const stillRunning = await database.query<{ status: string; records_seen: number }>(
-        `select status, records_seen from patient_sync_checkpoints where feed_key = 'patients.lookup.basic'`,
+        `select status, records_seen from patient_sync_checkpoints
+          where feed_key like 'patients.lookup.basic.pilot.%'`,
       );
       expect(rolledBackEvents.rows[0]?.count).toBe('0');
       expect(stillRunning.rows[0]).toMatchObject({ status: 'RUNNING', records_seen: 0 });
@@ -155,7 +165,8 @@ describe('RF-PAC-001 local patient lookup checkpoint integration', () => {
         records_seen: number;
       }>(
         `select status, sync_as_of, next_cursor, run_id, lease_token, pages_processed, records_seen
-           from patient_sync_checkpoints where feed_key = 'patients.lookup.basic'`,
+           from patient_sync_checkpoints
+          where feed_key like 'patients.lookup.basic.pilot.%'`,
       );
       const persistedEvents = await database.query<{
         payload: { patientId: string };

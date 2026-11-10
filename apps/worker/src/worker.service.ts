@@ -202,7 +202,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       });
     });
     if (this.config.SCHEDULER_ENABLED) {
-      if (this.patientLookupSyncScheduler) {
+      if (this.config.MTDOM_PATIENT_LOOKUP_SYNC_ENABLED && this.patientLookupSyncScheduler) {
         this.patientLookupSyncScheduler.start(
           this.config.PATIENT_CHANGES_SYNC_INTERVAL_MS,
           (error) => this.reportBackgroundTaskError(error, 'patient local lookup sync failed'),
@@ -650,13 +650,40 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async processPatientLookup(job: PatientLookupJob): Promise<{ processed: boolean }> {
+    const startedAt = Date.now();
     try {
       const result = await processPatientLookupJob(this.database, this.patientLookupProcessor, job);
+      const outcome = result.outcome ?? (
+        result.terminalCode
+          ? 'TERMINAL_FAILURE'
+          : result.deduplicated
+            ? 'DEDUPLICATED'
+            : result.processed
+              ? 'PROCESSED'
+              : 'NOT_PROCESSED'
+      );
+      const metrics = {
+        outcome,
+        durationMs: Date.now() - startedAt,
+        ...(result.terminalCode ? { code: result.terminalCode } : {}),
+      };
       if (result.terminalCode) {
-        this.logger.error({ code: result.terminalCode }, 'patient lookup stopped in a terminal state');
+        this.logger.error(metrics, 'patient lookup stopped in a terminal state');
+      } else {
+        this.logger.info(metrics, 'patient lookup processed');
       }
       return result;
     } catch (error) {
+      this.logger.warn(
+        {
+          code: 'PATIENT_LOOKUP_RETRYABLE_FAILURE',
+          durationMs: Date.now() - startedAt,
+          ...(error instanceof PatientLookupRetryableError && error.retryAfterMs !== undefined
+            ? { retryAfterMs: error.retryAfterMs }
+            : {}),
+        },
+        'patient lookup will retry',
+      );
       if (error instanceof PatientLookupRetryableError) throw error;
       throw new PatientLookupRetryableError();
     }
