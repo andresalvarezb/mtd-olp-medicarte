@@ -86,7 +86,7 @@ export const ACCESS_PERMISSION_REGISTRY: readonly AccessPermissionDefinition[] =
     'authorizations',
     'VIEW_SENSITIVE',
     'ACTIVE',
-    'MTD_ONLY',
+    'ACTOR_PROJECTION',
   ),
   permission('authorizations.manual_edit', 'authorizations', 'MANUAL_EDIT', 'ACTIVE', 'MTD_ONLY'),
   permission(
@@ -648,6 +648,10 @@ const MODULE_METADATA: Readonly<Record<string, ModuleMetadata>> = {
 };
 
 function actionLabel(actionCode: string): string {
+  if (actionCode === 'VIEW_SENSITIVE') {
+    return 'Buscar y ver nombre, documento y posología';
+  }
+
   return actionCode
     .replaceAll('_', ' ')
     .toLowerCase()

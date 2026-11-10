@@ -33,6 +33,23 @@ describe('ESP-020 access registry', () => {
 
       systemAllowed: true,
     });
+
+    const sensitiveAuthorizationRead = ACCESS_PERMISSION_REGISTRY.find(
+      (entry) => entry.permissionCode === 'authorizations.read_sensitive',
+    );
+    expect(sensitiveAuthorizationRead).toMatchObject({
+      moduleCode: 'authorizations',
+      actionCode: 'VIEW_SENSITIVE',
+      lifecycle: 'ACTIVE',
+      actorBoundary: 'ACTOR_PROJECTION',
+      configurable: true,
+      systemAllowed: true,
+    });
+    expect(
+      ACCESS_MODULE_REGISTRY.find((module) => module.code === 'authorizations')?.actions.find(
+        (action) => action.permissionCode === 'authorizations.read_sensitive',
+      )?.label,
+    ).toBe('Buscar y ver nombre, documento y posología');
   });
 
   it('classifies every current permission with an approved lifecycle', () => {

@@ -810,8 +810,15 @@
     {
       "idx": 115,
       "version": "7",
-      "when": 1794070010000,
-      "tag": "0115_authorization_query_scope_candidates",
+      "when": 1794310000000,
+      "tag": "0115_authorization_sensitive_read_all_organizations",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1794310001000,
+      "tag": "0116_authorization_query_scope_candidates",
       "breakpoints": true
     }
   ]
