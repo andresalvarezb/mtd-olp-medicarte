@@ -127,6 +127,50 @@ describe(
 
 
     it(
+      'registra los errores por orden y agrupa lotes por ejecucion',
+      () => {
+        expect(bootstrap).toContain(
+          'failedItems:',
+        );
+
+        expect(bootstrap).toContain(
+          'purchaseOrderId:',
+        );
+
+        expect(bootstrap).toMatch(
+          /error:[\s\S]{0,180}\.slice\(/,
+        );
+
+        expect(bootstrap).toContain(
+          'runId,',
+        );
+      },
+    );
+
+
+    it(
+      'evita backfills simultaneos y señala cuando alcanza su limite',
+      () => {
+        expect(bootstrap).toContain(
+          'pg_try_advisory_lock',
+        );
+
+        expect(bootstrap).toContain(
+          'pg_advisory_unlock',
+        );
+
+        expect(bootstrap).toContain(
+          'RECEIVED_AUTO_BACKFILL_LIMIT_REACHED',
+        );
+
+        expect(bootstrap).toContain(
+          'nextCursor:',
+        );
+      },
+    );
+
+
+    it(
       'solo ejecuta automaticamente en produccion',
       () => {
         expect(bootstrap).toContain(
