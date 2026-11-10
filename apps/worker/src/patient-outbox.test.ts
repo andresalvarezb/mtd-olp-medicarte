@@ -484,6 +484,11 @@ describe('patient event outbox on synthetic transport', () => {
         harness.database as never,
         processor,
       );
+      const logs: Array<{ fields: unknown; message: string }> = [];
+      const logger = (service as unknown as {
+        logger: { info: (fields: unknown, message: string) => void };
+      }).logger;
+      logger.info = (fields, message) => logs.push({ fields, message });
 
       await dispatch(service);
       await runWorker(transport.addCalls[0]?.data);
@@ -492,6 +497,10 @@ describe('patient event outbox on synthetic transport', () => {
       expect(harness.events[0]?.status).toBe('PROCESSED');
       expect([...harness.results.values()]).toEqual([{ outcome }]);
       expect(harness.patientUpdates[0]).toMatchObject({ patientId, status: patientStatus });
+      const patientLog = logs.find(({ message }) => message === 'patient lookup processed');
+      const loggedFields = patientLog?.fields as { outcome?: string } | undefined;
+      expect(loggedFields?.outcome).toBe(outcome);
+      expect(JSON.stringify(logs)).not.toContain(patientId);
     },
   );
 
@@ -584,6 +593,7 @@ describe('patient event outbox on synthetic transport', () => {
 
   it('dispatches into the existing foundation queue and records success only after processing', async () => {
     let processorCalls = 0;
+    const logs: Array<{ fields: unknown; message: string }> = [];
     const harness = createHarness([patientEvent()], {
       execute: async (input) => {
         await Promise.resolve();
@@ -592,6 +602,10 @@ describe('patient event outbox on synthetic transport', () => {
         return { outcome: 'SIMULATED_MATCH' };
       },
     });
+    const logger = (harness.service as unknown as {
+      logger: { info: (fields: unknown, message: string) => void };
+    }).logger;
+    logger.info = (fields, message) => logs.push({ fields, message });
 
     await dispatch(harness.service);
     expect(transport.queueNames).toContain(FOUNDATION_QUEUE);
@@ -612,6 +626,12 @@ describe('patient event outbox on synthetic transport', () => {
     await runWorker(transport.addCalls[0]?.data);
     expect(processorCalls).toBe(1);
     expect(harness.results.size).toBe(1);
+    const patientLog = logs.find(({ message }) => message === 'patient lookup processed');
+    expect(patientLog).toBeDefined();
+    const loggedFields = patientLog?.fields as { outcome: string; durationMs: number } | undefined;
+    expect(loggedFields?.outcome).toBe('SIMULATED_MATCH');
+    expect(Number.isFinite(loggedFields?.durationMs)).toBe(true);
+    expect(JSON.stringify(logs)).not.toContain(patientId);
   });
 
   it('retries transient errors with deferred availability and persists only a safe code', async () => {
