@@ -23,19 +23,24 @@ class SyntheticRepository implements PatientLocalLookupSyncRepository {
   retriesBeforeSuccess = 0;
   failedCode: string | null = null;
   claimBarrier?: Promise<void>;
+  pageSizes: number[] = [];
 
   async claim() {
     if (this.claimBarrier) await this.claimBarrier;
     return { status: 'CLAIMED' as const, checkpoint: CHECKPOINT };
   }
 
-  async enqueueNextPage() {
+  async enqueueNextPage(input: { pageSize: number }) {
+    this.pageSizes.push(input.pageSize);
     this.pages += 1;
     if (this.retriesBeforeSuccess > 0) {
       this.retriesBeforeSuccess -= 1;
       throw new Error('synthetic database failure');
     }
     this.successfulPages += 1;
+    if (input.pageSize === 1) {
+      return { completed: false, recordsSeen: 1, patientsQueued: 1, nextPatientId: ID_1 };
+    }
     return this.successfulPages === 1
       ? { completed: false, recordsSeen: 2, patientsQueued: 2, nextPatientId: ID_2 }
       : { completed: true, recordsSeen: 0, patientsQueued: 0, nextPatientId: ID_2 };
@@ -78,6 +83,23 @@ describe('periodic local patient lookup sync', () => {
 
     expect(result).toMatchObject({ status: 'COMPLETED', patientsQueued: 2, retries: 1 });
     expect(repository.pages).toBe(3);
+  });
+
+  it('yields after one patient for the explicitly bounded pilot instead of failing its checkpoint', async () => {
+    const repository = new SyntheticRepository();
+    const service = new PatientLocalLookupSyncService(repository, {
+      intervalMs: 60 * 60 * 1000,
+      pageSize: 1,
+      maxPagesPerRun: 1,
+      yieldAfterPageLimit: true,
+      sleep: async () => undefined,
+    });
+
+    const result = await service.run();
+
+    expect(result).toMatchObject({ status: 'IN_PROGRESS', pagesProcessed: 1, patientsQueued: 1 });
+    expect(repository.pageSizes).toEqual([1]);
+    expect(repository.failedCode).toBeNull();
   });
 
   it('prevents overlapping scheduler runs in one worker process', async () => {
@@ -140,7 +162,7 @@ describe('periodic local patient lookup sync', () => {
     const repository = new PgPatientLocalLookupSyncRepository({
       connect: async () => client,
       query: (sql: string, params?: unknown[]) => client.query(sql, params ?? []),
-    } as never);
+    } as never, [ID_1, ID_2]);
     const now = new Date('2026-11-08T12:00:00.000Z');
     const claim = await repository.claim({ now, intervalMs: 60 * 60 * 1000, leaseMs: 60_000 });
     expect(claim.status).toBe('CLAIMED');
@@ -154,9 +176,18 @@ describe('periodic local patient lookup sync', () => {
 
     const selection =
       captured.find(({ sql }) => sql.includes('select p.id::text as id'))?.sql ?? '';
+    const checkpointInsert = captured.find(({ sql }) =>
+      sql.includes('insert into patient_sync_checkpoints'),
+    );
     expect(selection).toContain('join authorization_item_organizations aio');
     expect(selection).toContain("o.code = 'MEDICARTE'");
+    expect(selection).toContain('p.id = any($5::uuid[])');
     expect(selection).toContain("e.status in ('PENDING', 'DISPATCHED')");
+    expect(captured.find(({ sql }) => sql.includes('select p.id::text as id'))?.params[4]).toEqual([
+      ID_1,
+      ID_2,
+    ]);
+    expect(checkpointInsert?.params[0]).toMatch(/^patients\.lookup\.basic\.pilot\.[a-f0-9]{16}$/);
     expect(outcome).toMatchObject({ completed: true, recordsSeen: 2, patientsQueued: 2 });
     const events = captured.filter(({ sql }) => sql.includes("values ('patient.lookup', 1"));
     expect(events).toHaveLength(2);

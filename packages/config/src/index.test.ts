@@ -93,6 +93,8 @@ describe('parseWorkerConfig', () => {
     expect(config.SCHEDULER_ENABLED).toBe(true);
     expect(config.RECONCILIATION_SCHEDULER_ENABLED).toBe(false);
     expect(config.MTDOM_PATIENT_LOOKUP_ENABLED).toBe(false);
+    expect(config.MTDOM_PATIENT_LOOKUP_SYNC_ENABLED).toBe(false);
+    expect(config.MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS).toEqual([]);
     expect(config.MTDOM_DP07_APPROVED).toBe(false);
     expect(config.PATIENT_CHANGES_SYNC_INTERVAL_MS).toBe(3_600_000);
   });
@@ -124,6 +126,52 @@ describe('parseWorkerConfig', () => {
     expect(config.MTDOM_PATIENT_LOOKUP_ENABLED).toBe(false);
     expect(config).not.toHaveProperty('MTDOM_PATIENT_CHANGES_ENABLED');
     expect(config).not.toHaveProperty('MTDOM_PATIENT_CHANGES_URL');
+  });
+
+  it('requires a bounded, explicit local patient cohort before enabling periodic lookup sync', () => {
+    const base = {
+      NODE_ENV: 'test',
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/authorization',
+      REDIS_URL: 'redis://localhost:6379',
+      MTDOM_PATIENT_LOOKUP_SYNC_ENABLED: 'true',
+    };
+    const ids = Array.from(
+      { length: 10 },
+      (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+    );
+
+    expect(() => parseWorkerConfig(base)).toThrow();
+    expect(() =>
+      parseWorkerConfig({
+        ...base,
+        MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
+        MTDOM_DP07_APPROVED: 'true',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'v-test-policy',
+        MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
+        MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS: ids.join(','),
+      }),
+    ).not.toThrow();
+    expect(() =>
+      parseWorkerConfig({
+        ...base,
+        MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
+        MTDOM_DP07_APPROVED: 'true',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'v-test-policy',
+        MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
+        MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS: [...ids, ids[0]].join(','),
+      }),
+    ).toThrow('Patient lookup sync cohort cannot contain duplicate IDs');
+    expect(() =>
+      parseWorkerConfig({
+        ...base,
+        SCHEDULER_ENABLED: 'false',
+        MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
+        MTDOM_DP07_APPROVED: 'true',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'v-test-policy',
+        MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
+        MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS: ids.join(','),
+      }),
+    ).toThrow('Patient lookup sync requires the worker scheduler to be enabled');
   });
 
   it('allows enabling reconciliation scheduler explicitly', () => {

@@ -1,14 +1,14 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { createDatabase } from '@authorization/database';
 
-const CHECKPOINT_KEY = 'patients.lookup.basic';
+const CHECKPOINT_KEY_PREFIX = 'patients.lookup.basic.pilot.';
 const PAGE_SIZE = 50;
 const MAX_PAGES_PER_RUN = 20;
 const MAX_RETRIES = 3;
 const LEASE_MS = 10 * 60 * 1000;
 
 export type PatientLocalLookupSyncResult = Readonly<{
-  status: 'COMPLETED' | 'BUSY' | 'NOT_DUE' | 'FAILED';
+  status: 'COMPLETED' | 'IN_PROGRESS' | 'BUSY' | 'NOT_DUE' | 'FAILED';
   pagesProcessed: number;
   patientsQueued: number;
   retries: number;
@@ -59,7 +59,17 @@ type CheckpointRow = {
 
 /** Schedules local, authorization-linked identities through the durable lookup outbox. */
 export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyncRepository {
-  constructor(private readonly pool: DatabasePool) {}
+  private readonly patientIds: readonly string[];
+  private readonly checkpointKey: string;
+
+  constructor(private readonly pool: DatabasePool, patientIds: readonly string[]) {
+    this.patientIds = [...patientIds];
+    const cohortHash = createHash('sha256')
+      .update([...patientIds].sort().join('\n'))
+      .digest('hex')
+      .slice(0, 16);
+    this.checkpointKey = `${CHECKPOINT_KEY_PREFIX}${cohortHash}`;
+  }
 
   async claim(input: { now: Date; intervalMs: number; leaseMs: number }) {
     const client = await this.pool.connect();
@@ -69,12 +79,12 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
         `insert into patient_sync_checkpoints (feed_key, profile, sync_as_of)
          values ($1, 'basic', to_timestamp(0))
          on conflict (feed_key) do nothing`,
-        [CHECKPOINT_KEY],
+        [this.checkpointKey],
       );
       const selected = await client.query<CheckpointRow>(
         `select status, sync_as_of, pending_as_of, next_cursor, run_id, lease_token, lease_expires_at
            from patient_sync_checkpoints where feed_key = $1 for update`,
-        [CHECKPOINT_KEY],
+        [this.checkpointKey],
       );
       const row = selected.rows[0];
       if (!row) throw new Error('checkpoint missing');
@@ -111,7 +121,7 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
                 last_error_code = null, updated_at = now()
           where feed_key = $1`,
         [
-          CHECKPOINT_KEY,
+          this.checkpointKey,
           runId,
           leaseToken,
           new Date(input.now.getTime() + input.leaseMs),
@@ -151,7 +161,7 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
       const selected = await client.query<CheckpointRow>(
         `select status, sync_as_of, pending_as_of, next_cursor, run_id, lease_token, lease_expires_at
            from patient_sync_checkpoints where feed_key = $1 for update`,
-        [CHECKPOINT_KEY],
+        [this.checkpointKey],
       );
       const row = selected.rows[0];
       if (
@@ -175,6 +185,7 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
                 join organizations o on o.id = aio.organization_id and o.code = 'MEDICARTE'
                where ai.patient_id = p.id
             )
+            and p.id = any($5::uuid[])
             and (p.mtdom_last_checked_at is null or
                  p.mtdom_last_checked_at <= $2::timestamptz - ($3::bigint * interval '1 millisecond'))
             and not exists (
@@ -185,7 +196,13 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
             )
           order by p.id
           limit $4`,
-        [input.checkpoint.nextPatientId, input.now, input.intervalMs, input.pageSize],
+        [
+          input.checkpoint.nextPatientId,
+          input.now,
+          input.intervalMs,
+          input.pageSize,
+          this.patientIds,
+        ],
       );
       const ids = candidates.rows.map(({ id }) => id);
       let patientsQueued = 0;
@@ -224,7 +241,7 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
           where feed_key = $1::varchar and run_id = $7::uuid and lease_token = $8::uuid
             and lease_expires_at > $3::timestamptz`,
         [
-          CHECKPOINT_KEY,
+          this.checkpointKey,
           completed ? 'IDLE' : 'RUNNING',
           input.now,
           nextPatientId,
@@ -256,7 +273,7 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
               last_error_code = $3, retries = greatest(retries, $4), updated_at = now()
         where feed_key = $1 and run_id = $2 and lease_token = $5 and status = 'RUNNING'`,
       [
-        CHECKPOINT_KEY,
+        this.checkpointKey,
         input.checkpoint.runId,
         input.code,
         input.retries,
@@ -274,6 +291,9 @@ export class PatientLocalLookupSyncService {
     private readonly options: Readonly<{
       intervalMs: number;
       sleep?: (ms: number) => Promise<void>;
+      pageSize?: number;
+      maxPagesPerRun?: number;
+      yieldAfterPageLimit?: boolean;
     }>,
   ) {}
 
@@ -293,7 +313,9 @@ export class PatientLocalLookupSyncService {
       if (claim.status === 'BUSY' || claim.status === 'NOT_DUE') return emptyResult(claim.status);
       if (!claim.checkpoint) throw new Error('checkpoint claim failed');
       checkpoint = claim.checkpoint;
-      for (let page = 0; page < MAX_PAGES_PER_RUN; page += 1) {
+      const pageSize = this.options.pageSize ?? PAGE_SIZE;
+      const maxPagesPerRun = this.options.maxPagesPerRun ?? MAX_PAGES_PER_RUN;
+      for (let page = 0; page < maxPagesPerRun; page += 1) {
         let result:
           | Awaited<ReturnType<PatientLocalLookupSyncRepository['enqueueNextPage']>>
           | undefined;
@@ -304,7 +326,7 @@ export class PatientLocalLookupSyncService {
               now: new Date(),
               intervalMs: this.options.intervalMs,
               leaseMs: LEASE_MS,
-              pageSize: PAGE_SIZE,
+              pageSize,
             });
             break;
           } catch {
@@ -319,6 +341,9 @@ export class PatientLocalLookupSyncService {
         if (result.completed)
           return { status: 'COMPLETED', pagesProcessed, patientsQueued, retries };
         checkpoint = { ...checkpoint, nextPatientId: result.nextPatientId };
+      }
+      if (this.options.yieldAfterPageLimit) {
+        return { status: 'IN_PROGRESS', pagesProcessed, patientsQueued, retries };
       }
       await this.repository.markFailed({ checkpoint, code: 'PAGE_LIMIT_EXCEEDED', retries });
       return {

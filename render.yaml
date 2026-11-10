@@ -99,6 +99,10 @@ services:
         value: 'true'
       - key: MTDOM_PATIENT_LOOKUP_ENABLED
         sync: false
+      - key: MTDOM_PATIENT_LOOKUP_SYNC_ENABLED
+        value: 'false'
+      - key: MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS
+        sync: false
       - key: MTDOM_DP07_APPROVED
         sync: false
       - key: MTDOM_PATIENT_IDENTITY_POLICY_VERSION

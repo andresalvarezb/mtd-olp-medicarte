@@ -199,6 +199,14 @@ export const workerConfigSchema = commonSchema
       .int()
       .min(60_000)
       .default(60 * 60 * 1000),
+    MTDOM_PATIENT_LOOKUP_SYNC_ENABLED: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .default('false'),
+    MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS: z
+      .string()
+      .default('')
+      .transform((value) => value.split(',').map((id) => id.trim()).filter(Boolean)),
     MTDOM_PATIENT_LOOKUP_ENABLED: z
       .enum(['true', 'false'])
       .transform((value) => value === 'true')
@@ -212,6 +220,46 @@ export const workerConfigSchema = commonSchema
     MTDOM_PATIENTS_TIMEOUT_MS: z.coerce.number().int().min(100).max(30_000).default(5000),
   })
   .superRefine((config, context) => {
+    const patientIds = config.MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS;
+    const uniquePatientIds = new Set(patientIds);
+    if (uniquePatientIds.size !== patientIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS'],
+        message: 'Patient lookup sync cohort cannot contain duplicate IDs',
+      });
+    }
+    if (patientIds.some((patientId) => !z.string().uuid().safeParse(patientId).success)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS'],
+        message: 'Patient lookup sync cohort must contain only UUIDs',
+      });
+    }
+    if (config.MTDOM_PATIENT_LOOKUP_SYNC_ENABLED) {
+      if (!config.SCHEDULER_ENABLED) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['SCHEDULER_ENABLED'],
+          message: 'Patient lookup sync requires the worker scheduler to be enabled',
+        });
+      }
+      if (!config.MTDOM_PATIENT_LOOKUP_ENABLED) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['MTDOM_PATIENT_LOOKUP_ENABLED'],
+          message: 'Patient lookup sync requires the MTDOM patient lookup processor',
+        });
+      }
+      if (patientIds.length < 10 || patientIds.length > 20) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS'],
+          message: 'Patient lookup sync pilot requires between 10 and 20 local patient IDs',
+        });
+      }
+    }
+
     if (!config.MTDOM_PATIENT_LOOKUP_ENABLED) return;
     if (!config.MTDOM_DP07_APPROVED) {
       context.addIssue({

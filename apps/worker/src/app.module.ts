@@ -64,14 +64,22 @@ const database = createDatabase(config.DATABASE_URL);
         workerConfig: WorkerConfig,
         processor: MtdomPatientLookupProcessor | undefined,
       ) => {
-        if (!processor) return undefined;
+        if (!processor || !workerConfig.MTDOM_PATIENT_LOOKUP_SYNC_ENABLED) return undefined;
         const logger = pino({
           level: workerConfig.LOG_LEVEL,
           base: { service: 'platform-worker' },
         });
         const sync = new PatientLocalLookupSyncService(
-          new PgPatientLocalLookupSyncRepository(patientDatabase.pool),
-          { intervalMs: workerConfig.PATIENT_CHANGES_SYNC_INTERVAL_MS },
+          new PgPatientLocalLookupSyncRepository(
+            patientDatabase.pool,
+            workerConfig.MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS,
+          ),
+          {
+            intervalMs: workerConfig.PATIENT_CHANGES_SYNC_INTERVAL_MS,
+            pageSize: 1,
+            maxPagesPerRun: 1,
+            yieldAfterPageLimit: true,
+          },
         );
         return new PatientLocalLookupSyncScheduler(sync, (result) => {
           const metrics = {
@@ -89,7 +97,7 @@ const database = createDatabase(config.DATABASE_URL);
               extra: metrics,
             });
           } else {
-            logger.info(metrics, 'patient local lookup sync completed');
+            logger.info(metrics, 'patient local lookup sync cycle');
           }
         });
       },

@@ -202,7 +202,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       });
     });
     if (this.config.SCHEDULER_ENABLED) {
-      if (this.patientLookupSyncScheduler) {
+      if (this.config.MTDOM_PATIENT_LOOKUP_SYNC_ENABLED && this.patientLookupSyncScheduler) {
         this.patientLookupSyncScheduler.start(
           this.config.PATIENT_CHANGES_SYNC_INTERVAL_MS,
           (error) => this.reportBackgroundTaskError(error, 'patient local lookup sync failed'),
