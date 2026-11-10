@@ -48,6 +48,13 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(pageQuery).toContain('matching_authorizations as materialized');
     expect(pageQuery).toContain('query_total as materialized');
     expect(pageQuery).toContain('restricted_authorizations as materialized');
+    expect(pageQuery).toContain('from inventory_authorization_allocations allocation_scope');
+    expect(pageQuery).toContain('join dispensing_points dp_scope');
+    expect(pageQuery.replace(/\s+/g, ' ')).toContain(
+      "allocation_scope.status in ( 'ALLOCATED', 'PARTIALLY_CONSUMED' )",
+    );
+    expect(pageQuery).toContain('dp_scope.organization_id');
+    expect(pageQuery).toContain('user_point_scopes');
     expect(pageQuery).toContain('authorization_calculations as materialized');
     expect(pageQuery).toContain('authorization_validation as materialized');
     expect(pageQuery).toContain('operational_candidates as materialized');
@@ -129,6 +136,7 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(detailQuery).toContain('user_point_scopes');
     expect(detailQuery).toContain('inventory_authorization_allocations');
     expect(detailQuery).toContain('i.mipres_manual_decision');
+    expect(detailQuery).not.toContain('allocation_scope');
   });
 
   it('masks patient identity when sensitive-read permission is absent', () => {
@@ -181,6 +189,7 @@ describe('authorization query MEDICARTE visibility', () => {
     const mtdQuery = queryText(mtd.execute.mock.calls[0]?.[0]);
     expect(mtdQuery).not.toContain('authorization_item_organizations');
     expect(mtdQuery).not.toContain('user_point_scopes');
+    expect(mtdQuery).not.toContain('allocation_scope');
 
     const compensar = fixture();
     compensar.execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 0 }] });
@@ -191,6 +200,7 @@ describe('authorization query MEDICARTE visibility', () => {
     const compensarQuery = queryText(compensar.execute.mock.calls[0]?.[0]);
     expect(compensarQuery).toContain('authorization_item_organizations');
     expect(compensarQuery).not.toContain('user_point_scopes');
+    expect(compensarQuery).not.toContain('allocation_scope');
   });
 
   it('keeps patient search inside the shared filtered set', async () => {

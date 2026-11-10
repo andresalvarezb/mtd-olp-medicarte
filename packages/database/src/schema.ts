@@ -4004,6 +4004,10 @@ export const inventoryAuthorizationAllocations = pgTable(
       .defaultNow(),
   },
   (table) => [
+    index('inventory_authorization_allocations_active_scope_idx')
+      .on(table.dispensingPointId, table.authorizationItemId)
+      .where(sql`${table.status} IN ('ALLOCATED', 'PARTIALLY_CONSUMED')`),
+
     index('inventory_authorization_allocations_auth_idx').on(
       table.authorizationItemId,
       table.status,

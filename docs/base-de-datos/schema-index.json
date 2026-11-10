@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "packages/database/src/schema.ts",
-  "sourceSha256": "d21e4e3269d3690fdfeff9d21eb1577cd358e0f1aa2057b67082b4fb4a1e84c3",
+  "sourceSha256": "3b714ea42939f449d84027e8cb7cf9d040f702bb5d74676eff1d520a680f9ea6",
   "kind": "drizzle-static",
   "notLiveDatabase": true,
   "groupLabels": {
@@ -4662,6 +4662,10 @@
         }
       ],
       "indexes": [
+        {
+          "name": "inventory_authorization_allocations_active_scope_idx",
+          "kind": "index"
+        },
         {
           "name": "inventory_authorization_allocations_auth_idx",
           "kind": "index"

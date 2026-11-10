@@ -1,7 +1,7 @@
 # Catálogo estructural de la base de datos — generado
 
 > **Origen:** `packages/database/src/schema.ts` (Drizzle). **No demuestra que las migraciones estén aplicadas a un PostgreSQL concreto.**
-> **Identificador de fuente SHA-256:** `d21e4e3269d3690fdfeff9d21eb1577cd358e0f1aa2057b67082b4fb4a1e84c3`. Generador: `scripts/db-schema-catalog.mjs`.
+> **Identificador de fuente SHA-256:** `3b714ea42939f449d84027e8cb7cf9d040f702bb5d74676eff1d520a680f9ea6`. Generador: `scripts/db-schema-catalog.mjs`.
 
 **Tablas Drizzle:** 92. **Columnas:** 1195. **Referencias FK declaradas:** 242.
 
@@ -980,7 +980,7 @@
 
 **Referenciada por:** `authorization_fulfillment_lines(inventory_authorization_allocation_id)`.
 
-**Índices / unicidad declarados:** `inventory_authorization_allocations_auth_idx` (index); `inventory_authorization_allocations_oc_product_idx` (index); `inventory_authorization_allocations_product_point_idx` (index).
+**Índices / unicidad declarados:** `inventory_authorization_allocations_active_scope_idx` (index); `inventory_authorization_allocations_auth_idx` (index); `inventory_authorization_allocations_oc_product_idx` (index); `inventory_authorization_allocations_product_point_idx` (index).
 
 **Checks declarados:** `inventory_authorization_allocations_quantity_check`; `inventory_authorization_allocations_status_check`; `inventory_authorization_allocations_version_check`.
 
