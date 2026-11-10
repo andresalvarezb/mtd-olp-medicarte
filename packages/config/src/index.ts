@@ -91,7 +91,9 @@ const driveAuditSyncConfigSchema = {
     .transform((value) => value === 'true')
     .default('false'),
 
-  GOOGLE_DRIVE_AUDIT_SYNC_SCOPE: z.enum(['ALL', 'CLOSED_ONLY']).default('ALL'),
+  GOOGLE_DRIVE_AUDIT_SYNC_SCOPE: z
+    .enum(['ALL', 'CLOSED_ONLY', 'RECENT_10_DAYS'])
+    .default('ALL'),
 
   GOOGLE_DRIVE_AUDIT_SYNC_POLL_INTERVAL_MS: z.coerce.number().int().min(10_000).default(60_000),
 

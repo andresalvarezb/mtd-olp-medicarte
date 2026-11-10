@@ -347,6 +347,31 @@ export class AuthorizationDriveSupportSync {
 
   private async findCandidates():
     Promise<Candidate[]> {
+    const useRecentLoadScope =
+      this.config
+        .GOOGLE_DRIVE_AUDIT_SYNC_SCOPE ===
+        'RECENT_10_DAYS';
+
+    const recentLoadJoin =
+      useRecentLoadScope
+        ? `
+          join import_batches recent_load
+            on recent_load.id = ai.last_load_id
+        `
+        : '';
+
+    const recentLoadFilter =
+      useRecentLoadScope
+        ? `
+              or (
+                $1::text = 'RECENT_10_DAYS'
+
+                and recent_load.created_at >=
+                  now() - interval '10 days'
+              )
+          `
+        : '';
+
     const result =
       await this.database.pool.query<Candidate>(
         `
@@ -358,6 +383,8 @@ export class AuthorizationDriveSupportSync {
 
           from
             authorization_items ai
+
+          ${recentLoadJoin}
 
           left join
             authorization_drive_support_sync sync
@@ -507,6 +534,8 @@ export class AuthorizationDriveSupportSync {
                     0
                 end
               )
+
+              ${recentLoadFilter}
             )
 
           order by
