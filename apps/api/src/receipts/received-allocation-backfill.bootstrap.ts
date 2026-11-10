@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   Inject,
   Injectable,
@@ -187,7 +189,7 @@ export class ReceivedAllocationBackfillBootstrapService
               row.user_id,
 
             correlationId:
-              `deploy-received-auto-backfill-${batch}`,
+              randomUUID(),
 
             readSensitive:
               true,
