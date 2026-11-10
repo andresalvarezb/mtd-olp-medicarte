@@ -109,6 +109,24 @@ describe(
 
 
     it(
+      'genera un UUID para la correlacion de cada lote del backfill',
+      () => {
+        expect(bootstrap).toMatch(
+          /import\s+\{\s*randomUUID\s*\}\s+from\s+'node:crypto';/,
+        );
+
+        expect(bootstrap).toMatch(
+          /correlationId:\s*randomUUID\(\)/,
+        );
+
+        expect(bootstrap).not.toContain(
+          'deploy-received-auto-backfill-${batch}',
+        );
+      },
+    );
+
+
+    it(
       'solo ejecuta automaticamente en produccion',
       () => {
         expect(bootstrap).toContain(
