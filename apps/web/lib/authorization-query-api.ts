@@ -1,6 +1,7 @@
 import {
   apiRequest,
 } from './api-client';
+import type { RealtimeRequestTrace } from '@/components/realtime/realtime-context';
 
 export type AuthorizationOperationalStatus =
   | 'UNASSIGNED'
@@ -351,6 +352,7 @@ export function listAuthorizationQuery(
   filters:
     AuthorizationQueryFilters,
   signal?: AbortSignal,
+  realtimeTrace?: RealtimeRequestTrace,
 ) {
   const params =
     new URLSearchParams();
@@ -451,6 +453,7 @@ export function listAuthorizationQuery(
     `/authorization-query?${params}`,
     {
       organizationId,
+      ...(realtimeTrace ? { realtimeTrace } : {}),
       ...(signal ? { signal } : {}),
     },
   );

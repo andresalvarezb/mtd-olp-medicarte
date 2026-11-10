@@ -12,6 +12,7 @@ import {
 import {
   REALTIME_TOPICS,
   realtimeInvalidationMessageSchema,
+  type RealtimeInvalidationMessage,
   type RealtimeTopic,
 } from '@authorization/contracts';
 import { useRole } from '@/components/layout/role-context';
@@ -20,10 +21,90 @@ import { SESSION_EXPIRED_EVENT, clearSession, getAccessToken } from '@/lib/auth'
 
 export type RealtimeConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting';
 type Revisions = Record<RealtimeTopic, number>;
+type RealtimeEventTrace = Pick<
+  RealtimeInvalidationMessage,
+  'eventId' | 'correlationId' | 'occurredAt'
+>;
+
+export type RealtimeRequestTrace = Readonly<{
+  batchIds: readonly string[];
+  eventIds: readonly string[];
+  correlationIds: readonly string[];
+  oldestOccurredAt: string | null;
+}>;
+
+type TopicTraces = Partial<Record<RealtimeTopic, RealtimeRequestTrace>>;
+
+const REALTIME_INVALIDATION_BATCH_MS = 1_000;
+
+export function createRealtimeInvalidationBatcher(
+  onFlush: (
+    topics: readonly RealtimeTopic[],
+    trace: RealtimeRequestTrace,
+  ) => void,
+  batchWindowMs = REALTIME_INVALIDATION_BATCH_MS,
+): Readonly<{
+  invalidate: (topics: readonly RealtimeTopic[], event?: RealtimeEventTrace) => void;
+  cancel: () => void;
+}> {
+  const pending = new Set<RealtimeTopic>();
+  const pendingEvents = new Map<string, RealtimeEventTrace>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let oldestOccurredAt: string | null = null;
+  let oldestOccurredAtMs = Number.POSITIVE_INFINITY;
+
+  return {
+    invalidate(topics, event) {
+      for (const topic of topics) pending.add(topic);
+      if (event) {
+        pendingEvents.set(event.eventId, event);
+        while (pendingEvents.size > 20) {
+          const oldestEventId = pendingEvents.keys().next().value;
+          if (oldestEventId) pendingEvents.delete(oldestEventId);
+        }
+
+        const occurredAtMs = Date.parse(event.occurredAt);
+        if (Number.isFinite(occurredAtMs) && occurredAtMs < oldestOccurredAtMs) {
+          oldestOccurredAtMs = occurredAtMs;
+          oldestOccurredAt = event.occurredAt;
+        }
+      }
+      if (timer !== null) return;
+
+      timer = setTimeout(() => {
+        timer = null;
+        if (pending.size === 0) return;
+
+        const batch = [...pending];
+        pending.clear();
+        const events = [...pendingEvents.values()];
+        pendingEvents.clear();
+        const trace: RealtimeRequestTrace = {
+          batchIds: [globalThis.crypto.randomUUID()],
+          eventIds: events.map(({ eventId }) => eventId),
+          correlationIds: [...new Set(events.map(({ correlationId }) => correlationId))],
+          oldestOccurredAt,
+        };
+        oldestOccurredAt = null;
+        oldestOccurredAtMs = Number.POSITIVE_INFINITY;
+        onFlush(batch, trace);
+      }, batchWindowMs);
+    },
+    cancel() {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      pending.clear();
+      pendingEvents.clear();
+      oldestOccurredAt = null;
+      oldestOccurredAtMs = Number.POSITIVE_INFINITY;
+    },
+  };
+}
 
 type RealtimeContextValue = Readonly<{
   status: RealtimeConnectionStatus;
   revisions: Revisions;
+  traces: TopicTraces;
 }>;
 
 const EMPTY_REVISIONS = Object.fromEntries(
@@ -33,6 +114,7 @@ const EMPTY_REVISIONS = Object.fromEntries(
 const RealtimeContext = createContext<RealtimeContextValue>({
   status: 'idle',
   revisions: EMPTY_REVISIONS,
+  traces: {},
 });
 
 function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
@@ -97,10 +179,9 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const { status: authStatus, organizationId } = useRole();
   const [status, setStatus] = useState<RealtimeConnectionStatus>('idle');
   const [revisions, setRevisions] = useState<Revisions>(EMPTY_REVISIONS);
+  const [traces, setTraces] = useState<TopicTraces>({});
   const seenIds = useRef<string[]>([]);
   const seenIdSet = useRef(new Set<string>());
-  const pendingTopics = useRef(new Set<RealtimeTopic>());
-  const flushTimer = useRef<number | null>(null);
 
   useEffect(() => {
     if (authStatus !== 'authenticated' || !organizationId) {
@@ -111,14 +192,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     const lifecycle = new AbortController();
     let streamAbort: AbortController | null = null;
     let reconnectAttempt = 0;
-
-    const flushPending = (): void => {
-      flushTimer.current = null;
-      if (pendingTopics.current.size === 0) return;
-
-      const topics = [...pendingTopics.current];
-      pendingTopics.current.clear();
-
+    const invalidationBatcher = createRealtimeInvalidationBatcher((topics, trace) => {
       setRevisions((current) => {
         const next = { ...current };
         for (const topic of topics) {
@@ -126,13 +200,13 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         }
         return next;
       });
-    };
-
-    const invalidate = (topics: readonly RealtimeTopic[]): void => {
-      for (const topic of topics) pendingTopics.current.add(topic);
-      if (flushTimer.current !== null) return;
-      flushTimer.current = window.setTimeout(flushPending, 120);
-    };
+      setTraces((current) => {
+        const next = { ...current };
+        for (const topic of topics) next[topic] = trace;
+        return next;
+      });
+    });
+    const invalidate = invalidationBatcher.invalidate;
 
     const rememberEvent = (eventId: string): boolean => {
       if (seenIdSet.current.has(eventId)) return false;
@@ -204,7 +278,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
             if (parsed.data.organizationId !== organizationId) return;
             if (!rememberEvent(parsed.data.eventId)) return;
 
-            invalidate(parsed.data.topics);
+            invalidate(parsed.data.topics, parsed.data);
           });
 
           if (!lifecycle.signal.aborted) throw new Error('REALTIME_STREAM_CLOSED');
@@ -229,15 +303,14 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     return () => {
       lifecycle.abort();
       streamAbort?.abort();
-      if (flushTimer.current !== null) {
-        window.clearTimeout(flushTimer.current);
-        flushTimer.current = null;
-      }
-      pendingTopics.current.clear();
+      invalidationBatcher.cancel();
     };
   }, [authStatus, organizationId]);
 
-  const value = useMemo<RealtimeContextValue>(() => ({ status, revisions }), [status, revisions]);
+  const value = useMemo<RealtimeContextValue>(
+    () => ({ status, revisions, traces }),
+    [status, revisions, traces],
+  );
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;
 }
 
@@ -248,4 +321,37 @@ export function useRealtimeStatus(): RealtimeConnectionStatus {
 export function useRealtimeRevision(topics: readonly RealtimeTopic[]): number {
   const { revisions } = useContext(RealtimeContext);
   return topics.reduce((total, topic) => total + revisions[topic], 0);
+}
+
+export function useRealtimeRequestTrace(
+  topics: readonly RealtimeTopic[],
+): RealtimeRequestTrace | null {
+  const { traces } = useContext(RealtimeContext);
+  const topicTraces = topics.map((topic) => traces[topic]).filter(
+    (trace): trace is RealtimeRequestTrace => trace !== undefined,
+  );
+
+  const occurredAtValues = topicTraces
+    .map(({ oldestOccurredAt }) => oldestOccurredAt)
+    .filter((value): value is string => value !== null);
+  const oldestOccurredAt = occurredAtValues.length === 0
+    ? null
+    : occurredAtValues.reduce((oldest, value) =>
+        Date.parse(value) < Date.parse(oldest) ? value : oldest,
+      );
+
+  const trace: RealtimeRequestTrace | null = topicTraces.length === 0
+    ? null
+    : {
+        batchIds: [...new Set(topicTraces.flatMap(({ batchIds }) => batchIds))].slice(-20),
+        eventIds: [...new Set(topicTraces.flatMap(({ eventIds }) => eventIds))].slice(-20),
+        correlationIds: [...new Set(topicTraces.flatMap(({ correlationIds }) => correlationIds))].slice(-20),
+        oldestOccurredAt,
+      };
+  const serializedTrace = JSON.stringify(trace);
+
+  return useMemo(
+    () => JSON.parse(serializedTrace) as RealtimeRequestTrace | null,
+    [serializedTrace],
+  );
 }

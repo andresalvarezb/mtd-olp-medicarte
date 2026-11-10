@@ -1,5 +1,6 @@
 import { SESSION_EXPIRED_EVENT, clearSession, getAccessToken } from './auth';
 import { API_BASE_URL } from './config';
+import type { RealtimeRequestTrace } from '@/components/realtime/realtime-context';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -22,15 +23,26 @@ interface ApiRequestOptions {
   organizationId?: string | undefined;
   body?: BodyInit | undefined;
   idempotencyKey?: string | undefined;
+  realtimeTrace?: RealtimeRequestTrace | undefined;
   signal?: AbortSignal | undefined;
 }
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    'X-Correlation-Id': globalThis.crypto.randomUUID(),
+  };
   if (options.organizationId) headers['X-Organization-Id'] = options.organizationId;
   const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
+  if (options.realtimeTrace) {
+    headers['X-Realtime-Batch-Ids'] = options.realtimeTrace.batchIds.join(',');
+    headers['X-Realtime-Event-Ids'] = options.realtimeTrace.eventIds.join(',');
+    headers['X-Realtime-Correlation-Ids'] = options.realtimeTrace.correlationIds.join(',');
+    if (options.realtimeTrace.oldestOccurredAt) {
+      headers['X-Realtime-Occurred-At'] = options.realtimeTrace.oldestOccurredAt;
+    }
+  }
   if (options.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
