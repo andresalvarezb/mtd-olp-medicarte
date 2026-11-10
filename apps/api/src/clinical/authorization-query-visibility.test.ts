@@ -213,6 +213,57 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(query).toContain('user_point_scopes');
   });
 
+  it('keeps sensitive searches inside each organization data scope', async () => {
+    const cases = [
+      {
+        organizationCode: 'MTD',
+        organizationId: '10000000-0000-4000-8000-000000000001',
+        pointAccessKind: 'unrestricted' as const,
+      },
+      {
+        organizationCode: 'MEDICARTE',
+        organizationId: '10000000-0000-4000-8000-000000000004',
+        pointAccessKind: 'explicit' as const,
+      },
+      {
+        organizationCode: 'OLP',
+        organizationId: '10000000-0000-4000-8000-000000000003',
+        pointAccessKind: 'unrestricted' as const,
+      },
+      {
+        organizationCode: 'COMPENSAR',
+        organizationId: '10000000-0000-4000-8000-000000000002',
+        pointAccessKind: 'unrestricted' as const,
+      },
+    ];
+
+    for (const organization of cases) {
+      const { repository, execute } = fixture();
+      execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 0 }] });
+
+      await repository.list(
+        { page: 1, limit: 50, patient: 'SYNTHETIC-001' },
+        {
+          ...scope,
+          ...organization,
+          readSensitive: true,
+        },
+      );
+
+      const query = queryText(execute.mock.calls[0]?.[0]);
+      expect(query).toContain('SYNTHETIC-001');
+
+      if (organization.organizationCode === 'MEDICARTE') {
+        expect(query).toContain('user_point_scopes');
+      }
+
+      if (organization.organizationCode === 'COMPENSAR') {
+        expect(query).toContain('authorization_item_organizations');
+        expect(query).toContain(organization.organizationId);
+      }
+    }
+  });
+
   it('keeps the exact total when the selected page has no rows', async () => {
     const { repository, execute } = fixture();
     execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 23 }] });
