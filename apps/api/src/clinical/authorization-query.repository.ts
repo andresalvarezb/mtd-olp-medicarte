@@ -28,7 +28,6 @@ import {
 } from '../common/date-time';
 
 import {
-  AUTHORIZATION_FULFILLMENT_GRACE_DAYS,
   evaluateAuthorizationFulfillmentWindow,
   evaluateEffectiveMipresEligibility,
 } from '@authorization/domain';
@@ -335,65 +334,6 @@ export class AuthorizationQueryRepository {
       return this.organizationVisibility(scope);
     }
 
-    if (
-      scope.organizationCode ===
-      'MEDICARTE'
-    ) {
-      const remainingAuthorizedQuantity =
-        this.remainingAuthorizedQuantitySql();
-
-      const remainingAssignedQuantity =
-        this.remainingAssignedQuantitySql(scope);
-
-      const today =
-        authorizationQueryValidityWindow().today;
-
-      const graceStart =
-        new Date(
-          Date.parse(`${today}T00:00:00.000Z`)
-          - AUTHORIZATION_FULFILLMENT_GRACE_DAYS * 86_400_000,
-        )
-          .toISOString()
-          .slice(0, 10)
-          .replace(/-/g, '');
-
-      const validityEndDateKey =
-        this.sourceDateKey('FECHA_FINAL_VIGENCIA');
-
-      return sql`
-        (
-          ${this.operationalEligibility()}
-        )
-
-        and
-
-        (
-          ${remainingAuthorizedQuantity}
-        ) > 0
-
-        and
-
-        (
-          ${remainingAssignedQuantity}
-        ) > 0
-
-        and
-
-        /* operationalEligibility already limits dates to IN_WINDOW or EXPIRED. */
-        (
-          ${validityEndDateKey} >= ${graceStart}
-
-          or
-
-          ${this.fulfilledQuantitySql()} > 0
-        )
-      `;
-    }
-
-    /*
-     * Comportamiento operacional existente para
-     * los demás actores.
-     */
     return sql`true`;
   }
 
@@ -4057,11 +3997,6 @@ export class AuthorizationQueryRepository {
     const validityWindow = authorizationQueryValidityWindow();
     const todayKey = validityWindow.today.replace(/-/g, '');
     const horizonKey = validityWindow.horizon.replace(/-/g, '');
-    const graceStart = new Date(
-      Date.parse(`${validityWindow.today}T00:00:00.000Z`)
-      - AUTHORIZATION_FULFILLMENT_GRACE_DAYS * 86_400_000,
-    ).toISOString().slice(0, 10).replace(/-/g, '');
-
     const quantityText = sql`btrim(coalesce(i.source_data ->> 'CANTIDAD', ''))`;
     const quantityNumeric = sql`
       case
@@ -4084,18 +4019,6 @@ export class AuthorizationQueryRepository {
     );
 
     const derivedConditions: SQL[] = [];
-    if (scope.organizationCode === 'MEDICARTE') {
-      derivedConditions.push(sql`
-        classified.operational_eligible
-        and classified.remaining_authorized_quantity > 0
-        and classified.remaining_assigned_quantity > 0
-        and (
-          classified.validity_end_date_key >= ${graceStart}
-          or classified.fulfilled_quantity > 0
-        )
-      `);
-    }
-
     if (filters?.lifecycleEnablement) {
       derivedConditions.push(sql`
         classified.lifecycle_enablement = ${filters.lifecycleEnablement}
@@ -4207,30 +4130,11 @@ export class AuthorizationQueryRepository {
       ? sql.join(restrictions, sql` and `)
       : sql`true`;
 
-    const restrictedAuthorizations = scope.organizationCode === 'MEDICARTE' && !authorizationId
-      ? sql`
-          select i.id
-          from authorization_items i
-          where ${initialWhere}
-            and exists (
-              select 1
-              from inventory_authorization_allocations allocation_scope
-              join dispensing_points dp_scope
-                on dp_scope.id = allocation_scope.dispensing_point_id
-              where allocation_scope.authorization_item_id = i.id
-                and allocation_scope.status in (
-                  'ALLOCATED',
-                  'PARTIALLY_CONSUMED'
-                )
-                and dp_scope.organization_id = ${scope.organizationId}::uuid
-                and ${applyPointScope(sql`dp_scope.id`, scope)}
-            )
-        `
-      : sql`
-          select i.id
-          from authorization_items i
-          where ${initialWhere}
-        `;
+    const restrictedAuthorizations = sql`
+      select i.id
+      from authorization_items i
+      where ${initialWhere}
+    `;
 
     const assignedRemainingProjection = scope.organizationCode === 'MEDICARTE'
       || filters?.operationalStatus === 'ASSIGNED'
@@ -4327,19 +4231,6 @@ export class AuthorizationQueryRepository {
       operational_candidates as materialized (
         select validated.*
         from authorization_validation validated
-        where ${scope.organizationCode === 'MEDICARTE'
-          ? sql`
-              validated.initial_validation_status = 'PASSED'
-              and (
-                validated.coverage_type = 'PBS'
-                or (
-                  validated.coverage_type = 'NO_PBS'
-                  and validated.mipres_manual_decision = 'MANUALLY_ENABLED'
-                )
-              )
-              and validated.validity_status in ('IN_WINDOW', 'EXPIRED')
-            `
-          : sql`true`}
       ),
 
       confirmed_fulfillment_progress as (

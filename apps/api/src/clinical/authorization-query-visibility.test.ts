@@ -35,7 +35,7 @@ function queryText(query: unknown): string {
 }
 
 describe('authorization query MEDICARTE visibility', () => {
-  it('applies the operational and point scope before counting or paging', async () => {
+  it('counts and pages all authorizations regardless of operational eligibility', async () => {
     const { repository, execute } = fixture();
     execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 0 }] });
 
@@ -44,20 +44,24 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(execute).toHaveBeenCalledTimes(1);
     const pageQuery = queryText(execute.mock.calls[0]?.[0]);
     const compiledQuery = new PgDialect().sqlToQuery(execute.mock.calls[0]?.[0] as never);
+    const restrictedAuthorizations = pageQuery.slice(
+      pageQuery.indexOf('restricted_authorizations as materialized'),
+      pageQuery.indexOf('authorization_facts as materialized'),
+    );
+    const operationalCandidates = pageQuery.slice(
+      pageQuery.indexOf('operational_candidates as materialized'),
+      pageQuery.indexOf('confirmed_fulfillment_progress as ('),
+    );
+    const matchingAuthorizations = pageQuery.slice(
+      pageQuery.indexOf('matching_authorizations as materialized'),
+      pageQuery.indexOf('query_total as materialized'),
+    );
 
     expect(pageQuery).toContain('matching_authorizations as materialized');
     expect(pageQuery).toContain('query_total as materialized');
     expect(pageQuery).toContain('restricted_authorizations as materialized');
     expect(pageQuery).toContain('from authorization_items i');
-    expect(pageQuery).toContain('from inventory_authorization_allocations allocation_scope');
-    expect(pageQuery).toContain('allocation_scope.authorization_item_id = i.id');
-    expect(pageQuery).toContain('and exists');
     expect(pageQuery).not.toContain('select distinct i.id');
-    expect(pageQuery).toContain('join dispensing_points dp_scope');
-    expect(pageQuery.replace(/\s+/g, ' ')).toContain(
-      "allocation_scope.status in ( 'ALLOCATED', 'PARTIALLY_CONSUMED' )",
-    );
-    expect(pageQuery).toContain('dp_scope.organization_id');
     expect(pageQuery).toContain('user_point_scopes');
     expect(pageQuery).toContain('authorization_calculations as materialized');
     expect(pageQuery).toContain('authorization_validation as materialized');
@@ -77,15 +81,7 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(pageQuery).toContain('authorization_item_id');
     expect(pageQuery).toContain('inventory_authorization_allocations');
     expect(pageQuery).toContain('dispensing_points');
-    expect(pageQuery).toContain('user_point_scopes');
     expect(pageQuery).toContain('dp_assigned_scope.organization_id');
-    expect(pageQuery).toContain("validated.initial_validation_status = 'PASSED'");
-    expect(pageQuery).toContain("validated.mipres_manual_decision = 'MANUALLY_ENABLED'");
-    expect(pageQuery).toContain("validated.validity_status in ('IN_WINDOW', 'EXPIRED')");
-    expect(pageQuery).toContain('classified.remaining_authorized_quantity > 0');
-    expect(pageQuery).toContain('classified.remaining_assigned_quantity > 0');
-    expect(pageQuery).toContain('classified.validity_end_date_key >=');
-    expect(pageQuery).toContain('classified.fulfilled_quantity > 0');
     expect(pageQuery).toContain("'PARTIALLY_CONSUMED'");
     expect(pageQuery).toContain('> 0');
     expect(pageQuery).toContain('sort_closed asc');
@@ -112,6 +108,43 @@ describe('authorization query MEDICARTE visibility', () => {
       .toHaveLength(2);
     expect(pageQuery.indexOf('page_selection as materialized'))
       .toBeLessThan(pageQuery.indexOf('page_allocation_details as materialized'));
+    expect(restrictedAuthorizations.replace(/\s+/g, ' '))
+      .toContain('select i.id from authorization_items i where true');
+    expect(restrictedAuthorizations).not.toContain('inventory_authorization_allocations');
+    expect(operationalCandidates).not.toContain('initial_validation_status');
+    expect(operationalCandidates).not.toContain('mipres_manual_decision');
+    expect(operationalCandidates).not.toContain('validity_status in');
+    expect(matchingAuthorizations).toContain('where true');
+    expect(matchingAuthorizations).not.toContain('classified.operational_eligible');
+    expect(matchingAuthorizations).not.toContain('classified.remaining_assigned_quantity > 0');
+    expect(matchingAuthorizations).not.toContain('classified.remaining_authorized_quantity > 0');
+    expect(matchingAuthorizations).not.toContain('classified.validity_end_date_key >=');
+    expect(matchingAuthorizations).not.toContain('classified.fulfilled_quantity > 0');
+
+    const mtd = fixture();
+    await mtd.repository.list(
+      { page: 1, limit: 50 },
+      { ...scope, organizationCode: 'MTD', pointAccessKind: 'unrestricted' },
+    );
+    const mtdQuery = queryText(mtd.execute.mock.calls[0]?.[0]);
+    expect(restrictedAuthorizations).toBe(
+      mtdQuery.slice(
+        mtdQuery.indexOf('restricted_authorizations as materialized'),
+        mtdQuery.indexOf('authorization_facts as materialized'),
+      ),
+    );
+    expect(operationalCandidates).toBe(
+      mtdQuery.slice(
+        mtdQuery.indexOf('operational_candidates as materialized'),
+        mtdQuery.indexOf('confirmed_fulfillment_progress as ('),
+      ),
+    );
+    expect(matchingAuthorizations).toBe(
+      mtdQuery.slice(
+        mtdQuery.indexOf('matching_authorizations as materialized'),
+        mtdQuery.indexOf('query_total as materialized'),
+      ),
+    );
     expect(compiledQuery.params).not.toContain('FECHA_ASIGNACION');
     expect(compiledQuery.params).not.toContain('FECHA_FINAL_VIGENCIA');
   });
@@ -130,17 +163,31 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(compiled.params.length).toBeLessThan(100);
   });
 
-  it('uses the same visibility predicate for UUID detail lookup', async () => {
+  it('keeps UUID detail lookup visible regardless of operational eligibility', async () => {
     const { repository, execute } = fixture();
 
     await repository.detail('30000000-0000-4000-8000-000000000001', scope);
 
     expect(execute).toHaveBeenCalledTimes(1);
-    const detailQuery = queryText(execute.mock.calls[0]?.[0]);
-    expect(detailQuery).toContain('user_point_scopes');
-    expect(detailQuery).toContain('inventory_authorization_allocations');
-    expect(detailQuery).toContain('i.mipres_manual_decision');
-    expect(detailQuery).not.toContain('allocation_scope');
+    const query = queryText(execute.mock.calls[0]?.[0]);
+    const operationalCandidates = query.slice(
+      query.indexOf('operational_candidates as materialized'),
+      query.indexOf('confirmed_fulfillment_progress as ('),
+    );
+    expect(operationalCandidates).not.toContain('initial_validation_status');
+    expect(operationalCandidates).not.toContain('validity_status in');
+  });
+
+  it('keeps history visible regardless of operational eligibility', async () => {
+    const { repository, execute } = fixture();
+
+    await repository.history('30000000-0000-4000-8000-000000000001', scope);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    const historyQuery = queryText(execute.mock.calls[0]?.[0]);
+    expect(historyQuery).toContain('and true');
+    expect(historyQuery).not.toContain('remaining_authorized_quantity');
+    expect(historyQuery).not.toContain('remaining_assigned_quantity');
   });
 
   it('masks patient identity when sensitive-read permission is absent', () => {
@@ -183,7 +230,7 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it('keeps MTD and COMPENSAR list visibility policies distinct from MEDICARTE', async () => {
+  it('keeps COMPENSAR list visibility scoped to its organization', async () => {
     const mtd = fixture();
     mtd.execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 0 }] });
     await mtd.repository.list(
