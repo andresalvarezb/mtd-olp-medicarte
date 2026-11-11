@@ -17,9 +17,17 @@ import {
   listPatientReconciliationCases,
   searchPatientMaster,
 } from '@/lib/patient-master-api';
-import styles from './patient-master-demo-view.module.css';
+import styles from './patient-master-view.module.css';
 
 const PAGE_SIZE = 25;
+const IDENTIFICATION_TYPES = [
+  { value: 'CC', label: 'CC · Cédula de ciudadanía' },
+  { value: 'CE', label: 'CE · Cédula de extranjería' },
+  { value: 'TI', label: 'TI · Tarjeta de identidad' },
+  { value: 'RC', label: 'RC · Registro civil' },
+  { value: 'PA', label: 'PA · Pasaporte' },
+  { value: 'NIT', label: 'NIT · Identificación tributaria' },
+] as const;
 
 function safeErrorMessage(error: unknown): string {
   if (error instanceof ApiError && [403, 404].includes(error.status)) {
@@ -192,12 +200,14 @@ export function PatientMasterView() {
       <PageHeader
         title="Maestro de pacientes"
         description="Consulta de identidad local, evidencia histórica y estado técnico MTDOM dentro del alcance autorizado."
+        actions={
+          canReadReconciliation ? (
+            <button className="btn" type="button" onClick={() => void openCases()}>
+              Casos de conciliación
+            </button>
+          ) : null
+        }
       />
-      {canReadReconciliation ? (
-        <button className="btn" type="button" onClick={() => void openCases()}>
-          Casos de conciliación
-        </button>
-      ) : null}
       {showCases ? (
         <section className={styles.card} aria-label="Casos de conciliación de pacientes">
           <div className={styles.sectionHeading}>
@@ -225,11 +235,24 @@ export function PatientMasterView() {
       ) : null}
 
       <section className={styles.card} aria-label="Búsqueda de pacientes">
+        <div className={styles.sectionHeading}>
+          <div>
+            <h2>Consultar registros</h2>
+            <p>Busca por identidad exacta y revisa el estado de vinculación.</p>
+          </div>
+          {state === 'ready' && list ? (
+            <span className={styles.resultCount}>{list.total} registros</span>
+          ) : null}
+        </div>
         <form className={styles.filters} onSubmit={submitSearch}>
           {isMedicarte ? (
             <label>
               Punto autorizado
-              <select value={pointId} onChange={(event) => setPointId(event.target.value)}>
+              <select
+                aria-label="Punto autorizado"
+                value={pointId}
+                onChange={(event) => setPointId(event.target.value)}
+              >
                 <option value="">Selecciona un punto</option>
                 {accessiblePointIds.map((id) => (
                   <option key={id} value={id}>
@@ -240,22 +263,30 @@ export function PatientMasterView() {
             </label>
           ) : null}
           <label>
-            Tipo exacto de identificación
-            <input
-              value={identityType}
-              onChange={(event) => setIdentityType(event.target.value)}
-              maxLength={80}
-            />
+            Tipo de identificación
+            <select value={identityType} onChange={(event) => setIdentityType(event.target.value)}>
+              <option value="">Selecciona un tipo</option>
+              {IDENTIFICATION_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Valor exacto de identificación
             <input
               value={identityValue}
+              placeholder="Ingresa el valor exacto"
               onChange={(event) => setIdentityValue(event.target.value)}
               maxLength={255}
             />
           </label>
-          <button type="submit" disabled={!hasReadPermission || (isMedicarte && !pointId)}>
+          <button
+            className={styles.primaryButton}
+            type="submit"
+            disabled={!hasReadPermission || (isMedicarte && !pointId)}
+          >
             Buscar
           </button>
           {appliedIdentity.identificationValue ? (
@@ -273,24 +304,43 @@ export function PatientMasterView() {
           ) : null}
         </form>
         <p className={styles.scopeNotice}>
-          La búsqueda usa coincidencia exacta sin normalizar y no devuelve el documento. Los datos
-          de la lista vienen de la API; no se muestran perfiles personales de MTDOM.
+          <span aria-hidden="true">i</span>
+          <span>
+            Coincidencia exacta sin normalizar. La lista no devuelve el documento ni muestra
+            perfiles personales de MTDOM.
+          </span>
         </p>
-        {error ? <p role="alert">{error}</p> : null}
-        {state === 'loading' ? <p role="status">Cargando pacientes…</p> : null}
+        {error ? (
+          <p className={styles.errorMessage} role="alert">
+            {error}
+          </p>
+        ) : null}
+        {state === 'loading' ? (
+          <p className={styles.stateMessage} role="status">
+            Cargando pacientes…
+          </p>
+        ) : null}
         {state === 'denied' ? (
-          <p role="status">
+          <p className={styles.stateMessage} role="status">
             No tienes autorización para consultar el maestro dentro del alcance solicitado.
           </p>
         ) : null}
         {state === 'error' && !error ? (
-          <p role="alert">No fue posible consultar el maestro.</p>
+          <p className={styles.errorMessage} role="alert">
+            No fue posible consultar el maestro.
+          </p>
         ) : null}
         {state === 'ready' && list?.items.length === 0 ? (
-          <p>Sin resultados dentro del alcance autorizado.</p>
+          <p className={styles.stateMessage}>Sin resultados dentro del alcance autorizado.</p>
         ) : null}
         {state === 'ready' && list && list.items.length > 0 ? (
           <>
+            <div className={styles.tableMeta}>
+              <span>Resultados de búsqueda</span>
+              <span>
+                Mostrando {list.items.length} de {list.total}
+              </span>
+            </div>
             <div className={styles.tableWrap}>
               <table>
                 <caption>Pacientes dentro del alcance autorizado</caption>
@@ -313,7 +363,11 @@ export function PatientMasterView() {
                       <td>{patient.linkedAuthorizationCount}</td>
                       <td>{patient.historicalCandidateAuthorizationCount}</td>
                       <td>
-                        <button type="button" onClick={() => void openDetail(patient.id)}>
+                        <button
+                          className={styles.detailButton}
+                          type="button"
+                          onClick={() => void openDetail(patient.id)}
+                        >
                           Ver detalle
                         </button>
                       </td>
