@@ -820,6 +820,13 @@
       "when": 1794310001000,
       "tag": "0116_authorization_query_scope_candidates",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1794310002000,
+      "tag": "0117_authorization_drive_change_cursor",
+      "breakpoints": true
     }
   ]
 }

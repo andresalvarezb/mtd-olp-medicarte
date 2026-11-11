@@ -97,6 +97,18 @@ services:
           property: connectionString
       - key: SCHEDULER_ENABLED
         value: 'true'
+      - key: GOOGLE_DRIVE_AUDIT_SYNC_RECHECK_MS
+        value: '43200000'
+      - key: GOOGLE_DRIVE_AUDIT_SYNC_CHANGE_FEED_ENABLED
+        value: 'true'
+      - key: GOOGLE_DRIVE_AUDIT_SYNC_POLL_INTERVAL_MS
+        value: '60000'
+      - key: GOOGLE_DRIVE_AUDIT_SYNC_BATCH_SIZE
+        value: '25'
+      - key: GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MS
+        value: '300000'
+      - key: GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MAX_MS
+        value: '43200000'
       - key: MTDOM_PATIENT_LOOKUP_ENABLED
         sync: false
       - key: MTDOM_PATIENT_LOOKUP_SYNC_ENABLED

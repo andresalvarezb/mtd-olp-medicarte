@@ -91,19 +91,26 @@ const driveAuditSyncConfigSchema = {
     .transform((value) => value === 'true')
     .default('false'),
 
+  GOOGLE_DRIVE_AUDIT_SYNC_CHANGE_FEED_ENABLED: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .default('true'),
+
   GOOGLE_DRIVE_AUDIT_SYNC_SCOPE: z
     .enum(['ALL', 'CLOSED_ONLY', 'RECENT_10_DAYS'])
     .default('ALL'),
 
   GOOGLE_DRIVE_AUDIT_SYNC_POLL_INTERVAL_MS: z.coerce.number().int().min(10_000).default(60_000),
 
-  GOOGLE_DRIVE_AUDIT_SYNC_BATCH_SIZE: z.coerce.number().int().min(1).max(50).default(10),
+  GOOGLE_DRIVE_AUDIT_SYNC_BATCH_SIZE: z.coerce.number().int().min(1).max(50).default(25),
 
   GOOGLE_DRIVE_AUDIT_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(5).default(2),
 
-  GOOGLE_DRIVE_AUDIT_SYNC_RECHECK_MS: z.coerce.number().int().min(300_000).default(1_800_000),
+  GOOGLE_DRIVE_AUDIT_SYNC_RECHECK_MS: z.coerce.number().int().min(300_000).default(43_200_000),
 
   GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MS: z.coerce.number().int().min(60_000).default(300_000),
+
+  GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MAX_MS: z.coerce.number().int().min(300_000).default(43_200_000),
 };
 
 const bulkConfigSchema = {

@@ -96,6 +96,13 @@ export class AuthorizationDriveSupportSync {
     }
 
 
+    if (
+      this.config
+        .GOOGLE_DRIVE_AUDIT_SYNC_CHANGE_FEED_ENABLED
+    ) {
+      await this.runChangeFeed();
+      return;
+    }
     const rootIds =
       this.rootIds();
 
@@ -429,6 +436,336 @@ export class AuthorizationDriveSupportSync {
     }
   }
 
+
+  private async runChangeFeed(): Promise<void> {
+    const rootIds = this.rootIds();
+    const credentialFile = this.config.GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE;
+    if (rootIds.length === 0 || !credentialFile || !existsSync(credentialFile)) {
+      this.logger.error(
+        { credentialFile: credentialFile ?? null, rootCount: rootIds.length },
+        'authorization drive change feed is not configured',
+      );
+      return;
+    }
+
+    const due = await this.database.pool.query<{ should_run: boolean; has_cursor: boolean }>(
+      `select
+         exists (select 1 from authorization_drive_change_cursors) as has_cursor,
+         not exists (select 1 from authorization_drive_change_cursors)
+         or exists (select 1 from authorization_drive_change_cursors where next_poll_at <= now()) as should_run`,
+    );
+    if (!due.rows[0]?.should_run) return;
+
+    const lockClient = await this.database.pool.connect();
+    let lockAcquired = false;
+    try {
+      const lock = await lockClient.query<{ acquired: boolean }>(
+        'select pg_try_advisory_lock($1::bigint) as acquired',
+        [DRIVE_SUPPORT_SYNC_LOCK],
+      );
+      if (!lock.rows[0]?.acquired) return;
+      lockAcquired = true;
+
+      if (!due.rows[0]?.has_cursor) {
+        await this.database.pool.query(
+          `insert into authorization_drive_change_cursors (feed_key, drive_id, page_token)
+           values ('bootstrap', null, 'pending')
+           on conflict (feed_key) do nothing`,
+        );
+      }
+
+      const auth = new google.auth.GoogleAuth({
+        keyFile: credentialFile,
+        scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+      });
+      const drive = google.drive({ version: 'v3', auth });
+      const feeds = await this.getDriveFeeds(drive, rootIds);
+      const totals = { pages: 0, changes: 0, matched: 0, ignored: 0, removed: 0 };
+
+      for (const feed of feeds) {
+        const cursor = await this.database.pool.query<{
+          page_token: string;
+          initial_backfill_complete: boolean;
+          next_poll_at: Date;
+        }>(
+          'select page_token, initial_backfill_complete, next_poll_at from authorization_drive_change_cursors where feed_key = $1',
+          [feed.feedKey],
+        );
+        if (cursor.rows[0] && cursor.rows[0].next_poll_at.getTime() > Date.now()) continue;
+        let pageToken = cursor.rows[0]?.page_token;
+        if (!pageToken) {
+          const initial = await drive.changes.getStartPageToken({
+            supportsAllDrives: true,
+            ...(feed.driveId ? { driveId: feed.driveId } : {}),
+          });
+          const token = initial.data.startPageToken;
+          if (!token) throw new Error('Google Drive returned no start page token');
+          await this.database.pool.query(
+            `insert into authorization_drive_change_cursors (feed_key, drive_id, page_token)
+           values ($1, $2, $3)
+           on conflict (feed_key) do nothing`,
+            [feed.feedKey, feed.driveId, token],
+          );
+          pageToken = token;
+          this.logger.info(
+            { feedKey: feed.feedKey },
+            'authorization drive change feed initialized',
+          );
+        }
+
+        if (!cursor.rows[0]?.initial_backfill_complete) {
+          if (feed.feedKey !== feeds[0]?.feedKey) {
+            await this.database.pool.query(
+              `update authorization_drive_change_cursors
+             set initial_backfill_complete = true,
+                 next_poll_at = now() + ($2::bigint * interval '1 millisecond'),
+                 consecutive_failures = 0,
+                 updated_at = now()
+             where feed_key = $1`,
+              [feed.feedKey, this.config.GOOGLE_DRIVE_AUDIT_SYNC_RECHECK_MS],
+            );
+            continue;
+          }
+          const candidates = await this.findCandidates();
+          let processed = 0;
+          let failures = 0;
+          for (const candidate of candidates) {
+            try {
+              const evidence = await this.findEvidence(
+                candidate.authorization_number,
+                rootIds,
+                drive,
+              );
+              await this.persistSuccess(candidate.id, evidence);
+              processed += 1;
+            } catch (error) {
+              failures += 1;
+              await this.persistFailure(candidate.id, error);
+            }
+          }
+          const pendingRetry =
+            candidates.length === 0
+              ? await this.database.pool.query<{ pending: boolean }>(
+                  `select exists (
+                 select 1 from authorization_drive_support_sync
+                 where last_error is not null and next_check_at > now()
+               ) as pending`,
+                )
+              : null;
+          const backfillComplete = candidates.length === 0 && !pendingRetry?.rows[0]?.pending;
+          await this.database.pool.query(
+            `update authorization_drive_change_cursors
+             set initial_backfill_complete = $2,
+                 next_poll_at = now() + ($3::bigint * interval '1 millisecond'),
+                 consecutive_failures = 0,
+                 updated_at = now()
+             where feed_key = $1`,
+            [
+              feed.feedKey,
+              backfillComplete,
+              failures > 0 || pendingRetry?.rows[0]?.pending
+                ? this.config.GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MS
+                : this.config.GOOGLE_DRIVE_AUDIT_SYNC_RECHECK_MS,
+            ],
+          );
+          this.logger.info(
+            {
+              feedKey: feed.feedKey,
+              selected: candidates.length,
+              processed,
+              failures,
+              completed: backfillComplete,
+              batchSize: this.config.GOOGLE_DRIVE_AUDIT_SYNC_BATCH_SIZE,
+            },
+            'authorization drive initial backfill batch completed',
+          );
+          continue;
+        }
+
+        if (!pageToken) throw new Error('Google Drive change cursor is missing');
+        while (true) {
+          const requestedPageToken: string = pageToken;
+          const response = await drive.changes.list({
+            pageToken: requestedPageToken,
+            pageSize: this.config.GOOGLE_DRIVE_AUDIT_SYNC_BATCH_SIZE,
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
+            fields:
+              'nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,webViewLink,size,md5Checksum,modifiedTime,parents,driveId,trashed))',
+            ...(feed.driveId ? { driveId: feed.driveId } : {}),
+          });
+          const changes = response.data.changes ?? [];
+          const pageStats = await this.processChangePage(changes, rootIds, drive);
+          totals.pages += 1;
+          totals.changes += changes.length;
+          totals.matched += pageStats.matched;
+          totals.ignored += pageStats.ignored;
+          totals.removed += pageStats.removed;
+
+          const nextToken: string | undefined =
+            response.data.nextPageToken ?? response.data.newStartPageToken ?? undefined;
+          if (!nextToken) throw new Error('Google Drive returned no continuation token');
+          await this.database.pool.query(
+            `update authorization_drive_change_cursors
+          set page_token = $2,
+              updated_at = now()
+           where feed_key = $1`,
+            [feed.feedKey, nextToken],
+          );
+          pageToken = nextToken;
+          if (!response.data.nextPageToken) break;
+        }
+      await this.database.pool.query(
+        `update authorization_drive_change_cursors
+         set next_poll_at = now() + ($2::bigint * interval '1 millisecond'),
+             consecutive_failures = 0,
+             updated_at = now()
+         where feed_key = $1`,
+        [feed.feedKey, this.config.GOOGLE_DRIVE_AUDIT_SYNC_RECHECK_MS],
+      );
+      }
+
+      this.logger.info(
+        {
+          ...totals,
+          feedCount: feeds.length,
+          batchSize: this.config.GOOGLE_DRIVE_AUDIT_SYNC_BATCH_SIZE,
+        },
+        'authorization drive change feed sync completed',
+      );
+      await this.database.pool.query(
+        "delete from authorization_drive_change_cursors where feed_key = 'bootstrap'",
+      );
+    } catch (error) {
+      await this.database.pool.query(
+        `update authorization_drive_change_cursors
+         set next_poll_at = now() + (
+               least(
+                 $1::numeric * power(2::numeric, least(consecutive_failures, 8)),
+                 greatest($1::numeric, $2::numeric)
+               )::double precision * interval '1 millisecond'
+             ),
+             consecutive_failures = consecutive_failures + 1,
+             updated_at = now()
+         where next_poll_at <= now()`,
+        [
+          this.config.GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MS,
+          this.config.GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MAX_MS,
+        ],
+      );
+      throw error;
+    } finally {
+      if (lockAcquired) {
+        await lockClient.query('select pg_advisory_unlock($1::bigint)', [DRIVE_SUPPORT_SYNC_LOCK]);
+      }
+      lockClient.release();
+    }
+  }
+
+  private async getDriveFeeds(
+    drive: drive_v3.Drive,
+    rootIds: readonly string[],
+  ): Promise<Array<{ feedKey: string; driveId: string | null }>> {
+    const feeds = new Map<string, { feedKey: string; driveId: string | null }>();
+    for (const rootId of rootIds) {
+      const response = await drive.files.get({
+        fileId: rootId,
+        fields: 'id,driveId',
+        supportsAllDrives: true,
+      });
+      const driveId = response.data.driveId ?? null;
+      const feedKey = driveId ? `shared:${driveId}` : 'user';
+      feeds.set(feedKey, { feedKey, driveId });
+    }
+    return [...feeds.values()];
+  }
+
+  private async processChangePage(
+    changes: readonly drive_v3.Schema$Change[],
+    rootIds: readonly string[],
+    drive: drive_v3.Drive,
+  ): Promise<{ matched: number; ignored: number; removed: number }> {
+    const matches = new Map<string, { ids: Set<string>; authorizationNumber: string }>();
+    const allowedRoots = new Set(rootIds);
+    let ignored = 0;
+    let removed = 0;
+
+    for (const change of changes) {
+      const fileId = change.fileId ?? change.file?.id;
+      if (!fileId) {
+        ignored += 1;
+        continue;
+      }
+      const file = change.file;
+      if (change.removed || file?.trashed) {
+        await this.markDriveFileMissing(fileId);
+        removed += 1;
+        continue;
+      }
+      if (!file || file.mimeType !== 'application/pdf') {
+        ignored += 1;
+        continue;
+      }
+
+      if (!(await this.belongsToRoots(drive, file.parents ?? [], allowedRoots))) {
+        await this.markDriveFileMissing(fileId);
+        ignored += 1;
+        continue;
+      }
+
+      const linked = await this.database.pool.query<{ id: string; authorization_number: string }>(
+        `select ai.id, ai.numero_autorizacion as authorization_number
+         from authorization_drive_supports support
+         join authorization_items ai on ai.id = support.authorization_item_id
+         where support.drive_file_id = $1`,
+        [fileId],
+      );
+      let candidates = linked.rows;
+      if (candidates.length === 0) {
+        const authorizationNumber = file.name?.replace(/\.pdf$/i, '');
+        if (!authorizationNumber || authorizationNumber === file.name) {
+          ignored += 1;
+          continue;
+        }
+        const result = await this.database.pool.query<{ id: string; authorization_number: string }>(
+          `select id, numero_autorizacion as authorization_number
+           from authorization_items
+           where numero_autorizacion = $1`,
+          [authorizationNumber],
+        );
+        candidates = result.rows;
+      }
+      if (candidates.length === 0) {
+        ignored += 1;
+        continue;
+      }
+      for (const candidate of candidates) {
+        const entry = matches.get(candidate.authorization_number) ?? {
+          ids: new Set<string>(),
+          authorizationNumber: candidate.authorization_number,
+        };
+        entry.ids.add(candidate.id);
+        matches.set(candidate.authorization_number, entry);
+      }
+    }
+
+    for (const match of matches.values()) {
+      const evidence = await this.findEvidence(match.authorizationNumber, rootIds, drive);
+      for (const authorizationItemId of match.ids) {
+        await this.persistSuccess(authorizationItemId, evidence);
+      }
+    }
+    return { matched: matches.size, ignored, removed };
+  }
+
+  private async markDriveFileMissing(fileId: string): Promise<void> {
+    await this.database.pool.query(
+      `update authorization_drive_supports
+       set is_present = false, missing_since = coalesce(missing_since, now()), updated_at = now()
+       where drive_file_id = $1`,
+      [fileId],
+    );
+  }
 
   private async findCandidates():
     Promise<Candidate[]> {
@@ -1279,15 +1616,6 @@ export class AuthorizationDriveSupportSync {
     error:
       unknown,
   ): Promise<void> {
-    const nextCheckAt =
-      new Date(
-        Date.now()
-        +
-        this.config
-          .GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MS,
-      );
-
-
     const message =
       error instanceof Error
         ? error.message.slice(
@@ -1319,9 +1647,9 @@ export class AuthorizationDriveSupportSync {
           0,
           now(),
           null,
-          $2,
+          now() + ($2::bigint * interval '1 millisecond'),
           1,
-          $3,
+          $4,
           now(),
           now()
         )
@@ -1335,7 +1663,15 @@ export class AuthorizationDriveSupportSync {
             now(),
 
           next_check_at =
-            excluded.next_check_at,
+            now() + (
+              least(
+                $2::numeric * power(2::numeric, least(
+                  authorization_drive_support_sync.consecutive_failures,
+                  8
+                )),
+                greatest($2::numeric, $3::numeric)
+              )::double precision * interval '1 millisecond'
+            ),
 
           consecutive_failures =
             authorization_drive_support_sync.consecutive_failures
@@ -1350,7 +1686,8 @@ export class AuthorizationDriveSupportSync {
       `,
       [
         authorizationItemId,
-        nextCheckAt,
+        this.config.GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MS,
+        this.config.GOOGLE_DRIVE_AUDIT_SYNC_ERROR_RETRY_MAX_MS,
         message,
       ],
     );
