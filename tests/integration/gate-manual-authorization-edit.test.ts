@@ -1523,7 +1523,7 @@ describe(
   'Manual authorization edit',
   () => {
 
-    it('MEDICARTE conserva una AUTO parcialmente atendida con saldo asignado y deniega UUID sin asignación', async () => {
+    it('MEDICARTE consulta autorizaciones sin asignación o asociadas a otro punto', async () => {
       const partial = await createAuthorization({ quantity: 10 });
       const po = await createPurchaseOrder({
         authorizationItemId: partial.id,
@@ -1595,24 +1595,27 @@ describe(
       expect(history.status).toBe(200);
 
       const unassigned = await createAuthorization({ quantity: 10 });
-      const hiddenDetail = await apiCall(
+      const unassignedDetail = await apiCall(
         'GET',
         `/authorization-query/${unassigned.id}`,
         undefined,
         medicarteToken,
         ORGANIZATION_IDS.MEDICARTE,
       );
-      expect(hiddenDetail.status).toBe(404);
+      expect(unassignedDetail.status).toBe(200);
 
-      const hiddenList = await apiCall(
+      const unassignedList = await apiCall(
         'GET',
         `/authorization-query?authorizationNumber=${encodeURIComponent(unassigned.authorizationNumber)}&operationalStatus=UNASSIGNED`,
         undefined,
         medicarteToken,
         ORGANIZATION_IDS.MEDICARTE,
       );
-      expect(hiddenList.status).toBe(200);
-      expect(await hiddenList.json()).toMatchObject({ total: 0, items: [] });
+      expect(unassignedList.status).toBe(200);
+      expect(await unassignedList.json()).toMatchObject({
+        total: 1,
+        items: [{ id: unassigned.id, operationalStatus: 'UNASSIGNED' }],
+      });
 
       const ungrantedPoint = await database.query<{ id: string }>(
         `insert into dispensing_points (organization_id, code, name, created_by)
@@ -1642,7 +1645,20 @@ describe(
         medicarteToken,
         ORGANIZATION_IDS.MEDICARTE,
       );
-      expect(otherPointDetail.status).toBe(404);
+      expect(otherPointDetail.status).toBe(200);
+
+      const otherPointList = await apiCall(
+        'GET',
+        `/authorization-query?authorizationNumber=${encodeURIComponent(otherPointAuthorization.authorizationNumber)}`,
+        undefined,
+        medicarteToken,
+        ORGANIZATION_IDS.MEDICARTE,
+      );
+      expect(otherPointList.status).toBe(200);
+      expect(await otherPointList.json()).toMatchObject({
+        total: 1,
+        items: [{ id: otherPointAuthorization.id }],
+      });
     }, 60_000);
 
     it('AUTO 10 con OC1=4 y OC2=6 libera compromisos y reservas sin borrar historia', async () => {
