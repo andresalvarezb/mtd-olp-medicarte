@@ -90,6 +90,35 @@
       ]
     },
     {
+      "id": "patient-master-rf-pac-002-contextual-card",
+      "category": "positive",
+      "expectedSkills": [
+        "patient-master-integrity",
+        "requirements-implementation",
+        "rbac-point-scope"
+      ],
+      "shouldTrigger": true,
+      "prompt": "Implementa el RF-PAC-002 aprobado para mostrar una tarjeta personal contextual desde una autorización visible, con permiso y grant de punto activos. Usa un lookup MTDOM puntual y no persistas el perfil. No consultes datos reales ni ejecutes el job.",
+      "criteria": [
+        "Lee patient-master-integrity, requirements-implementation y rbac-point-scope",
+        "Confirma autorización, scope de punto e identidad enlazada antes del lookup personal",
+        "No expone el maestro general, no persiste perfil personal ni ejecuta MTDOM real"
+      ]
+    },
+    {
+      "id": "patient-global-delta-requirement-conflict",
+      "category": "ambiguous",
+      "expectedSkills": ["patient-master-integrity"],
+      "shouldTrigger": true,
+      "expectedBehavior": "ask_clarification",
+      "prompt": "Actualiza el worker para importar a diario a las 09:00 America/Bogota todos los cambios de GET /v1/patients/changes. RF-PAC-001 prohíbe el feed global y el RF-PAC-002 aprobado solo describe una tarjeta contextual y excluye /changes. ¿Puedes implementarlo ya?",
+      "criteria": [
+        "Lee patient-master-integrity y contrasta RF-PAC-001 con el alcance de tarjeta contextual aprobado en RF-PAC-002",
+        "Pide aclarar o aportar la aprobación documentada del alcance antes de habilitar el feed global",
+        "No implementa ni ejecuta la sincronización por inferencia"
+      ]
+    },
+    {
       "id": "negative-doc-typo",
       "category": "negative",
       "expectedSkills": [],
