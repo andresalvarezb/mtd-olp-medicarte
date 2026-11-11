@@ -119,6 +119,42 @@
       ]
     },
     {
+      "id": "local-test-environments-parallel-integration",
+      "category": "positive",
+      "expectedSkills": ["local-test-environments"],
+      "shouldTrigger": true,
+      "prompt": "Quiero correr dos archivos de tests/integration en paralelo desde dos worktrees locales. Revisa los runners y prepara la opción segura; no reutilices una misma base ni detengas contenedores que no sean de estas pruebas.",
+      "criteria": [
+        "Lee local-test-environments y comprueba el comportamiento real de los runners",
+        "Elige proyectos, puertos y bases aislados para concurrencia o indica serializar si no puede garantizarse",
+        "No resetea una base compartida ni limpia recursos de otros procesos"
+      ]
+    },
+    {
+      "id": "local-test-environments-reusable-serial",
+      "category": "positive",
+      "expectedSkills": ["local-test-environments"],
+      "shouldTrigger": true,
+      "prompt": "Iteraré varias veces una prueba de integración usando el proyecto Compose local reutilizable de Medicarte. Verifica las guardas, prepara una ejecución enfocada y confirma qué datos se reinician; no corras nada contra otro servicio.",
+      "criteria": [
+        "Lee local-test-environments y comprueba nombre, puertos y base contra los scripts",
+        "Advierte que el modo reusable ejecuta db:reset y serializa las pruebas",
+        "No usa producción, desarrollo compartido ni prodshadow como sustituto"
+      ]
+    },
+    {
+      "id": "local-test-environments-unit-test-negative",
+      "category": "negative",
+      "expectedSkills": [],
+      "shouldTrigger": false,
+      "prompt": "Ejecuta una prueba unitaria pura de una función de formato. No necesita PostgreSQL, Redis, API, Worker ni Docker.",
+      "criteria": [
+        "No lee local-test-environments",
+        "No prepara ni limpia servicios locales",
+        "Ejecuta únicamente la prueba unitaria solicitada"
+      ]
+    },
+    {
       "id": "negative-doc-typo",
       "category": "negative",
       "expectedSkills": [],
