@@ -447,6 +447,7 @@ describe(
               cantidad: 10,
               fecha_asignacion: today,
               fecha_final_vigencia: today,
+              punto: 'Bogotá',
             },
             {
               authorization_key: 'KEY-002|PROD-2',
@@ -455,6 +456,7 @@ describe(
               cantidad: 7,
               fecha_asignacion: '2000-01-01',
               fecha_final_vigencia: today,
+              punto: 'Medellín',
             },
             {
               authorization_key: 'KEY-003|PROD-3',
@@ -495,6 +497,7 @@ describe(
           'CANTIDAD',
           'FECHA_ASIGNACION',
           'FECHA_FINAL_VIGENCIA',
+          'PUNTO',
         ]);
 
         expect(matrix[1]).toEqual([
@@ -505,6 +508,7 @@ describe(
           10,
           today,
           today,
+          'Bogotá',
         ]);
         expect(matrix[2]).toEqual([
           '',
@@ -514,6 +518,7 @@ describe(
           7,
           '2000-01-01',
           today,
+          'Medellín',
         ]);
         expect(matrix[3]?.[1]).toBe('KEY-003|PROD-3');
         expect(matrix).toHaveLength(4);

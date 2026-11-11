@@ -2356,7 +2356,8 @@ export class PurchaseOrderImportService {
       );
 
     const currentHeaders =
-      headers.length === TEMPLATE_HEADERS.length &&
+      (headers.length === TEMPLATE_HEADERS.length ||
+        (headers.length === TEMPLATE_HEADERS.length + 1 && headers[7] === 'PUNTO')) &&
       TEMPLATE_HEADERS.slice(0, 5).every(
         (expected, index) => headers[index] === expected,
       ) &&

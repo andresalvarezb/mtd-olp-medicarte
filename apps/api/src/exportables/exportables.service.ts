@@ -89,6 +89,8 @@ type CandidateRow =
     fecha_asignacion?: string | null;
 
     fecha_final_vigencia?: string | null;
+
+    punto?: string | null;
   }>;
 
 
@@ -428,6 +430,7 @@ export class ExportablesService {
               ai.authorization_key,
               ai.numero_autorizacion,
               ai.codigo_medicamento,
+              coalesce(patient_point.name, tariff_points.point_names) as punto,
               ai.source_data ->> 'FECHA_ASIGNACION' as raw_assignment_date,
               ai.source_data ->> 'FECHA_FINAL_VIGENCIA' as raw_expiration_date,
 
@@ -633,6 +636,40 @@ export class ExportablesService {
               limit 1
             ) tap
               on true
+
+            left join lateral (
+              select dp.name
+              from patient_default_dispensing_points pdp
+              join dispensing_points dp
+                on dp.id = pdp.dispensing_point_id
+              where pdp.patient_document = coalesce(
+                nullif(btrim(ai.source_data ->> 'IDENTIFICACION_PACIENTE'), ''),
+                nullif(btrim(ai.source_data ->> 'NUM_DOCUMENTO'), '')
+              )
+                and pdp.active = true
+              limit 1
+            ) patient_point on true
+
+            left join lateral (
+              select string_agg(point_name, ', ' order by point_name) as point_names
+              from (
+                select distinct dp.name as point_name
+                from tariff_annex_products product
+                join product_delivery_point_mappings mapping
+                  on mapping.invima_record_normalized = coalesce(
+                    nullif(ltrim(btrim(product.numero_expediente_invima), '0'), ''),
+                    '0'
+                  )
+                 and mapping.invima_presentation_normalized = coalesce(
+                    nullif(ltrim(btrim(product.consecutivo_invima_presentacion), '0'), ''),
+                    '0'
+                  )
+                join dispensing_points dp
+                  on dp.id = mapping.dispensing_point_id
+                where product.active = true
+                  and upper(btrim(product.codigo_producto)) = upper(btrim(ai.codigo_medicamento))
+              ) mapped_points
+            ) tariff_points on true
           ),
 
           evaluated as (
@@ -962,6 +999,7 @@ export class ExportablesService {
             'CANTIDAD',
             'FECHA_ASIGNACION',
             'FECHA_FINAL_VIGENCIA',
+            'PUNTO',
           ],
 
           ...currentCandidates.map(
@@ -981,6 +1019,8 @@ export class ExportablesService {
               row.fecha_asignacion ?? '',
 
               row.fecha_final_vigencia ?? '',
+
+              row.punto ?? '',
             ],
           ),
         ],
@@ -1015,6 +1055,10 @@ export class ExportablesService {
         {
           wch:
             22,
+        },
+        {
+          wch:
+            28,
         },
       ];
 
