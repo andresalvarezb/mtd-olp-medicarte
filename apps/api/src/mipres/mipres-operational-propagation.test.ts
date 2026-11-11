@@ -97,12 +97,27 @@ describe('MIPRES WAVE 4 operational propagation', () => {
     );
 
     const operationalGate = value.indexOf(
-      "validated.mipres_manual_decision = 'MANUALLY_ENABLED'",
+      "calculated.mipres_manual_decision = 'MANUALLY_ENABLED'",
       validationStart,
+    );
+    const operationalCandidatesStart = value.indexOf(
+      'operational_candidates as materialized (',
+    );
+    const operationalCandidatesEnd = value.indexOf(
+      '\n      confirmed_fulfillment_progress as (',
+      operationalCandidatesStart,
     );
 
     expect(validationStart).toBeGreaterThanOrEqual(0);
     expect(operationalGate).toBeGreaterThan(validationStart);
+    expect(operationalCandidatesStart).toBeGreaterThan(validationStart);
+    expect(operationalCandidatesEnd).toBeGreaterThan(operationalCandidatesStart);
+
+    const operationalCandidates = value.slice(
+      operationalCandidatesStart,
+      operationalCandidatesEnd,
+    );
+    expect(operationalCandidates).not.toContain('mipres_manual_decision');
 
     const validationRules = windowAfter(
       value,
