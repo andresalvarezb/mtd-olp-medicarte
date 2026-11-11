@@ -1,3 +1,8 @@
+import {
+  patientMasterPersonalProfileSchema,
+  type PatientMasterPersonalProfile,
+} from '@authorization/contracts';
+
 export type MtdomBasicPatient = Readonly<{
   tipo_identificacion: string;
   identificacion: string;
@@ -27,10 +32,18 @@ export type MtdomBasicPatient = Readonly<{
 }>;
 
 type MtdomErrorEnvelope = Readonly<{ ok: false; error: string; message: string }>;
+
 export type MtdomLookupResponse =
   | Readonly<{
       kind: 'FOUND';
       patient: MtdomBasicPatient;
+      diagnosticRequestId?: string;
+    }>
+  | Readonly<{
+      kind: 'FOUND_PERSONAL';
+      identificationType: string;
+      identificationValue: string;
+      personalProfile: PatientMasterPersonalProfile;
       diagnosticRequestId?: string;
     }>
   | Readonly<{ kind: 'NOT_FOUND'; diagnosticRequestId?: string }>
@@ -93,6 +106,18 @@ const TEXT_PATIENT_FIELDS = BASIC_PATIENT_FIELDS.filter(
     !['activo', 'paciente_vivo', 'presente_en_fuente_actual', 'actualizado_en'].includes(field),
 );
 const BOOLEAN_PATIENT_FIELDS = ['activo', 'paciente_vivo', 'presente_en_fuente_actual'] as const;
+const PERSONAL_PATIENT_FIELDS = [
+  'fecha_nacimiento',
+  'direccion',
+  'barrio',
+  'zona',
+  'latitud',
+  'longitud',
+  'telefono1',
+  'telefono2',
+  'email',
+  'email_validado',
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -211,10 +236,23 @@ export class MtdomPatientsReadClient {
   async lookup(
     identity: Readonly<{ documentType: string; documentValue: string }>,
   ): Promise<MtdomLookupResponse> {
+    return this.lookupProfile(identity, 'basic');
+  }
+
+  async lookupPersonal(
+    identity: Readonly<{ documentType: string; documentValue: string }>,
+  ): Promise<MtdomLookupResponse> {
+    return this.lookupProfile(identity, 'personal');
+  }
+
+  private async lookupProfile(
+    identity: Readonly<{ documentType: string; documentValue: string }>,
+    profile: 'basic' | 'personal',
+  ): Promise<MtdomLookupResponse> {
     const body = {
       tipo_identificacion: identity.documentType,
       identificacion: identity.documentValue,
-      profile: 'basic',
+      profile,
     };
     if (
       !identity.documentType ||
@@ -242,7 +280,7 @@ export class MtdomPatientsReadClient {
         redirect: 'error',
         signal: controller.signal,
       });
-      return await this.interpretResponse(response);
+      return await this.interpretResponse(response, profile);
     } catch (error) {
       if (error instanceof MtdomPatientsReadError) throw error;
       if (controller.signal.aborted) {
@@ -254,7 +292,10 @@ export class MtdomPatientsReadClient {
     }
   }
 
-  private async interpretResponse(response: Response): Promise<MtdomLookupResponse> {
+  private async interpretResponse(
+    response: Response,
+    profile: 'basic' | 'personal',
+  ): Promise<MtdomLookupResponse> {
     const diagnosticRequestId = readDiagnosticRequestId(response);
     if (response.status === 401 || response.status === 403) {
       throw new MtdomPatientsReadError('AUTH_BLOCKED', false, undefined, diagnosticRequestId);
@@ -317,14 +358,49 @@ export class MtdomPatientsReadClient {
         diagnosticRequestId,
       );
     }
+    if (profile === 'personal') {
+      const data = payload.data;
+      if (!isRecord(data)) {
+        throw new MtdomPatientsReadError(
+          'INVALID_SUCCESS_RESPONSE',
+          false,
+          undefined,
+          diagnosticRequestId,
+        );
+      }
+      const personalProjection = Object.fromEntries(
+        PERSONAL_PATIENT_FIELDS.map((field) => [field, data[field]]),
+      );
+      const personalProfile = patientMasterPersonalProfileSchema.safeParse(personalProjection);
+      if (
+        typeof data.tipo_identificacion !== 'string' ||
+        typeof data.identificacion !== 'string' ||
+        !personalProfile.success
+      ) {
+        throw new MtdomPatientsReadError(
+          'INVALID_SUCCESS_RESPONSE',
+          false,
+          undefined,
+          diagnosticRequestId,
+        );
+      }
+      return {
+        kind: 'FOUND_PERSONAL',
+        identificationType: data.tipo_identificacion,
+        identificationValue: data.identificacion,
+        personalProfile: personalProfile.data,
+        ...(diagnosticRequestId ? { diagnosticRequestId } : {}),
+      };
+    }
     const patient = parseBasicPatient(payload.data);
-    if (!patient)
+    if (!patient) {
       throw new MtdomPatientsReadError(
         'INVALID_SUCCESS_RESPONSE',
         false,
         undefined,
         diagnosticRequestId,
       );
+    }
     return {
       kind: 'FOUND',
       patient,

@@ -76,8 +76,8 @@ const database = createDatabase(config.DATABASE_URL);
           ),
           {
             intervalMs: workerConfig.PATIENT_CHANGES_SYNC_INTERVAL_MS,
-            pageSize: 1,
-            maxPagesPerRun: 1,
+            pageSize: 50,
+            maxPagesPerRun: 20,
             yieldAfterPageLimit: true,
           },
         );

@@ -191,7 +191,9 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
         void this.handlePatientMasterLiveLookup(raw);
       }
     });
-    void this.patientMasterLookupSubscriber.subscribe(PATIENT_MASTER_LIVE_LOOKUP_CHANNEL);
+    void this.patientMasterLookupSubscriber.subscribe(
+      PATIENT_MASTER_LIVE_LOOKUP_CHANNEL,
+    );
     this.worker.on('error', (error) => {
       this.logger.error({ error }, 'worker error');
       Sentry.captureException(error);
@@ -203,13 +205,12 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     });
     if (this.config.SCHEDULER_ENABLED) {
       if (this.config.MTDOM_PATIENT_LOOKUP_SYNC_ENABLED && this.patientLookupSyncScheduler) {
-        this.patientLookupSyncScheduler.start(
-          this.config.PATIENT_CHANGES_SYNC_INTERVAL_MS,
+        this.patientLookupSyncScheduler.startDailyAt(
+          9,
+          0,
+          'America/Bogota',
           (error) => this.reportBackgroundTaskError(error, 'patient local lookup sync failed'),
         );
-        void this.patientLookupSyncScheduler.trigger().catch((error) => {
-          this.reportBackgroundTaskError(error, 'patient local lookup sync failed');
-        });
       }
       this.timer = setInterval(
         () => void this.dispatchOutbox(),

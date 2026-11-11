@@ -161,21 +161,21 @@ export const apiConfigSchema = commonSchema
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['PATIENT_MASTER_SCOPE_POLICY_APPROVED'],
-        message: 'Patient master access requires an approved organization/point scope policy',
+        message: 'Patient data access requires an approved organization/point scope policy',
       });
     }
     if (!config.PATIENT_MASTER_DP07_APPROVED) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['PATIENT_MASTER_DP07_APPROVED'],
-        message: 'Patient master identifier search requires explicit DP-07 approval',
+        message: 'Patient data access requires explicit DP-07 approval',
       });
     }
     if (!config.PATIENT_MASTER_SCOPE_POLICY_VERSION) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['PATIENT_MASTER_SCOPE_POLICY_VERSION'],
-        message: 'Patient master access requires an approved scope policy version',
+        message: 'Patient data access requires an approved scope policy version',
       });
     }
   });
@@ -249,13 +249,6 @@ export const workerConfigSchema = commonSchema
           code: z.ZodIssueCode.custom,
           path: ['MTDOM_PATIENT_LOOKUP_ENABLED'],
           message: 'Patient lookup sync requires the MTDOM patient lookup processor',
-        });
-      }
-      if (patientIds.length < 10 || patientIds.length > 20) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS'],
-          message: 'Patient lookup sync pilot requires between 10 and 20 local patient IDs',
         });
       }
     }
