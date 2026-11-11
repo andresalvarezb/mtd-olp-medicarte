@@ -80,4 +80,17 @@ describe('ESP-020 actor boundaries', () => {
       expect(isPermissionAllowedForActor('OLP', 'OLP_OPERATOR', permission)).toBe(false);
     }
   });
+
+  it('does not expose personal patient data through authorization access permissions', () => {
+    expect(
+      isPermissionAllowedForActor('COMPENSAR', 'COMPENSAR_VIEWER', 'patient_master.personal.read'),
+    ).toBe(false);
+    expect(
+      isPermissionAllowedForActor(
+        'MEDICARTE',
+        'MEDICARTE_OPERATOR',
+        'patient_master.personal.read',
+      ),
+    ).toBe(false);
+  });
 });

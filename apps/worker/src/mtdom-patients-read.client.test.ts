@@ -48,6 +48,47 @@ function client(fetchImpl: typeof fetch, token = 'mtdpat_synthetic-only') {
 }
 
 describe('MTDOM Patients Read v1 lookup client', () => {
+  it('requests the personal profile explicitly and returns only the approved personal projection', async () => {
+    const personalProfile = {
+      fecha_nacimiento: '1980-01-02',
+      direccion: 'DIRECCION SINTETICA',
+      barrio: null,
+      zona: 'URBANA',
+      latitud: null,
+      longitud: null,
+      telefono1: '3000000000',
+      telefono2: null,
+      email: 'synthetic@example.invalid',
+      email_validado: false,
+    };
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      response(200, {
+        ok: true,
+        data: {
+          ...syntheticPatient,
+          ...personalProfile,
+          primer_nombre: 'NO DEBE SER RETORNADO',
+        },
+      }),
+    );
+    const result = await client(fetchImpl).lookupPersonal(identity);
+
+    expect(fetchImpl.mock.calls[0]?.[1]?.body).toBe(
+      JSON.stringify({
+        tipo_identificacion: identity.documentType,
+        identificacion: identity.documentValue,
+        profile: 'personal',
+      }),
+    );
+    expect(result).toEqual({
+      kind: 'FOUND_PERSONAL',
+      identificationType: identity.documentType,
+      identificationValue: identity.documentValue,
+      personalProfile,
+    });
+    expect(JSON.stringify(result)).not.toContain('NO DEBE SER RETORNADO');
+  });
+
   it('preserves a valid X-Request-ID as diagnostic metadata on success and error', async () => {
     const found = await client(
       vi

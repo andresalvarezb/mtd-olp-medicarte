@@ -41,6 +41,7 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
       const response = await this.client.lookup(identity);
       if (response.kind === 'NOT_FOUND') return { status: 'NOT_FOUND' as const };
       if (response.kind === 'AMBIGUOUS') return { status: 'AMBIGUOUS' as const };
+      if (response.kind !== 'FOUND') return { status: 'UNAVAILABLE' as const };
       if (
         response.patient.tipo_identificacion !== identity.documentType ||
         response.patient.identificacion !== identity.documentValue
@@ -90,6 +91,9 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
 
     if (response.kind === 'NOT_FOUND') return { outcome: 'NOT_FOUND' as const };
     if (response.kind === 'AMBIGUOUS') return { outcome: 'AMBIGUOUS' as const };
+    if (response.kind !== 'FOUND') {
+      throw new PatientLookupTerminalError('PATIENT_LOOKUP_INVALID_REMOTE_RESPONSE');
+    }
 
     const localType = normalize(patient.identification_type_raw, policy, 'type');
     const remoteType = normalize(response.patient.tipo_identificacion, policy, 'type');

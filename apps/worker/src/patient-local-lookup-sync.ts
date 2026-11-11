@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { createDatabase } from '@authorization/database';
 
 const CHECKPOINT_KEY_PREFIX = 'patients.lookup.basic.pilot.';
+const ALTO_COSTO_CHECKPOINT_KEY = 'patients.lookup.basic.alto-costo';
 const PAGE_SIZE = 50;
 const MAX_PAGES_PER_RUN = 20;
 const MAX_RETRIES = 3;
@@ -50,6 +51,7 @@ type DatabasePool = ReturnType<typeof createDatabase>['pool'];
 type CheckpointRow = {
   status: 'IDLE' | 'RUNNING' | 'FAILED';
   sync_as_of: Date | string;
+  last_success_at: Date | string | null;
   pending_as_of: Date | string | null;
   next_cursor: string | null;
   run_id: string | null;
@@ -57,18 +59,22 @@ type CheckpointRow = {
   lease_expires_at: Date | string | null;
 };
 
-/** Schedules local, authorization-linked identities through the durable lookup outbox. */
+/** Schedules only Alto Costo-linked identities through the targeted lookup outbox. */
 export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyncRepository {
   private readonly patientIds: readonly string[];
   private readonly checkpointKey: string;
 
-  constructor(private readonly pool: DatabasePool, patientIds: readonly string[]) {
+  constructor(private readonly pool: DatabasePool, patientIds: readonly string[] = []) {
     this.patientIds = [...patientIds];
-    const cohortHash = createHash('sha256')
-      .update([...patientIds].sort().join('\n'))
-      .digest('hex')
-      .slice(0, 16);
-    this.checkpointKey = `${CHECKPOINT_KEY_PREFIX}${cohortHash}`;
+    if (patientIds.length > 0) {
+      const cohortHash = createHash('sha256')
+        .update([...patientIds].sort().join('\n'))
+        .digest('hex')
+        .slice(0, 16);
+      this.checkpointKey = `${CHECKPOINT_KEY_PREFIX}${cohortHash}`;
+    } else {
+      this.checkpointKey = ALTO_COSTO_CHECKPOINT_KEY;
+    }
   }
 
   async claim(input: { now: Date; intervalMs: number; leaseMs: number }) {
@@ -82,7 +88,8 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
         [this.checkpointKey],
       );
       const selected = await client.query<CheckpointRow>(
-        `select status, sync_as_of, pending_as_of, next_cursor, run_id, lease_token, lease_expires_at
+        `select status, sync_as_of, pending_as_of, next_cursor, run_id, lease_token,
+                lease_expires_at, last_success_at
            from patient_sync_checkpoints where feed_key = $1 for update`,
         [this.checkpointKey],
       );
@@ -95,6 +102,14 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
       ) {
         await client.query('commit');
         return { status: 'BUSY' as const };
+      }
+      if (
+        row.status === 'IDLE' &&
+        row.last_success_at &&
+        bogotaDate(new Date(row.last_success_at)) === bogotaDate(input.now)
+      ) {
+        await client.query('commit');
+        return { status: 'NOT_DUE' as const };
       }
       if (
         row.status === 'IDLE' &&
@@ -159,7 +174,8 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
     try {
       await client.query('begin');
       const selected = await client.query<CheckpointRow>(
-        `select status, sync_as_of, pending_as_of, next_cursor, run_id, lease_token, lease_expires_at
+        `select status, sync_as_of, pending_as_of, next_cursor, run_id, lease_token,
+                lease_expires_at, last_success_at
            from patient_sync_checkpoints where feed_key = $1 for update`,
         [this.checkpointKey],
       );
@@ -174,6 +190,7 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
       )
         throw new Error('checkpoint lease lost');
 
+      const patientIdFilter = this.patientIds.length > 0 ? 'AND p.id = any($5::uuid[])' : '';
       const candidates = await client.query<{ id: string }>(
         `select p.id::text as id
            from patients p
@@ -185,7 +202,7 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
                 join organizations o on o.id = aio.organization_id and o.code = 'MEDICARTE'
                where ai.patient_id = p.id
             )
-            and p.id = any($5::uuid[])
+            ${patientIdFilter}
             and (p.mtdom_last_checked_at is null or
                  p.mtdom_last_checked_at <= $2::timestamptz - ($3::bigint * interval '1 millisecond'))
             and not exists (
@@ -201,7 +218,7 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
           input.now,
           input.intervalMs,
           input.pageSize,
-          this.patientIds,
+          ...(this.patientIds.length > 0 ? [this.patientIds] : []),
         ],
       );
       const ids = candidates.rows.map(({ id }) => id);
@@ -376,7 +393,9 @@ export class PatientLocalLookupSyncService {
 
 export class PatientLocalLookupSyncScheduler {
   private timer: NodeJS.Timeout | undefined;
+  private intervalTimer = false;
   private running = false;
+  private stopped = true;
 
   constructor(
     private readonly sync: Pick<PatientLocalLookupSyncService, 'run'>,
@@ -385,9 +404,35 @@ export class PatientLocalLookupSyncScheduler {
 
   start(intervalMs: number, onError: (error: unknown) => void): void {
     if (!this.timer) {
+      this.stopped = false;
       this.timer = setInterval(() => {
         void this.trigger().catch(onError);
       }, intervalMs);
+      this.intervalTimer = true;
+    }
+  }
+
+  startDailyAt(
+    hour: number,
+    minute: number,
+    timeZone: string,
+    onError: (error: unknown) => void,
+  ): void {
+    if (this.timer) return;
+    this.stopped = false;
+    const scheduleNext = () => {
+      if (this.stopped) return;
+      this.timer = setTimeout(() => {
+        this.timer = undefined;
+        if (this.stopped) return;
+        void this.trigger().catch(onError).finally(scheduleNext);
+      }, nextDailyRunDelay(new Date(), hour, minute, timeZone));
+    };
+    scheduleNext();
+
+    const current = zonedParts(new Date(), timeZone);
+    if (current.hour > hour || (current.hour === hour && current.minute >= minute)) {
+      void this.trigger().catch(onError);
     }
   }
 
@@ -404,9 +449,104 @@ export class PatientLocalLookupSyncScheduler {
   }
 
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.stopped = true;
+    if (this.timer) {
+      if (this.intervalTimer) clearInterval(this.timer);
+      else clearTimeout(this.timer);
+    }
     this.timer = undefined;
+    this.intervalTimer = false;
   }
+}
+
+type ZonedParts = Readonly<{
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}>;
+
+function zonedParts(date: Date, timeZone: string): ZonedParts {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return {
+    year: value('year'),
+    month: value('month'),
+    day: value('day'),
+    hour: value('hour'),
+    minute: value('minute'),
+    second: value('second'),
+  };
+}
+
+function localDateTimeAsUtc(
+  parts: Pick<ZonedParts, 'year' | 'month' | 'day' | 'hour' | 'minute'>,
+) {
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
+}
+
+function zonedDateTimeToUtc(
+  parts: Pick<ZonedParts, 'year' | 'month' | 'day' | 'hour' | 'minute'>,
+  timeZone: string,
+) {
+  const targetAsUtc = localDateTimeAsUtc(parts);
+  let candidate = targetAsUtc;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const local = zonedParts(new Date(candidate), timeZone);
+    const localAsUtc = Date.UTC(
+      local.year,
+      local.month - 1,
+      local.day,
+      local.hour,
+      local.minute,
+      local.second,
+    );
+    const adjusted = targetAsUtc - (localAsUtc - candidate);
+    if (adjusted === candidate) return candidate;
+    candidate = adjusted;
+  }
+  return candidate;
+}
+
+function nextDailyRunDelay(
+  now: Date,
+  hour: number,
+  minute: number,
+  timeZone: string,
+): number {
+  const current = zonedParts(now, timeZone);
+  let target = { ...current, hour, minute };
+  let timestamp = zonedDateTimeToUtc(target, timeZone);
+  if (timestamp <= now.getTime()) {
+    const tomorrow = new Date(Date.UTC(current.year, current.month - 1, current.day + 1));
+    target = {
+      ...current,
+      year: tomorrow.getUTCFullYear(),
+      month: tomorrow.getUTCMonth() + 1,
+      day: tomorrow.getUTCDate(),
+      hour,
+      minute,
+    };
+    timestamp = zonedDateTimeToUtc(target, timeZone);
+  }
+  return Math.max(0, timestamp - now.getTime());
+}
+
+function bogotaDate(date: Date): string {
+  const { year, month, day } = zonedParts(date, 'America/Bogota');
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 function emptyResult(status: 'BUSY' | 'NOT_DUE'): PatientLocalLookupSyncResult;

@@ -65,7 +65,7 @@ describe('parseApiConfig', () => {
     expect(config.RECONCILIATION_MAX_ATTEMPTS).toBe(3);
   });
 
-  it('keeps patient master APIs disabled until scope and DP-07 gates are approved', () => {
+  it('keeps the patient master disabled until scope and DP-07 gates are approved', () => {
     const config = parseApiConfig(base);
     expect(config.PATIENT_MASTER_ACCESS_ENABLED).toBe(false);
     expect(config.PATIENT_MASTER_SCOPE_POLICY_APPROVED).toBe(false);

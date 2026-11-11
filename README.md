@@ -138,3 +138,4 @@ no equivale a una comprobación ejecutada por la actualización de estos archivo
 `.agent/adr`, `.agent/specs` y `.agent/plans` contienen decisiones, diagnósticos y
 planes históricos. No asuma que una propuesta de esas carpetas fue implementada;
 verifique código, migraciones y pruebas en `develop`.
+ 
