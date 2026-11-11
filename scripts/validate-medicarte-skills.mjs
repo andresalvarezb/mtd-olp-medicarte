@@ -6,6 +6,7 @@ import path from 'node:path';
 const root = process.cwd();
 const skills = [
   'drizzle-schema-safety',
+  'local-test-environments',
   'patient-master-integrity',
   'purchase-fulfillment-integrity',
   'rbac-point-scope',
