@@ -286,6 +286,35 @@ describe(
 
 
     it(
+      'acepta PUNTO adicional como dato informativo de la exportación',
+      async () => {
+        const { instance, query } = service();
+        const buffer = workbook([
+          [
+            'CLAVE_AUTORIZACION_ORIGEN',
+            'CLAVE_AUTORIZACION_DESTINO',
+            'OC',
+            'CODIGO_PRODUCTO',
+            'CANTIDAD',
+            'FECHA_ASIGNACION',
+            'FECHA_FINAL_VIGENCIA',
+            'PUNTO',
+          ],
+          ['', '', '', '', 1, '', '', 'Bogotá'],
+        ]);
+
+        const result = await instance.import(uploaded(buffer), scope);
+
+        expect(result.results).toHaveLength(1);
+        expect(result.results[0]?.errorCode).toBe(
+          'PURCHASE_ORDER_DESTINATION_AUTHORIZATION_REQUIRED',
+        );
+        expect(query).not.toHaveBeenCalled();
+      },
+    );
+
+
+    it(
       'rechaza cantidad cero sin tocar base de datos',
       async () => {
         const {
