@@ -21,6 +21,8 @@ se usa ni forma parte de estos archivos.
 
 ## Uso desde la raíz del proyecto
 
+Esta instancia es persistente; la verificación del destino no autoriza por sí sola una escritura. Antes de `db:test:migrate`, `db:test:seed`, `db:test:check` o `db:test:setup`, confirma que el usuario autorizó esa operación sobre esta base. `db:test:setup` ejecuta las tres; `db:test:check` agrega eventos financieros sintéticos append-only que no se eliminan al terminar.
+
     pnpm db:test:start
     pnpm db:test:verify
     pnpm db:test:migrate
