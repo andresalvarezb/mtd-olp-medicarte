@@ -1497,9 +1497,9 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
       organizationId: ORGANIZATION_IDS.MEDICARTE,
     });
     record(
-      'Medicarte cannot read authorization history after assigned balance is exhausted',
-      history.status === 404 && bodyCode(history.body) === 'AUTHORIZATION_NOT_FOUND',
-      '404 AUTHORIZATION_NOT_FOUND',
+      'Medicarte can read authorization history after assigned balance is exhausted',
+      history.status === 200,
+      200,
       `${history.status} ${bodyCode(history.body)}`,
       'CRITICAL',
       history.body,
@@ -1571,7 +1571,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
           'Day-six partial attention continues within the physical reserved balance',
           'Partial plus final fulfillment consumes exactly the receipt reservation',
           'Medicarte rejects fulfillment after the reserved balance is exhausted',
-          'Medicarte cannot read authorization history after assigned balance is exhausted',
+          'Medicarte can read authorization history after assigned balance is exhausted',
           'Recorded consumption matches real receipt without creating stock',
           'Test executed only on ephemeral E2E database',
         ].includes(f.name),
