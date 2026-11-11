@@ -2479,6 +2479,27 @@ export const patientSyncCheckpoints = pgTable(
   ],
 );
 
+/** Durable Drive changes.list cursor, one per user's Drive or shared drive. */
+export const authorizationDriveChangeCursors = pgTable(
+  'authorization_drive_change_cursors',
+  {
+    feedKey: varchar('feed_key', { length: 200 }).primaryKey(),
+    driveId: text('drive_id'),
+    pageToken: text('page_token').notNull(),
+    initialBackfillComplete: boolean('initial_backfill_complete').notNull().default(false),
+    nextPollAt: timestamp('next_poll_at', { withTimezone: true }).notNull().defaultNow(),
+    consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    check(
+      'authorization_drive_change_cursors_failures_check',
+      sql`${table.consecutiveFailures} >= 0`,
+    ),
+  ],
+);
+
 export const importSourceFiles = pgTable(
   'import_source_files',
   {

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "packages/database/src/schema.ts",
-  "sourceSha256": "3b714ea42939f449d84027e8cb7cf9d040f702bb5d74676eff1d520a680f9ea6",
+  "sourceSha256": "33145c734f58272316215cd17cfda48520715a727f026af6b6a960526d3d99d3",
   "kind": "drizzle-static",
   "notLiveDatabase": true,
   "groupLabels": {
@@ -759,6 +759,77 @@
       ],
       "checks": [
         "authorization_dispensations_source_check"
+      ]
+    },
+    {
+      "name": "authorization_drive_change_cursors",
+      "variable": "authorizationDriveChangeCursors",
+      "group": "otros",
+      "pk": [
+        "feed_key"
+      ],
+      "columns": [
+        {
+          "name": "feed_key",
+          "type": "varchar(200)",
+          "nullable": false,
+          "pk": true,
+          "default": null
+        },
+        {
+          "name": "drive_id",
+          "type": "text",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "page_token",
+          "type": "text",
+          "nullable": false,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "initial_backfill_complete",
+          "type": "boolean",
+          "nullable": false,
+          "pk": false,
+          "default": "false"
+        },
+        {
+          "name": "next_poll_at",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": "defaultNow()"
+        },
+        {
+          "name": "consecutive_failures",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": "defaultNow()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": "defaultNow()"
+        }
+      ],
+      "fks": [],
+      "indexes": [],
+      "checks": [
+        "authorization_drive_change_cursors_failures_check"
       ]
     },
     {

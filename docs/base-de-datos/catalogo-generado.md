@@ -1,9 +1,9 @@
 # Catálogo estructural de la base de datos — generado
 
 > **Origen:** `packages/database/src/schema.ts` (Drizzle). **No demuestra que las migraciones estén aplicadas a un PostgreSQL concreto.**
-> **Identificador de fuente SHA-256:** `3b714ea42939f449d84027e8cb7cf9d040f702bb5d74676eff1d520a680f9ea6`. Generador: `scripts/db-schema-catalog.mjs`.
+> **Identificador de fuente SHA-256:** `33145c734f58272316215cd17cfda48520715a727f026af6b6a960526d3d99d3`. Generador: `scripts/db-schema-catalog.mjs`.
 
-**Tablas Drizzle:** 92. **Columnas:** 1195. **Referencias FK declaradas:** 242.
+**Tablas Drizzle:** 93. **Columnas:** 1203. **Referencias FK declaradas:** 242.
 
 ## Índice por proceso
 
@@ -20,7 +20,7 @@
 | Auditoría y novedades | 9 |
 | Conciliación operacional | 8 |
 | Cargas masivas, jobs y eventos técnicos | 13 |
-| Otros objetos | 4 |
+| Otros objetos | 5 |
 
 ## Diccionario de tablas
 
@@ -2336,6 +2336,23 @@
 **Índices / unicidad declarados:** `validation_errors_row_idx` (index).
 
 ### Otros objetos
+
+#### `authorization_drive_change_cursors`
+
+**Columnas:** 8 · **Clave primaria:** feed_key · **FK:** 0.
+
+| Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
+| --- | --- | --- | --- |
+| `feed_key` | varchar(200) | No | PK |
+| `drive_id` | text | Sí |  |
+| `page_token` | text | No |  |
+| `initial_backfill_complete` | boolean | No | default: false |
+| `next_poll_at` | timestamp | No | default: defaultNow() |
+| `consecutive_failures` | integer | No | default: 0 |
+| `created_at` | timestamp | No | default: defaultNow() |
+| `updated_at` | timestamp | No | default: defaultNow() |
+
+**Checks declarados:** `authorization_drive_change_cursors_failures_check`.
 
 #### `authorization_moderator_fee_events`
 
