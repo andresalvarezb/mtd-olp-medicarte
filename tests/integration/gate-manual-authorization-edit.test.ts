@@ -2003,6 +2003,32 @@ describe(
       }
     }, 60_000);
 
+    it('rechaza cantidades que no sean múltiplos del mínimo configurado en el AT', async () => {
+      const previous = await database.query<{ minimum_quantity: number }>(
+        'select minimum_quantity from tariff_annex_products where codigo_producto=$1', [CODE_A],
+      );
+      await database.query('update tariff_annex_products set minimum_quantity=28 where codigo_producto=$1', [CODE_A]);
+      try {
+        const item = await createAuthorization({ quantity: 28 });
+        const response = await editAuthorization({
+          id: item.id,
+          expectedVersion: item.version,
+          commercialCode: CODE_A,
+          quantity: 57,
+          validityEndDate: '2099-12-31',
+        });
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({
+          code: 'AUTHORIZATION_QUANTITY_NOT_MULTIPLE_OF_MINIMUM',
+        });
+      } finally {
+        await database.query(
+          'update tariff_annex_products set minimum_quantity=$1 where codigo_producto=$2',
+          [previous.rows[0]?.minimum_quantity ?? 1, CODE_A],
+        );
+      }
+    }, 60_000);
+
 
     it(
       'MTD_OPERATOR edita cantidad/vigencia y conserva cuota moderadora',

@@ -3103,7 +3103,7 @@ export class ExportablesService {
             'REGLA_PRODUCTO_MINIMO',
 
           VALOR:
-            'CANTIDAD >= PRODUCTO_MINIMO',
+            'CANTIDAD >= PRODUCTO_MINIMO Y CANTIDAD % PRODUCTO_MINIMO = 0',
         },
 
         {

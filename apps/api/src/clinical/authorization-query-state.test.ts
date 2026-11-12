@@ -216,7 +216,7 @@ describe('authorization query derived state', () => {
     });
   });
 
-  it('marca como fallida la validación inicial cuando CANTIDAD es menor al producto mínimo', () => {
+  it('solo habilita cantidades enteras que sean múltiplo del mínimo del AT', () => {
     expect(
       resolveAuthorizationInitialValidationStatus({
         enablementStatus:
@@ -264,6 +264,37 @@ describe('authorization query derived state', () => {
     ).toBe(
       'PASSED',
     );
+
+    for (const quantity of [28, 56, 84]) {
+      expect(resolveAuthorizationInitialValidationStatus({
+        enablementStatus: 'ENABLED',
+        tariffMembershipStatus: 'LISTED',
+        coverageType: 'PBS',
+        directionStatus: 'NOT_APPLICABLE',
+        quantity,
+        minimumQuantity: 28,
+      })).toBe('PASSED');
+    }
+
+    for (const quantity of [29, 55, 57, 1.5]) {
+      expect(resolveAuthorizationInitialValidationStatus({
+        enablementStatus: 'ENABLED',
+        tariffMembershipStatus: 'LISTED',
+        coverageType: 'PBS',
+        directionStatus: 'NOT_APPLICABLE',
+        quantity,
+        minimumQuantity: 28,
+      })).toBe('FAILED');
+    }
+
+    expect(resolveAuthorizationInitialValidationStatus({
+      enablementStatus: 'ENABLED',
+      tariffMembershipStatus: 'LISTED',
+      coverageType: 'PBS',
+      directionStatus: 'NOT_APPLICABLE',
+      quantity: 17,
+      minimumQuantity: 1,
+    })).toBe('PASSED');
   });
 
 

@@ -759,6 +759,15 @@ export class AuthorizationManualEditService {
           });
         }
 
+        if (
+          input.quantity % Number(tariff.minimum_quantity) !== 0
+        ) {
+          throw new BadRequestException({
+            code: 'AUTHORIZATION_QUANTITY_NOT_MULTIPLE_OF_MINIMUM',
+            message: 'La cantidad debe ser un múltiplo de la cantidad mínima configurada para el producto.',
+          });
+        }
+
 
         const authorizationKey =
           `${current.numero_autorizacion}|${commercialCode}`;

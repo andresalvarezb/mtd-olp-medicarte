@@ -67,6 +67,7 @@ export type AuthorizationQueryLifecycleReasonCode =
   | 'INVALID_QUANTITY'
   | 'INVALID_MINIMUM_QUANTITY'
   | 'BELOW_MINIMUM_QUANTITY'
+  | 'NON_MULTIPLE_QUANTITY'
   | 'INVALID_DATE'
   | 'EXPIRED'
   | 'TARIFF_VALIDATION_PENDING'
@@ -230,6 +231,21 @@ export function resolveAuthorizationLifecycleReasons(
 
         message:
           `Cantidad autorizada ${quantity} inferior a la cantidad mínima ${minimumQuantity} del Anexo Tarifario`,
+      });
+    }
+
+    if (
+      validQuantity
+      &&
+      validMinimum
+      &&
+      quantity >= minimumQuantity
+      &&
+      quantity % minimumQuantity !== 0
+    ) {
+      definitive.push({
+        code: 'NON_MULTIPLE_QUANTITY',
+        message: `Cantidad autorizada ${quantity} no es múltiplo de la cantidad mínima ${minimumQuantity} del Anexo Tarifario`,
       });
     }
   }
@@ -406,6 +422,8 @@ export function resolveAuthorizationInitialValidationStatus(
       ||
       quantity <
         minimumQuantity
+      ||
+      quantity % minimumQuantity !== 0
     ) {
       return 'FAILED';
     }

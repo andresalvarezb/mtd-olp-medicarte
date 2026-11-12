@@ -95,6 +95,22 @@ describe(
       },
     );
 
+    it('explica cantidad que no es múltiplo del mínimo del AT', () => {
+      expect(resolveAuthorizationLifecycleReasons({
+        lifecycleStatus: 'DISABLED',
+        enablementStatus: 'ENABLED',
+        tariffMembershipStatus: 'LISTED',
+        coverageType: 'PBS',
+        directionStatus: 'NOT_APPLICABLE',
+        quantity: '57',
+        minimumQuantity: 28,
+        validityStatus: 'IN_WINDOW',
+      })).toEqual([{
+        code: 'NON_MULTIPLE_QUANTITY',
+        message: 'Cantidad autorizada 57 no es múltiplo de la cantidad mínima 28 del Anexo Tarifario',
+      }]);
+    });
+
 
     it(
       'una fecha inválida tiene precedencia sobre condiciones pendientes',
