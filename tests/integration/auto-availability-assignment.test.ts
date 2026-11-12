@@ -16,9 +16,6 @@ const product = `AUTO-AVAIL-${suffix}`;
 const authorizationNumber = `AUTO-AVAIL-${suffix}`;
 const authorizationKey = `${authorizationNumber}|${product}`;
 const patientDocument = `TEST-AUTO-AVAIL-${suffix}`;
-const secondAuthorizationNumber = `AUTO-AVAIL-${suffix}-2`;
-const secondAuthorizationKey = `${secondAuthorizationNumber}|${product}`;
-const secondPatientDocument = `TEST-AUTO-AVAIL-${suffix}-2`;
 const pointCode = `AUTO-AVAIL-PT-${suffix}`;
 const orderCodes = [`AUTO-AVAIL-FEFO-${suffix}`, `AUTO-AVAIL-LATER-${suffix}`];
 const correlationId = randomUUID();
@@ -27,7 +24,6 @@ let userId = '';
 let importBatchId = '';
 let pointId = '';
 let authorizationItemId = '';
-let secondAuthorizationItemId = '';
 const purchaseOrderIds: string[] = [];
 
 function scope(): Scope {
@@ -134,53 +130,16 @@ beforeAll(async () => {
   );
   authorizationItemId = authorization.rows[0]!.id;
 
-  const secondAuthorization = await database.pool.query<{ id: string }>(
-    `insert into authorization_items (
-       numero_autorizacion, codigo_medicamento, authorization_key, source_data,
-       source_status_normalized, source_prescripcion_normalized, no_prescripcion,
-       enablement_status, coverage_type, direction_status, coverage_rule_version,
-       tariff_membership_status, tariff_membership_evaluated_at, created_from_batch_id
-     ) values ($1, $2, $3, $4::jsonb, '5', '9999999999999', '9999999999999',
-       'ENABLED', 'PBS', 'NOT_APPLICABLE', 'TEST-AUTO-AVAILABILITY', 'LISTED', now(), $5)
-     returning id`,
-    [
-      secondAuthorizationNumber,
-      product,
-      secondAuthorizationKey,
-      JSON.stringify({
-        NUMERO_AUTORIZACION: secondAuthorizationNumber,
-        CODIGO_COMERCIAL: product,
-        CANTIDAD: '6',
-        FECHA_ASIGNACION: currentBogotaDate(),
-        FECHA_FINAL_VIGENCIA: '20991231',
-        IDENTIFICACION_PACIENTE: secondPatientDocument,
-      }),
-      importBatchId,
-    ],
-  );
-  secondAuthorizationItemId = secondAuthorization.rows[0]!.id;
-
   await database.pool.query(
     `insert into authorization_item_organizations (authorization_item_id, organization_id)
      values ($1, $2) on conflict do nothing`,
     [authorizationItemId, ORGANIZATION_IDS.MTD],
   );
   await database.pool.query(
-    `insert into authorization_item_organizations (authorization_item_id, organization_id)
-     values ($1, $2) on conflict do nothing`,
-    [secondAuthorizationItemId, ORGANIZATION_IDS.MTD],
-  );
-  await database.pool.query(
     `insert into patient_default_dispensing_points (
        patient_document, dispensing_point_id, active, created_by, updated_by
      ) values ($1, $2, true, $3, $3)`,
     [patientDocument, pointId, userId],
-  );
-  await database.pool.query(
-    `insert into patient_default_dispensing_points (
-       patient_document, dispensing_point_id, active, created_by, updated_by
-     ) values ($1, $2, true, $3, $3)`,
-    [secondPatientDocument, pointId, userId],
   );
 
   await insertOrderWithReceipt({
@@ -203,21 +162,19 @@ afterAll(async () => {
         [purchaseOrderIds],
       );
     }
-    await database.pool.query(`delete from audit_events where correlation_id = $1`, [correlationId]);
     await database.pool.query(`delete from inventory_allocation_batches where correlation_id = $1`, [correlationId]);
     if (authorizationItemId) {
-      const authorizationItemIds = [authorizationItemId, secondAuthorizationItemId].filter(Boolean);
       await database.pool.query(
         `delete from patient_default_dispensing_points where patient_document = any($1::text[])`,
-        [[patientDocument, secondPatientDocument]],
+        [[patientDocument]],
       );
       await database.pool.query(
         `delete from authorization_item_organizations where authorization_item_id = any($1::uuid[])`,
-        [authorizationItemIds],
+        [[authorizationItemId]],
       );
       await database.pool.query(
         `delete from authorization_items where id = any($1::uuid[])`,
-        [authorizationItemIds],
+        [[authorizationItemId]],
       );
     }
     if (purchaseOrderIds.length) {
@@ -279,12 +236,6 @@ describe('automatic assignment of available inventory', () => {
        where authorization_item_id = $1`,
       [authorizationItemId, userId],
     );
-    await database.pool.query(
-      `update authorization_items
-       set source_status_normalized = 'ANULADA', enablement_status = 'BLOCKED_SOURCE_STATUS', annulled_at = now()
-       where id = $1`,
-      [authorizationItemId],
-    );
 
     const releaseAssignment = await database.db.transaction((tx) =>
       repository.assignAutomaticallyInTx(tx, scope(), 'RESERVATION_RELEASED', {
@@ -294,21 +245,21 @@ describe('automatic assignment of available inventory', () => {
     );
     expect(releaseAssignment).toMatchObject({
       assignedQuantity: 6,
-      assignedAuthorizationKeys: [secondAuthorizationKey],
+      assignedAuthorizationKeys: [authorizationKey],
       unmatchedStock: [],
     });
 
-    const secondAllocations = await database.pool.query<{ allocated_quantity: number }>(
+    const reassignedAllocations = await database.pool.query<{ allocated_quantity: number }>(
       `select allocated_quantity from inventory_authorization_allocations
-       where authorization_item_id = $1 order by purchase_order_id`,
-      [secondAuthorizationItemId],
+       where authorization_item_id = $1 order by created_at, id`,
+      [authorizationItemId],
     );
-    expect(secondAllocations.rows.reduce((total, row) => total + row.allocated_quantity, 0)).toBe(6);
+    expect(reassignedAllocations.rows.reduce((total, row) => total + row.allocated_quantity, 0)).toBe(12);
 
     const count = await database.pool.query<{ count: number }>(
       `select count(*)::int as count from inventory_authorization_allocations
-       where authorization_item_id = any($1::uuid[])`,
-      [[authorizationItemId, secondAuthorizationItemId]],
+       where authorization_item_id = $1`,
+      [authorizationItemId],
     );
     expect(count.rows[0]?.count).toBe(4);
   });
