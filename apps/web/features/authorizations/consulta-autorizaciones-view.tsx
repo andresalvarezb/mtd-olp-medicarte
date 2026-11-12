@@ -583,6 +583,9 @@ function manualEditErrorMessage(
         AUTHORIZATION_BELOW_MINIMUM_QUANTITY:
           'La cantidad es inferior a la cantidad mínima configurada para el producto.',
 
+        AUTHORIZATION_QUANTITY_NOT_MULTIPLE_OF_MINIMUM:
+          'La cantidad debe ser un múltiplo de la cantidad mínima configurada para el producto.',
+
         AUTHORIZATION_PRODUCT_ALREADY_FULFILLED:
           'El producto no puede cambiarse porque ya existe una entrega/aplicación.',
 

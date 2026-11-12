@@ -571,6 +571,7 @@ export class AuthorizationQueryRepository {
           or trunc(${quantityNumeric}) <> ${quantityNumeric}
           or ${minimumQuantity} <= 0
           or ${quantityNumeric} < ${minimumQuantity}
+          or mod(${quantityNumeric}, ${minimumQuantity}) <> 0
         then 'FAILED'
         when ${rowAlias}.coverage_type in ('PBS', 'NO_PBS')
         then 'PASSED'
