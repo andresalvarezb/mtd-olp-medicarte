@@ -30,7 +30,7 @@ describe('COMPENSAR backfill audit SQL against PostgreSQL', () => {
             {
               id: batchId,
               organization_id: organizationId,
-              policy_version: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
+              policy_version: 'COMPENSAR_DOCUMENT_TYPE_CATALOG_V1',
               status: 'RUNNING',
               batch_size: 100,
               summary: {},

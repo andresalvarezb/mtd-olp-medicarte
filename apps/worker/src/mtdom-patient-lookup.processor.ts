@@ -69,12 +69,14 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
       throw new PatientLookupTerminalError('PATIENT_LOOKUP_IDENTITY_POLICY_REQUIRED');
     }
 
+    const usesCompensarCatalog =
+      policy.version === COMPENSAR_PATIENT_IDENTITY_POLICY.version;
     const local = await this.database.pool.query<{
       identification_type_raw: string;
       identification_value_raw: string;
       authorized?: boolean;
     }>(
-      policy.version === COMPENSAR_PATIENT_IDENTITY_POLICY.version
+      usesCompensarCatalog
         ? `select p.identification_type_raw, p.identification_value_raw,
               (source_org.code = 'COMPENSAR' and exists (
                 select 1 from authorization_items ai
@@ -95,7 +97,9 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
           where p.id = $1::uuid`
         : `select identification_type_raw, identification_value_raw
              from patients where id = $1::uuid`,
-      [input.patientId, compensarSourceDocumentTypeCodes()],
+      usesCompensarCatalog
+        ? [input.patientId, compensarSourceDocumentTypeCodes()]
+        : [input.patientId],
     );
     const patient = local.rows[0];
     if (!patient) throw new PatientLookupTerminalError('PATIENT_LOOKUP_LOCAL_PATIENT_MISSING');
