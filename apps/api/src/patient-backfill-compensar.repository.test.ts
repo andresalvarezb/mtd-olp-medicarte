@@ -109,6 +109,16 @@ describe('controlled COMPENSAR AUTO backfill', () => {
       remaining: false,
       summary: { linked_patient_created_and_linked: 1 },
     });
+    const batchUpdate = harness.statements.find(({ sql }) =>
+      sql.includes('update patient_backfill_batches') && sql.includes('set status = $2'),
+    );
+    expect(batchUpdate?.sql).toContain('completed_at = case when $4::boolean');
+    expect(batchUpdate?.values).toEqual([
+      batchId,
+      'COMPLETED',
+      JSON.stringify({ linked_patient_created_and_linked: 1 }),
+      true,
+    ]);
     const insert = harness.statements.find(({ sql }) => sql.includes('insert into patients'));
     expect(insert?.sql).toContain("code = 'COMPENSAR'");
     expect(insert?.values).toEqual(['1', '000123']);
