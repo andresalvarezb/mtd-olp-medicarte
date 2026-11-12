@@ -274,6 +274,24 @@ describe('authorization query MEDICARTE visibility', () => {
     expect(query).toContain('user_point_scopes');
   });
 
+  it('classifies disabled authorizations before applying the operational visibility gates', async () => {
+    const { repository, execute } = fixture();
+    execute.mockResolvedValueOnce({ rows: [{ id: null, total_count: 0 }] });
+
+    await repository.list(
+      { page: 1, limit: 10, lifecycleEnablement: 'DISABLED' },
+      scope,
+    );
+
+    const compiled = new PgDialect().sqlToQuery(execute.mock.calls[0]?.[0] as never);
+    expect(compiled.sql).toContain('classified.lifecycle_enablement =');
+    expect(compiled.params).toContain('DISABLED');
+    expect(compiled.sql).not.toContain("validated.initial_validation_status = 'PASSED'");
+    expect(compiled.sql).not.toContain('classified.operational_eligible\n        and classified.remaining_authorized_quantity');
+    expect(compiled.sql).toContain('user_point_scopes');
+    expect(compiled.sql).toContain('restricted_authorizations as materialized');
+  });
+
   it('keeps sensitive searches inside each organization data scope', async () => {
     const cases = [
       {
