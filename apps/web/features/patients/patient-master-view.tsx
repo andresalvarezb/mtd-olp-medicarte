@@ -2,23 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import type {
-  PatientMasterDetail,
-  PatientMasterPersonalResponse,
-  PatientMasterSearchResponse,
-  PatientMasterLiveLookupResponse,
-  PatientReconciliationCase,
-} from '@authorization/contracts';
+import type { PatientMasterSearchResponse } from '@authorization/contracts';
 import { PageHeader } from '@/components/ui/page-header';
 import { useRole } from '@/components/layout/role-context';
 import { ApiError } from '@/lib/api-client';
-import {
-  getPatientMasterDetail,
-  getPatientMasterPersonalProfile,
-  listPatientReconciliationCases,
-  lookupPatientMaster,
-  searchPatientMaster,
-} from '@/lib/patient-master-api';
+import { searchPatientMaster } from '@/lib/patient-master-api';
 import styles from './patient-master-demo-view.module.css';
 
 const PAGE_SIZE = 25;
@@ -38,12 +26,6 @@ function statusLabel(status: string): string {
   return status.replaceAll('_', ' ');
 }
 
-function profileValue(value: string | number | boolean | null): string {
-  if (value === null) return 'Sin dato reportado';
-  if (typeof value === 'boolean') return value ? 'Sí' : 'No';
-  return String(value);
-}
-
 export function PatientMasterView() {
   const { me, organizationId, hasPermission } = useRole();
   const organization = me?.organizations.find((item) => item.id === organizationId);
@@ -51,8 +33,6 @@ export function PatientMasterView() {
   const isMtd = organization?.code === 'MTD';
   const accessiblePointIds = organization?.pointAccess.accessiblePointIds ?? [];
   const hasReadPermission = hasPermission('patient_master.read');
-  const canReadReconciliation = hasPermission('patient_reconciliation.read');
-  const canReadPersonal = hasPermission('patient_master.personal.read');
 
   const [pointId, setPointId] = useState('');
   const [identityType, setIdentityType] = useState('');
@@ -61,19 +41,10 @@ export function PatientMasterView() {
     identificationType?: string;
     identificationValue?: string;
   }>({});
-  const [liveLookup, setLiveLookup] = useState<PatientMasterLiveLookupResponse | null>(null);
-  const [liveLookupLoading, setLiveLookupLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [list, setList] = useState<PatientMasterSearchResponse | null>(null);
   const [state, setState] = useState<'loading' | 'denied' | 'error' | 'ready'>('loading');
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<PatientMasterDetail | null>(null);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [personal, setPersonal] = useState<PatientMasterPersonalResponse | null>(null);
-  const [personalError, setPersonalError] = useState<string | null>(null);
-  const [cases, setCases] = useState<PatientReconciliationCase[] | null>(null);
-  const [casesError, setCasesError] = useState<string | null>(null);
-  const [showCases, setShowCases] = useState(false);
 
   useEffect(() => {
     if (!isMedicarte) {
@@ -106,9 +77,11 @@ export function PatientMasterView() {
       setList(null);
       return;
     }
+
     const abort = new AbortController();
     setState('loading');
     setError(null);
+
     void searchPatientMaster(organizationId, query, abort.signal)
       .then((response) => {
         setList(response);
@@ -120,6 +93,7 @@ export function PatientMasterView() {
         setError(safeErrorMessage(cause));
         setList(null);
       });
+
     return () => abort.abort();
   }, [
     appliedIdentity.identificationType,
@@ -131,132 +105,29 @@ export function PatientMasterView() {
     query,
   ]);
 
-  useEffect(() => {
-    if (
-      !organizationId ||
-      !hasReadPermission ||
-      !isMtd ||
-      !appliedIdentity.identificationType ||
-      !appliedIdentity.identificationValue
-    ) {
-      setLiveLookup(null);
-      return;
-    }
-    const abort = new AbortController();
-    setLiveLookupLoading(true);
-    setLiveLookup(null);
-    void lookupPatientMaster(
-      organizationId,
-      appliedIdentity as Required<typeof appliedIdentity>,
-      abort.signal,
-    )
-      .then(setLiveLookup)
-      .catch((cause: unknown) => {
-        if (!abort.signal.aborted) setError(safeErrorMessage(cause));
-      })
-      .finally(() => {
-        if (!abort.signal.aborted) setLiveLookupLoading(false);
-      });
-    return () => abort.abort();
-  }, [appliedIdentity, hasReadPermission, isMtd, organizationId]);
-
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const type = identityType;
     const value = identityValue;
+
     if (Boolean(type) !== Boolean(value)) {
       setError('Para buscar por identidad debes diligenciar tipo y valor exactos.');
       return;
     }
+
     setError(null);
-    setLiveLookup(null);
     setAppliedIdentity(
       type && value ? { identificationType: type, identificationValue: value } : {},
     );
     setPage(1);
   };
 
-  const openDetail = async (patientId: string) => {
-    if (!organizationId) return;
-    setDetailError(null);
-    setPersonal(null);
-    setPersonalError(null);
-    try {
-      setSelected(
-        await getPatientMasterDetail(organizationId, patientId, isMedicarte ? pointId : undefined),
-      );
-    } catch (cause) {
-      setSelected(null);
-      setDetailError(safeErrorMessage(cause));
-    }
-  };
-
-  const openPersonal = async (patientId: string) => {
-    if (!organizationId || !canReadPersonal) return;
-    setPersonalError(null);
-    try {
-      setPersonal(
-        await getPatientMasterPersonalProfile(
-          organizationId,
-          patientId,
-          isMedicarte ? pointId : undefined,
-        ),
-      );
-    } catch (cause) {
-      setPersonal(null);
-      setPersonalError(safeErrorMessage(cause));
-    }
-  };
-
-  const openCases = async () => {
-    if (!organizationId || !canReadReconciliation) return;
-    setShowCases(true);
-    setCasesError(null);
-    try {
-      const result = await listPatientReconciliationCases(organizationId);
-      setCases(result.items);
-    } catch (cause) {
-      setCases(null);
-      setCasesError(safeErrorMessage(cause));
-    }
-  };
-
   return (
     <main className={styles.container}>
       <PageHeader
         title="Maestro de pacientes"
-        description="Consulta de identidad local, evidencia histórica y estado técnico MTDOM dentro del alcance autorizado."
+        description="Consulta del maestro de pacientes a través de la API dentro del alcance autorizado."
       />
-      {canReadReconciliation ? (
-        <button className="btn" type="button" onClick={() => void openCases()}>
-          Casos de conciliación
-        </button>
-      ) : null}
-      {showCases ? (
-        <section className={styles.card} aria-label="Casos de conciliación de pacientes">
-          <div className={styles.sectionHeading}>
-            <h2>Conciliación (solo lectura)</h2>
-            <button type="button" onClick={() => setShowCases(false)}>
-              Cerrar
-            </button>
-          </div>
-          {casesError ? <p role="alert">{casesError}</p> : null}
-          {cases === null && !casesError ? <p role="status">Cargando casos…</p> : null}
-          {cases?.length === 0 ? <p>No hay casos dentro del alcance autorizado.</p> : null}
-          {cases?.length ? (
-            <ul className={styles.authorizationList}>
-              {cases.map((item) => (
-                <li key={item.id}>
-                  <span>{item.reasonCode}</span>
-                  <span>{statusLabel(item.status)}</span>
-                  <span>{item.resolutionCode ?? 'Pendiente'}</span>
-                  <span>{item.decidedAt ?? 'Sin decisión registrada'}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
-      ) : null}
 
       <section className={styles.card} aria-label="Búsqueda de pacientes">
         <form className={styles.filters} onSubmit={submitSearch}>
@@ -273,25 +144,29 @@ export function PatientMasterView() {
               </select>
             </label>
           ) : null}
+
           <label>
             Tipo exacto de identificación
             <input
               value={identityType}
               onChange={(event) => setIdentityType(event.target.value)}
-              maxLength={80}
+              maxLength={10}
             />
           </label>
+
           <label>
             Valor exacto de identificación
             <input
               value={identityValue}
               onChange={(event) => setIdentityValue(event.target.value)}
-              maxLength={255}
+              maxLength={30}
             />
           </label>
+
           <button type="submit" disabled={!hasReadPermission || (isMedicarte && !pointId)}>
             Buscar
           </button>
+
           {appliedIdentity.identificationValue ? (
             <button
               type="button"
@@ -306,72 +181,14 @@ export function PatientMasterView() {
             </button>
           ) : null}
         </form>
+
         <p className={styles.scopeNotice}>
-          La búsqueda usa coincidencia exacta sin normalizar y no devuelve el documento. Los datos
-          de la lista vienen de la API; no se muestran perfiles personales de MTDOM.
+          La búsqueda usa tipo homologado y documento exacto, y no devuelve el documento. Los
+          resultados se obtienen desde la API del maestro.
         </p>
+
         {error ? <p role="alert">{error}</p> : null}
-        {liveLookupLoading ? <p role="status">Consultando perfil básico en MTDOM…</p> : null}
-        {liveLookup?.status === 'NOT_FOUND' ? (
-          <p role="status">MTDOM no encontró esa identidad exacta.</p>
-        ) : null}
-        {liveLookup?.status === 'AMBIGUOUS' ? (
-          <p role="status">MTDOM encontró más de una coincidencia; verifica tipo y número.</p>
-        ) : null}
-        {liveLookup?.status === 'IDENTITY_MISMATCH' ? (
-          <p role="alert">
-            El documento devuelto por MTDOM no coincide exactamente; no se muestra el perfil.
-          </p>
-        ) : null}
-        {liveLookup?.status === 'UNAVAILABLE' ? (
-          <p role="alert">
-            MTDOM no está disponible para esta consulta. Intenta de nuevo más tarde.
-          </p>
-        ) : null}
-        {liveLookup?.status === 'FOUND' ? (
-          <section className={styles.card} aria-label="Perfil básico consultado en MTDOM">
-            <h2>Perfil básico MTDOM</h2>
-            <dl className={styles.details}>
-              {(
-                [
-                  ['Tipo de identificación', liveLookup.basicProfile.tipo_identificacion],
-                  ['Identificación', liveLookup.basicProfile.identificacion],
-                  ['Primer nombre', liveLookup.basicProfile.primer_nombre],
-                  ['Segundo nombre', liveLookup.basicProfile.segundo_nombre],
-                  ['Primer apellido', liveLookup.basicProfile.primer_apellido],
-                  ['Segundo apellido', liveLookup.basicProfile.segundo_apellido],
-                  ['Sexo', liveLookup.basicProfile.sexo],
-                  ['Ciudad', liveLookup.basicProfile.ciudad],
-                  ['Código de ciudad', liveLookup.basicProfile.codigo_ciudad],
-                  ['Departamento', liveLookup.basicProfile.departamento],
-                  ['Código de departamento', liveLookup.basicProfile.codigo_departamento],
-                  ['EPS', liveLookup.basicProfile.eps],
-                  ['Código de EPS', liveLookup.basicProfile.codigo_eps],
-                  ['Plan', liveLookup.basicProfile.plan],
-                  ['Código de plan', liveLookup.basicProfile.codigo_plan],
-                  ['Tipo reportado', liveLookup.basicProfile.tipo],
-                  ['Código de tipo', liveLookup.basicProfile.codigo_tipo],
-                  ['Condición', liveLookup.basicProfile.condicion],
-                  ['Activo en MTDOM', liveLookup.basicProfile.activo],
-                  ['Paciente vivo', liveLookup.basicProfile.paciente_vivo],
-                  ['Fecha de fallecimiento', liveLookup.basicProfile.fecha_fallecimiento],
-                  ['Presente en fuente actual', liveLookup.basicProfile.presente_en_fuente_actual],
-                  ['Estado Registraduría', liveLookup.basicProfile.registraduria_estado],
-                  [
-                    'Última validación Registraduría',
-                    liveLookup.basicProfile.fecha_ultima_validacion_registraduria,
-                  ],
-                  ['Actualizado en origen', liveLookup.basicProfile.actualizado_en],
-                ] as const
-              ).map(([label, value]) => (
-                <div key={label}>
-                  <dt>{label}</dt>
-                  <dd>{profileValue(value)}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        ) : null}
+
         {state === 'loading' ? <p role="status">Cargando pacientes…</p> : null}
         {state === 'denied' ? (
           <p role="status">
@@ -381,9 +198,11 @@ export function PatientMasterView() {
         {state === 'error' && !error ? (
           <p role="alert">No fue posible consultar el maestro.</p>
         ) : null}
+
         {state === 'ready' && list?.items.length === 0 ? (
           <p>Sin resultados dentro del alcance autorizado.</p>
         ) : null}
+
         {state === 'ready' && list && list.items.length > 0 ? (
           <>
             <div className={styles.tableWrap}>
@@ -396,7 +215,6 @@ export function PatientMasterView() {
                     <th>Estado MTDOM</th>
                     <th>Autorizaciones enlazadas</th>
                     <th>Históricas candidatas</th>
-                    <th>Detalle</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -407,16 +225,12 @@ export function PatientMasterView() {
                       <td>{statusLabel(patient.mtdomLookupStatus)}</td>
                       <td>{patient.linkedAuthorizationCount}</td>
                       <td>{patient.historicalCandidateAuthorizationCount}</td>
-                      <td>
-                        <button type="button" onClick={() => void openDetail(patient.id)}>
-                          Ver detalle
-                        </button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
             <nav className={styles.pagination} aria-label="Paginación de pacientes">
               <span>
                 Página {page} · {list.total} registros
@@ -439,146 +253,6 @@ export function PatientMasterView() {
           </>
         ) : null}
       </section>
-
-      {detailError ? <p role="alert">{detailError}</p> : null}
-      {selected ? (
-        <section className={styles.card} aria-label="Detalle del paciente">
-          <div className={styles.sectionHeading}>
-            <h2>Registro {selected.id.slice(0, 8)}</h2>
-            <button type="button" onClick={() => setSelected(null)}>
-              Cerrar detalle
-            </button>
-          </div>
-          <dl className={styles.details}>
-            <dt>Identidad local</dt>
-            <dd>{statusLabel(selected.identityStatus)} · valor no incluido en la respuesta</dd>
-            <dt>Estado MTDOM</dt>
-            <dd>{statusLabel(selected.mtdomLookupStatus)}</dd>
-            <dt>Último intento</dt>
-            <dd>{selected.mtdomLastCheckedAt ?? 'Sin intento'}</dd>
-            <dt>Último evento de cambios</dt>
-            <dd>{selected.mtdomChangesSeenAt ?? 'Sin evento'}</dd>
-            <dt>Código técnico</dt>
-            <dd>{selected.mtdomLastErrorCode ?? '—'}</dd>
-          </dl>
-          {selected.basicProfile ? (
-            <>
-              <h3>Perfil básico MTDOM</h3>
-              <dl className={styles.details}>
-                {(
-                  [
-                    ['Tipo de identificación', selected.basicProfile.tipo_identificacion],
-                    ['Identificación', selected.basicProfile.identificacion],
-                    ['Primer nombre', selected.basicProfile.primer_nombre],
-                    ['Segundo nombre', selected.basicProfile.segundo_nombre],
-                    ['Primer apellido', selected.basicProfile.primer_apellido],
-                    ['Segundo apellido', selected.basicProfile.segundo_apellido],
-                    ['Sexo', selected.basicProfile.sexo],
-                    ['Ciudad', selected.basicProfile.ciudad],
-                    ['Código de ciudad', selected.basicProfile.codigo_ciudad],
-                    ['Departamento', selected.basicProfile.departamento],
-                    ['Código de departamento', selected.basicProfile.codigo_departamento],
-                    ['EPS', selected.basicProfile.eps],
-                    ['Código de EPS', selected.basicProfile.codigo_eps],
-                    ['Plan', selected.basicProfile.plan],
-                    ['Código de plan', selected.basicProfile.codigo_plan],
-                    ['Tipo reportado', selected.basicProfile.tipo],
-                    ['Código de tipo', selected.basicProfile.codigo_tipo],
-                    ['Condición', selected.basicProfile.condicion],
-                    ['Activo en MTDOM', selected.basicProfile.activo],
-                    ['Paciente vivo según MTDOM', selected.basicProfile.paciente_vivo],
-                    ['Fecha de fallecimiento reportada', selected.basicProfile.fecha_fallecimiento],
-                    ['Presente en fuente actual', selected.basicProfile.presente_en_fuente_actual],
-                    ['Estado de Registraduría', selected.basicProfile.registraduria_estado],
-                    [
-                      'Última validación de Registraduría',
-                      selected.basicProfile.fecha_ultima_validacion_registraduria,
-                    ],
-                    ['Actualizado en origen', selected.basicProfile.actualizado_en],
-                  ] as const
-                ).map(([label, value]) => (
-                  <div key={label}>
-                    <dt>{label}</dt>
-                    <dd>{profileValue(value)}</dd>
-                  </div>
-                ))}
-                {selected.basicProfileMetadata ? (
-                  <div>
-                    <dt>Origen / consulta en Medicarte</dt>
-                    <dd>
-                      {selected.basicProfileMetadata.source} ·{' '}
-                      {selected.basicProfileMetadata.fetchedAt ?? 'Sin metadato de consulta'}
-                    </dd>
-                  </div>
-                ) : null}
-              </dl>
-            </>
-          ) : (
-            <p role="status">No hay atributos básicos disponibles para este registro.</p>
-          )}
-          {canReadPersonal ? (
-            <div>
-              <button type="button" onClick={() => void openPersonal(selected.id)}>
-                Consultar datos personales autorizados
-              </button>
-              {personalError ? <p role="alert">{personalError}</p> : null}
-              {personal?.personalProfile ? (
-                <>
-                  <p>
-                    Origen {personal.personalProfileMetadata?.source ?? 'no disponible'} · última
-                    consulta {personal.personalProfileMetadata?.fetchedAt ?? 'no disponible'}
-                  </p>
-                  <dl className={styles.details}>
-                    {(
-                      [
-                        ['Fecha de nacimiento', personal.personalProfile.fecha_nacimiento],
-                        ['Dirección', personal.personalProfile.direccion],
-                        ['Barrio', personal.personalProfile.barrio],
-                        ['Zona', personal.personalProfile.zona],
-                        ['Latitud', personal.personalProfile.latitud],
-                        ['Longitud', personal.personalProfile.longitud],
-                        ['Teléfono 1', personal.personalProfile.telefono1],
-                        ['Teléfono 2', personal.personalProfile.telefono2],
-                        ['Correo', personal.personalProfile.email],
-                        ['Correo validado', personal.personalProfile.email_validado],
-                      ] as const
-                    ).map(([label, value]) => (
-                      <div key={label}>
-                        <dt>{label}</dt>
-                        <dd>{profileValue(value)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </>
-              ) : null}
-              {personal && !personal.personalProfile ? (
-                <p role="status">No hay atributos personales disponibles para este registro.</p>
-              ) : null}
-            </div>
-          ) : null}
-          <h3>Evidencia de autorizaciones</h3>
-          <ul className={styles.authorizationList}>
-            {selected.authorizationEvidence.map((item) => (
-              <li key={item.id}>
-                <span>{item.authorizationNumber}</span>
-                <span>
-                  {item.linkage === 'LINKED'
-                    ? 'Enlace al maestro'
-                    : 'Snapshot histórico; candidato exacto sin enlace'}
-                </span>
-                <span>{item.organizationCodes.join(', ')}</span>
-                {item.dispensingPointId ? (
-                  <span>Punto {item.dispensingPointId.slice(0, 8)}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          <p className={styles.scopeNotice}>
-            Las coincidencias históricas se muestran como evidencia candidata: esta consulta no
-            modifica `patient_id` ni crea enlaces.
-          </p>
-        </section>
-      ) : null}
     </main>
   );
 }
