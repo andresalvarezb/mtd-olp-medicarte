@@ -1320,10 +1320,30 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
         where authorization_item_id = $1 and purchase_order_id = $2`,
       [authorizationItemId, poId],
     );
-    record('Day-five grace receipt creates one physical reservation for the authorization', allocation.rows.length === 1 && allocation.rows[0]!.allocated_quantity === 16 && allocation.rows[0]!.consumed_quantity === 0 && allocation.rows[0]!.released_quantity === 0 && allocation.rows[0]!.status === 'ALLOCATED', '1 allocation / 16 units / ALLOCATED', allocation.rows, 'CRITICAL');
-    if (allocation.rows.length !== 1 || allocation.rows[0]!.allocated_quantity !== 16 || allocation.rows[0]!.consumed_quantity !== 0 || allocation.rows[0]!.released_quantity !== 0 || allocation.rows[0]!.status !== 'ALLOCATED') {
+    record('Day-five grace preserves the existing 13-unit reservation for the authorization', allocation.rows.length === 1 && allocation.rows[0]!.allocated_quantity === 13 && allocation.rows[0]!.consumed_quantity === 0 && allocation.rows[0]!.released_quantity === 0 && allocation.rows[0]!.status === 'ALLOCATED', '1 allocation / 13 units / ALLOCATED', allocation.rows, 'CRITICAL');
+    if (allocation.rows.length !== 1 || allocation.rows[0]!.allocated_quantity !== 13 || allocation.rows[0]!.consumed_quantity !== 0 || allocation.rows[0]!.released_quantity !== 0 || allocation.rows[0]!.status !== 'ALLOCATED') {
       throw new Error(`Cannot continue: authorization reservation mismatch ${JSON.stringify(allocation.rows)}`);
     }
+
+    const activeAutoAllocation = await database.query<{
+      allocated_quantity: number;
+      source: string;
+    }>(
+      `select iaa.allocated_quantity, batch.source
+         from inventory_authorization_allocations iaa
+         join inventory_allocation_batches batch on batch.id = iaa.batch_id
+        where iaa.authorization_item_id = $1 and iaa.purchase_order_id = $2`,
+      [secondaryAuthorizationItemId, poId],
+    );
+    record(
+      'Newly available stock is assigned to the active AUTO, not the AUTO in grace',
+      activeAutoAllocation.rows.length === 1 &&
+        activeAutoAllocation.rows[0]!.allocated_quantity === 3 &&
+        activeAutoAllocation.rows[0]!.source === 'AUTO',
+      '1 AUTO allocation / 3 units',
+      activeAutoAllocation.rows,
+      'CRITICAL',
+    );
 
     const sixDaysAgoBogota = plusDays(bogotaDateForE2e(), -6);
     await database.query(
@@ -1427,7 +1447,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
         where authorization_item_id=$1 and purchase_order_id=$2`,
       [authorizationItemId, poId],
     );
-    record('Same active AUTO-OC source receives exactly the later physical unit', topUpAllocation.rows[0]?.count === 2 && topUpAllocation.rows[0]?.allocated_quantity === 17 && topUpAllocation.rows[0]?.consumed_quantity === 2 && topUpAllocation.rows[0]?.released_quantity === 0 && topUpAllocation.rows[0]?.outstanding_quantity === 15, '2 allocations / allocated=17 consumed=2 outstanding=15', topUpAllocation.rows[0], 'CRITICAL');
+    record('Same active AUTO-OC source receives exactly the later physical unit', topUpAllocation.rows[0]?.count === 2 && topUpAllocation.rows[0]?.allocated_quantity === 14 && topUpAllocation.rows[0]?.consumed_quantity === 2 && topUpAllocation.rows[0]?.released_quantity === 0 && topUpAllocation.rows[0]?.outstanding_quantity === 12, '2 allocations / allocated=14 consumed=2 outstanding=12', topUpAllocation.rows[0], 'CRITICAL');
 
     const postReceiptInventory = await database.query<{ receipt_quantity: number }>(
       `select coalesce(sum(im.quantity_delta), 0)::int receipt_quantity
@@ -1445,7 +1465,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
         purchaseOrderCode: PO_CODE,
         fulfillmentType: 'APPLICATION',
         effectiveDate: bogotaDateForE2e(),
-        quantity: 16,
+        quantity: 13,
       },
       token: medicarteToken,
       organizationId: ORGANIZATION_IDS.MEDICARTE,
@@ -1457,7 +1477,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
         purchaseOrderCode: PO_CODE,
         fulfillmentType: 'APPLICATION',
         effectiveDate: bogotaDateForE2e(),
-        quantity: 15,
+        quantity: 12,
       },
       token: medicarteToken,
       organizationId: ORGANIZATION_IDS.MEDICARTE,
@@ -1478,7 +1498,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
         where authorization_item_id = $1 and purchase_order_id = $2`,
       [authorizationItemId, poId],
     );
-    record('Partial plus final fulfillment consumes exactly the receipt reservation', finalAllocation.rows.length === 2 && finalAllocation.rows.reduce((sum, row) => sum + row.allocated_quantity, 0) === 17 && finalAllocation.rows.reduce((sum, row) => sum + row.consumed_quantity, 0) === 17 && finalAllocation.rows.reduce((sum, row) => sum + row.released_quantity, 0) === 0 && finalAllocation.rows.every((row) => row.status === 'CONSUMED'), '2 allocations / allocated=17 consumed=17 released=0 CONSUMED', finalAllocation.rows, 'CRITICAL');
+    record('Partial plus final fulfillment consumes exactly the receipt reservation', finalAllocation.rows.length === 2 && finalAllocation.rows.reduce((sum, row) => sum + row.allocated_quantity, 0) === 14 && finalAllocation.rows.reduce((sum, row) => sum + row.consumed_quantity, 0) === 14 && finalAllocation.rows.reduce((sum, row) => sum + row.released_quantity, 0) === 0 && finalAllocation.rows.every((row) => row.status === 'CONSUMED'), '2 allocations / allocated=14 consumed=14 released=0 CONSUMED', finalAllocation.rows, 'CRITICAL');
 
     const overRemainingAuthorization = await request('POST', `/medicarte/authorizations/${authorizationItemId}/fulfill`, {
       body: {
@@ -1523,7 +1543,7 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
            where d.purchase_order_id = $2 and im.movement_type = 'RECEIPT') as receipt_quantity`,
       [authorizationItemId, poId],
     );
-    record('Both applications remain persisted when Medicarte cannot read the exhausted authorization history', fulfillmentTotals.rows[0]?.count === 2 && fulfillmentTotals.rows[0]?.application_count === 2 && fulfillmentTotals.rows[0]?.quantity === 17 && fulfillmentTotals.rows[0]?.receipt_quantity === 17, '2 APPLICATION fulfillments=17 / receipt inventory=17', fulfillmentTotals.rows[0], 'CRITICAL');
+    record('Both applications remain persisted when Medicarte cannot read the exhausted authorization history', fulfillmentTotals.rows[0]?.count === 2 && fulfillmentTotals.rows[0]?.application_count === 2 && fulfillmentTotals.rows[0]?.quantity === 14 && fulfillmentTotals.rows[0]?.receipt_quantity === 17, '2 APPLICATION fulfillments=14 / receipt inventory=17', fulfillmentTotals.rows[0], 'CRITICAL');
 
     // 20) Final safety snapshot: source DB must not be the target.
     const currentDb = await database.query<{ db: string }>('select current_database() db');
@@ -1559,7 +1579,8 @@ describeEphemeralE2e('PO operational cycle — ephemeral E2E gate', () => {
           'Medicarte creates receipt',
           'Medicarte records partial physical receipt 16/18',
           'Medicarte confirms physical receipt',
-          'Day-five grace receipt creates one physical reservation for the authorization',
+          'Day-five grace preserves the existing 13-unit reservation for the authorization',
+          'Newly available stock is assigned to the active AUTO, not the AUTO in grace',
           'Day-six first attention is rejected even with a retroactive effective date',
           'Expired attempt leaves reserved quantity untouched',
           'Day-five grace allows the first partial application of 2 units',

@@ -26,7 +26,11 @@ function lotView(row: Record<string, unknown>) {
 export class InventoryRepository {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
 
-  async recordConfirmedReceipt(tx: InventoryTx, receiptId: string, scope: Scope): Promise<void> {
+  async recordConfirmedReceipt(
+    tx: InventoryTx,
+    receiptId: string,
+    scope: Scope,
+  ): Promise<Array<{ commercialCode: string; dispensingPointId: string }>> {
     const lines = await tx.execute<{
       id: string;
       accepted_quantity: number;
@@ -39,6 +43,7 @@ export class InventoryRepository {
       from receipt_lines rl join delivery_lines dl on dl.id=rl.delivery_line_id
       where rl.receipt_id=${receiptId} and rl.accepted_quantity > 0 for update`);
 
+    const newlyAvailable = new Map<string, { commercialCode: string; dispensingPointId: string }>();
     for (const line of lines.rows) {
       // Transitional bridge: dispensing points can still be created by
       // historical flows after migration 0064. Materialize their inventory
@@ -129,11 +134,18 @@ export class InventoryRepository {
         (inventory_lot_id,movement_type,quantity_delta,source_type,source_id,occurred_at,created_by,metadata)
         values (${lot.rows[0].id},'RECEIPT',${line.accepted_quantity},'RECEIPT_LINE',${line.id},now(),${scope.userId},${JSON.stringify({ receiptId, acceptedQuantity: line.accepted_quantity })}::jsonb)
         on conflict (movement_type,source_type,source_id) do nothing returning id`);
-      if (movement.rows[0])
+      if (movement.rows[0]) {
         await tx.execute(sql`insert into audit_events
           (actor_type,actor_id,organization_id,action,resource_type,resource_id,after,correlation_id,request_id,result)
           values ('USER',${scope.userId},${scope.organizationId},'INVENTORY_MOVEMENT_CREATED','inventory_movement',${movement.rows[0].id},${JSON.stringify({ receiptId, receiptLineId: line.id, quantityDelta: line.accepted_quantity })}::jsonb,${scope.correlationId},${scope.correlationId},'SUCCESS')`);
+        newlyAvailable.set(`${line.commercial_code}\u0000${line.dispensing_point_id}`, {
+          commercialCode: line.commercial_code,
+          dispensingPointId: line.dispensing_point_id,
+        });
+      }
     }
+
+    return [...newlyAvailable.values()];
   }
 
 

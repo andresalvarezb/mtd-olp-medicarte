@@ -3,8 +3,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 
 import type { createDatabase } from '@authorization/database';
+import { AUTHORIZATION_ANNULMENT_EVIDENCE_KEY } from '@authorization/domain';
 
 import type { Scope } from '../common/request-scope';
+import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sql';
 
 import { DATABASE } from '../tokens';
 import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
@@ -13,12 +15,60 @@ import {
   calculateAssignableAvailability,
   calculateUncommittedPurchaseBalance,
 } from './inventory-availability-balance';
+import {
+  planAutomaticAssignments,
+  type AutomaticAssignmentCandidate,
+  type AutomaticAssignmentSource,
+} from './inventory-availability-auto-planner';
 
 import type { InventoryAvailabilityImportRow } from './inventory-availability-xlsx';
 
 type Database = ReturnType<typeof createDatabase>;
 
 type Tx = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
+
+export type InventoryAvailabilityTransaction = Tx;
+
+export type AutomaticAssignmentTrigger =
+  | 'STOCK_BECAME_AVAILABLE'
+  | 'RESERVATION_RELEASED'
+  | 'AUTHORIZATION_ENABLED';
+
+type AutomaticAssignmentFilters = Readonly<{
+  commercialCodes: readonly string[];
+  dispensingPointIds?: readonly string[];
+}>;
+
+type AutomaticCandidateRow = Readonly<{
+  id: string;
+  authorization_key: string;
+  commercial_code: string;
+  validity_end_date: string;
+  pending_quantity: number;
+}>;
+
+type AutomaticAvailabilitySourceRow = AutomaticAssignmentSource & Readonly<{
+  sourceKind: 'DIRECT' | 'LEDGER';
+}>;
+
+type AllocationBatchSource = 'UI' | 'XLSX' | 'AUTO';
+
+const POINT_RESOLUTION_ERRORS = new Set([
+  'INVENTORY_ALLOCATION_SCHEDULE_POINT_AMBIGUOUS',
+  'INVENTORY_ALLOCATION_PATIENT_POINT_AMBIGUOUS',
+  'INVENTORY_ALLOCATION_PRODUCT_POINT_AMBIGUOUS',
+  'INVENTORY_ALLOCATION_POINT_REQUIRED',
+  'INVENTORY_ALLOCATION_POINT_INACTIVE',
+  'INVENTORY_ALLOCATION_POINT_OUT_OF_SCOPE',
+]);
+
+const AUTOMATIC_ASSIGNMENT_RETRYABLE_ERRORS = new Set([
+  'INVENTORY_ALLOCATION_INSUFFICIENT',
+  'INVENTORY_ALLOCATION_EXCEEDS_AUTHORIZATION_PENDING',
+  'INVENTORY_ALLOCATION_AUTHORIZATION_NOT_FOUND',
+  'INVENTORY_ALLOCATION_POINT_INACTIVE',
+  'INVENTORY_ALLOCATION_POINT_OUT_OF_SCOPE',
+]);
 
 export type AvailabilityFilters = Readonly<{
   search?: string;
@@ -1234,134 +1284,674 @@ export class InventoryAvailabilityRepository {
     importBatchId: string | null = null,
   ) {
     return this.database.db.transaction(async (tx) => {
-      await this.reconcileIneligibleTx(tx, scope);
+      return this.assignBatchInTx(tx, scope, requests, source, importBatchId);
+    });
+  }
 
-      const initiallyResolved: ResolvedAssignment[] = [];
+  async assignAutomaticallyInTx(
+    tx: InventoryAvailabilityTransaction,
+    scope: Scope,
+    trigger: AutomaticAssignmentTrigger,
+    filters: AutomaticAssignmentFilters,
+  ) {
+    const commercialCodes = [...new Set(filters.commercialCodes.map((code) => code.trim()).filter(Boolean))];
+    if (commercialCodes.length === 0) {
+      return { assignedQuantity: 0, assignedAuthorizationKeys: [], unmatchedStock: [] };
+    }
 
-      for (const request of requests) {
-        initiallyResolved.push(await this.resolveAssignment(tx, scope, request, false));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const sourceRows = await this.loadAutomaticAvailabilitySources(
+        tx,
+        scope,
+        commercialCodes,
+        filters.dispensingPointIds,
+      );
+      if (sourceRows.length === 0) {
+        return { assignedQuantity: 0, assignedAuthorizationKeys: [], unmatchedStock: [] };
+      }
+      const rawCandidates = await this.loadAutomaticCandidates(tx, scope, commercialCodes);
+
+      const unresolvedPointCounts = new Map<string, number>();
+      const candidates: AutomaticAssignmentCandidate[] = [];
+      for (const candidate of rawCandidates) {
+        let dispensingPointId: string;
+        try {
+          dispensingPointId = await this.resolveAuthorizationDispensingPoint(
+            tx,
+            candidate.id,
+            candidate.commercial_code,
+          );
+        } catch (error) {
+          if (!(error instanceof Error) || !POINT_RESOLUTION_ERRORS.has(error.message)) throw error;
+          unresolvedPointCounts.set(
+            candidate.commercial_code,
+            (unresolvedPointCounts.get(candidate.commercial_code) ?? 0) + 1,
+          );
+          continue;
+        }
+
+        const allowedPoint = await tx.execute<{ allowed: boolean }>(sql`
+          select ${applyPointScope(sql`${dispensingPointId}::uuid`, scope)} as allowed
+        `);
+        if (allowedPoint.rows[0]?.allowed !== true) continue;
+
+        candidates.push({
+          authorizationKey: candidate.authorization_key,
+          commercialCode: candidate.commercial_code,
+          dispensingPointId,
+          validityEndDate: candidate.validity_end_date,
+          pendingQuantity: Number(candidate.pending_quantity),
+        });
       }
 
-      initiallyResolved.sort((left, right) =>
-        [
-          left.purchaseOrderId,
-          left.commercialCode,
-          left.dispensingPointId,
-          left.authorizationItemId,
-        ]
-          .join(':')
-          .localeCompare(
-            [
-              right.purchaseOrderId,
-              right.commercialCode,
-              right.dispensingPointId,
-              right.authorizationItemId,
-            ].join(':'),
-          ),
-      );
+      const cappedSources: AutomaticAssignmentSource[] = sourceRows.map((source) => ({
+        purchaseOrderCode: source.purchaseOrderCode,
+        purchaseOrderId: source.purchaseOrderId,
+        commercialCode: source.commercialCode,
+        dispensingPointId: source.dispensingPointId,
+        availableQuantity: source.availableQuantity,
+        expirationDate: source.expirationDate,
+        receivedAt: source.receivedAt,
+      }));
+      const plan = planAutomaticAssignments(candidates, cappedSources);
+      const unmatchedStock = plan.unmatchedStock.map((unmatched) => ({
+        ...unmatched,
+        reason:
+          unmatched.reason === 'NO_ELIGIBLE_AUTHORIZATION' &&
+          (unresolvedPointCounts.get(unmatched.commercialCode) ?? 0) > 0
+            ? 'NO_MATCHING_POINT' as const
+            : unmatched.reason,
+      }));
 
-      const batch = await tx.execute<{
-        id: string;
-      }>(sql`
-            INSERT INTO
-              inventory_allocation_batches (
-                organization_id,
-                source,
-                import_batch_id,
-                status,
-                total_rows,
-                valid_rows,
-                invalid_rows,
-                allocated_quantity,
-                correlation_id,
-                created_by
-              )
+      if (plan.requests.length === 0) {
+        for (const unmatched of unmatchedStock) {
+          await this.auditAutomaticUnassigned(tx, scope, trigger, unmatched, {
+            candidateCount: rawCandidates.filter((candidate) => candidate.commercial_code === unmatched.commercialCode)
+              .length,
+            unresolvedPointCount: unresolvedPointCounts.get(unmatched.commercialCode) ?? 0,
+          });
+        }
+        return { assignedQuantity: 0, assignedAuthorizationKeys: [], unmatchedStock };
+      }
 
-            VALUES (
-              ${scope.organizationId},
-              ${source},
-              ${importBatchId},
-              'PREPARED',
-              ${requests.length},
-              ${requests.length},
-              0,
-              0,
-              ${scope.correlationId},
-              ${scope.userId}
-            )
-
-            RETURNING
-              id
-          `);
-
-      const batchId = batch.rows[0]!.id;
-
-      let allocatedQuantity = 0;
-
-      for (const initial of initiallyResolved) {
-        const resolved = await this.resolveAssignment(
+      await tx.execute(sql`SAVEPOINT inventory_auto_assignment`);
+      try {
+        const assigned = await this.assignBatchInTx(
           tx,
           scope,
+          plan.requests,
+          'AUTO',
+          null,
           {
-            authorizationKey: initial.authorizationKey,
-
-            purchaseOrderCode: initial.purchaseOrderCode,
-
-            quantity: initial.requestedQuantity,
-
-            sourceImportRowId: initial.sourceImportRowId,
+            trigger,
+            assignedAuthorizationKeys: plan.assignedAuthorizationKeys,
           },
-          true,
         );
+        await tx.execute(sql`RELEASE SAVEPOINT inventory_auto_assignment`);
 
-        await this.insertAllocation(tx, scope, batchId, resolved);
+        for (const unmatched of unmatchedStock) {
+          await this.auditAutomaticUnassigned(tx, scope, trigger, unmatched, {
+            candidateCount: rawCandidates.filter((candidate) => candidate.commercial_code === unmatched.commercialCode)
+              .length,
+            unresolvedPointCount: unresolvedPointCounts.get(unmatched.commercialCode) ?? 0,
+          });
+        }
 
-        allocatedQuantity += resolved.requestedQuantity;
+        return {
+          batchId: assigned.id,
+          assignedQuantity: assigned.allocatedQuantity,
+          assignedAuthorizationKeys: plan.assignedAuthorizationKeys,
+          unmatchedStock,
+        };
+      } catch (error) {
+        await tx.execute(sql`ROLLBACK TO SAVEPOINT inventory_auto_assignment`);
+        await tx.execute(sql`RELEASE SAVEPOINT inventory_auto_assignment`);
+        const retryable =
+          error instanceof Error &&
+          (AUTOMATIC_ASSIGNMENT_RETRYABLE_ERRORS.has(error.message) ||
+            error.name === 'PointAccessDeniedError');
+        if (retryable && attempt === 0) continue;
+        if (!retryable) throw error;
+
+        const groups = new Map<string, { commercialCode: string; dispensingPointId: string; quantity: number }>();
+        for (const source of cappedSources) {
+          const key = `${source.commercialCode}\u0000${source.dispensingPointId}`;
+          const current = groups.get(key);
+          groups.set(key, {
+            commercialCode: source.commercialCode,
+            dispensingPointId: source.dispensingPointId,
+            quantity: (current?.quantity ?? 0) + source.availableQuantity,
+          });
+        }
+        const unmatchedStock = [...groups.values()].map((unmatched) => ({
+          ...unmatched,
+          reason: 'NO_COMPLETE_AUTHORIZATION' as const,
+        }));
+        for (const unmatched of unmatchedStock) {
+          await this.auditAutomaticUnassigned(tx, scope, trigger, {
+            ...unmatched,
+          }, {
+            reasonDetail: 'CONCURRENT_REVALIDATION_FAILED',
+          });
+        }
+        return { assignedQuantity: 0, assignedAuthorizationKeys: [], unmatchedStock };
       }
+    }
 
-      await tx.execute(sql`
-          UPDATE
-            inventory_allocation_batches
+    return { assignedQuantity: 0, assignedAuthorizationKeys: [], unmatchedStock: [] };
+  }
 
-          SET
-            status =
-              'CONFIRMED',
+  private async assignBatchInTx(
+    tx: Tx,
+    scope: Scope,
+    requests: readonly AllocationRequest[],
+    source: AllocationBatchSource,
+    importBatchId: string | null = null,
+    auditDetails: Readonly<Record<string, unknown>> = {},
+  ) {
+    await this.reconcileIneligibleTx(tx, scope);
+    const allowSharedMedicarteAuthorization = source === 'AUTO' && scope.organizationCode === 'MEDICARTE';
 
-            allocated_quantity =
-              ${allocatedQuantity},
+    const initiallyResolved: ResolvedAssignment[] = [];
+    for (const request of requests) {
+      initiallyResolved.push(
+        await this.resolveAssignment(tx, scope, request, false, allowSharedMedicarteAuthorization),
+      );
+    }
 
-            confirmed_by =
-              ${scope.userId},
+    initiallyResolved.sort((left, right) =>
+      [left.purchaseOrderId, left.commercialCode, left.dispensingPointId, left.authorizationItemId]
+        .join(':')
+        .localeCompare(
+          [right.purchaseOrderId, right.commercialCode, right.dispensingPointId, right.authorizationItemId].join(':'),
+        ),
+    );
 
-            confirmed_at =
-              NOW(),
+    const batch = await tx.execute<{ id: string }>(sql`
+      INSERT INTO inventory_allocation_batches (
+        organization_id, source, import_batch_id, status, total_rows, valid_rows,
+        invalid_rows, allocated_quantity, correlation_id, created_by
+      )
+      VALUES (
+        ${scope.organizationId}, ${source}, ${importBatchId}, 'PREPARED',
+        ${requests.length}, ${requests.length}, 0, 0, ${scope.correlationId}, ${scope.userId}
+      )
+      RETURNING id
+    `);
 
-            version =
-              version + 1
+    const batchId = batch.rows[0]!.id;
+    let allocatedQuantity = 0;
+    for (const initial of initiallyResolved) {
+      const resolved = await this.resolveAssignment(
+        tx,
+        scope,
+        {
+          authorizationKey: initial.authorizationKey,
+          purchaseOrderCode: initial.purchaseOrderCode,
+          quantity: initial.requestedQuantity,
+          sourceImportRowId: initial.sourceImportRowId,
+        },
+        true,
+        allowSharedMedicarteAuthorization,
+      );
+      await this.insertAllocation(tx, scope, batchId, resolved);
+      allocatedQuantity += resolved.requestedQuantity;
+    }
 
-          WHERE
-            id =
-              ${batchId}
-        `);
+    await tx.execute(sql`
+      UPDATE inventory_allocation_batches
+      SET status = 'CONFIRMED', allocated_quantity = ${allocatedQuantity},
+          confirmed_by = ${scope.userId}, confirmed_at = NOW(), version = version + 1
+      WHERE id = ${batchId}
+    `);
 
-      await this.audit(tx, scope, 'INVENTORY_AVAILABILITY_ASSIGNED', batchId, {
-        source,
-        rows: requests.length,
-        allocatedQuantity,
-      });
-
-      return {
-        id: batchId,
-
-        source,
-
-        rows: requests.length,
-
-        allocatedQuantity,
-
-        status: 'CONFIRMED',
-      };
+    await this.audit(tx, scope, 'INVENTORY_AVAILABILITY_ASSIGNED', batchId, {
+      source,
+      rows: requests.length,
+      allocatedQuantity,
+      ...auditDetails,
     });
+
+    return { id: batchId, source, rows: requests.length, allocatedQuantity, status: 'CONFIRMED' as const };
+  }
+
+  private async loadAutomaticCandidates(
+    tx: Tx,
+    scope: Scope,
+    commercialCodes: readonly string[],
+  ): Promise<AutomaticCandidateRow[]> {
+    const codes = sql.join(commercialCodes.map((code) => sql`${code}`), sql`, `);
+    const authorizationScope = scope.organizationCode === 'MEDICARTE'
+      ? sql`TRUE`
+      : sql`EXISTS (
+          SELECT 1
+          FROM authorization_item_organizations aio
+          WHERE aio.authorization_item_id = ai.id
+            AND aio.organization_id = ${scope.organizationId}
+        )`;
+    const result = await tx.execute<AutomaticCandidateRow>(sql`
+      WITH candidates AS (
+        SELECT
+          ai.id,
+          ai.authorization_key,
+          ai.codigo_medicamento AS commercial_code,
+          ai.version AS authorization_version,
+          CASE
+            WHEN BTRIM(COALESCE(ai.source_data ->> 'CANTIDAD', '')) ~ '^[0-9]+$'
+              THEN (ai.source_data ->> 'CANTIDAD')::int
+            ELSE 0
+          END AS authorized_quantity,
+          CASE
+            WHEN BTRIM(COALESCE(ai.source_data ->> 'FECHA_FINAL_VIGENCIA', '')) ~ '^[0-9]{8}$'
+              THEN CASE
+                WHEN SUBSTRING(BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA') FROM 1 FOR 4)::int BETWEEN 1 AND 9999
+                  AND SUBSTRING(BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA') FROM 5 FOR 2)::int BETWEEN 1 AND 12
+                  AND SUBSTRING(BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA') FROM 7 FOR 2)::int BETWEEN 1 AND 31
+                  AND TO_CHAR(TO_DATE(BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA'), 'YYYYMMDD'), 'YYYYMMDD') = BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA')
+                  THEN TO_DATE(BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA'), 'YYYYMMDD')
+                ELSE NULL
+              END
+            WHEN BTRIM(COALESCE(ai.source_data ->> 'FECHA_FINAL_VIGENCIA', '')) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+              THEN CASE
+                WHEN SUBSTRING(BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA') FROM 1 FOR 4)::int BETWEEN 1 AND 9999
+                  AND SUBSTRING(BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA') FROM 6 FOR 2)::int BETWEEN 1 AND 12
+                  AND SUBSTRING(BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA') FROM 9 FOR 2)::int BETWEEN 1 AND 31
+                  AND TO_CHAR(TO_DATE(BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA'), 'YYYY-MM-DD'), 'YYYY-MM-DD') = BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA')
+                  THEN TO_DATE(BTRIM(ai.source_data ->> 'FECHA_FINAL_VIGENCIA'), 'YYYY-MM-DD')
+                ELSE NULL
+              END
+            ELSE NULL
+          END AS validity_end_date
+        FROM authorization_items ai
+        WHERE ai.codigo_medicamento IN (${codes})
+          AND ai.source_status_normalized = '5'
+          AND ai.enablement_status = 'ENABLED'
+          AND ai.annulled_at IS NULL
+          AND NOT (
+            COALESCE(
+              ai.source_data -> ${AUTHORIZATION_ANNULMENT_EVIDENCE_KEY},
+              'null'::jsonb
+            ) NOT IN ('null'::jsonb, 'false'::jsonb, '""'::jsonb, '0'::jsonb)
+          )
+          AND (
+            (ai.coverage_type = 'PBS' AND ai.direction_status = 'NOT_APPLICABLE')
+            OR (ai.coverage_type = 'NO_PBS' AND ai.mipres_manual_decision = 'MANUALLY_ENABLED')
+          )
+          AND ${authorizationScope}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM patient_applications pa
+            WHERE pa.authorization_item_id = ai.id
+              AND pa.status = 'CONFIRMED'
+          )
+      ),
+      authorization_progress AS (
+        SELECT
+          candidate.id,
+          GREATEST(
+            COALESCE((
+              SELECT SUM(GREATEST(allocated_quantity - released_quantity, 0))
+              FROM inventory_authorization_allocations
+              WHERE authorization_item_id = candidate.id
+                AND status IN ('ALLOCATED', 'PARTIALLY_CONSUMED', 'CONSUMED')
+            ), 0),
+            COALESCE((
+              SELECT SUM(quantity)
+              FROM authorization_fulfillments
+              WHERE authorization_item_id = candidate.id
+            ), 0)
+          )::int AS allocated_quantity
+        FROM candidates candidate
+      )
+      SELECT
+        candidate.id,
+        candidate.authorization_key,
+        candidate.commercial_code,
+        candidate.validity_end_date::text AS validity_end_date,
+        GREATEST(candidate.authorized_quantity - progress.allocated_quantity, 0)::int AS pending_quantity
+      FROM candidates candidate
+      JOIN authorization_progress progress ON progress.id = candidate.id
+      WHERE candidate.validity_end_date >= (NOW() AT TIME ZONE 'America/Bogota')::date
+        AND candidate.authorized_quantity > progress.allocated_quantity
+      ORDER BY candidate.validity_end_date ASC, candidate.authorization_key ASC
+    `);
+
+    return result.rows;
+  }
+
+  private async loadAutomaticAvailabilitySources(
+    tx: Tx,
+    scope: Scope,
+    commercialCodes: readonly string[],
+    dispensingPointIds?: readonly string[],
+  ): Promise<AutomaticAvailabilitySourceRow[]> {
+    if (dispensingPointIds && dispensingPointIds.length === 0) return [];
+
+    const codes = sql.join(commercialCodes.map((code) => sql`${code}`), sql`, `);
+    const points = dispensingPointIds
+      ? sql`AND dp.id IN (${sql.join(
+          [...new Set(dispensingPointIds)].map((pointId) => sql`${pointId}::uuid`),
+          sql`, `,
+        )})`
+      : sql``;
+    const pointScope = applyPointScope(sql`dp.id`, scope);
+    const result = await tx.execute<{
+      purchase_order_code: string;
+      purchase_order_id: string;
+      commercial_code: string;
+      dispensing_point_id: string;
+      available_quantity: number;
+      expiration_date: string | null;
+      received_at: string | Date | null;
+      source_kind: 'DIRECT' | 'LEDGER';
+    }>(sql`
+      WITH direct_receipts AS (
+        SELECT
+          po.id AS purchase_order_id,
+          po.purchase_order_code,
+          pol.commercial_code,
+          COALESCE(pol.dispensing_point_id, mapping.dispensing_point_id) AS dispensing_point_id,
+          SUM(porl.received_quantity)::int AS received_quantity,
+          MIN(porl.expiration_date)::text AS expiration_date,
+          MIN(por.received_at)::text AS received_at,
+          'DIRECT'::varchar AS source_kind
+        FROM purchase_order_receipt_lines porl
+        JOIN purchase_order_receipts por ON por.id = porl.receipt_id
+        JOIN purchase_order_lines pol ON pol.id = porl.purchase_order_line_id
+        JOIN purchase_orders po ON po.id = por.purchase_order_id
+        LEFT JOIN LATERAL (
+          SELECT (ARRAY_AGG(DISTINCT m.dispensing_point_id))[1] AS dispensing_point_id
+          FROM tariff_annex_products tap
+          JOIN product_delivery_point_mappings m
+            ON m.invima_record_normalized =
+               COALESCE(NULLIF(LTRIM(BTRIM(tap.numero_expediente_invima), '0'), ''), '0')
+           AND m.invima_presentation_normalized =
+               COALESCE(NULLIF(LTRIM(BTRIM(tap.consecutivo_invima_presentacion), '0'), ''), '0')
+          WHERE tap.codigo_producto = pol.commercial_code
+            AND tap.active = TRUE
+            AND BTRIM(COALESCE(tap.numero_expediente_invima, '')) ~ '^[0-9]+$'
+            AND BTRIM(COALESCE(tap.consecutivo_invima_presentacion, '')) ~ '^[0-9]+$'
+          HAVING COUNT(DISTINCT m.dispensing_point_id) = 1
+        ) mapping ON pol.dispensing_point_id IS NULL
+        WHERE po.status NOT IN ('CANCELLED', 'REJECTED')
+          AND po.purchase_order_code IS NOT NULL
+          AND pol.commercial_code IN (${codes})
+          AND por.confirmed_at IS NOT NULL
+          AND porl.received_quantity > 0
+          AND (porl.expiration_date IS NULL OR porl.expiration_date >= (NOW() AT TIME ZONE 'America/Bogota')::date)
+          AND COALESCE(pol.dispensing_point_id, mapping.dispensing_point_id) IS NOT NULL
+        GROUP BY po.id, po.purchase_order_code, pol.commercial_code,
+                 COALESCE(pol.dispensing_point_id, mapping.dispensing_point_id)
+      ),
+      ledger_receipts AS (
+        SELECT
+          d.purchase_order_id,
+          po.purchase_order_code,
+          dl.commercial_code,
+          il.dispensing_point_id,
+          SUM(im.quantity_delta)::int AS received_quantity,
+          MIN(il.expiration_date)::text AS expiration_date,
+          MIN(r.received_at)::text AS received_at,
+          'LEDGER'::varchar AS source_kind
+        FROM inventory_movements im
+        JOIN inventory_lots il ON il.id = im.inventory_lot_id
+        JOIN receipt_lines rl ON rl.id = im.source_id
+        JOIN receipts r ON r.id = rl.receipt_id AND r.status = 'CONFIRMED'
+        JOIN delivery_lines dl ON dl.id = rl.delivery_line_id
+        JOIN deliveries d ON d.id = dl.delivery_id
+        JOIN purchase_orders po ON po.id = d.purchase_order_id
+        WHERE po.status NOT IN ('CANCELLED', 'REJECTED')
+          AND po.purchase_order_code IS NOT NULL
+          AND dl.commercial_code IN (${codes})
+          AND im.movement_type = 'RECEIPT'
+          AND im.source_type = 'RECEIPT_LINE'
+          AND im.quantity_delta > 0
+          AND il.expiration_date >= (NOW() AT TIME ZONE 'America/Bogota')::date
+          AND NOT EXISTS (
+            SELECT 1
+            FROM purchase_order_receipt_lines direct_porl
+            JOIN purchase_order_receipts direct_por ON direct_por.id = direct_porl.receipt_id
+            JOIN purchase_order_lines direct_pol ON direct_pol.id = direct_porl.purchase_order_line_id
+            WHERE direct_por.purchase_order_id = d.purchase_order_id
+              AND direct_pol.commercial_code = dl.commercial_code
+              AND direct_por.confirmed_at IS NOT NULL
+              AND direct_porl.received_quantity > 0
+          )
+        GROUP BY d.purchase_order_id, po.purchase_order_code, dl.commercial_code, il.dispensing_point_id
+      ),
+      receipt_sources AS (
+        SELECT * FROM direct_receipts
+        UNION ALL
+        SELECT * FROM ledger_receipts
+      ),
+      global_balances AS (
+        SELECT
+          source.purchase_order_id,
+          source.commercial_code,
+          GREATEST(
+            SUM(source.received_quantity)
+              - COALESCE((
+                  SELECT SUM(fulfillment.quantity)
+                  FROM authorization_fulfillment_lines fulfillment
+                  WHERE fulfillment.purchase_order_id = source.purchase_order_id
+                    AND fulfillment.commercial_code = source.commercial_code
+                ), 0)
+              - COALESCE((
+                  SELECT SUM(GREATEST(allocation.allocated_quantity - allocation.consumed_quantity - allocation.released_quantity, 0))
+                  FROM inventory_authorization_allocations allocation
+                  WHERE allocation.purchase_order_id = source.purchase_order_id
+                    AND allocation.commercial_code = source.commercial_code
+                    AND allocation.status IN ('ALLOCATED', 'PARTIALLY_CONSUMED')
+                ), 0),
+            0
+          )::int AS global_available_quantity
+        FROM receipt_sources source
+        GROUP BY source.purchase_order_id, source.commercial_code
+      ),
+      source_balances AS (
+        SELECT
+          source.*,
+          GREATEST(
+            source.received_quantity
+              - COALESCE((
+                  SELECT SUM(fulfillment.quantity)
+                  FROM authorization_fulfillment_lines fulfillment
+                  WHERE fulfillment.purchase_order_id = source.purchase_order_id
+                    AND fulfillment.commercial_code = source.commercial_code
+                    AND fulfillment.dispensing_point_id = source.dispensing_point_id
+                ), 0)
+              - COALESCE((
+                  SELECT SUM(GREATEST(allocation.allocated_quantity - allocation.consumed_quantity - allocation.released_quantity, 0))
+                  FROM inventory_authorization_allocations allocation
+                  WHERE allocation.purchase_order_id = source.purchase_order_id
+                    AND allocation.commercial_code = source.commercial_code
+                    AND allocation.dispensing_point_id = source.dispensing_point_id
+                    AND allocation.status IN ('ALLOCATED', 'PARTIALLY_CONSUMED')
+                ), 0),
+            0
+          )::int AS point_available_quantity,
+          global.global_available_quantity,
+          CASE WHEN source.source_kind = 'LEDGER' THEN GREATEST(
+            COALESCE((
+              SELECT SUM(usable.usable_balance)
+              FROM inventory_usable_lots usable
+              WHERE usable.commercial_code = source.commercial_code
+                AND usable.dispensing_point_id = source.dispensing_point_id
+            ), 0)
+              - COALESCE((
+                  SELECT SUM(GREATEST(allocation.allocated_quantity - allocation.consumed_quantity - allocation.released_quantity, 0))
+                  FROM inventory_authorization_allocations allocation
+                  WHERE allocation.commercial_code = source.commercial_code
+                    AND allocation.dispensing_point_id = source.dispensing_point_id
+                    AND allocation.status IN ('ALLOCATED', 'PARTIALLY_CONSUMED')
+                ), 0),
+            0
+          )::int ELSE NULL END AS legacy_physical_available_quantity
+        FROM receipt_sources source
+        JOIN global_balances global
+          ON global.purchase_order_id = source.purchase_order_id
+         AND global.commercial_code = source.commercial_code
+      ),
+      physical_caps AS (
+        SELECT
+          source_balances.*,
+          CASE WHEN source_kind = 'LEDGER' THEN LEAST(
+            point_available_quantity,
+            GREATEST(
+              legacy_physical_available_quantity
+                - COALESCE(SUM(point_available_quantity) FILTER (WHERE source_kind = 'LEDGER') OVER (
+                    PARTITION BY commercial_code, dispensing_point_id
+                    ORDER BY expiration_date ASC NULLS LAST, received_at ASC,
+                             purchase_order_code ASC, purchase_order_id ASC
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                  ), 0),
+              0
+            )
+          ) ELSE point_available_quantity END AS physical_point_available_quantity
+        FROM source_balances
+      ),
+      globally_capped AS (
+        SELECT
+          physical_caps.*,
+          LEAST(
+            physical_point_available_quantity,
+            GREATEST(
+              global_available_quantity
+                - COALESCE(SUM(physical_point_available_quantity) OVER (
+                    PARTITION BY purchase_order_id, commercial_code
+                    ORDER BY expiration_date ASC NULLS LAST, received_at ASC,
+                             purchase_order_code ASC, dispensing_point_id ASC
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                  ), 0),
+              0
+            )
+          )::int AS available_quantity
+        FROM physical_caps
+      )
+      SELECT
+        capped.purchase_order_code,
+        capped.purchase_order_id,
+        capped.commercial_code,
+        capped.dispensing_point_id,
+        capped.available_quantity,
+        capped.expiration_date,
+        capped.received_at,
+        capped.source_kind
+      FROM globally_capped capped
+      JOIN dispensing_points dp ON dp.id = capped.dispensing_point_id
+      JOIN organizations point_organization ON point_organization.id = dp.organization_id
+      WHERE capped.available_quantity > 0
+        AND dp.active = TRUE
+        AND point_organization.code = 'MEDICARTE'
+        AND ${pointScope}
+        ${points}
+      ORDER BY capped.expiration_date ASC NULLS LAST, capped.received_at ASC,
+               capped.purchase_order_code ASC, capped.dispensing_point_id ASC
+    `);
+
+    return result.rows.map((row) => ({
+      purchaseOrderCode: row.purchase_order_code,
+      purchaseOrderId: row.purchase_order_id,
+      commercialCode: row.commercial_code,
+      dispensingPointId: row.dispensing_point_id,
+      availableQuantity: Number(row.available_quantity),
+      expirationDate: row.expiration_date,
+      receivedAt: row.received_at instanceof Date ? row.received_at.toISOString() : row.received_at,
+      sourceKind: row.source_kind,
+    }));
+  }
+
+  private async resolveAuthorizationDispensingPoint(
+    tx: Tx,
+    authorizationItemId: string,
+    commercialCode: string,
+  ): Promise<string> {
+    const scheduled = await tx.execute<{ dispensing_point_id: string }>(sql`
+      SELECT DISTINCT ps.dispensing_point_id
+      FROM patient_schedules ps
+      WHERE ps.authorization_item_id = ${authorizationItemId}
+        AND ps.status IN ('SCHEDULED', 'RESCHEDULED')
+      LIMIT 2
+    `);
+    if (scheduled.rows.length > 1) throw new Error('INVENTORY_ALLOCATION_SCHEDULE_POINT_AMBIGUOUS');
+    let dispensingPointId = scheduled.rows[0]?.dispensing_point_id;
+
+    if (!dispensingPointId) {
+      const defaults = await tx.execute<{ dispensing_point_id: string }>(sql`
+        SELECT DISTINCT pdp.dispensing_point_id
+        FROM authorization_items ai
+        JOIN patient_default_dispensing_points pdp
+          ON pdp.patient_document = COALESCE(
+            NULLIF(BTRIM(ai.source_data ->> 'IDENTIFICACION_PACIENTE'), ''),
+            NULLIF(BTRIM(ai.source_data ->> 'NUM_DOCUMENTO'), '')
+          )
+         AND pdp.active = TRUE
+        WHERE ai.id = ${authorizationItemId}
+        LIMIT 2
+      `);
+      if (defaults.rows.length > 1) throw new Error('INVENTORY_ALLOCATION_PATIENT_POINT_AMBIGUOUS');
+      dispensingPointId = defaults.rows[0]?.dispensing_point_id;
+    }
+
+    if (!dispensingPointId) {
+      const mappings = await tx.execute<{ dispensing_point_id: string }>(sql`
+        SELECT DISTINCT mapping.dispensing_point_id
+        FROM tariff_annex_products tap
+        JOIN product_delivery_point_mappings mapping
+          ON mapping.invima_record_normalized =
+             COALESCE(NULLIF(LTRIM(BTRIM(tap.numero_expediente_invima), '0'), ''), '0')
+         AND mapping.invima_presentation_normalized =
+             COALESCE(NULLIF(LTRIM(BTRIM(tap.consecutivo_invima_presentacion), '0'), ''), '0')
+        WHERE tap.codigo_producto = ${commercialCode}
+          AND tap.active = TRUE
+          AND BTRIM(COALESCE(tap.numero_expediente_invima, '')) ~ '^[0-9]+$'
+          AND BTRIM(COALESCE(tap.consecutivo_invima_presentacion, '')) ~ '^[0-9]+$'
+        LIMIT 2
+      `);
+      if (mappings.rows.length > 1) throw new Error('INVENTORY_ALLOCATION_PRODUCT_POINT_AMBIGUOUS');
+      dispensingPointId = mappings.rows[0]?.dispensing_point_id;
+    }
+
+    if (!dispensingPointId) throw new Error('INVENTORY_ALLOCATION_POINT_REQUIRED');
+
+    const point = await tx.execute<{ active: boolean; organization_code: string }>(sql`
+      SELECT dp.active, organization.code AS organization_code
+      FROM dispensing_points dp
+      JOIN organizations organization ON organization.id = dp.organization_id
+      WHERE dp.id = ${dispensingPointId}
+    `);
+    if (point.rows[0]?.active !== true) throw new Error('INVENTORY_ALLOCATION_POINT_INACTIVE');
+    if (point.rows[0]?.organization_code !== 'MEDICARTE') {
+      throw new Error('INVENTORY_ALLOCATION_POINT_OUT_OF_SCOPE');
+    }
+    return dispensingPointId;
+  }
+
+  private async auditAutomaticUnassigned(
+    tx: Tx,
+    scope: Scope,
+    trigger: AutomaticAssignmentTrigger,
+    unmatched: Readonly<{
+      commercialCode: string;
+      dispensingPointId: string;
+      quantity: number;
+      reason: string;
+    }>,
+    details: Readonly<Record<string, unknown>> = {},
+  ): Promise<void> {
+    await tx.execute(sql`
+      INSERT INTO audit_events (
+        actor_type, actor_id, organization_id, action, resource_type, resource_id,
+        after, correlation_id, request_id, result
+      )
+      VALUES (
+        'USER', ${scope.userId}, ${scope.organizationId},
+        'INVENTORY_AVAILABILITY_AUTO_SKIPPED', 'inventory_availability_auto',
+        gen_random_uuid()::text,
+        ${JSON.stringify({ trigger, ...unmatched, ...details })}::jsonb,
+        ${scope.correlationId}, ${scope.correlationId}, 'SUCCESS'
+      )
+    `);
   }
 
   async prepareImport(
@@ -2024,12 +2614,21 @@ export class InventoryAvailabilityRepository {
     scope: Scope,
     request: AllocationRequest,
     lock: boolean,
+    allowSharedMedicarteAuthorization = false,
   ): Promise<ResolvedAssignment> {
     if (request.quantity <= 0) {
       throw new Error('INVENTORY_ALLOCATION_QUANTITY_INVALID');
     }
 
     const authorizationSql = lock ? sql`FOR UPDATE` : sql``;
+    const authorizationScope = allowSharedMedicarteAuthorization && scope.organizationCode === 'MEDICARTE'
+      ? sql`TRUE`
+      : sql`EXISTS (
+          SELECT 1
+          FROM authorization_item_organizations aio
+          WHERE aio.authorization_item_id = ai.id
+            AND aio.organization_id = ${scope.organizationId}
+        )`;
 
     const authorization = await tx.execute<{
       id: string;
@@ -2073,6 +2672,15 @@ export class InventoryAvailabilityRepository {
           ai.authorization_key =
             ${request.authorizationKey}
 
+          AND ai.annulled_at IS NULL
+
+          AND NOT (
+            COALESCE(
+              ai.source_data -> ${AUTHORIZATION_ANNULMENT_EVIDENCE_KEY},
+              'null'::jsonb
+            ) NOT IN ('null'::jsonb, 'false'::jsonb, '""'::jsonb, '0'::jsonb)
+          )
+
           AND ai.source_status_normalized =
               '5'
 
@@ -2099,20 +2707,7 @@ export class InventoryAvailabilityRepository {
             )
           )
 
-          AND EXISTS (
-            SELECT
-              1
-
-            FROM
-              authorization_item_organizations aio
-
-            WHERE
-              aio.authorization_item_id =
-                ai.id
-
-              AND aio.organization_id =
-                ${scope.organizationId}
-          )
+          AND ${authorizationScope}
 
           AND NOT EXISTS (
             SELECT
@@ -2183,66 +2778,11 @@ export class InventoryAvailabilityRepository {
     }
 
     const auth = authorization.rows[0]!;
-
-    const scheduled = await tx.execute<{ dispensing_point_id: string }>(sql`
-      SELECT DISTINCT ps.dispensing_point_id
-      FROM patient_schedules ps
-      WHERE ps.authorization_item_id = ${auth.id}
-        AND ps.status IN ('SCHEDULED', 'RESCHEDULED')
-      LIMIT 2
-    `);
-    if (scheduled.rows.length > 1) {
-      throw new Error('INVENTORY_ALLOCATION_SCHEDULE_POINT_AMBIGUOUS');
-    }
-    let dispensingPointId = scheduled.rows[0]?.dispensing_point_id;
-
-    if (!dispensingPointId) {
-      const defaults = await tx.execute<{ dispensing_point_id: string }>(sql`
-        SELECT DISTINCT pdp.dispensing_point_id
-        FROM authorization_items ai
-        JOIN patient_default_dispensing_points pdp
-          ON pdp.patient_document = COALESCE(
-            NULLIF(BTRIM(ai.source_data ->> 'IDENTIFICACION_PACIENTE'), ''),
-            NULLIF(BTRIM(ai.source_data ->> 'NUM_DOCUMENTO'), '')
-          )
-         AND pdp.active = TRUE
-        WHERE ai.id = ${auth.id}
-        LIMIT 2
-      `);
-      if (defaults.rows.length > 1) {
-        throw new Error('INVENTORY_ALLOCATION_PATIENT_POINT_AMBIGUOUS');
-      }
-      dispensingPointId = defaults.rows[0]?.dispensing_point_id;
-    }
-    if (!dispensingPointId) {
-      const mappings = await tx.execute<{ dispensing_point_id: string }>(sql`
-        SELECT DISTINCT m.dispensing_point_id
-        FROM tariff_annex_products tap
-        JOIN product_delivery_point_mappings m
-          ON m.invima_record_normalized =
-             COALESCE(NULLIF(LTRIM(BTRIM(tap.numero_expediente_invima), '0'), ''), '0')
-         AND m.invima_presentation_normalized =
-             COALESCE(NULLIF(LTRIM(BTRIM(tap.consecutivo_invima_presentacion), '0'), ''), '0')
-        WHERE tap.codigo_producto = ${auth.commercial_code}
-          AND tap.active = TRUE
-          AND BTRIM(COALESCE(tap.numero_expediente_invima, '')) ~ '^[0-9]+$'
-          AND BTRIM(COALESCE(tap.consecutivo_invima_presentacion, '')) ~ '^[0-9]+$'
-        LIMIT 2
-      `);
-      if (mappings.rows.length > 1) {
-        throw new Error('INVENTORY_ALLOCATION_PRODUCT_POINT_AMBIGUOUS');
-      }
-      dispensingPointId = mappings.rows[0]?.dispensing_point_id;
-    }
-    if (!dispensingPointId) {
-      throw new Error('INVENTORY_ALLOCATION_POINT_REQUIRED');
-    }
-    const point = await tx.execute<{ active: boolean }>(sql`
-      SELECT active FROM dispensing_points WHERE id = ${dispensingPointId}
-    `);
-    if (point.rows[0]?.active !== true) {
-      throw new Error('INVENTORY_ALLOCATION_POINT_INACTIVE');
-    }
+    const dispensingPointId = await this.resolveAuthorizationDispensingPoint(
+      tx,
+      auth.id,
+      auth.commercial_code,
+    );
 
     const orderSql = lock ? sql`FOR UPDATE` : sql``;
 
@@ -2299,6 +2839,8 @@ export class InventoryAvailabilityRepository {
     const order = purchaseOrder.rows[0]!;
 
     if (lock) {
+      await lockActivePointGrants(tx, scope, [dispensingPointId]);
+
       // GLOBAL primero: mismo lock que importador de OC existente.
       await tx.execute(sql`
         SELECT pg_advisory_xact_lock(hashtextextended(
@@ -2610,6 +3152,7 @@ export class InventoryAvailabilityRepository {
 
       INVENTORY_ALLOCATION_POINT_REQUIRED: 'La autorización no tiene un punto de dispensación resoluble.',
       INVENTORY_ALLOCATION_POINT_INACTIVE: 'El punto de dispensación no existe o está inactivo.',
+      INVENTORY_ALLOCATION_POINT_OUT_OF_SCOPE: 'El punto de dispensación no pertenece a la organización activa.',
       INVENTORY_ALLOCATION_SCHEDULE_POINT_AMBIGUOUS: 'La autorización tiene programaciones activas en varios puntos.',
       INVENTORY_ALLOCATION_PATIENT_POINT_AMBIGUOUS: 'El paciente tiene múltiples puntos habituales activos.',
       INVENTORY_ALLOCATION_PRODUCT_POINT_AMBIGUOUS: 'El producto tiene varios puntos posibles.',

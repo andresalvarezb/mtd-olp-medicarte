@@ -3844,7 +3844,7 @@ export const inventoryAllocationBatches = pgTable(
 
     index('inventory_allocation_batches_import_idx').on(table.importBatchId),
 
-    check('inventory_allocation_batches_source_check', sql`${table.source} IN ('UI','XLSX')`),
+    check('inventory_allocation_batches_source_check', sql`${table.source} IN ('UI','XLSX','AUTO')`),
 
     check(
       'inventory_allocation_batches_status_check',
