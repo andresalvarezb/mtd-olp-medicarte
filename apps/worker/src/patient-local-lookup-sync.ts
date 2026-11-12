@@ -195,12 +195,20 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
         `select p.id::text as id
            from patients p
           where ($1::uuid is null or p.id > $1::uuid)
+            and p.source_organization_id = (select id from organizations where code = 'COMPENSAR')
+            and p.identification_type_raw = '1'
             and exists (
               select 1
                 from authorization_items ai
                 join authorization_item_organizations aio on aio.authorization_item_id = ai.id
                 join organizations o on o.id = aio.organization_id and o.code = 'MEDICARTE'
                where ai.patient_id = p.id
+                 and ai.source_data->>'TIPO_IDENTIFICACION' = p.identification_type_raw
+                 and coalesce(nullif(ai.source_data->>'IDENTIFICACION_PACIENTE', ''),
+                              nullif(ai.source_data->>'NUM_DOCUMENTO', '')) = p.identification_value_raw
+                 and (nullif(ai.source_data->>'IDENTIFICACION_PACIENTE', '') is null
+                      or nullif(ai.source_data->>'NUM_DOCUMENTO', '') is null
+                      or ai.source_data->>'IDENTIFICACION_PACIENTE' = ai.source_data->>'NUM_DOCUMENTO')
             )
             ${patientIdFilter}
             and (p.mtdom_last_checked_at is null or

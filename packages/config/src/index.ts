@@ -140,6 +140,10 @@ const patientMasterApiConfigSchema = {
     .enum(['true', 'false'])
     .transform((value) => value === 'true')
     .default('false'),
+  PATIENT_MASTER_ENRICHMENT_QUEUE_ENABLED: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .default('false'),
   PATIENT_MASTER_SCOPE_POLICY_VERSION: z.string().min(1).optional().or(z.literal('')),
 };
 
@@ -163,6 +167,15 @@ export const apiConfigSchema = commonSchema
     WEB_ORIGIN: z.string().url(),
   })
   .superRefine((config, context) => {
+    if (config.PATIENT_MASTER_ENRICHMENT_QUEUE_ENABLED &&
+        (!config.PATIENT_MASTER_ACCESS_ENABLED || !config.PATIENT_MASTER_DP07_APPROVED ||
+         !config.PATIENT_MASTER_SCOPE_POLICY_APPROVED)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PATIENT_MASTER_ENRICHMENT_QUEUE_ENABLED'],
+        message: 'Patient enrichment queue requires approved master access and DP-07 gates',
+      });
+    }
     if (!config.PATIENT_MASTER_ACCESS_ENABLED) return;
     if (!config.PATIENT_MASTER_SCOPE_POLICY_APPROVED) {
       context.addIssue({
@@ -268,11 +281,11 @@ export const workerConfigSchema = commonSchema
         message: 'MTDOM patient lookup requires an explicit DP-07 approval gate',
       });
     }
-    if (!config.MTDOM_PATIENT_IDENTITY_POLICY_VERSION) {
+    if (config.MTDOM_PATIENT_IDENTITY_POLICY_VERSION !== 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1') {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['MTDOM_PATIENT_IDENTITY_POLICY_VERSION'],
-        message: 'MTDOM patient lookup requires an approved identity policy version',
+        message: 'MTDOM patient lookup requires the approved COMPENSAR identity policy version',
       });
     }
     if (!config.MTDOM_PATIENTS_API_TOKEN) {

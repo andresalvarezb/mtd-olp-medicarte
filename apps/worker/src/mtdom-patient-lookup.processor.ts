@@ -1,5 +1,5 @@
 import type { PatientIdentityNormalizationPolicy } from '@authorization/domain';
-import { canonicalPatientDocumentType } from '@authorization/domain';
+import { COMPENSAR_PATIENT_IDENTITY_POLICY } from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
 import {
   PatientLookupRetryableError,
@@ -38,20 +38,20 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
   async lookupLiveWithResponse(
     identity: Readonly<{ documentType: string; documentValue: string }>,
   ) {
+    const policy = this.identityPolicy ?? COMPENSAR_PATIENT_IDENTITY_POLICY;
+    const canonicalType = policy && normalize(identity.documentType, policy, 'type');
+    const documentValue =
+      canonicalType && normalize(identity.documentValue, policy, 'value', canonicalType);
+    if (!canonicalType || !documentValue || documentValue !== identity.documentValue) {
+      return { status: 'NOT_FOUND' as const };
+    }
     try {
-      const canonicalIdentity = {
-        ...identity,
-        documentType: canonicalPatientDocumentType(identity.documentType),
-      };
-      const response = await this.client.lookup(canonicalIdentity);
+      const response = await this.client.lookup({ documentType: canonicalType, documentValue });
       if (response.kind === 'NOT_FOUND') return { status: 'NOT_FOUND' as const };
       if (response.kind === 'AMBIGUOUS') return { status: 'AMBIGUOUS' as const };
       if (response.kind !== 'FOUND') return { status: 'UNAVAILABLE' as const };
-      if (
-        canonicalPatientDocumentType(response.patient.tipo_identificacion) !==
-          canonicalIdentity.documentType ||
-        response.patient.identificacion !== identity.documentValue
-      ) {
+      if (normalize(response.patient.tipo_identificacion, policy, 'type') !== canonicalType ||
+          response.patient.identificacion !== documentValue) {
         return { status: 'IDENTITY_MISMATCH' as const };
       }
       return { status: 'FOUND' as const, basicProfile: response.patient };
@@ -69,20 +69,48 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
     const local = await this.database.pool.query<{
       identification_type_raw: string;
       identification_value_raw: string;
+      authorized?: boolean;
     }>(
-      `select identification_type_raw, identification_value_raw
-         from patients
-        where id = $1::uuid`,
+      policy.version === COMPENSAR_PATIENT_IDENTITY_POLICY.version
+        ? `select p.identification_type_raw, p.identification_value_raw,
+              (source_org.code = 'COMPENSAR' and exists (
+                select 1 from authorization_items ai
+                join authorization_item_organizations aio on aio.authorization_item_id = ai.id
+                join organizations operational_org on operational_org.id = aio.organization_id
+                  and operational_org.code = 'MEDICARTE'
+                where ai.patient_id = p.id
+                  and p.identification_type_raw = '1'
+                  and ai.source_data->>'TIPO_IDENTIFICACION' = p.identification_type_raw
+                  and coalesce(nullif(ai.source_data->>'IDENTIFICACION_PACIENTE', ''),
+                               nullif(ai.source_data->>'NUM_DOCUMENTO', '')) = p.identification_value_raw
+                  and (nullif(ai.source_data->>'IDENTIFICACION_PACIENTE', '') is null
+                       or nullif(ai.source_data->>'NUM_DOCUMENTO', '') is null
+                       or ai.source_data->>'IDENTIFICACION_PACIENTE' = ai.source_data->>'NUM_DOCUMENTO')
+              )) as authorized
+           from patients p
+           left join organizations source_org on source_org.id = p.source_organization_id
+          where p.id = $1::uuid`
+        : `select identification_type_raw, identification_value_raw
+             from patients where id = $1::uuid`,
       [input.patientId],
     );
     const patient = local.rows[0];
     if (!patient) throw new PatientLookupTerminalError('PATIENT_LOOKUP_LOCAL_PATIENT_MISSING');
+    if (policy.version === COMPENSAR_PATIENT_IDENTITY_POLICY.version && patient.authorized !== true) {
+      throw new PatientLookupTerminalError('PATIENT_LOOKUP_LOCAL_EVIDENCE_MISSING');
+    }
+
+    const localType = normalize(patient.identification_type_raw, policy, 'type');
+    const localValue = localType && normalize(patient.identification_value_raw, policy, 'value', localType);
+    if (!localType || !localValue || localValue !== patient.identification_value_raw) {
+      throw new PatientLookupTerminalError('PATIENT_LOOKUP_IDENTITY_REQUIRES_REVIEW');
+    }
 
     let response;
     try {
       response = await this.client.lookup({
-        documentType: patient.identification_type_raw,
-        documentValue: patient.identification_value_raw,
+        documentType: localType,
+        documentValue: localValue,
       });
     } catch (error) {
       if (error instanceof MtdomPatientsReadError) {
@@ -101,14 +129,12 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
       throw new PatientLookupTerminalError('PATIENT_LOOKUP_INVALID_REMOTE_RESPONSE');
     }
 
-    const localType = normalize(patient.identification_type_raw, policy, 'type');
     const remoteType = normalize(response.patient.tipo_identificacion, policy, 'type');
-    if (!localType || !remoteType || localType !== remoteType) {
+    if (!remoteType || localType !== remoteType) {
       return { outcome: 'IDENTITY_MISMATCH' as const };
     }
-    const localValue = normalize(patient.identification_value_raw, policy, 'value', localType);
     const remoteValue = normalize(response.patient.identificacion, policy, 'value', remoteType);
-    if (!localValue || !remoteValue || localValue !== remoteValue) {
+    if (!remoteValue || localValue !== remoteValue) {
       return { outcome: 'IDENTITY_MISMATCH' as const };
     }
 

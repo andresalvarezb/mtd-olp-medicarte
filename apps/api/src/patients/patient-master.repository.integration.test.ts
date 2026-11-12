@@ -6,7 +6,6 @@ import { ForbiddenException, Module, NotFoundException } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import {
-  patientMasterDetailSchema,
   patientMasterSearchResponseSchema,
   patientReconciliationCasesResponseSchema,
 } from '@authorization/contracts';
@@ -77,6 +76,7 @@ const fixture = {
   outOfScopePointId: randomUUID(),
   identitySuffix: randomUUID(),
   mtdOrganizationId: '',
+  compensarOrganizationId: '',
   medicarteOrganizationId: '',
   olpOrganizationId: '',
   medicarteUserId: 'a0000000-0000-4000-8000-000000000003',
@@ -104,6 +104,11 @@ async function insertAuthorization(input: {
   scheduleId?: string;
   personSuffix: string;
 }) {
+  const patient = await query.query<{ identification_type_raw: string; identification_value_raw: string }>(
+    `select identification_type_raw, identification_value_raw from patients where id = $1::uuid`,
+    [input.patientId],
+  );
+  if (!patient.rows[0]) throw new Error('Synthetic patient identity fixture is missing');
   await query.query(
     `insert into authorization_items (
        id, patient_id, numero_autorizacion, codigo_medicamento, authorization_key,
@@ -118,8 +123,8 @@ async function insertAuthorization(input: {
       input.product,
       `${input.number}|${input.product}`,
       JSON.stringify({
-        TIPO_IDENTIFICACION: 'TEST',
-        IDENTIFICACION_PACIENTE: `TEST-PAC-${input.personSuffix}`,
+        TIPO_IDENTIFICACION: patient.rows[0].identification_type_raw,
+        IDENTIFICACION_PACIENTE: patient.rows[0].identification_value_raw,
       }),
       fixture.batchId,
     ],
@@ -156,14 +161,16 @@ describe.skipIf(!process.env.DATABASE_URL)(
 
     beforeAll(async () => {
       const organizations = await query.query<{ id: string; code: string }>(
-        `select id, code from organizations where code in ('MTD', 'MEDICARTE', 'OLP')`,
+        `select id, code from organizations where code in ('MTD', 'COMPENSAR', 'MEDICARTE', 'OLP')`,
       );
       const organizationByCode = new Map(organizations.rows.map((row) => [row.code, row.id]));
       fixture.mtdOrganizationId = organizationByCode.get('MTD') ?? '';
+      fixture.compensarOrganizationId = organizationByCode.get('COMPENSAR') ?? '';
       fixture.medicarteOrganizationId = organizationByCode.get('MEDICARTE') ?? '';
       fixture.olpOrganizationId = organizationByCode.get('OLP') ?? '';
       if (
         !fixture.mtdOrganizationId ||
+        !fixture.compensarOrganizationId ||
         !fixture.medicarteOrganizationId ||
         !fixture.olpOrganizationId
       ) {
@@ -190,9 +197,10 @@ describe.skipIf(!process.env.DATABASE_URL)(
       );
       for (let index = 0; index < fixture.patientIds.length; index += 1) {
         await query.query(
-          `insert into patients (id, identification_type_raw, identification_value_raw)
-         values ($1, 'TEST', $2)`,
-          [fixture.patientIds[index], `TEST-PAC-${fixture.identitySuffix}-${index}`],
+          `insert into patients (id, source_organization_id, identification_type_raw, identification_value_raw)
+         values ($1, $2, 'TEST', $3)`,
+          [fixture.patientIds[index], fixture.compensarOrganizationId,
+            `TEST-PAC-${fixture.identitySuffix}-${index}`],
         );
       }
       await query.query(
@@ -276,7 +284,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
         patientId: sharedId,
         number: `TEST-PAC-MTD-${fixture.identitySuffix}`,
         product: `TEST-PAC-PRODUCT-2-${fixture.identitySuffix}`,
-        organizations: [fixture.mtdOrganizationId],
+        organizations: [fixture.mtdOrganizationId, fixture.medicarteOrganizationId],
         personSuffix: 'SHARED',
       });
       await insertAuthorization({
@@ -345,16 +353,17 @@ describe.skipIf(!process.env.DATABASE_URL)(
         const patientId = fixture.pagePatientIds[index]!;
         const authorizationId = fixture.pageAuthorizationIds[index]!;
         await query.query(
-          `insert into patients (id, identification_type_raw, identification_value_raw)
-         values ($1, 'TEST', $2)`,
-          [patientId, `TEST-PAC-PAGE-${fixture.identitySuffix}-${index}`],
+          `insert into patients (id, source_organization_id, identification_type_raw, identification_value_raw)
+         values ($1, $2, 'TEST', $3)`,
+          [patientId, fixture.compensarOrganizationId,
+            `TEST-PAC-PAGE-${fixture.identitySuffix}-${index}`],
         );
         await insertAuthorization({
           id: authorizationId,
           patientId,
           number: `TEST-PAC-PAGE-${index}-${fixture.identitySuffix}`,
           product: `TEST-PAC-PAGE-PRODUCT-${index}-${fixture.identitySuffix}`,
-          organizations: [fixture.mtdOrganizationId],
+          organizations: [fixture.medicarteOrganizationId],
           personSuffix: `PAGE-${index}-${fixture.identitySuffix}`,
         });
       }
@@ -435,12 +444,12 @@ describe.skipIf(!process.env.DATABASE_URL)(
       );
       expect(detail.authorizationEvidence).toHaveLength(2);
       expect(detail.authorizationEvidence.map((item) => item.organizationCodes)).toEqual([
-        ['MTD'],
-        ['MTD'],
+        ['MEDICARTE'],
+        ['MEDICARTE'],
       ]);
       await expect(
         controller.detail(
-          fixture.patientIds[3]!,
+          fixture.patientIds[1]!,
           undefined,
           fixture.mtdOrganizationId,
           request(fixture.mtdUserId),
@@ -455,23 +464,16 @@ describe.skipIf(!process.env.DATABASE_URL)(
       expect(empty).toMatchObject({ items: [], total: 0 });
     });
 
-    it('enforces explicit synthetic permissions and point scope for MEDICARTE, OLP and ID lookups', async () => {
-      const medicarteResult = await controller.search(
+    it('denies MEDICARTE and OLP while MTD point scope excludes unrelated evidence', async () => {
+      await expect(controller.search(
         { page: 1, limit: 20, dispensingPointId: fixture.pointId },
         fixture.medicarteOrganizationId,
         request(fixture.medicarteUserId),
-      );
-      expect(medicarteResult.items.map((item) => item.id)).toContain(fixture.patientIds[0]);
-      expect(medicarteResult.items.map((item) => item.id)).not.toContain(fixture.patientIds[1]);
-      expect(medicarteResult.items.map((item) => item.id)).not.toContain(fixture.patientIds[2]);
-      const sharedDetail = await controller.detail(
-        fixture.patientIds[0]!,
-        fixture.pointId,
-        fixture.medicarteOrganizationId,
-        request(fixture.medicarteUserId),
-      );
-      expect(sharedDetail.authorizationEvidence).toHaveLength(1);
-
+      )).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(controller.detail(
+        fixture.patientIds[0]!, fixture.pointId,
+        fixture.medicarteOrganizationId, request(fixture.medicarteUserId),
+      )).rejects.toBeInstanceOf(ForbiddenException);
       await expect(
         controller.search(
           { page: 1, limit: 20 },
@@ -493,7 +495,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
           fixture.medicarteOrganizationId,
           request(fixture.medicarteUserId),
         ),
-      ).rejects.toBeInstanceOf(NotFoundException);
+      ).rejects.toBeInstanceOf(ForbiddenException);
       await expect(
         controller.detail(
           fixture.patientIds[0]!,
@@ -577,11 +579,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
         .query({ dispensingPointId: fixture.pointId })
         .set('Authorization', `Bearer ${medicarteToken.token}`)
         .set('X-Organization-Id', fixture.medicarteOrganizationId);
-      expect(pointDetail.status).toBe(200);
-      expect(
-        patientMasterDetailSchema.parse(pointDetail.body as unknown).authorizationEvidence,
-      ).toHaveLength(1);
-      expect(patientMasterDetailSchema.parse(pointDetail.body as unknown).basicProfile).toBeNull();
+      expect(pointDetail.status).toBe(403);
 
       const personalDenied = await supertest(server)
         .get(`/api/v1/patient-master/${fixture.patientIds[0]}/personal`)
@@ -614,7 +612,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
         .query({ dispensingPointId: fixture.pointId })
         .set('Authorization', `Bearer ${medicarteToken.token}`)
         .set('X-Organization-Id', fixture.medicarteOrganizationId);
-      expect(idor.status).toBe(404);
+      expect(idor.status).toBe(403);
       expect(JSON.stringify(idor.body as unknown)).not.toContain(fixture.patientIds[2]);
 
       const otherOrganization = await supertest(server)

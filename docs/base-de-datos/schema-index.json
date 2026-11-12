@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "packages/database/src/schema.ts",
-  "sourceSha256": "33145c734f58272316215cd17cfda48520715a727f026af6b6a960526d3d99d3",
+  "sourceSha256": "52e6c1de506c2beee7d361a50190ba17a119b1fe5fd8d23e3302d03e07e817e6",
   "kind": "drizzle-static",
   "notLiveDatabase": true,
   "groupLabels": {
@@ -8507,6 +8507,13 @@
           "default": "defaultRandom()"
         },
         {
+          "name": "source_organization_id",
+          "type": "uuid",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
           "name": "identification_type_raw",
           "type": "varchar(80)",
           "nullable": false,
@@ -8619,10 +8626,25 @@
           "default": "defaultNow()"
         }
       ],
-      "fks": [],
+      "fks": [
+        {
+          "columns": [
+            "source_organization_id"
+          ],
+          "to": "organizations",
+          "toColumns": [
+            "id"
+          ],
+          "source": "references"
+        }
+      ],
       "indexes": [
         {
           "name": "patients_identification_raw_idx",
+          "kind": "index"
+        },
+        {
+          "name": "patients_source_identity_raw_idx",
           "kind": "index"
         }
       ],

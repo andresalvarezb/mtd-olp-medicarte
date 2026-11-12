@@ -4,6 +4,7 @@ erDiagram
   }
   patients {
     uuid id PK
+    uuid source_organization_id FK
   }
   permissions {
     uuid id PK
@@ -34,6 +35,7 @@ erDiagram
   users {
     uuid id PK
   }
+  organizations ||--o{ patients : "source_organization_id"
   roles ||--o{ role_organization_scopes : "role_id"
   organizations ||--o{ role_organization_scopes : "organization_id"
   roles ||--o{ role_permissions : "role_id"

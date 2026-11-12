@@ -181,6 +181,7 @@ describe('periodic local patient lookup sync', () => {
     );
     expect(selection).toContain('join authorization_item_organizations aio');
     expect(selection).toContain("o.code = 'MEDICARTE'");
+    expect(selection).toContain("p.identification_type_raw = '1'");
     expect(selection).toContain('p.id = any($5::uuid[])');
     expect(selection).toContain("e.status in ('PENDING', 'DISPATCHED')");
     expect(captured.find(({ sql }) => sql.includes('select p.id::text as id'))?.params[4]).toEqual([

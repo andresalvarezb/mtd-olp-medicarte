@@ -70,6 +70,8 @@ describe('parseApiConfig', () => {
     expect(config.PATIENT_MASTER_ACCESS_ENABLED).toBe(false);
     expect(config.PATIENT_MASTER_SCOPE_POLICY_APPROVED).toBe(false);
     expect(config.PATIENT_MASTER_DP07_APPROVED).toBe(false);
+    expect(config.PATIENT_MASTER_ENRICHMENT_QUEUE_ENABLED).toBe(false);
+    expect(() => parseApiConfig({ ...base, PATIENT_MASTER_ENRICHMENT_QUEUE_ENABLED: 'true' })).toThrow();
     expect(() => parseApiConfig({ ...base, PATIENT_MASTER_ACCESS_ENABLED: 'true' })).toThrow();
     expect(() =>
       parseApiConfig({
@@ -80,6 +82,14 @@ describe('parseApiConfig', () => {
         PATIENT_MASTER_SCOPE_POLICY_VERSION: 'SYNTHETIC_SCOPE_TEST_V1',
       }),
     ).not.toThrow();
+    expect(() => parseApiConfig({
+      ...base,
+      PATIENT_MASTER_ACCESS_ENABLED: 'true',
+      PATIENT_MASTER_SCOPE_POLICY_APPROVED: 'true',
+      PATIENT_MASTER_DP07_APPROVED: 'true',
+      PATIENT_MASTER_SCOPE_POLICY_VERSION: 'SYNTHETIC_SCOPE_TEST_V1',
+      PATIENT_MASTER_ENRICHMENT_QUEUE_ENABLED: 'true',
+    })).not.toThrow();
   });
 });
 
@@ -146,7 +156,7 @@ describe('parseWorkerConfig', () => {
         ...base,
         MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
         MTDOM_DP07_APPROVED: 'true',
-        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'v-test-policy',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
         MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
         MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS: ids.join(','),
       }),
@@ -156,7 +166,7 @@ describe('parseWorkerConfig', () => {
         ...base,
         MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
         MTDOM_DP07_APPROVED: 'true',
-        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'v-test-policy',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
         MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
         MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS: [...ids, ids[0]].join(','),
       }),
@@ -167,7 +177,7 @@ describe('parseWorkerConfig', () => {
         SCHEDULER_ENABLED: 'false',
         MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
         MTDOM_DP07_APPROVED: 'true',
-        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'v-test-policy',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
         MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
         MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS: ids.join(','),
       }),
@@ -192,11 +202,23 @@ describe('parseWorkerConfig', () => {
       MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
     };
     expect(() => parseWorkerConfig(base)).toThrow();
+    expect(() => parseWorkerConfig({
+      ...base,
+      MTDOM_DP07_APPROVED: 'true',
+      MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'v-test-policy',
+      MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
+    })).toThrow('approved COMPENSAR identity policy version');
+    expect(() => parseWorkerConfig({
+      ...base,
+      MTDOM_DP07_APPROVED: 'true',
+      MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CATALOG_V1',
+      MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
+    })).toThrow('approved COMPENSAR identity policy version');
     expect(() =>
       parseWorkerConfig({
         ...base,
         MTDOM_DP07_APPROVED: 'true',
-        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'v-test-policy',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
         MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
       }),
     ).not.toThrow();

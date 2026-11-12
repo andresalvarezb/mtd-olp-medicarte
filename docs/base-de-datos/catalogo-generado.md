@@ -1,9 +1,9 @@
 # Catálogo estructural de la base de datos — generado
 
 > **Origen:** `packages/database/src/schema.ts` (Drizzle). **No demuestra que las migraciones estén aplicadas a un PostgreSQL concreto.**
-> **Identificador de fuente SHA-256:** `33145c734f58272316215cd17cfda48520715a727f026af6b6a960526d3d99d3`. Generador: `scripts/db-schema-catalog.mjs`.
+> **Identificador de fuente SHA-256:** `52e6c1de506c2beee7d361a50190ba17a119b1fe5fd8d23e3302d03e07e817e6`. Generador: `scripts/db-schema-catalog.mjs`.
 
-**Tablas Drizzle:** 93. **Columnas:** 1203. **Referencias FK declaradas:** 242.
+**Tablas Drizzle:** 93. **Columnas:** 1204. **Referencias FK declaradas:** 243.
 
 ## Índice por proceso
 
@@ -39,15 +39,16 @@
 | `active` | boolean | No | default: true |
 | `created_at` | timestamp | No | default: defaultNow() |
 
-**Referenciada por:** `authorization_dispensations(organization_id)`; `authorization_fulfillments(organization_id)`; `authorization_item_organizations(organization_id)`; `authorization_mipres_decision_history(organization_id)`; `authorization_moderator_fee_events(organization_id)`; `bulk_import_jobs(organization_id)`; `bulk_update_batches(organization_id)`; `dispensing_points(organization_id)`; `import_batches(organization_id)`; `inventory_allocation_batches(organization_id)`; `inventory_authorization_allocations(organization_id)`; `inventory_locations(organization_id)`; `operational_field_changes(organization_id)`; `outbox_events(organization_id)`; `patient_backfill_batches(organization_id)`; `patient_schedule_imports(organization_id)`; `reconciliation_issue_comments(tenant_id)`; `reconciliation_issue_events(tenant_id)`; `reconciliation_issues(tenant_id)`; `reconciliation_notifications(tenant_id)`; `reconciliation_operation_executions(tenant_id)`; `reconciliation_operation_policies(tenant_id)`; `reconciliation_runs(tenant_id)`; `role_organization_scopes(organization_id)`; `tariff_annex_imports(organization_id)`; `tariff_annex_products(organization_id)`; `user_organization_roles(organization_id)`.
+**Referenciada por:** `authorization_dispensations(organization_id)`; `authorization_fulfillments(organization_id)`; `authorization_item_organizations(organization_id)`; `authorization_mipres_decision_history(organization_id)`; `authorization_moderator_fee_events(organization_id)`; `bulk_import_jobs(organization_id)`; `bulk_update_batches(organization_id)`; `dispensing_points(organization_id)`; `import_batches(organization_id)`; `inventory_allocation_batches(organization_id)`; `inventory_authorization_allocations(organization_id)`; `inventory_locations(organization_id)`; `operational_field_changes(organization_id)`; `outbox_events(organization_id)`; `patient_backfill_batches(organization_id)`; `patient_schedule_imports(organization_id)`; `patients(source_organization_id)`; `reconciliation_issue_comments(tenant_id)`; `reconciliation_issue_events(tenant_id)`; `reconciliation_issues(tenant_id)`; `reconciliation_notifications(tenant_id)`; `reconciliation_operation_executions(tenant_id)`; `reconciliation_operation_policies(tenant_id)`; `reconciliation_runs(tenant_id)`; `role_organization_scopes(organization_id)`; `tariff_annex_imports(organization_id)`; `tariff_annex_products(organization_id)`; `user_organization_roles(organization_id)`.
 
 #### `patients`
 
-**Columnas:** 17 · **Clave primaria:** id · **FK:** 0.
+**Columnas:** 18 · **Clave primaria:** id · **FK:** 1.
 
 | Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
 | --- | --- | --- | --- |
 | `id` | uuid | No | PK; default: defaultRandom() |
+| `source_organization_id` | uuid | Sí | FK organizations |
 | `identification_type_raw` | varchar(80) | No |  |
 | `identification_value_raw` | varchar(255) | No |  |
 | `mtdom_lookup_status` | varchar(40) | No | default: 'NOT_REQUESTED' |
@@ -65,9 +66,11 @@
 | `created_at` | timestamp | No | default: defaultNow() |
 | `updated_at` | timestamp | No | default: defaultNow() |
 
+**Claves foráneas:** `source_organization_id → organizations(id)`.
+
 **Referenciada por:** `authorization_items(patient_id)`; `patient_backfill_items(previous_patient_id)`; `patient_backfill_items(applied_patient_id)`.
 
-**Índices / unicidad declarados:** `patients_identification_raw_idx` (index).
+**Índices / unicidad declarados:** `patients_identification_raw_idx` (index); `patients_source_identity_raw_idx` (index).
 
 **Checks declarados:** `patients_identification_type_not_blank_check`; `patients_identification_value_not_blank_check`; `patients_mtdom_lookup_status_check`; `patients_mtdom_basic_profile_allowlist_check`; `patients_mtdom_personal_profile_allowlist_check`; `patients_mtdom_profile_provenance_check`.
 

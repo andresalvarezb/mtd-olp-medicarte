@@ -16,6 +16,7 @@ const migrationPaths = [
   '0109_patient_mtdom_lookup_state.sql',
   '0110_patient_backfill_ledger.sql',
   '0111_patient_sync_checkpoint.sql',
+  '0118_patient_source_organization.sql',
 ];
 const migrations = migrationPaths.map((path) =>
   readFileSync(resolve(process.cwd(), 'packages/database/migrations', path), 'utf8'),
@@ -28,6 +29,7 @@ describe('RF-PAC-001 local patient lookup checkpoint integration', () => {
   it('commits RUNNING to IDLE with its outbox events, and rolls both back on checkpoint failure', async () => {
     const schemaName = `rf_pac_001_sync_${randomUUID().replaceAll('-', '')}`;
     const organizationId = randomUUID();
+    const sourceOrganizationId = randomUUID();
     const authorizationItemId = randomUUID();
     const excludedAuthorizationItemId = randomUUID();
     const patientId = randomUUID();
@@ -74,20 +76,27 @@ describe('RF-PAC-001 local patient lookup checkpoint integration', () => {
       await database.query(`insert into organizations (id, code) values ($1, 'MEDICARTE')`, [
         organizationId,
       ]);
+      await database.query(`insert into organizations (id, code) values ($1, 'COMPENSAR')`, [
+        sourceOrganizationId,
+      ]);
       await database.query(
-        `insert into patients (id, identification_type_raw, identification_value_raw)
-         values ($1, 'TEST', $2), ($3, 'TEST', $4)`,
-        [patientId, `SYNTH-${patientId}`, excludedPatientId, `SYNTH-${excludedPatientId}`],
+        `insert into patients (id, source_organization_id, identification_type_raw, identification_value_raw)
+         values ($1, $2, '1', $3), ($4, $2, '1', $5)`,
+        [patientId, sourceOrganizationId, `SYNTH-${patientId}`,
+          excludedPatientId, `SYNTH-${excludedPatientId}`],
       );
       await database.query(
         `insert into authorization_items (id, authorization_key, source_data, patient_id)
-         values ($1, $2, '{}'::jsonb, $3), ($4, $5, '{}'::jsonb, $6)`,
+         values ($1, $2, $3::jsonb, $4), ($5, $6, $7::jsonb, $8)`,
         [
           authorizationItemId,
           `RF-PAC-001-${authorizationItemId}`,
+          JSON.stringify({ TIPO_IDENTIFICACION: 1, IDENTIFICACION_PACIENTE: `SYNTH-${patientId}` }),
           patientId,
           excludedAuthorizationItemId,
           `RF-PAC-001-${excludedAuthorizationItemId}`,
+          JSON.stringify({ TIPO_IDENTIFICACION: 1,
+            IDENTIFICACION_PACIENTE: `SYNTH-${excludedPatientId}` }),
           excludedPatientId,
         ],
       );

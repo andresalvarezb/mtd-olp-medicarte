@@ -62,39 +62,58 @@ function createHarness(
   return { executed, link };
 }
 
-describe('bulk authorization patient link (synthetic policy only)', () => {
-  it('keeps identity linking disabled when no policy is injected', async () => {
-    const repository = new BulkImportRepository({} as never);
-    const executeCalls: unknown[] = [];
+describe('bulk authorization patient link', () => {
+  it('links only source type 1 under the temporary COMPENSAR policy', async () => {
+    const dialect = new PgDialect();
+    const executed: Array<{ sql: string; params: unknown[] }> = [];
     const tx = {
-      execute: (statement: unknown) => {
-        executeCalls.push(statement);
+      execute: (statement: Parameters<typeof dialect.sqlToQuery>[0]) => {
+        const query = dialect.sqlToQuery(statement);
+        executed.push({ sql: query.sql, params: query.params });
+        if (query.sql.includes('insert into patients')) return Promise.resolve({ rows: [{ id: patientId }] });
+        if (query.sql.includes('update authorization_items')) return Promise.resolve({ rows: [{ patient_id: patientId }] });
         return Promise.resolve({ rows: [] });
       },
     };
-    await (
-      repository as unknown as {
+    const repository = new BulkImportRepository({} as never);
+    const linked = await (repository as unknown as {
+      linkPatientForSyntheticIdentityInTx(
+        transaction: BulkImportTransaction,
+        authorizationItemId: string,
+        payload: Readonly<Record<string, unknown>>,
+      ): Promise<string | null>;
+    }).linkPatientForSyntheticIdentityInTx(
+      tx as unknown as BulkImportTransaction,
+      authorizationId,
+      { ...sourceData, TIPO_IDENTIFICACION: 1 },
+    );
+    expect(linked).toBe(patientId);
+    expect(executed[1]?.params).toEqual(['1', '000123']);
+    expect(executed[2]?.params).toEqual(['1', '000123']);
+    for (const code of [2, 3, 4, 7]) {
+      const unapproved = await (repository as unknown as {
         linkPatientForSyntheticIdentityInTx(
           transaction: BulkImportTransaction,
           authorizationItemId: string,
           payload: Readonly<Record<string, unknown>>,
         ): Promise<string | null>;
-      }
-    ).linkPatientForSyntheticIdentityInTx(
-      tx as unknown as BulkImportTransaction,
-      authorizationId,
-      sourceData,
-    );
-    expect(executeCalls).toEqual([]);
+      }).linkPatientForSyntheticIdentityInTx(
+        tx as unknown as BulkImportTransaction,
+        authorizationId,
+        { ...sourceData, TIPO_IDENTIFICACION: code },
+      );
+      expect(unapproved).toBeNull();
+    }
+    expect(executed).toHaveLength(4);
   });
 
-  it('keeps the synthetic matcher disabled outside the test runtime even if injected', async () => {
+  it('links with the approved catalogue outside the test runtime', async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     try {
       const { executed, link } = createHarness();
       await link(sourceData);
-      expect(executed).toEqual([]);
+      expect(executed).not.toEqual([]);
     } finally {
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;
@@ -181,6 +200,25 @@ describe('bulk authorization patient link (synthetic policy only)', () => {
       `patient.lookup.v1:${patientId}`,
     ]);
     expect(JSON.stringify(captured[0]?.params)).not.toContain('000123');
+  });
+
+  it('queues production enrichment only behind its explicit API gate', async () => {
+    const dialect = new PgDialect();
+    const captured: Array<{ sql: string; params: unknown[] }> = [];
+    const tx = { execute: (statement: Parameters<typeof dialect.sqlToQuery>[0]) => {
+      const query = dialect.sqlToQuery(statement);
+      captured.push({ sql: query.sql, params: query.params });
+      return Promise.resolve({ rows: [] });
+    } };
+    const repository = new BulkImportRepository({} as never, undefined,
+      { PATIENT_MASTER_ENRICHMENT_QUEUE_ENABLED: true } as never);
+    await (repository as unknown as { enqueuePatientLookupInTx(
+      transaction: BulkImportTransaction, input: { patientId: string; actor: typeof actor },
+    ): Promise<void> }).enqueuePatientLookupInTx(tx as unknown as BulkImportTransaction,
+      { patientId, actor });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.params).toEqual(['patient.lookup', JSON.stringify({ patientId }),
+      correlationId, organizationId, `patient.lookup.v1:${patientId}`]);
   });
 
   it('serializes concurrent synthetic confirmations through the transaction lock', async () => {

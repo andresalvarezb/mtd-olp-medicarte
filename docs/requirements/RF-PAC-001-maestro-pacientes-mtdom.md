@@ -2,7 +2,7 @@
 
 **Estado:** decisiones DP-01 a DP-08 registradas para implementar el maestro enriquecido; acceso limitado a MTD. La aprobación funcional del 2026-11-08 autoriza implementar la política documental y el enriquecimiento bajo los límites aquí descritos. No establece base jurídica, plazos de retención ni autorizaciones regulatorias. La habilitación con datos reales permanece cerrada hasta verificar configuración y condiciones de activación.
 **Proyecto:** MTD OLP Medicarte. **Base analizada:** `origin/develop`, 2026-11-06.
-**Alcance:** maestro local de pacientes relacionados con autorizaciones de Medicarte, sincronización de lectura con MTDOM y acceso de usuario por organización y punto. No autoriza migraciones ni cambios de operación.
+**Alcance:** maestro local de pacientes relacionados con AUTO originadas por COMPENSAR, sincronización de lectura con MTDOM y acceso de usuario por organización y punto. No autoriza migraciones ni cambios de operación.
 
 ## 1. Objetivo y antecedentes
 
@@ -32,9 +32,10 @@ Estas decisiones forman parte del alcance aprobado para documentar y planear; no
 
 ## 3. Actores, autoridad y límites
 
+- **COMPENSAR:** origina las AUTO y, por tanto, la evidencia inicial de tipo y número documental. No accede al maestro ni a MTDOM por ese hecho.
 - **MTD autorizado:** administra listados, detalle, perfiles y conciliaciones locales de identidad mediante roles y permisos efectivos.
-- **MEDICARTE y COMPENSAR:** no acceden al módulo general del maestro, sus listados, búsqueda por identidad, detalle, conciliaciones ni exportaciones, aunque conserven permisos históricos. Conservan sin cambios su consulta de autorizaciones, incluidos la búsqueda y sus filtros; este requerimiento no agrega allí una tarjeta personal de MTDOM.
-- **OLP:** no consulta ni administra el maestro ni recibe ficha personal por exportaciones o contratos indirectos.
+- **MEDICARTE:** recibe, entrega o aplica producto; no administra las AUTO ni accede al módulo general del maestro. Conserva su consulta operacional de autorizaciones sin recibir por ella la ficha personal.
+- **OLP:** acepta las órdenes de compra (OC); no consulta ni administra el maestro ni recibe ficha personal por exportaciones o contratos indirectos.
 - **Medicarte backend:** mantiene identidades, relaciones, cola/checkpoints y aplica controles de autorización. La credencial MTDOM no llega al navegador.
 - **MTDOM:** autoridad de los atributos de paciente expuestos por Patients Read API v1; API de solo lectura.
 - **Responsable de datos/seguridad:** resuelve DP-07 y aprueba scope `patients.read.personal`, campos, finalidad y salvaguardas antes de su habilitación.
@@ -46,6 +47,8 @@ La autorización existente para leer una autorización, programación o aplicaci
 **RF-01 — Registro en confirmación.** Al confirmar una autorización, crear o reutilizar una identidad local si los datos permiten determinarla sin ambigüedad. Persistir una tarea de enriquecimiento en el mismo límite transaccional o mediante un mecanismo durable equivalente. No realizar HTTP a MTDOM dentro de la transacción ni retrasar el resultado del cargue.
 
 **RF-02 — Identidad compuesta.** La identidad canónica externa es `(tipo_identificacion, identificacion)`. Normalizar para comparar, guardar el valor de origen y evitar unicidad por número solamente. Las reglas de normalización deben conservar ceros y caracteres que puedan ser significativos para el tipo documental y fijarse con los contratos/fuentes reales antes del esquema.
+
+**Homologación COMPENSAR temporal — solo `1→CC`.** Para AUTO originadas por COMPENSAR, únicamente el tipo numérico `1` está aprobado para crear o reutilizar un paciente, enlazar la autorización y consultar MTDOM como `CC`. Los demás códigos, aunque estén presentes en autorizaciones, quedan pendientes de una tabla completa posterior: no se homologan, no se enlazan automáticamente y no generan consulta MTDOM. La autorización y sus datos originales se conservan; el número documental no se transforma. La ampliación exige una nueva decisión y versión de política, sin reinterpretar lotes anteriores.
 
 **RF-03 — Pendientes y conflictos.** Si falta tipo/número o hay contradicción entre autorizaciones/fuentes, mantener la autorización y registrar el caso para conciliación sin asignar una identidad verificada. No resolver automáticamente identidades repetidas, cambiadas o ambiguas; `409` requiere conciliación MTD autorizada. Un `404` no borra el paciente ni la autorización.
 
@@ -147,7 +150,7 @@ Controles de matriz aplicables a cada fila:
 
 ### 6.2 Propuesta de identidad documental
 
-**Aprobable técnicamente sin catálogo:** clave de enlace externa compuesta por tipo y número; conservar ambos como texto tal cual llegaron, incluidos ceros iniciales; no convertir a número, completar ceros, quitar signos ni equiparar tipos; tipo diferente con mismo número es clave distinta; componente ausente no crea enlace verificado; conflicto entre `IDENTIFICACION_PACIENTE` y `NUM_DOCUMENTO` queda pendiente; nombre/fecha/sexo no sustituyen la clave. La comparación de candidatos requiere una política con versión explícita y las dos identidades verificadas bajo esa misma versión. El índice actual de `patients` no impone unicidad definitiva.
+**Política documental aprobada para AUTO COMPENSAR:** clave local compuesta por entidad de origen, tipo fuente y número literal. La política temporal `COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1` solo homologa `1→CC` antes de consultar MTDOM; guarda `1` como texto en `patients` y no reescribe `source_data`. Una celda XLSX numérica de tipo se interpreta como su código decimal seguro (`1` → `"1"` → `CC`). Un número documental XLSX numérico queda pendiente: la conversión automática podría ocultar ceros iniciales perdidos por Excel. Cualquier otro tipo, campo faltante o alias contradictorios tampoco crean enlace. La igualdad de número sin tipo y entidad nunca basta. El índice actual de `patients` no impone unicidad definitiva.
 
 **Contrato y límite observado:** el código MTDOM consultado limita tipo documental a 10 caracteres y número a 30; normaliza tipo con trim/mayúsculas y quita espacios del número. Medicarte no adopta ese transformado como equivalencia local; conserva la cadena fuente y marca respuesta distinta como `IDENTITY_MISMATCH` hasta aprobar una política. El cliente local ahora valida los límites de longitud del contrato antes de HTTP. Ceros iniciales permanecen texto en ambos lados.
 
@@ -163,7 +166,7 @@ Controles de matriz aplicables a cada fila:
 | Cambio de documento                                              | Tratarlo como identidad nueva/no verificada; conservar enlace histórico y requerir evidencia/decisión manual antes de re-enlazar.                                                                                 |
 | Conciliación manual                                              | MTD autorizado presenta una decisión auditable con motivo, actor, instante y referencia. El endpoint actualmente solo lista casos; la escritura/resolución y su permiso específico aún deben diseñarse/aprobarse. |
 
-Las reglas preservación de texto, identidad compuesta y rechazo de asociación incompleta/contradictoria son invariantes técnicas ya codificadas con pruebas sintéticas. Catálogo/equivalencias, normalización de espacios/caso por tipo, migración de documento y evidencia suficiente para resolver `404`/`409` requieren validación del dueño funcional y de MTDOM; no se extrapolan del normalizador actual del servidor.
+La única homologación aprobada y codificada por ahora es `1→CC`. Los demás códigos quedan para conciliación hasta recibir la tabla completa y aprobar otra versión; no se aprueban transformaciones del número, fusión por alias, cambio documental ni resolución automática de `404`/`409`.
 
 ## 7. Seguridad, privacidad e invariantes
 
@@ -195,7 +198,13 @@ Las reglas preservación de texto, identidad compuesta y rechazo de asociación 
 
 La matriz con archivos, símbolos, dependencias directas/indirectas, cambio propuesto, riesgo y prueba requerida está en [RF-PAC-001 — Impacto técnico y regresión](RF-PAC-001-impacto-tecnico.md). Es evidencia de navegación revisada y lista inicial para implementar; no sustituye una nueva búsqueda de consumidores al cambiar contratos/código.
 
-## 10. Plan de implementación futura
+## 10. Implementación por dos etapas
+
+**Etapa 1 — construir el maestro local.** La AUTO de COMPENSAR es evidencia; MEDICARTE es la relación operacional usada para delimitar el conjunto y MTD es el único administrador del maestro. La importación enlaza identidades completas y verificadas. Para históricos, el comando controlado ofrece inventario agregado `--source COMPENSAR --dry-run`, aplicación de una página de 1–500 filas con `--apply --expected-scanned <conteo> --confirm-source COMPENSAR`, continuación con `--resume <lote> --confirm-source COMPENSAR` y reversión conservadora con `--revert <lote> --confirm-source COMPENSAR`. El lote pertenece a MTD, la identidad queda bajo fuente COMPENSAR y los pendientes se registran sin documento en el ledger. El código no se ha ejecutado contra producción.
+
+**Etapa 2 — enriquecer sin alterar la operación.** Tras revisar los pendientes, la configuración de permisos/privacidad, el secreto y el worker, el lote completo puede generar tareas puntuales con `--queue-batch <lote> --confirm-source COMPENSAR --confirm-worker-enabled yes`. El importador solo encola nuevos enlaces cuando `PATIENT_MASTER_ENRICHMENT_QUEUE_ENABLED=true`; este gate está apagado por defecto. El worker exige la versión `COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1`, verifica autorización local enlazada de tipo fuente `1`, con origen COMPENSAR y relación operacional MEDICARTE, y envía a MTDOM `CC`. MTDOM enriquece el perfil básico, pero no modifica vigencia, cantidades, compras, recepción, entrega ni aplicación. No se ha activado este flujo con datos reales.
+
+El plan técnico completo y la traza histórica de etapas se conservan a continuación como referencia:
 
 1. **Resolver activación:** configuración y condiciones organizacionales; normalización documental; mapeo exacto de organización y campos personal aplicables. No determinar requisitos jurídicos o plazos por inferencia.
 2. **Esquema aditivo/contratos:** paciente, claves compuestas, pendencias, enlace nullable, checkpoint/cola; constraints, índices, migraciones y plan de rollback con `drizzle-schema-safety`.
@@ -212,19 +221,19 @@ La matriz con archivos, símbolos, dependencias directas/indirectas, cambio prop
 
 DP-01 a DP-08 tienen decisión funcional para implementación. Siguen pendientes las condiciones de activación y cualquier determinación jurídica/regulatoria que corresponda; esta matriz no inventa ni registra esas aprobaciones.
 
-| ID / responsable                                              | Decisión pendiente y alternativas concretas                                                                                                                                                                                                                                 | Recomendación técnica                                                                                                                              | Qué bloquea                                                                                                                      |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| DP-07 — dueño funcional / privacidad / jurídico               | La aprobación funcional del 2026-11-08 permite implementar perfiles enriquecidos: `basic` persistido bajo allowlist y `personal` bajo demanda con permiso separado. No determina base jurídica, retención, supresión ni autorización regulatoria.                           | Mantener minimización, acceso MTD exclusivo, separación de permisos y gates cerrados hasta verificar todas las condiciones de activación.          | El tratamiento y exposición con datos reales hasta completar configuración y validaciones organizacionales/jurídicas aplicables. |
-| Identidad-ID — dueño funcional + administrador de tipos MTDOM | Aprobar catálogo de tipos y equivalencias, y transformaciones por tipo para mayúsculas, espacios, signos y ceros. Alternativas: comparación textual exacta; normalización documentada por catálogo; crosswalk explícito con vigencia.                                       | Exactitud compuesta y conservación textual; crosswalk versionado solo con evidencia del catálogo. No eliminar ceros ni equiparar tipos por número. | Enlace automático en producción, unicidad compuesta definitiva y normalizador productivo.                                        |
-| Identidad-CAMBIO — MTD autorizado + dueño funcional           | Definir evidencia/roles para documento cambiado, discrepancia entre alias y resolución de `404`/`409`. Alternativas: conservar identidad anterior y dejar caso pendiente; aceptar nueva identidad con mapeo manual auditado; fusionar solo tras verificación independiente. | No auto fusionar; resolver manualmente con actor, motivo, referencia y concurrencia optimista. `404` conserva datos; `409` exige conciliación.     | Escrituras de conciliación y cambios de identidad. Hoy existe listado de casos, no endpoint de resolución del maestro.           |
-| MTDOM-DELTA — MTDOM + privacidad/seguridad                    | El feed `/v1/patients/changes` es global. La sincronización periódica debe consultar identidades locales puntualmente o disponer de feed filtrado por set autorizado.                                                                                                       | Usar lookup puntual y outbox para nuevos vínculos locales; no registrar scheduler que consuma el feed global.                                      | Polling periódico y cualquier consumo del feed global.                                                                           |
-| OPERACIÓN — dueño de servicio                                 | Aprobar SLO de frescura, número/máximo de reintentos, alertas, rotación/revocación de credencial y evidencia de monitoreo.                                                                                                                                                  | Mantener retry/backoff técnico actual sin activación remota hasta definir SLO y custodia del secreto.                                              | Worker productivo y alertas/SLO operativos.                                                                                      |
+| ID | Decisión pendiente | Tratamiento actual | Qué bloquea |
+| --- | --- | --- | --- |
+| DP-07 — privacidad/jurídico | La aprobación funcional permite implementar `basic` persistido y `personal` bajo demanda; no determina base jurídica, retención ni supresión. | Mantener minimización y gates cerrados para datos reales hasta verificar condiciones aplicables. | Activación productiva de perfiles. |
+| Identidad-ID — dueño funcional/MTDOM | Solo `1→CC` está aprobado; falta la tabla completa y verificar números documentales históricos. | Conservar texto literal; los demás tipos y números XLSX no verificables quedan pendientes. | Enlace de esos casos y unicidad definitiva. |
+| Identidad-CAMBIO — MTD | Definir evidencia y permiso para documento cambiado, alias contradictorios y `404`/`409`. | No fusionar automáticamente; conservar histórico y caso auditable. | Escritura de conciliación. |
+| RBAC-EXC — seguridad | No hay excepción al acceso exclusivo de MTD al maestro. | Mantener enforcement de servidor; permisos operacionales independientes. | Nuevos grants o excepciones. |
+| MTDOM-DELTA — MTDOM/privacidad | El feed `/v1/patients/changes` es global y no está autorizado. | Solo lookup puntual para identidades locales enlazadas. | Consumo del feed global. |
+| OPERACIÓN — dueño de servicio | Faltan SLO, reintentos, alertas y custodia de credencial. | Mantener gates cerrados hasta verificar la operación. | Activación del worker productivo. |
 
-**Bloqueo de activación:** no habilitar `PATIENT_MASTER_ACCESS_ENABLED`, `PATIENT_MASTER_SCOPE_POLICY_APPROVED`, `PATIENT_MASTER_DP07_APPROVED`, `MTDOM_PATIENT_LOOKUP_ENABLED` ni `MTDOM_DP07_APPROVED` para datos reales hasta verificar configuración, credencial de servidor, identidad/política versionada, asignaciones RBAC y condiciones operativas. La aprobación funcional DP-07 no completa por sí sola esas verificaciones. El feed global no debe programarse ni consumirse. Las pruebas locales sintéticas no representan habilitación.
+**Bloqueo de activación:** no habilitar `PATIENT_MASTER_ACCESS_ENABLED`, `PATIENT_MASTER_SCOPE_POLICY_APPROVED`, `PATIENT_MASTER_DP07_APPROVED`, `PATIENT_MASTER_ENRICHMENT_QUEUE_ENABLED`, `MTDOM_PATIENT_LOOKUP_ENABLED` ni `MTDOM_DP07_APPROVED` para datos reales hasta verificar configuración, credencial de servidor, identidad/política versionada, asignaciones RBAC y condiciones operativas. La aprobación funcional DP-07 no completa por sí sola esas verificaciones. El feed global no debe programarse ni consumirse. Las pruebas locales sintéticas no representan habilitación.
 
 ## 12. Fuera de alcance
 
-- Implementar API, interfaz, worker, migración, seed o integración en esta tarea documental.
 - Escribir en MTDOM, crear una copia completa de su población, o corregir atributos personales localmente como autoridad.
 - Cambiar prioridad del punto habitual, lógica de autorización/compra, inventario/recepción, consumo, cantidades o estados operacionales.
 - Archivar/purgar por inactividad, decidir DP-07 por inferencia, ejecutar migraciones o usar datos/credenciales/DB de producción.

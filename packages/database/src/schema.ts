@@ -227,6 +227,12 @@ export const patients = pgTable(
   'patients',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    // The authorization source is distinct from the organizations that later
+    // operate on the authorization. COMPENSAR originates AUTO identity data;
+    // MTD is the only authorized reader of the master.
+    sourceOrganizationId: uuid('source_organization_id').references(() => organizations.id, {
+      onDelete: 'restrict',
+    }),
     identificationTypeRaw: varchar('identification_type_raw', { length: 80 }).notNull(),
     identificationValueRaw: varchar('identification_value_raw', { length: 255 }).notNull(),
     mtdomLookupStatus: varchar('mtdom_lookup_status', { length: 40 })
@@ -250,6 +256,11 @@ export const patients = pgTable(
   },
   table => [
     index('patients_identification_raw_idx').on(
+      table.identificationTypeRaw,
+      table.identificationValueRaw,
+    ),
+    index('patients_source_identity_raw_idx').on(
+      table.sourceOrganizationId,
       table.identificationTypeRaw,
       table.identificationValueRaw,
     ),

@@ -43,13 +43,13 @@ describe('PatientMasterRepository', () => {
 
     expect(query).toHaveBeenCalledOnce();
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
-    expect(sql).toContain('aio.organization_id = $1::uuid');
+    expect(sql).toContain("mtd.id = $1::uuid AND mtd.code = 'MTD'");
+    expect(sql).toContain("operational_org.code = 'MEDICARTE'");
+    expect(sql).toContain("p.source_organization_id = (SELECT id FROM organizations WHERE code = 'COMPENSAR')");
     expect(sql).toContain('p.identification_type_raw = ANY($2::text[])');
     expect(sql).toContain('p.identification_value_raw = $3');
     expect(sql).toContain('authorization_item_organizations');
-    expect(sql).toContain("CASE p.identification_type_raw WHEN '1' THEN 'CC'");
-    expect(sql).toContain("CASE ai.source_data->>'TIPO_IDENTIFICACION' WHEN '1' THEN 'CC'");
-    expect(values).toEqual([mtdScope.organizationId, ['CC', '1'], 'SYNTHETIC-001', 25, 0]);
+    expect(values).toEqual([mtdScope.organizationId, ['1', 'CC'], 'SYNTHETIC-001', 25, 0]);
     expect(result.items[0]).toEqual({
       id: '00000000-0000-4000-8000-000000000010',
       identityStatus: 'LOCAL_KEY_RECORDED',
@@ -88,7 +88,9 @@ describe('PatientMasterRepository', () => {
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
     expect(sql).toContain("org.code = 'MEDICARTE'");
     expect(sql).toContain("ai.source_data->>'TIPO_IDENTIFICACION' = ANY($1::text[])");
-    expect(values).toEqual([['CC', '1'], '000123', ['00000000-0000-4000-8000-000000000003']]);
+    expect(sql).toContain("p.identification_type_raw = '1'");
+    expect(sql).toContain('JOIN patients p ON p.id = ai.patient_id');
+    expect(values).toEqual([['1', 'CC'], '000123', mtdScope.organizationId, ['00000000-0000-4000-8000-000000000003']]);
 
     const explicitScope = {
       ...mtdScope,
@@ -101,11 +103,12 @@ describe('PatientMasterRepository', () => {
       identificationValue: '000123',
     });
     const [scopedSql, scopedValues] = query.mock.calls[1] as unknown as [string, unknown[]];
-    expect(scopedSql).toContain('ps.dispensing_point_id = ANY($3::uuid[])');
-    expect(scopedSql).toContain('ps.dispensing_point_id = $4::uuid');
+    expect(scopedSql).toContain('ps.dispensing_point_id = ANY($4::uuid[])');
+    expect(scopedSql).toContain('ps.dispensing_point_id = $5::uuid');
     expect(scopedValues).toEqual([
-      ['CC', '1'],
+      ['1', 'CC'],
       '000123',
+      mtdScope.organizationId,
       explicitScope.accessiblePointIds,
       explicitScope.dispensingPointId,
     ]);
@@ -121,9 +124,19 @@ describe('PatientMasterRepository', () => {
     });
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
     expect(sql).toContain('p.identification_type_raw = ANY($2::text[])');
-    expect(values).toContainEqual(['CC', '1']);
+    expect(values).toContainEqual(['1', 'CC']);
     expect(values).toContain('000123');
   });
+
+  it.each(['2', '3', '4', '7', 'CE', 'CD', 'PA', 'CN', '13'])(
+    'does not call SQL for unapproved live lookup type %s', async (identificationType) => {
+      const { repository, query } = makeRepository([{ visible: true }]);
+      await expect(repository.isAuthorizedLiveLookup(mtdScope, {
+        identificationType, identificationValue: '000123',
+      })).resolves.toBe(false);
+      expect(query).not.toHaveBeenCalled();
+    },
+  );
 
   it('keeps reconciliation evidence read-only and projects no identity fields', async () => {
     const { repository, query } = makeRepository([]);
@@ -133,7 +146,7 @@ describe('PatientMasterRepository', () => {
       "pbi.status IN ('NEEDS_RECONCILIATION', 'CONFLICT', 'RESOLVED', 'REVERT_CONFLICT')",
     );
     expect(sql).toContain('pbb.organization_id = $1::uuid');
-    expect(sql).toContain('aio.organization_id = $1::uuid');
+    expect(sql).toContain("operational_org.code = 'MEDICARTE'");
     expect(sql).not.toMatch(/identification_value|document|source_data/i);
     expect(values).toEqual([mtdScope.organizationId, 12]);
   });

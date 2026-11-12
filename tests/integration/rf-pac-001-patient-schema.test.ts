@@ -30,6 +30,10 @@ const patientSyncCheckpointMigrationSql = readFileSync(
   resolve(process.cwd(), 'packages/database/migrations/0111_patient_sync_checkpoint.sql'),
   'utf8',
 );
+const patientSourceOrganizationMigrationSql = readFileSync(
+  resolve(process.cwd(), 'packages/database/migrations/0118_patient_source_organization.sql'),
+  'utf8',
+);
 
 describe('RF-PAC-001 additive patient schema', () => {
   beforeAll(async () => database.connect());
@@ -81,6 +85,7 @@ describe('RF-PAC-001 additive patient schema', () => {
       await database.query(patientMtdomStateMigrationSql);
       await database.query(patientBackfillLedgerMigrationSql);
       await database.query(patientSyncCheckpointMigrationSql);
+      await database.query(patientSourceOrganizationMigrationSql);
 
       const outboxId = randomUUID();
       await database.query(`insert into outbox_events (id) values ($1)`, [outboxId]);

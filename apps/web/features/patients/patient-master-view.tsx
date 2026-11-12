@@ -24,11 +24,6 @@ import styles from './patient-master-view.module.css';
 const PAGE_SIZE = 25;
 const IDENTIFICATION_TYPES = [
   { value: 'CC', label: 'CC · Cédula de ciudadanía' },
-  { value: 'CE', label: 'CE · Cédula de extranjería' },
-  { value: 'TI', label: 'TI · Tarjeta de identidad' },
-  { value: 'RC', label: 'RC · Registro civil' },
-  { value: 'PA', label: 'PA · Pasaporte' },
-  { value: 'NIT', label: 'NIT · Identificación tributaria' },
 ] as const;
 
 function safeErrorMessage(error: unknown): string {
@@ -329,7 +324,7 @@ export function PatientMasterView() {
               value={identityValue}
               placeholder="Ingresa el valor exacto"
               onChange={(event) => setIdentityValue(event.target.value)}
-              maxLength={255}
+              maxLength={30}
             />
           </label>
           <button
@@ -359,13 +354,13 @@ export function PatientMasterView() {
         <p className={styles.scopeNotice}>
           <span aria-hidden="true">i</span>
           <span>
-            La consulta usa tipo y número exactos. El perfil básico de MTDOM solo se consulta si
-            existe una coincidencia local autorizada en Alto Costo.
+            Por ahora solo se admite CC (tipo 1 de COMPENSAR). La consulta a MTDOM requiere una
+            autorización local enlazada; los demás tipos quedan pendientes de homologación.
           </span>
         </p>
         {liveLookupState === 'loading' ? (
           <p className={styles.stateMessage} role="status">
-            Coincidencia local encontrada. Consultando perfil básico en MTDOM…
+            Verificando autorización local y consultando perfil básico en MTDOM…
           </p>
         ) : null}
         {liveLookupState === 'error' && liveLookupError ? (
@@ -375,7 +370,7 @@ export function PatientMasterView() {
         ) : null}
         {liveLookupState === 'ready' && liveLookup?.status === 'NOT_FOUND' ? (
           <p className={styles.stateMessage} role="status">
-            No se encontró una coincidencia autorizada para esta identidad.
+            No hay autorización local enlazada para esa identidad o MTDOM no la encontró.
           </p>
         ) : null}
         {liveLookupState === 'ready' && liveLookup?.status === 'AMBIGUOUS' ? (

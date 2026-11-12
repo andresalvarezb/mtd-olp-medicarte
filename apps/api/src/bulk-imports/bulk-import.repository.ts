@@ -10,6 +10,7 @@ import type {
 } from '@authorization/contracts';
 import { PATIENT_LOOKUP_OUTBOX_EVENT_TYPE } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
+import type { ApiConfig } from '@authorization/config';
 import {
   BULK_IMPORT_ROW_CLAIM_LEASE_SECONDS,
   POINT_ACCESS_DENIED,
@@ -21,16 +22,18 @@ import {
   isAuthorizationSourceEnabled,
   rowIdempotencyKey,
   assessPatientIdentity,
+  COMPENSAR_AUTO_PATIENT_IDENTITY_POLICY,
+  compensarIdentitySourceForAssessment,
 } from '@authorization/domain';
 import type { PatientIdentityNormalizationPolicy } from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
-import { DATABASE } from '../tokens';
+import { API_CONFIG, DATABASE } from '../tokens';
 import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
 
 type Database = ReturnType<typeof createDatabase>;
 export type BulkImportTransaction = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
 
-/** Optional hook; the application intentionally has no provider until documentary identity rules are approved. */
+/** Test hook for exceptional identity policies; production accepts only COMPENSAR type 1. */
 const SYNTHETIC_PATIENT_IDENTITY_LINKING_POLICY = Symbol(
   'SYNTHETIC_PATIENT_IDENTITY_LINKING_POLICY',
 );
@@ -333,30 +336,29 @@ export class BulkImportRepository {
     @Optional()
     @Inject(SYNTHETIC_PATIENT_IDENTITY_LINKING_POLICY)
     private readonly patientIdentityPolicy?: SyntheticPatientIdentityPolicy,
+    @Optional()
+    @Inject(API_CONFIG)
+    private readonly config?: ApiConfig,
   ) {}
 
-  /**
-   * Resolves a patient only when an explicit policy is supplied. The test-only
-   * path accepts exact raw equality only; it never persists normalized data.
-   * PostgreSQL advisory locking serializes concurrent synthetic confirmations
-   * without adding a documentary uniqueness constraint.
-   */
+  /** Links a COMPENSAR AUTO using its exact source identity; never rewrites source_data. */
   private async linkPatientForSyntheticIdentityInTx(
     tx: BulkImportTransaction,
     authorizationItemId: string,
     sourceData: Readonly<Record<string, unknown>>,
   ): Promise<string | null> {
-    if (
-      process.env.NODE_ENV !== 'test' ||
-      !this.patientIdentityPolicy ||
-      !this.patientIdentityPolicy.version.startsWith('SYNTHETIC_EXACT_TEST_')
-    ) return null;
-
-    const identity = assessPatientIdentity(sourceData, this.patientIdentityPolicy);
+    const policy = this.patientIdentityPolicy ?? COMPENSAR_AUTO_PATIENT_IDENTITY_POLICY;
+    const identity = assessPatientIdentity(
+      policy === COMPENSAR_AUTO_PATIENT_IDENTITY_POLICY
+        ? compensarIdentitySourceForAssessment(sourceData)
+        : sourceData,
+      policy,
+    );
     if (
       identity.state !== 'VERIFIED' ||
-      identity.normalizedDocumentType !== identity.rawDocumentType ||
-      identity.normalizedDocumentValue !== identity.rawDocumentValue
+      identity.normalizedDocumentValue !== identity.rawDocumentValue ||
+      (policy.version.startsWith('SYNTHETIC_EXACT_TEST_') &&
+        identity.normalizedDocumentType !== identity.rawDocumentType)
     ) {
       return null;
     }
@@ -373,7 +375,8 @@ export class BulkImportRepository {
     const matching = await tx.execute<{ id: string }>(sql`
       select id
       from patients
-      where identification_type_raw = ${identity.rawDocumentType}
+      where source_organization_id = (select id from organizations where code = 'COMPENSAR')
+        and identification_type_raw = ${identity.rawDocumentType}
         and identification_value_raw = ${identity.rawDocumentValue}
       order by id
       limit 2
@@ -384,13 +387,14 @@ export class BulkImportRepository {
     let patientId = matching.rows[0]?.id;
     if (!patientId) {
       const created = await tx.execute<{ id: string }>(sql`
-        insert into patients (identification_type_raw, identification_value_raw)
-        values (${identity.rawDocumentType}, ${identity.rawDocumentValue})
+        insert into patients (source_organization_id, identification_type_raw, identification_value_raw)
+        select id, ${identity.rawDocumentType}, ${identity.rawDocumentValue}
+          from organizations where code = 'COMPENSAR'
         returning id
       `);
       patientId = created.rows[0]?.id;
     }
-    if (!patientId) throw new Error('PATIENT_SYNTHETIC_IDENTITY_CREATE_FAILED');
+    if (!patientId) return null;
 
     const linked = await tx.execute<{ patient_id: string }>(sql`
       update authorization_items
@@ -406,12 +410,9 @@ export class BulkImportRepository {
     tx: BulkImportTransaction,
     input: { patientId: string; actor: Scope },
   ): Promise<void> {
-    // The application has no synthetic policy provider. This path is only
-    // reachable from synthetic tests until documentary identity policy exists.
-    if (
-      process.env.NODE_ENV !== 'test' ||
-      !this.patientIdentityPolicy?.version.startsWith('SYNTHETIC_EXACT_TEST_')
-    ) return;
+    const syntheticEnabled = process.env.NODE_ENV === 'test' &&
+      this.patientIdentityPolicy?.version.startsWith('SYNTHETIC_EXACT_TEST_');
+    if (!syntheticEnabled && !this.config?.PATIENT_MASTER_ENRICHMENT_QUEUE_ENABLED) return;
 
     await tx.execute(sql`
       insert into outbox_events (
@@ -1477,7 +1478,7 @@ export class BulkImportRepository {
       };
 
     // Existing links are immutable during reimport. A previously unlinked row
-    // may acquire a test-only exact link from its merged source evidence.
+    // may acquire an exact link from its merged source evidence.
     if (!existingRow.patient_id) {
       const patientId = await this.linkPatientForSyntheticIdentityInTx(
         tx,

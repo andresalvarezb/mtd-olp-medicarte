@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { parseWorkerConfig } from '@authorization/config';
 import { createDatabase } from '@authorization/database';
 import type { WorkerConfig } from '@authorization/config';
+import { COMPENSAR_PATIENT_IDENTITY_POLICY } from '@authorization/domain';
 import pino from 'pino';
 import { MtdomPatientLookupProcessor } from './mtdom-patient-lookup.processor';
 import { MtdomPatientsReadClient } from './mtdom-patients-read.client';
@@ -35,24 +36,19 @@ const database = createDatabase(config.DATABASE_URL);
         if (
           !workerConfig.MTDOM_PATIENT_LOOKUP_ENABLED ||
           !workerConfig.MTDOM_DP07_APPROVED ||
-          !workerConfig.MTDOM_PATIENT_IDENTITY_POLICY_VERSION ||
+          workerConfig.MTDOM_PATIENT_IDENTITY_POLICY_VERSION !== COMPENSAR_PATIENT_IDENTITY_POLICY.version ||
           !workerConfig.MTDOM_PATIENTS_API_TOKEN
         )
           return undefined;
         // The config schema requires both approval flags, a versioned identity
         // policy and a server-side token before this provider can be enabled.
-        const policy = {
-          version: workerConfig.MTDOM_PATIENT_IDENTITY_POLICY_VERSION,
-          normalizeDocumentType: (value: string) => value,
-          normalizeDocumentValue: (value: string) => value,
-        };
         return new MtdomPatientLookupProcessor(
           patientDatabase,
           new MtdomPatientsReadClient({
             token: workerConfig.MTDOM_PATIENTS_API_TOKEN,
             timeoutMs: workerConfig.MTDOM_PATIENTS_TIMEOUT_MS,
           }),
-          policy,
+          COMPENSAR_PATIENT_IDENTITY_POLICY,
         );
       },
     },
