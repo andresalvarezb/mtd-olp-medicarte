@@ -30,7 +30,11 @@ Cada `receivedQuantity` es un **entero positivo**. Una línea repetida dentro de
 
 **Resultado y controles:** se registra la recepción y sus líneas en `purchase_order_receipts` y `purchase_order_receipt_lines`. La implementación ejecuta conciliación automática de asignaciones de la OC al confirmar la recepción; la disponibilidad moderna `quantity-only` no requiere inventar lotes en el ledger legacy. Puede quedar un remanente pendiente. Es esencial revisar la cantidad recibida acumulada y la cantidad asignada de cada OC; **no asumir que cualquier AUTO está automáticamente disponible por recibir producto**.
 
+El producto libre que no quede reservado por su relación comercial original se evalúa para asignación automática según [BR-AUTO-DISP-001](requirements/BR-AUTO-DISP-001-asignacion-automatica-disponibilidad.md): solo AUTOs habilitadas y vigentes, misma cantidad pendiente, producto y punto compatibles. Una AUTO se completa con stock de una o varias OCs; si no puede completarse, el stock sigue disponible en su punto.
+
 **Ejemplo ilustrativo:** OC solicitada 10, recepción parcial 5 → el saldo físico no puede exceder 5 menos consumos/egresos válidos. Para el remanente 5, registrar otra recepción real cuando suceda, con guardas de duplicidad y límites.
+
+La liberación de una reserva también dispara la evaluación del producto liberado, manteniendo el mismo punto y las mismas validaciones.
 
 **Flujo legacy separado:** `POST /api/v1/medicarte/receipts`, `PATCH /api/v1/medicarte/receipts/:id`, `POST /api/v1/medicarte/receipts/:id/confirm` opera a partir de una entrega. No usar esa ruta para simular la recepción directa.
 

@@ -148,8 +148,10 @@ OC + CLAVE_AUTORIZACION + CODIGO_COMERCIAL + CANTIDAD
 
 La relación AUTO → OC representa la demanda lógica original y no debe eliminarse.
 La asignación lógica nace con el archivo de OC cargado por MTD. Disponibilidad no
-debe volver a decidir qué AUTO originó la OC ni ser una segunda asignación
-obligatoria.
+debe cambiar qué AUTO originó comercialmente la OC ni reescribir su snapshot.
+Además, puede reservar stock físico libre para una AUTO elegible según
+[BR-AUTO-DISP-001](../requirements/BR-AUTO-DISP-001-asignacion-automatica-disponibilidad.md).
+Esa reserva puede tomar producto de otra OC compatible y no modifica la compra.
 
 El flujo objetivo es:
 
@@ -164,8 +166,9 @@ Consulta autorización entrega/aplica solo lo físicamente disponible
 
 `purchase_order_authorization_sources` permanece como relación histórica
 fundamental. El módulo Disponibilidad puede permanecer por compatibilidad o
-consulta, pero no debe tener responsabilidad de reasignar AUTO ni convertirse en
-la autoridad de stock.
+consulta y puede crear reservas físicas automáticas conforme a
+[BR-AUTO-DISP-001](../requirements/BR-AUTO-DISP-001-asignacion-automatica-disponibilidad.md).
+La relación comercial AUTO → OC y su snapshot permanecen intactos.
 
 ## Recepción y existencia física
 
@@ -404,15 +407,16 @@ reasignación.
 | --- | --- | --- |
 | Actualización de AUTO con OC existente | `upsertAuthorizationInTx()` bloquea cambios si hay OC no cancelada/rechazada | TO-BE debe actualizar la AUTO viva sin mutar el snapshot de OC |
 | Recepción quantity-only | `createPurchaseOrderReceipt()` solo persiste `purchase_order_receipt_lines` y no llama al ledger legacy | La recepción directa no alimenta de forma demostrada `inventory_movements`/`inventory_lots` usados por fulfillment |
-| Disponibilidad | `InventoryAvailabilityRepository` usa `inventory_authorization_allocations` y carga UI/XLSX | Sigue siendo una segunda asignación técnica; TO-BE la deja fuera de la responsabilidad de asignar AUTO |
+| Disponibilidad | `InventoryAvailabilityRepository` conserva cargas UI/XLSX y además asigna stock físico libre a AUTOs vigentes, compatibles y priorizadas por vencimiento | La reserva se registra por OC/producto/punto sin cambiar la relación comercial AUTO–OC |
 | Fulfillment automático | `ensureAutomaticAllocation()` crea allocations desde el snapshot de OC | El contrato backend actual todavía materializa asignación al atender; debe alinearse con la asignación lógica nacida en la OC |
 | Recepción histórica | `recordConfirmedReceipt()` sí crea lotes y movimientos `RECEIPT` | Conviven dos arquitecturas y la quantity-only no tiene la misma evidencia física |
 | Retención/reasignación | `reconcileIneligibleTx()` no libera reservas; el worker libera allocation y fuente activa desde el día 6 solo sin atención confirmada. La transferencia a una AUTO_DESTINO vive en `PurchaseOrderImportService` | La continuidad parcial conserva el saldo existente; BR-AUTO-EXP-001 permite después un top-up físico solo por recepción de la misma OC y fuente aún activa |
 | Concurrencia de consumo | Fulfillment usa transacción, locks de autorización/allocation/punto y valida lotes | El TO-BE exige además una reserva/consumo atómico que no elija AUTO propietaria por anticipado en escasez |
 
-Los GAPs de recepción, asignación y consumo de la tabla no se presentan como
-funcionalidades implementadas. La reconciliación existente detecta
-inconsistencias, pero no auto-repara ni crea la reasignación descrita aquí.
+Los GAPs de recepción directa en el ledger legacy y de consumo que aparecen en la
+tabla siguen vigentes. La asignación automática de stock libre descrita en
+[BR-AUTO-DISP-001](../requirements/BR-AUTO-DISP-001-asignacion-automatica-disponibilidad.md)
+sí crea reservas físicas trazables, sin resolver por sí sola esos otros GAPs.
 
 ## Precedencia del punto programado
 

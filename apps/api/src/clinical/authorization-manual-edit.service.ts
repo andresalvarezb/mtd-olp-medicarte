@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 
 import {
@@ -37,6 +38,7 @@ import {
 import {
   DATABASE,
 } from '../tokens';
+import { InventoryAvailabilityRepository } from '../inventory/inventory-availability.repository';
 
 
 type Database =
@@ -120,6 +122,12 @@ type TariffRow =
 type AllocationRow =
   Readonly<{
     id:
+      string;
+
+    commercial_code:
+      string;
+
+    dispensing_point_id:
       string;
 
     allocated_quantity:
@@ -225,6 +233,7 @@ export class AuthorizationManualEditService {
     @Inject(DATABASE)
     private readonly database:
       Database,
+    @Optional() private readonly inventoryAvailability?: InventoryAvailabilityRepository,
   ) {}
 
 
@@ -311,11 +320,14 @@ export class AuthorizationManualEditService {
 
       const allocations = (await tx.execute<{
         id: string;
+        commercial_code: string;
+        dispensing_point_id: string;
         allocated_quantity: number;
         consumed_quantity: number;
         released_quantity: number;
       }>(sql`
-        select id, allocated_quantity::int, consumed_quantity::int,
+        select id, commercial_code, dispensing_point_id,
+               allocated_quantity::int, consumed_quantity::int,
                released_quantity::int
         from inventory_authorization_allocations
         where authorization_item_id = ${authorizationItemId}
@@ -451,6 +463,17 @@ export class AuthorizationManualEditService {
         correlationId: scope.correlationId,
         resource: { type: 'authorization_item', id: authorizationItemId, version: updated.version },
       }));
+      if (this.inventoryAvailability && releasedQuantity > 0) {
+        await this.inventoryAvailability.assignAutomaticallyInTx(
+          tx,
+          scope,
+          'RESERVATION_RELEASED',
+          {
+            commercialCodes: [...new Set(allocations.map((allocation) => allocation.commercial_code))],
+            dispensingPointIds: [...new Set(allocations.map((allocation) => allocation.dispensing_point_id))],
+          },
+        );
+      }
       return {
         id: authorizationItemId,
         authorizationKey: current.authorization_key,
@@ -659,6 +682,14 @@ export class AuthorizationManualEditService {
             resource: { type: 'authorization_item', id: authorizationItemId,
               version: updated.version },
           }));
+          if (this.inventoryAvailability) {
+            await this.inventoryAvailability.assignAutomaticallyInTx(
+              tx,
+              scope,
+              'AUTHORIZATION_ENABLED',
+              { commercialCodes: [commercialCode] },
+            );
+          }
           return {
             id: authorizationItemId,
             authorizationKey: current.authorization_key,
@@ -1923,6 +1954,8 @@ export class AuthorizationManualEditService {
             >(sql`
               select
                 iaa.id,
+                iaa.commercial_code,
+                iaa.dispensing_point_id,
                 iaa.allocated_quantity::int,
                 iaa.consumed_quantity::int,
                 iaa.released_quantity::int,
@@ -2514,6 +2547,31 @@ export class AuthorizationManualEditService {
           }),
         );
 
+        if (this.inventoryAvailability && releasedInventoryQuantity > 0) {
+          await this.inventoryAvailability.assignAutomaticallyInTx(
+            tx,
+            scope,
+            'RESERVATION_RELEASED',
+            {
+              commercialCodes: [...new Set(allocations.map((allocation) => allocation.commercial_code))],
+              dispensingPointIds: [...new Set(allocations.map((allocation) => allocation.dispensing_point_id))],
+            },
+          );
+        }
+
+        if (
+          this.inventoryAvailability &&
+          (productChanged || quantityChanged || validityChanged || renewedState)
+        ) {
+          await this.inventoryAvailability.assignAutomaticallyInTx(
+            tx,
+            scope,
+            'AUTHORIZATION_ENABLED',
+            {
+              commercialCodes: [...new Set([current.codigo_medicamento, commercialCode])],
+            },
+          );
+        }
 
         return {
           id:

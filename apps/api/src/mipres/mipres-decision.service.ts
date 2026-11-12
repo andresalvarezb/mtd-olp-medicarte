@@ -17,7 +17,9 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { drizzle } from 'drizzle-orm/node-postgres';
 
 import {
   mipresManualDecisionResponseSchema,
@@ -28,6 +30,10 @@ import {
 import type { createDatabase } from '@authorization/database';
 
 import type { Scope } from '../common/request-scope';
+import {
+  InventoryAvailabilityRepository,
+  type InventoryAvailabilityTransaction,
+} from '../inventory/inventory-availability.repository';
 
 import { DATABASE } from '../tokens';
 
@@ -37,6 +43,8 @@ type DecisionState = 'PENDING_MANUAL_ENABLEMENT' | 'MANUALLY_ENABLED' | 'MANUALL
 
 type DecisionItemRow = Readonly<{
   id: string;
+
+  commercial_code: string;
 
   coverage_type: string;
 
@@ -138,6 +146,7 @@ export class MipresDecisionService {
   constructor(
     @Inject(DATABASE)
     private readonly database: Database,
+    @Optional() private readonly inventoryAvailability?: InventoryAvailabilityRepository,
   ) {}
 
   async decide(
@@ -354,6 +363,7 @@ export class MipresDecisionService {
       const itemResult = await client.query<DecisionItemRow>(
         `select
              id,
+             codigo_medicamento as commercial_code,
              coverage_type,
              no_prescripcion,
              direction_status,
@@ -855,6 +865,15 @@ export class MipresDecisionService {
            )`,
         [idempotencyScope, input.idempotencyKey, hash, JSON.stringify(validatedResponse)],
       );
+
+      if (this.inventoryAvailability && targetDecision === 'MANUALLY_ENABLED') {
+        await this.inventoryAvailability.assignAutomaticallyInTx(
+          drizzle(client) as unknown as InventoryAvailabilityTransaction,
+          input.scope,
+          'AUTHORIZATION_ENABLED',
+          { commercialCodes: [item.commercial_code] },
+        );
+      }
 
       await client.query('commit');
 

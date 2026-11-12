@@ -55,7 +55,7 @@ No cuentan borradores, cancelaciones, intentos fallidos ni filas no confirmadas.
 - Validación normativa y contractual para entregar/aplicar medicamentos durante o después de la vigencia impresa.
 - Reconciliación de `authorization_dispensations` históricas que carecen de cantidad y confirmación explícita.
 - Regla para crear una relación comercial nueva con una AUTO vencida tras el día 5: sigue bloqueada; la excepción aprobada solo permite completar progresivamente la fuente AUTO–OC ya activa contra una recepción física de esa misma OC.
-- No se define aquí reasignación automática, devolución financiera, liberación por inasistencia ni restauración de información previamente liberada.
+- La asignación automática de stock físico libre a AUTOs vigentes se define en [BR-AUTO-DISP-001](BR-AUTO-DISP-001-asignacion-automatica-disponibilidad.md). Este documento no define devolución financiera, liberación por inasistencia ni restauración de información previamente liberada.
 
 ## Evidencia técnica
 

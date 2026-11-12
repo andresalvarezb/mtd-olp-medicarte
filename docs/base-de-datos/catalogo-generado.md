@@ -1,7 +1,7 @@
 # Catálogo estructural de la base de datos — generado
 
 > **Origen:** `packages/database/src/schema.ts` (Drizzle). **No demuestra que las migraciones estén aplicadas a un PostgreSQL concreto.**
-> **Identificador de fuente SHA-256:** `52e6c1de506c2beee7d361a50190ba17a119b1fe5fd8d23e3302d03e07e817e6`. Generador: `scripts/db-schema-catalog.mjs`.
+> **Identificador de fuente SHA-256:** `742d78811641000e4d2d8d99473615453a388d0d0709f37bfb6314eb3d86fdf8`. Generador: `scripts/db-schema-catalog.mjs`.
 
 **Tablas Drizzle:** 93. **Columnas:** 1204. **Referencias FK declaradas:** 243.
 

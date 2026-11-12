@@ -29,6 +29,7 @@ import type { PatientIdentityNormalizationPolicy } from '@authorization/domain';
 import type { Scope } from '../common/request-scope';
 import { API_CONFIG, DATABASE } from '../tokens';
 import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
+import { InventoryAvailabilityRepository } from '../inventory/inventory-availability.repository';
 
 type Database = ReturnType<typeof createDatabase>;
 export type BulkImportTransaction = Parameters<Parameters<Database['db']['transaction']>[0]>[0];
@@ -339,6 +340,7 @@ export class BulkImportRepository {
     @Optional()
     @Inject(API_CONFIG)
     private readonly config?: ApiConfig,
+    @Optional() private readonly inventoryAvailability?: InventoryAvailabilityRepository,
   ) {}
 
   /** Links a COMPENSAR AUTO using its exact source identity; never rewrites source_data. */
@@ -1367,6 +1369,18 @@ export class BulkImportRepository {
       const patientId = await this.linkPatientForSyntheticIdentityInTx(tx, insertedRow.id, p);
       if (patientId) await this.enqueuePatientLookupInTx(tx, { patientId, actor: input.actor });
       await linkOrganization(insertedRow.id);
+      if (
+        this.inventoryAvailability &&
+        sourceStatus === '5' &&
+        enablementStatus === 'ENABLED'
+      ) {
+        await this.inventoryAvailability.assignAutomaticallyInTx(
+          tx,
+          input.actor,
+          'AUTHORIZATION_ENABLED',
+          { commercialCodes: [commercialCode] },
+        );
+      }
 
       await this.audit(tx, input.actor, 'AUTHORIZATION_SMART_RELOAD_INSERTED', input.jobId, {
         authorizationItemId: insertedRow.id,
@@ -1407,6 +1421,9 @@ export class BulkImportRepository {
           'CONFIRMED' |
           'QUERY_ERROR';
 
+        enablement_status:
+          string;
+
         source_data:
           Record<
             string,
@@ -1428,6 +1445,7 @@ export class BulkImportRepository {
           version,
           coverage_type,
           direction_status,
+          enablement_status,
           source_data,
           source_status_normalized,
           source_prescripcion_normalized,
@@ -1747,6 +1765,19 @@ export class BulkImportRepository {
     }
 
     await linkOrganization(updatedRow.id);
+
+    if (
+      this.inventoryAvailability &&
+      effectiveSourceStatus === '5' &&
+      effectiveEnablementStatus === 'ENABLED'
+    ) {
+      await this.inventoryAvailability.assignAutomaticallyInTx(
+        tx,
+        input.actor,
+        'AUTHORIZATION_ENABLED',
+        { commercialCodes: [commercialCode] },
+      );
+    }
 
     if (renewalDecision.outcome === 'PROMOTED') {
       await this.audit(tx, input.actor, 'AUTHORIZATION_SOURCE_STATUS_RENEWED', input.jobId, {

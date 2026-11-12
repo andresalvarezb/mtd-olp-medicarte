@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { createDatabase } from '@authorization/database';
 import {
@@ -18,6 +18,7 @@ import type {
   UpdateReceiptRequest,
 } from '@authorization/contracts';
 import { InventoryRepository } from '../inventory/inventory.repository';
+import { InventoryAvailabilityRepository } from '../inventory/inventory-availability.repository';
 import { HistoricalPurchaseOrderSourceRecoveryService } from '../legacy/historical-purchase-order-source-recovery.service';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -58,6 +59,7 @@ export class ReceiptRepository {
     private readonly inventory: InventoryRepository,
     private readonly historicalSourceRecovery:
       HistoricalPurchaseOrderSourceRecoveryService,
+    @Optional() private readonly inventoryAvailability?: InventoryAvailabilityRepository,
   ) {}
 
 
@@ -383,11 +385,22 @@ export class ReceiptRepository {
       await tx.execute(
         sql`update receipts set status='CONFIRMED',conformity=${overall},confirmed_at=now(),version=version+1,updated_at=now(),updated_by=${scope.userId} where id=${id}`,
       );
-      await this.inventory.recordConfirmedReceipt(
+      const newlyAvailable = await this.inventory.recordConfirmedReceipt(
         tx,
         id,
         scope,
       );
+      if (this.inventoryAvailability && newlyAvailable.length > 0) {
+        await this.inventoryAvailability.assignAutomaticallyInTx(
+          tx,
+          scope,
+          'STOCK_BECAME_AVAILABLE',
+          {
+            commercialCodes: [...new Set(newlyAvailable.map((line) => line.commercialCode))],
+            dispensingPointIds: [...new Set(newlyAvailable.map((line) => line.dispensingPointId))],
+          },
+        );
+      }
 
       const completion =
         await tx.execute<{
@@ -907,6 +920,24 @@ export class ReceiptRepository {
               receiptId,
             },
           );
+
+        if (this.inventoryAvailability) {
+          await this.inventoryAvailability.assignAutomaticallyInTx(
+            tx,
+            scope,
+            'STOCK_BECAME_AVAILABLE',
+            {
+              commercialCodes: [...new Set(source.rows.map((line) => line.commercial_code))],
+              dispensingPointIds: [
+                ...new Set(
+                  source.rows
+                    .map((line) => line.dispensing_point_id)
+                    .filter((id): id is string => Boolean(id)),
+                ),
+              ],
+            },
+          );
+        }
 
 
         /*
