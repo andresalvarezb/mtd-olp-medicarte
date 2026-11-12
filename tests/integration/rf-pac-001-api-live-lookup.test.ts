@@ -24,23 +24,26 @@ const ids = {
   planningPeriod: randomUUID(),
   importBatch: randomUUID(),
   authorization: randomUUID(),
+  patient: randomUUID(),
   scheduleGranted: randomUUID(),
   suffix: randomUUID(),
 };
 let medicarteOrganizationId = '';
 let mtdOrganizationId = '';
+let compensarOrganizationId = '';
 
 describe.skipIf(!database)('RF-PAC-001 live lookup authorization on PostgreSQL', () => {
   const query = database!.pool;
 
   beforeAll(async () => {
     const organizations = await query.query<{ id: string; code: string }>(
-      `select id, code from organizations where code in ('MTD', 'MEDICARTE') and active = true`,
+      `select id, code from organizations where code in ('MTD', 'MEDICARTE', 'COMPENSAR') and active = true`,
     );
     medicarteOrganizationId = organizations.rows.find((row) => row.code === 'MEDICARTE')?.id ?? '';
     mtdOrganizationId = organizations.rows.find((row) => row.code === 'MTD')?.id ?? '';
-    if (!medicarteOrganizationId || !mtdOrganizationId)
-      throw new Error('Synthetic MTD/MEDICARTE organizations are missing');
+    compensarOrganizationId = organizations.rows.find((row) => row.code === 'COMPENSAR')?.id ?? '';
+    if (!medicarteOrganizationId || !mtdOrganizationId || !compensarOrganizationId)
+      throw new Error('Synthetic MTD/MEDICARTE/COMPENSAR organizations are missing');
 
     await query.query(
       `insert into users (id, username, display_name, active, provenance)
@@ -83,6 +86,11 @@ describe.skipIf(!database)('RF-PAC-001 live lookup authorization on PostgreSQL',
       [ids.planningPeriod, ids.user],
     );
     await query.query(
+      `insert into patients (id, source_organization_id, identification_type_raw, identification_value_raw)
+       values ($1, $2, '1', $3)`,
+      [ids.patient, compensarOrganizationId, `SYN-${ids.suffix}`],
+    );
+    await query.query(
       `insert into authorization_items (
          id, patient_id, numero_autorizacion, codigo_medicamento, authorization_key,
          source_data, source_status_normalized, enablement_status, coverage_type,
@@ -94,7 +102,7 @@ describe.skipIf(!database)('RF-PAC-001 live lookup authorization on PostgreSQL',
         `PAC-LIVE-AUTH-${ids.suffix}`,
         `PAC-LIVE-AUTH-${ids.suffix}|PAC-LIVE-SYNTHETIC`,
         JSON.stringify({
-          TIPO_IDENTIFICACION: 'CC',
+          TIPO_IDENTIFICACION: 1,
           IDENTIFICACION_PACIENTE: `SYN-${ids.suffix}`,
           NUM_DOCUMENTO: `SYN-${ids.suffix}`,
         }),
@@ -123,6 +131,7 @@ describe.skipIf(!database)('RF-PAC-001 live lookup authorization on PostgreSQL',
       [ids.authorization],
     );
     await query.query('delete from authorization_items where id = $1', [ids.authorization]);
+    await query.query('delete from patients where id = $1', [ids.patient]);
     await query.query('delete from import_batches where id = $1', [ids.importBatch]);
     await query.query('delete from user_point_scopes where user_id = $1', [ids.user]);
     await query.query('delete from planning_periods where id = $1', [ids.planningPeriod]);
@@ -134,7 +143,7 @@ describe.skipIf(!database)('RF-PAC-001 live lookup authorization on PostgreSQL',
     await database.pool.end();
   });
 
-  it('requires an exact MEDICARTE identity and an active granted point, without a local patient row', async () => {
+  it('requires a linked COMPENSAR type 1 patient and an active MEDICARTE point grant', async () => {
     const repository = new PatientMasterRepository(database!);
     const access = new AccessService(database!);
     const grantedPoints = await access.getMedicartePointGrants(ids.user);
@@ -149,6 +158,10 @@ describe.skipIf(!database)('RF-PAC-001 live lookup authorization on PostgreSQL',
       dispensingPointId: null,
     };
     const identity = { identificationType: 'CC', identificationValue: `SYN-${ids.suffix}` };
+    await expect(repository.isAuthorizedLiveLookup(scope, identity)).resolves.toBe(false);
+    await query.query('update authorization_items set patient_id = $2 where id = $1', [
+      ids.authorization, ids.patient,
+    ]);
     await expect(repository.isAuthorizedLiveLookup(scope, identity)).resolves.toBe(true);
     await expect(
       repository.isAuthorizedLiveLookup(scope, {
@@ -169,10 +182,8 @@ describe.skipIf(!database)('RF-PAC-001 live lookup authorization on PostgreSQL',
       ),
     ).resolves.toBe(false);
 
-    const localPatient = await query.query(
-      `select id from patients where identification_value_raw = $1`,
-      [identity.identificationValue],
-    );
-    expect(localPatient.rowCount).toBe(0);
+    await expect(repository.isAuthorizedLiveLookup(scope, {
+      identificationType: '3', identificationValue: identity.identificationValue,
+    })).resolves.toBe(false);
   });
 });

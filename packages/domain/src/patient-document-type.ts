@@ -1,12 +1,9 @@
 /**
- * Known document-type aliases shared by Alto Costo authorization files and MTDOM.
+ * Approved document-type aliases shared by Alto Costo authorization files and MTDOM.
  * Unknown types remain exact and are never inferred from the document number.
  */
 export const PATIENT_DOCUMENT_TYPE_CODE_ALIASES = [
   { rawType: '1', canonicalType: 'CC' },
-  { rawType: '3', canonicalType: 'TI' },
-  { rawType: '4', canonicalType: 'CE' },
-  { rawType: '7', canonicalType: 'RC' },
 ] as const;
 
 export function canonicalPatientDocumentType(rawType: string): string {

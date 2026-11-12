@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { canonicalPatientDocumentType, patientDocumentTypeAliases } from './patient-document-type';
 
 describe('patient document type aliases', () => {
-  it.each([
-    ['1', 'CC'],
-    ['3', 'TI'],
-    ['4', 'CE'],
-    ['7', 'RC'],
-  ])('maps known Alto Costo code %s to %s', (code, canonical) => {
-    expect(canonicalPatientDocumentType(code)).toBe(canonical);
-    expect(patientDocumentTypeAliases(canonical)).toEqual([canonical, code]);
+  it('maps only approved Alto Costo code 1 to CC', () => {
+    expect(canonicalPatientDocumentType('1')).toBe('CC');
+    expect(patientDocumentTypeAliases('CC')).toEqual(['CC', '1']);
+  });
+
+  it.each(['3', '4', '7'])('does not infer an unapproved type from code %s', (code) => {
+    expect(canonicalPatientDocumentType(code)).toBe(code);
+    expect(patientDocumentTypeAliases(code)).toEqual([code]);
   });
 
   it('keeps unknown types exact and does not infer them', () => {
