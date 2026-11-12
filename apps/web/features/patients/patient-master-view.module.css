@@ -64,6 +64,19 @@
   background: var(--surface, #fff);
   box-shadow: var(--shadow, 0 2px 10px rgb(16 24 40 / 6%));
 }
+.liveProfile {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid var(--success, #16835d);
+  border-radius: 0.65rem;
+  padding: 1rem;
+  background: var(--success-soft, #eaf8f2);
+}
+.liveProfile h3 {
+  margin: 0;
+  color: var(--success, #16835d);
+  font-size: 1rem;
+}
 
 .filters {
   display: grid;

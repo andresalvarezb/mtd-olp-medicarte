@@ -44,10 +44,12 @@ describe('PatientMasterRepository', () => {
     expect(query).toHaveBeenCalledOnce();
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
     expect(sql).toContain('aio.organization_id = $1::uuid');
-    expect(sql).toContain('p.identification_type_raw = $2');
+    expect(sql).toContain('p.identification_type_raw = ANY($2::text[])');
     expect(sql).toContain('p.identification_value_raw = $3');
     expect(sql).toContain('authorization_item_organizations');
-    expect(values).toEqual([mtdScope.organizationId, 'CC', 'SYNTHETIC-001', 25, 0]);
+    expect(sql).toContain("CASE p.identification_type_raw WHEN '1' THEN 'CC'");
+    expect(sql).toContain("CASE ai.source_data->>'TIPO_IDENTIFICACION' WHEN '1' THEN 'CC'");
+    expect(values).toEqual([mtdScope.organizationId, ['CC', '1'], 'SYNTHETIC-001', 25, 0]);
     expect(result.items[0]).toEqual({
       id: '00000000-0000-4000-8000-000000000010',
       identityStatus: 'LOCAL_KEY_RECORDED',
@@ -85,8 +87,8 @@ describe('PatientMasterRepository', () => {
     ).resolves.toBe(true);
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
     expect(sql).toContain("org.code = 'MEDICARTE'");
-    expect(sql).toContain("ai.source_data->>'TIPO_IDENTIFICACION' = $1");
-    expect(values).toEqual(['CC', '000123', ['00000000-0000-4000-8000-000000000003']]);
+    expect(sql).toContain("ai.source_data->>'TIPO_IDENTIFICACION' = ANY($1::text[])");
+    expect(values).toEqual([['CC', '1'], '000123', ['00000000-0000-4000-8000-000000000003']]);
 
     const explicitScope = {
       ...mtdScope,
@@ -102,11 +104,25 @@ describe('PatientMasterRepository', () => {
     expect(scopedSql).toContain('ps.dispensing_point_id = ANY($3::uuid[])');
     expect(scopedSql).toContain('ps.dispensing_point_id = $4::uuid');
     expect(scopedValues).toEqual([
-      'CC',
+      ['CC', '1'],
       '000123',
       explicitScope.accessiblePointIds,
       explicitScope.dispensingPointId,
     ]);
+  });
+
+  it('searches numeric Alto Costo document aliases for a canonical type without changing the value', async () => {
+    const { repository, query } = makeRepository([]);
+    await repository.search(mtdScope, {
+      identificationType: 'CC',
+      identificationValue: '000123',
+      page: 1,
+      limit: 25,
+    });
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain('p.identification_type_raw = ANY($2::text[])');
+    expect(values).toContainEqual(['CC', '1']);
+    expect(values).toContain('000123');
   });
 
   it('keeps reconciliation evidence read-only and projects no identity fields', async () => {

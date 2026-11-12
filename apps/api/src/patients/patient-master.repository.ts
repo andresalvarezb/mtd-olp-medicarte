@@ -14,6 +14,10 @@ import {
   patientMasterPersonalProfileSchema,
 } from '@authorization/contracts';
 import type { createDatabase } from '@authorization/database';
+import {
+  PATIENT_DOCUMENT_TYPE_CODE_ALIASES,
+  patientDocumentTypeAliases,
+} from '@authorization/domain';
 import type { QueryResultRow } from 'pg';
 import type { PatientMasterScope } from './patient-master.access-policy';
 import { DATABASE } from '../tokens';
@@ -70,6 +74,13 @@ type ReconciliationCaseRow = QueryResultRow & {
   resolution_code: string | null;
   decided_at: DateValue;
 };
+
+function canonicalDocumentTypeSql(expression: string): string {
+  const mappings = PATIENT_DOCUMENT_TYPE_CODE_ALIASES
+    .map(({ rawType, canonicalType }) => `WHEN '${rawType}' THEN '${canonicalType}'`)
+    .join(' ');
+  return `CASE ${expression} ${mappings} ELSE ${expression} END`;
+}
 
 function iso(value: DateValue): string | null {
   if (value === null) return null;
@@ -132,7 +143,10 @@ function scopedPatientAuthorizationCte(
   const patientIdClause = input.patientId ? `AND p.id = ${bind(input.patientId, '::uuid')}` : '';
   const exactSearchClause =
     input.identificationType && input.identificationValue
-      ? `AND p.identification_type_raw = ${bind(input.identificationType)}
+      ? `AND p.identification_type_raw = ANY(${bind(
+          patientDocumentTypeAliases(input.identificationType),
+          '::text[]',
+        )})
        AND p.identification_value_raw = ${bind(input.identificationValue)}`
       : '';
 
@@ -161,7 +175,8 @@ function scopedPatientAuthorizationCte(
           ai.patient_id = p.id
           OR (
             ai.patient_id IS NULL
-            AND p.identification_type_raw = ai.source_data->>'TIPO_IDENTIFICACION'
+            AND ${canonicalDocumentTypeSql('p.identification_type_raw')} =
+                ${canonicalDocumentTypeSql("ai.source_data->>'TIPO_IDENTIFICACION'")}
             AND p.identification_value_raw = COALESCE(
               NULLIF(ai.source_data->>'IDENTIFICACION_PACIENTE', ''),
               NULLIF(ai.source_data->>'NUM_DOCUMENTO', '')
@@ -173,7 +188,8 @@ function scopedPatientAuthorizationCte(
             )
             AND 1 = (
               SELECT count(*) FROM patients same_raw_key
-              WHERE same_raw_key.identification_type_raw = p.identification_type_raw
+              WHERE ${canonicalDocumentTypeSql('same_raw_key.identification_type_raw')} =
+                    ${canonicalDocumentTypeSql('p.identification_type_raw')}
                 AND same_raw_key.identification_value_raw = p.identification_value_raw
             )
           )
@@ -215,7 +231,10 @@ export class PatientMasterRepository {
     scope: PatientMasterScope,
     identity: PatientMasterLiveLookupRequest,
   ): Promise<boolean> {
-    const params: unknown[] = [identity.identificationType, identity.identificationValue];
+    const params: unknown[] = [
+      patientDocumentTypeAliases(identity.identificationType),
+      identity.identificationValue,
+    ];
     let pointSql = '';
     if (scope.pointAccessKind === 'explicit') {
       params.push(scope.accessiblePointIds);
@@ -239,7 +258,7 @@ export class PatientMasterRepository {
            FROM authorization_items ai
            JOIN authorization_item_organizations aio ON aio.authorization_item_id = ai.id
            JOIN organizations org ON org.id = aio.organization_id AND org.code = 'MEDICARTE'
-          WHERE ai.source_data->>'TIPO_IDENTIFICACION' = $1
+          WHERE ai.source_data->>'TIPO_IDENTIFICACION' = ANY($1::text[])
             AND COALESCE(NULLIF(ai.source_data->>'IDENTIFICACION_PACIENTE', ''),
                          NULLIF(ai.source_data->>'NUM_DOCUMENTO', '')) = $2
             AND (NULLIF(ai.source_data->>'IDENTIFICACION_PACIENTE', '') IS NULL

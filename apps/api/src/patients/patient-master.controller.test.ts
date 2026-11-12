@@ -241,6 +241,32 @@ describe('PatientMasterController', () => {
     });
   });
 
+  it('canonicalizes a known numeric document type before the live MTDOM lookup', async () => {
+    const setup = fixture(
+      profile({
+        organizationId: MTD_ORG,
+        organizationCode: 'MTD',
+        role: 'MTD_ADMIN',
+        permissions: ['patient_master.read'],
+        pointAccess: { kind: 'global', accessiblePointIds: [] },
+      }),
+    );
+    await setup.controller.lookup(
+      { identificationType: '1', identificationValue: '000123' },
+      MTD_ORG,
+      request,
+    );
+
+    expect(setup.service.isAuthorizedLiveLookup).toHaveBeenCalledWith(
+      expect.anything(),
+      { identificationType: 'CC', identificationValue: '000123' },
+    );
+    expect(setup.service.lookupLive).toHaveBeenCalledWith({
+      identificationType: 'CC',
+      identificationValue: '000123',
+    });
+  });
+
   it('does not call MTDOM when the authorization evidence or point is outside scope', async () => {
     const setup = fixture(
       profile({

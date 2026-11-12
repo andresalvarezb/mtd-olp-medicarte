@@ -1,4 +1,5 @@
 import type { PatientIdentityNormalizationPolicy } from '@authorization/domain';
+import { canonicalPatientDocumentType } from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
 import {
   PatientLookupRetryableError,
@@ -38,12 +39,17 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
     identity: Readonly<{ documentType: string; documentValue: string }>,
   ) {
     try {
-      const response = await this.client.lookup(identity);
+      const canonicalIdentity = {
+        ...identity,
+        documentType: canonicalPatientDocumentType(identity.documentType),
+      };
+      const response = await this.client.lookup(canonicalIdentity);
       if (response.kind === 'NOT_FOUND') return { status: 'NOT_FOUND' as const };
       if (response.kind === 'AMBIGUOUS') return { status: 'AMBIGUOUS' as const };
       if (response.kind !== 'FOUND') return { status: 'UNAVAILABLE' as const };
       if (
-        response.patient.tipo_identificacion !== identity.documentType ||
+        canonicalPatientDocumentType(response.patient.tipo_identificacion) !==
+          canonicalIdentity.documentType ||
         response.patient.identificacion !== identity.documentValue
       ) {
         return { status: 'IDENTITY_MISMATCH' as const };

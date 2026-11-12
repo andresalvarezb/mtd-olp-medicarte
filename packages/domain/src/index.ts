@@ -423,4 +423,5 @@ export type {
 export * from './authorization-operational-window';
 export * from './authorization-fulfillment-window';
 export * from './patient-identity';
+export * from './patient-document-type';
 export * from './patient-backfill';
