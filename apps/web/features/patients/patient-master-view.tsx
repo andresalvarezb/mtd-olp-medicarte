@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import type {
   PatientMasterDetail,
+  PatientMasterLiveLookupResponse,
   PatientMasterPersonalResponse,
   PatientMasterSearchResponse,
   PatientReconciliationCase,
@@ -15,6 +16,7 @@ import {
   getPatientMasterDetail,
   getPatientMasterPersonalProfile,
   listPatientReconciliationCases,
+  lookupPatientMaster,
   searchPatientMaster,
 } from '@/lib/patient-master-api';
 import styles from './patient-master-view.module.css';
@@ -69,6 +71,11 @@ export function PatientMasterView() {
   }>({});
   const [page, setPage] = useState(1);
   const [list, setList] = useState<PatientMasterSearchResponse | null>(null);
+  const [liveLookup, setLiveLookup] = useState<PatientMasterLiveLookupResponse | null>(null);
+  const [liveLookupState, setLiveLookupState] = useState<'idle' | 'loading' | 'ready' | 'error'>(
+    'idle',
+  );
+  const [liveLookupError, setLiveLookupError] = useState<string | null>(null);
   const [state, setState] = useState<'loading' | 'denied' | 'error' | 'ready'>('loading');
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<PatientMasterDetail | null>(null);
@@ -108,15 +115,53 @@ export function PatientMasterView() {
     ) {
       setState('denied');
       setList(null);
+      setLiveLookup(null);
+      setLiveLookupError(null);
+      setLiveLookupState('idle');
       return;
     }
     const abort = new AbortController();
     setState('loading');
     setError(null);
+    if (page === 1) {
+      setLiveLookup(null);
+      setLiveLookupError(null);
+      setLiveLookupState('idle');
+    }
     void searchPatientMaster(organizationId, query, abort.signal)
-      .then((response) => {
+      .then(async (response) => {
+        if (abort.signal.aborted) return;
         setList(response);
         setState('ready');
+
+        const hasExactIdentity = Boolean(
+          appliedIdentity.identificationType && appliedIdentity.identificationValue,
+        );
+        if (!hasExactIdentity || page !== 1) return;
+        if (response.total === 0) {
+          setLiveLookup({ status: 'NOT_FOUND' });
+          setLiveLookupState('ready');
+          return;
+        }
+
+        setLiveLookupState('loading');
+        try {
+          const result = await lookupPatientMaster(
+            organizationId,
+            {
+              identificationType: appliedIdentity.identificationType!,
+              identificationValue: appliedIdentity.identificationValue!,
+            },
+            abort.signal,
+          );
+          if (abort.signal.aborted) return;
+          setLiveLookup(result);
+          setLiveLookupState('ready');
+        } catch (cause) {
+          if (abort.signal.aborted) return;
+          setLiveLookupError(safeErrorMessage(cause));
+          setLiveLookupState('error');
+        }
       })
       .catch((cause: unknown) => {
         if (abort.signal.aborted) return;
@@ -127,10 +172,12 @@ export function PatientMasterView() {
     return () => abort.abort();
   }, [
     appliedIdentity.identificationType,
+    appliedIdentity.identificationValue,
     hasReadPermission,
     isMedicarte,
     isMtd,
     organizationId,
+    page,
     pointId,
     query,
   ]);
@@ -144,6 +191,9 @@ export function PatientMasterView() {
       return;
     }
     setError(null);
+    setLiveLookup(null);
+    setLiveLookupError(null);
+    setLiveLookupState('idle');
     setAppliedIdentity(
       type && value ? { identificationType: type, identificationValue: value } : {},
     );
@@ -297,6 +347,9 @@ export function PatientMasterView() {
                 setIdentityValue('');
                 setAppliedIdentity({});
                 setPage(1);
+                setLiveLookup(null);
+                setLiveLookupError(null);
+                setLiveLookupState('idle');
               }}
             >
               Limpiar búsqueda
@@ -306,10 +359,76 @@ export function PatientMasterView() {
         <p className={styles.scopeNotice}>
           <span aria-hidden="true">i</span>
           <span>
-            Coincidencia exacta sin normalizar. La lista no devuelve el documento ni muestra
-            perfiles personales de MTDOM.
+            La consulta usa tipo y número exactos. El perfil básico de MTDOM solo se consulta si
+            existe una coincidencia local autorizada en Alto Costo.
           </span>
         </p>
+        {liveLookupState === 'loading' ? (
+          <p className={styles.stateMessage} role="status">
+            Coincidencia local encontrada. Consultando perfil básico en MTDOM…
+          </p>
+        ) : null}
+        {liveLookupState === 'error' && liveLookupError ? (
+          <p className={styles.errorMessage} role="alert">
+            {liveLookupError}
+          </p>
+        ) : null}
+        {liveLookupState === 'ready' && liveLookup?.status === 'NOT_FOUND' ? (
+          <p className={styles.stateMessage} role="status">
+            No se encontró una coincidencia autorizada para esta identidad.
+          </p>
+        ) : null}
+        {liveLookupState === 'ready' && liveLookup?.status === 'AMBIGUOUS' ? (
+          <p className={styles.stateMessage} role="status">
+            MTDOM encontró más de una coincidencia. Se requiere revisión antes de mostrar el perfil.
+          </p>
+        ) : null}
+        {liveLookupState === 'ready' && liveLookup?.status === 'IDENTITY_MISMATCH' ? (
+          <p className={styles.stateMessage} role="status">
+            MTDOM respondió con una identidad distinta a la consultada; no se muestra el perfil.
+          </p>
+        ) : null}
+        {liveLookupState === 'ready' && liveLookup?.status === 'UNAVAILABLE' ? (
+          <p className={styles.stateMessage} role="status">
+            MTDOM no está disponible en este momento. Intenta de nuevo más tarde.
+          </p>
+        ) : null}
+        {liveLookupState === 'ready' && liveLookup?.status === 'FOUND' ? (
+          <section className={styles.liveProfile} aria-label="Perfil básico de MTDOM">
+            <div className={styles.sectionHeading}>
+              <div>
+                <h3>Perfil básico de MTDOM</h3>
+                <p>Consulta en vivo; no modifica el registro ni la autorización.</p>
+              </div>
+            </div>
+            <dl className={styles.details}>
+              {(
+                [
+                  ['Tipo de identificación', liveLookup.basicProfile.tipo_identificacion],
+                  ['Identificación', liveLookup.basicProfile.identificacion],
+                  ['Primer nombre', liveLookup.basicProfile.primer_nombre],
+                  ['Segundo nombre', liveLookup.basicProfile.segundo_nombre],
+                  ['Primer apellido', liveLookup.basicProfile.primer_apellido],
+                  ['Segundo apellido', liveLookup.basicProfile.segundo_apellido],
+                  ['Sexo', liveLookup.basicProfile.sexo],
+                  ['Ciudad', liveLookup.basicProfile.ciudad],
+                  ['Departamento', liveLookup.basicProfile.departamento],
+                  ['EPS', liveLookup.basicProfile.eps],
+                  ['Plan', liveLookup.basicProfile.plan],
+                  ['Activo en MTDOM', liveLookup.basicProfile.activo],
+                  ['Paciente vivo según MTDOM', liveLookup.basicProfile.paciente_vivo],
+                  ['Presente en fuente actual', liveLookup.basicProfile.presente_en_fuente_actual],
+                  ['Actualizado en origen', liveLookup.basicProfile.actualizado_en],
+                ] as const
+              ).map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{profileValue(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ) : null}
         {error ? (
           <p className={styles.errorMessage} role="alert">
             {error}

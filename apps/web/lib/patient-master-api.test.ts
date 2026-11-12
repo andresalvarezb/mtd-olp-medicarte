@@ -4,6 +4,7 @@ import {
   getPatientMasterDetail,
   getPatientMasterPersonalProfile,
   listPatientReconciliationCases,
+  lookupPatientMaster,
   searchPatientMaster,
 } from './patient-master-api';
 
@@ -22,6 +23,19 @@ describe('patient master API client', () => {
     void searchPatientMaster('organization-id', body);
 
     expect(apiRequest).toHaveBeenCalledWith('/patient-master/search', {
+      method: 'POST',
+      organizationId: 'organization-id',
+      body: JSON.stringify(body),
+      signal: undefined,
+    });
+  });
+
+  it('sends a live patient lookup as a scoped POST body', () => {
+    vi.mocked(apiRequest).mockClear();
+    const body = { identificationType: 'CC', identificationValue: 'TEST-ID-001' };
+    void lookupPatientMaster('organization-id', body);
+
+    expect(apiRequest).toHaveBeenCalledWith('/patient-master/lookup', {
       method: 'POST',
       organizationId: 'organization-id',
       body: JSON.stringify(body),

@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { canonicalPatientDocumentType } from '@authorization/domain';
 import {
   patientMasterDetailSchema,
   patientMasterPersonalResponseSchema,
@@ -104,7 +105,7 @@ export class PatientMasterController {
       body.dispensingPointId,
     );
     const identity = {
-      identificationType: body.identificationType,
+      identificationType: canonicalPatientDocumentType(body.identificationType),
       identificationValue: body.identificationValue,
     };
     if (!(await this.service.isAuthorizedLiveLookup(scope, identity))) {
