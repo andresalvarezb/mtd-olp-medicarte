@@ -281,7 +281,7 @@ export const workerConfigSchema = commonSchema
         message: 'MTDOM patient lookup requires an explicit DP-07 approval gate',
       });
     }
-    if (config.MTDOM_PATIENT_IDENTITY_POLICY_VERSION !== 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1') {
+    if (config.MTDOM_PATIENT_IDENTITY_POLICY_VERSION !== 'COMPENSAR_DOCUMENT_TYPE_CATALOG_V1') {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['MTDOM_PATIENT_IDENTITY_POLICY_VERSION'],

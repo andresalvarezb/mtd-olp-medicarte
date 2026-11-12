@@ -88,7 +88,7 @@ describe('PatientMasterRepository', () => {
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
     expect(sql).toContain("org.code = 'MEDICARTE'");
     expect(sql).toContain("ai.source_data->>'TIPO_IDENTIFICACION' = ANY($1::text[])");
-    expect(sql).toContain("p.identification_type_raw = '1'");
+    expect(sql).toContain('p.identification_type_raw = ANY($1::text[])');
     expect(sql).toContain('JOIN patients p ON p.id = ai.patient_id');
     expect(values).toEqual([['1', 'CC'], '000123', mtdScope.organizationId, ['00000000-0000-4000-8000-000000000003']]);
 
@@ -128,7 +128,7 @@ describe('PatientMasterRepository', () => {
     expect(values).toContain('000123');
   });
 
-  it.each(['2', '3', '4', '7', 'CE', 'CD', 'PA', 'CN', '13'])(
+  it.each(['2', '5', '6', '8', '9', '10', '11', '12', '13', '15', 'CD', 'PA', 'CN'])(
     'does not call SQL for unapproved live lookup type %s', async (identificationType) => {
       const { repository, query } = makeRepository([{ visible: true }]);
       await expect(repository.isAuthorizedLiveLookup(mtdScope, {

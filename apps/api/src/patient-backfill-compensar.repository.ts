@@ -6,6 +6,7 @@ import {
   buildPatientBackfillInventory,
   classifyPatientBackfillRow,
   compensarIdentitySourceForAssessment,
+  compensarSourceDocumentTypeCodes,
 } from '@authorization/domain';
 
 type Database = ReturnType<typeof createDatabase>;
@@ -306,7 +307,7 @@ export async function enqueueCompensarPatientBackfillBatch(
          join organizations source_org on source_org.id = p.source_organization_id
            and source_org.code = 'COMPENSAR'
         where bi.batch_id = $1 and bi.status in ('LINKED', 'ALREADY_LINKED')
-           and p.identification_type_raw = '1'
+           and p.identification_type_raw = any($4::text[])
           and ai.source_data->>'TIPO_IDENTIFICACION' = p.identification_type_raw
           and coalesce(nullif(ai.source_data->>'IDENTIFICACION_PACIENTE', ''),
                        nullif(ai.source_data->>'NUM_DOCUMENTO', '')) = p.identification_value_raw
@@ -332,7 +333,7 @@ export async function enqueueCompensarPatientBackfillBatch(
        from candidates c
      on conflict (idempotency_key) do nothing
      returning id`,
-    [batchId, limit, batch.organization_id],
+    [batchId, limit, batch.organization_id, compensarSourceDocumentTypeCodes()],
   );
   return inserted.rowCount ?? inserted.rows.length;
 }

@@ -24,6 +24,10 @@ import styles from './patient-master-view.module.css';
 const PAGE_SIZE = 25;
 const IDENTIFICATION_TYPES = [
   { value: 'CC', label: 'CC · Cédula de ciudadanía' },
+  { value: 'TI', label: 'TI · Tarjeta de identidad' },
+  { value: 'RC', label: 'RC · Registro civil' },
+  { value: 'CE', label: 'CE · Cédula de extranjería' },
+  { value: 'PE', label: 'PE · Permiso especial' },
 ] as const;
 
 function safeErrorMessage(error: unknown): string {
@@ -354,8 +358,8 @@ export function PatientMasterView() {
         <p className={styles.scopeNotice}>
           <span aria-hidden="true">i</span>
           <span>
-            Por ahora solo se admite CC (tipo 1 de COMPENSAR). La consulta a MTDOM requiere una
-            autorización local enlazada; los demás tipos quedan pendientes de homologación.
+            Tipos admitidos de COMPENSAR: 1→CC, 3→TI, 7→RC, 4→CE y 14→PE. La consulta a MTDOM
+            requiere una autorización local enlazada; los demás tipos quedan pendientes.
           </span>
         </p>
         {liveLookupState === 'loading' ? (
