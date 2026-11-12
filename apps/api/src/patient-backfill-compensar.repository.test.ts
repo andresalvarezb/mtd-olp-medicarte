@@ -124,6 +124,18 @@ describe('controlled COMPENSAR AUTO backfill', () => {
       patientId,
       true,
     ]);
+    const linkAudit = harness.statements.find(({ sql }) =>
+      sql.includes("'patient.backfill.link'"),
+    );
+    expect(linkAudit?.sql).toContain('$5::uuid, $6::varchar');
+    expect(linkAudit?.values).toEqual([
+      organizationId,
+      authorizationId,
+      JSON.stringify({ patientId: null }),
+      JSON.stringify({ patientId }),
+      batchId,
+      batchId,
+    ]);
     expect(
       harness.statements.some(({ sql }) =>
         /update\s+authorization_items\s+set\s+source_data/i.test(sql),
@@ -170,6 +182,18 @@ describe('controlled COMPENSAR AUTO backfill', () => {
         sql.includes('update authorization_items set patient_id = $3'),
       )?.values,
     ).toEqual([authorizationId, patientId, null]);
+    const revertAudit = harness.statements.find(({ sql }) =>
+      sql.includes("'patient.backfill.revert'"),
+    );
+    expect(revertAudit?.sql).toContain('$5::uuid, $6::varchar');
+    expect(revertAudit?.values).toEqual([
+      organizationId,
+      authorizationId,
+      JSON.stringify({ patientId }),
+      JSON.stringify({ patientId: null }),
+      batchId,
+      batchId,
+    ]);
   });
 
   it('bounds pages and registers an MTD-owned policy-versioned batch', async () => {

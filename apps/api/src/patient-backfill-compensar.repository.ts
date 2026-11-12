@@ -111,12 +111,13 @@ async function auditLink(
        (actor_type, organization_id, action, resource_type, resource_id,
         before, after, correlation_id, request_id, result)
      values ('SYSTEM', $1, 'patient.backfill.link', 'authorization_item', $2,
-             $3::jsonb, $4::jsonb, $5, $5, 'SUCCESS')`,
+             $3::jsonb, $4::jsonb, $5::uuid, $6::varchar, 'SUCCESS')`,
     [
       batch.organization_id,
       authorizationItemId,
       JSON.stringify({ patientId: null }),
       JSON.stringify({ patientId }),
+      batch.id,
       batch.id,
     ],
   );
@@ -383,12 +384,13 @@ export async function revertCompensarPatientBackfillBatch(database: Database, ba
              (actor_type, organization_id, action, resource_type, resource_id,
               before, after, correlation_id, request_id, result)
            values ('SYSTEM', $1, 'patient.backfill.revert', 'authorization_item', $2,
-                   $3::jsonb, $4::jsonb, $5, $5, 'SUCCESS')`,
+                   $3::jsonb, $4::jsonb, $5::uuid, $6::varchar, 'SUCCESS')`,
           [
             batch.organization_id,
             item.authorization_item_id,
             JSON.stringify({ patientId: item.applied_patient_id }),
             JSON.stringify({ patientId: item.previous_patient_id }),
+            batch.id,
             batch.id,
           ],
         );
