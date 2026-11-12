@@ -48,8 +48,9 @@ describe('MTDOM live patient lookup', () => {
     ).resolves.toEqual({ status: 'IDENTITY_MISMATCH' });
   });
 
-  it('enriches only a locally linked COMPENSAR type 1 patient', async () => {
-    const query = vi.fn((sql: string) => {
+  it('enriches only a locally linked COMPENSAR patient using an approved source type', async () => {
+    const query = vi.fn((sql: string, ...params: unknown[]) => {
+      void params;
       if (sql.includes('select p.identification_type_raw')) {
         return Promise.resolve({ rows: [{ identification_type_raw: '1', identification_value_raw: '000123', authorized: true }] });
       }
@@ -69,7 +70,8 @@ describe('MTDOM live patient lookup', () => {
     expect(lookup).toHaveBeenCalledWith({ documentType: 'CC', documentValue: '000123' });
     expect(query.mock.calls[0]?.[0]).toContain("source_org.code = 'COMPENSAR'");
     expect(query.mock.calls[0]?.[0]).toContain("operational_org.code = 'MEDICARTE'");
-    expect(query.mock.calls[0]?.[0]).toContain("p.identification_type_raw = '1'");
+    expect(query.mock.calls[0]?.[0]).toContain('p.identification_type_raw = any($2::text[])');
+    expect(query.mock.calls[0]?.[1]).toEqual([localPatientId, ['1', '3', '4', '7', '14']]);
   });
 
   it('does not call MTDOM without linked local authorization evidence', async () => {
@@ -87,7 +89,7 @@ describe('MTDOM live patient lookup', () => {
     expect(lookup).not.toHaveBeenCalled();
   });
 
-  it.each(['2', '3', '4', '7', 'CE', 'TI', 'RC', 'PA'])(
+  it.each(['2', '5', '6', '8', '9', '10', '11', '12', '13', '15', 'CD', 'PA'])(
     'does not call MTDOM for unapproved type %s', async (documentType) => {
       const lookup = vi.fn();
       const processor = new MtdomPatientLookupProcessor(database, { lookup } as never);

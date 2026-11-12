@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { createDatabase } from '@authorization/database';
+import { compensarSourceDocumentTypeCodes } from '@authorization/domain';
 
 const CHECKPOINT_KEY_PREFIX = 'patients.lookup.basic.pilot.';
 const ALTO_COSTO_CHECKPOINT_KEY = 'patients.lookup.basic.alto-costo';
@@ -190,13 +191,13 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
       )
         throw new Error('checkpoint lease lost');
 
-      const patientIdFilter = this.patientIds.length > 0 ? 'AND p.id = any($5::uuid[])' : '';
+      const patientIdFilter = this.patientIds.length > 0 ? 'AND p.id = any($6::uuid[])' : '';
       const candidates = await client.query<{ id: string }>(
         `select p.id::text as id
            from patients p
           where ($1::uuid is null or p.id > $1::uuid)
             and p.source_organization_id = (select id from organizations where code = 'COMPENSAR')
-            and p.identification_type_raw = '1'
+            and p.identification_type_raw = any($5::text[])
             and exists (
               select 1
                 from authorization_items ai
@@ -226,6 +227,7 @@ export class PgPatientLocalLookupSyncRepository implements PatientLocalLookupSyn
           input.now,
           input.intervalMs,
           input.pageSize,
+          compensarSourceDocumentTypeCodes(),
           ...(this.patientIds.length > 0 ? [this.patientIds] : []),
         ],
       );

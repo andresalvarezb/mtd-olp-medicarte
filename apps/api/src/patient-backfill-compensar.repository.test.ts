@@ -39,7 +39,7 @@ function createHarness(rows: ReturnType<typeof row>[], batchStatus = 'PENDING') 
           {
             id: batchId,
             organization_id: organizationId,
-            policy_version: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
+            policy_version: 'COMPENSAR_DOCUMENT_TYPE_CATALOG_V1',
             status: batchStatus,
             batch_size: 100,
             summary: {},
@@ -92,7 +92,7 @@ describe('controlled COMPENSAR AUTO backfill', () => {
       ),
     ]);
     const report = await inspectCompensarPatientBackfill(harness.database);
-    expect(report).toMatchObject({ scanned: 2, eligibleForBackfill: 1, identityRequiresReview: 1 });
+    expect(report).toMatchObject({ scanned: 2, eligibleForBackfill: 2, identityRequiresReview: 0 });
     expect(JSON.stringify(report)).not.toContain('000123');
     expect(harness.statements).toHaveLength(1);
     expect(harness.statements[0]?.sql).toContain("operational_org.code = 'MEDICARTE'");
@@ -154,9 +154,9 @@ describe('controlled COMPENSAR AUTO backfill', () => {
     expect(harness.statements.some(({ sql }) => sql.includes('outbox_events'))).toBe(false);
   });
 
-  it('records source type 3 as pending without creating or linking a patient', async () => {
+  it('records an unsupported source type as pending without creating or linking a patient', async () => {
     const harness = createHarness([
-      row({ TIPO_IDENTIFICACION: 3, IDENTIFICACION_PACIENTE: '000123' }),
+      row({ TIPO_IDENTIFICACION: 2, IDENTIFICACION_PACIENTE: '000123' }),
     ]);
     const result = await processCompensarPatientBackfillBatch(harness.database, batchId);
     expect(result.summary).toMatchObject({ needs_reconciliation_identity_requires_review: 1 });
@@ -215,7 +215,7 @@ describe('controlled COMPENSAR AUTO backfill', () => {
     expect(
       harness.statements.find(({ sql }) => sql.includes('insert into patient_backfill_batches'))
         ?.values,
-    ).toEqual(['COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1', 25]);
+    ).toEqual(['COMPENSAR_DOCUMENT_TYPE_CATALOG_V1', 25]);
   });
 
   it('queues only a completed batch, by patient ID and without sending source values', async () => {
@@ -230,10 +230,10 @@ describe('controlled COMPENSAR AUTO backfill', () => {
     const statement = completed.statements.find(({ sql }) => sql.includes('with candidates as'));
     expect(statement?.sql).toContain("source_org.code = 'COMPENSAR'");
     expect(statement?.sql).toContain("operational_org.code = 'MEDICARTE'");
-    expect(statement?.sql).toContain("p.identification_type_raw = '1'");
+    expect(statement?.sql).toContain('p.identification_type_raw = any($4::text[])');
     expect(statement?.sql).toContain("bi.status in ('LINKED', 'ALREADY_LINKED')");
     expect(statement?.sql).toContain('on conflict (idempotency_key) do nothing');
-    expect(statement?.values).toEqual([batchId, 100, organizationId]);
+    expect(statement?.values).toEqual([batchId, 100, organizationId, ['1', '3', '4', '7', '14']]);
     expect(JSON.stringify(statement?.values)).not.toContain('000123');
   });
 });

@@ -270,7 +270,7 @@ export class PatientMasterRepository {
             AND COALESCE(NULLIF(ai.source_data->>'IDENTIFICACION_PACIENTE', ''),
                          NULLIF(ai.source_data->>'NUM_DOCUMENTO', '')) = $2
             AND p.identification_type_raw = ai.source_data->>'TIPO_IDENTIFICACION'
-            AND p.identification_type_raw = '1'
+            AND p.identification_type_raw = ANY($1::text[])
             AND p.identification_value_raw = $2
             AND (NULLIF(ai.source_data->>'IDENTIFICACION_PACIENTE', '') IS NULL
                  OR NULLIF(ai.source_data->>'NUM_DOCUMENTO', '') IS NULL

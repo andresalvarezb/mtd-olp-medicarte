@@ -156,7 +156,7 @@ describe('parseWorkerConfig', () => {
         ...base,
         MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
         MTDOM_DP07_APPROVED: 'true',
-        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CATALOG_V1',
         MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
         MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS: ids.join(','),
       }),
@@ -166,7 +166,7 @@ describe('parseWorkerConfig', () => {
         ...base,
         MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
         MTDOM_DP07_APPROVED: 'true',
-        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CATALOG_V1',
         MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
         MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS: [...ids, ids[0]].join(','),
       }),
@@ -177,7 +177,7 @@ describe('parseWorkerConfig', () => {
         SCHEDULER_ENABLED: 'false',
         MTDOM_PATIENT_LOOKUP_ENABLED: 'true',
         MTDOM_DP07_APPROVED: 'true',
-        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CATALOG_V1',
         MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
         MTDOM_PATIENT_LOOKUP_SYNC_PATIENT_IDS: ids.join(','),
       }),
@@ -211,14 +211,14 @@ describe('parseWorkerConfig', () => {
     expect(() => parseWorkerConfig({
       ...base,
       MTDOM_DP07_APPROVED: 'true',
-      MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CATALOG_V1',
+      MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
       MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
     })).toThrow('approved COMPENSAR identity policy version');
     expect(() =>
       parseWorkerConfig({
         ...base,
         MTDOM_DP07_APPROVED: 'true',
-        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
+        MTDOM_PATIENT_IDENTITY_POLICY_VERSION: 'COMPENSAR_DOCUMENT_TYPE_CATALOG_V1',
         MTDOM_PATIENTS_API_TOKEN: 'mtdpat_synthetic-only',
       }),
     ).not.toThrow();

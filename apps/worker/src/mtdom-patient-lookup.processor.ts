@@ -1,5 +1,8 @@
 import type { PatientIdentityNormalizationPolicy } from '@authorization/domain';
-import { COMPENSAR_PATIENT_IDENTITY_POLICY } from '@authorization/domain';
+import {
+  COMPENSAR_PATIENT_IDENTITY_POLICY,
+  compensarSourceDocumentTypeCodes,
+} from '@authorization/domain';
 import type { createDatabase } from '@authorization/database';
 import {
   PatientLookupRetryableError,
@@ -79,7 +82,7 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
                 join organizations operational_org on operational_org.id = aio.organization_id
                   and operational_org.code = 'MEDICARTE'
                 where ai.patient_id = p.id
-                  and p.identification_type_raw = '1'
+                  and p.identification_type_raw = any($2::text[])
                   and ai.source_data->>'TIPO_IDENTIFICACION' = p.identification_type_raw
                   and coalesce(nullif(ai.source_data->>'IDENTIFICACION_PACIENTE', ''),
                                nullif(ai.source_data->>'NUM_DOCUMENTO', '')) = p.identification_value_raw
@@ -92,7 +95,7 @@ export class MtdomPatientLookupProcessor implements PatientLookupProcessor {
           where p.id = $1::uuid`
         : `select identification_type_raw, identification_value_raw
              from patients where id = $1::uuid`,
-      [input.patientId],
+      [input.patientId, compensarSourceDocumentTypeCodes()],
     );
     const patient = local.rows[0];
     if (!patient) throw new PatientLookupTerminalError('PATIENT_LOOKUP_LOCAL_PATIENT_MISSING');

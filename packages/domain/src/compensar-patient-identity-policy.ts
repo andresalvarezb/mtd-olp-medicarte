@@ -8,9 +8,18 @@ import { assessPatientIdentity } from './patient-identity';
  */
 const COMPENSAR_DOCUMENT_TYPE_CODES = {
   '1': 'CC',
+  '3': 'TI',
+  '7': 'RC',
+  '4': 'CE',
+  '14': 'PE',
 } as const;
 
 export type CompensarDocumentTypeCode = keyof typeof COMPENSAR_DOCUMENT_TYPE_CODES;
+
+/** Numeric AUTO codes whose identities may be linked and looked up under this policy. */
+export function compensarSourceDocumentTypeCodes(): readonly CompensarDocumentTypeCode[] {
+  return Object.keys(COMPENSAR_DOCUMENT_TYPE_CODES) as CompensarDocumentTypeCode[];
+}
 
 export function isCompensarSourceDocumentType(value: string): value is CompensarDocumentTypeCode {
   return Object.prototype.hasOwnProperty.call(COMPENSAR_DOCUMENT_TYPE_CODES, value);
@@ -53,7 +62,7 @@ export function assessCompensarPatientIdentity(source: Readonly<Record<string, u
 }
 
 export const COMPENSAR_PATIENT_IDENTITY_POLICY: PatientIdentityNormalizationPolicy = {
-  version: 'COMPENSAR_DOCUMENT_TYPE_CC_ONLY_V1',
+  version: 'COMPENSAR_DOCUMENT_TYPE_CATALOG_V1',
   normalizeDocumentType: normalizeCompensarDocumentType,
   normalizeDocumentValue: (value) => value,
 };

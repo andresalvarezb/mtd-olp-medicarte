@@ -63,7 +63,7 @@ function createHarness(
 }
 
 describe('bulk authorization patient link', () => {
-  it('links only source type 1 under the temporary COMPENSAR policy', async () => {
+  it('links only source types in the approved COMPENSAR catalogue', async () => {
     const dialect = new PgDialect();
     const executed: Array<{ sql: string; params: unknown[] }> = [];
     const tx = {
@@ -90,8 +90,8 @@ describe('bulk authorization patient link', () => {
     expect(linked).toBe(patientId);
     expect(executed[1]?.params).toEqual(['1', '000123']);
     expect(executed[2]?.params).toEqual(['1', '000123']);
-    for (const code of [2, 3, 4, 7]) {
-      const unapproved = await (repository as unknown as {
+    for (const code of [3, 4, 7, 14]) {
+      const linkedFromCatalog = await (repository as unknown as {
         linkPatientForSyntheticIdentityInTx(
           transaction: BulkImportTransaction,
           authorizationItemId: string,
@@ -102,9 +102,21 @@ describe('bulk authorization patient link', () => {
         authorizationId,
         { ...sourceData, TIPO_IDENTIFICACION: code },
       );
-      expect(unapproved).toBeNull();
+      expect(linkedFromCatalog).toBe(patientId);
     }
-    expect(executed).toHaveLength(4);
+    const unapproved = await (repository as unknown as {
+      linkPatientForSyntheticIdentityInTx(
+        transaction: BulkImportTransaction,
+        authorizationItemId: string,
+        payload: Readonly<Record<string, unknown>>,
+      ): Promise<string | null>;
+    }).linkPatientForSyntheticIdentityInTx(
+      tx as unknown as BulkImportTransaction,
+      authorizationId,
+      { ...sourceData, TIPO_IDENTIFICACION: 2 },
+    );
+    expect(unapproved).toBeNull();
+    expect(executed).toHaveLength(20);
   });
 
   it('links with the approved catalogue outside the test runtime', async () => {
