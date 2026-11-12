@@ -250,10 +250,10 @@ export async function processCompensarPatientBackfillBatch(database: Database, b
       `update patient_backfill_batches
           set status = $2, summary = $3::jsonb,
               started_at = coalesce(started_at, now()),
-              completed_at = case when $2 = 'COMPLETED' then now() else null end,
+              completed_at = case when $4::boolean then now() else null end,
               last_error_code = null
         where id = $1`,
-      [batch.id, remaining ? 'RUNNING' : 'COMPLETED', JSON.stringify(summary)],
+      [batch.id, remaining ? 'RUNNING' : 'COMPLETED', JSON.stringify(summary), !remaining],
     );
     await client.query('commit');
     return { processed: rows.rows.length, remaining, summary };
