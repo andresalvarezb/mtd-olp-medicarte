@@ -82,4 +82,18 @@ describe('Cuota moderadora - contrato de recaudo', () => {
 
     expect(result.success).toBe(false);
   });
+  it('exige motivo y confirmación de error al invalidar', () => {
+    const input = { ...base, status: 'INVALIDATED',
+      relatedEventId: '70000000-0000-4000-8000-000000000001' };
+    expect(registerModeratorFeeRequestSchema.safeParse(input).success).toBe(false);
+    expect(registerModeratorFeeRequestSchema.safeParse({ ...input,
+      reason: 'Registro incorrecto', confirmError: true }).success).toBe(true);
+  });
+  it('exige motivo y fecha efectiva para devolución', () => {
+    const input = { ...base, status: 'REFUNDED', amountCop: '12500',
+      relatedEventId: '70000000-0000-4000-8000-000000000001' };
+    expect(registerModeratorFeeRequestSchema.safeParse(input).success).toBe(false);
+    expect(registerModeratorFeeRequestSchema.safeParse({ ...input,
+      reason: 'Devuelto al paciente', effectiveAt: '2026-10-18T10:00:00-05:00' }).success).toBe(true);
+  });
 });

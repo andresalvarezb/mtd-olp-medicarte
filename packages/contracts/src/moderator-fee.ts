@@ -4,6 +4,8 @@ export const moderatorFeeCollectionStatusSchema = z.enum([
   'NOT_RECORDED',
   'COLLECTED',
   'NOT_COLLECTED',
+  'REFUNDED',
+  'INVALIDATED',
 ]);
 
 export type ModeratorFeeCollectionStatus = z.infer<
@@ -56,12 +58,26 @@ export const registerModeratorFeeRequestSchema =
       status: z.literal('COLLECTED'),
       amountCop: positiveCopAmountSchema.optional(),
       collectedAt: isoDateTime,
+      manualAmount: z.boolean().optional(),
     }).strict(),
 
     base.extend({
       status: z.literal('NOT_COLLECTED'),
       amountCop: z.null().optional(),
       collectedAt: z.null().optional(),
+    }).strict(),
+    base.extend({
+      status: z.literal('REFUNDED'),
+      amountCop: positiveCopAmountSchema,
+      effectiveAt: isoDateTime,
+      reason: z.string().trim().min(1).max(1000),
+      relatedEventId: z.string().uuid(),
+    }).strict(),
+    base.extend({
+      status: z.literal('INVALIDATED'),
+      reason: z.string().trim().min(1).max(1000),
+      relatedEventId: z.string().uuid(),
+      confirmError: z.literal(true),
     }).strict(),
   ]);
 
@@ -76,6 +92,8 @@ export const moderatorFeeEventSchema = z.object({
   status: z.enum([
     'COLLECTED',
     'NOT_COLLECTED',
+    'REFUNDED',
+    'INVALIDATED',
   ]),
 
   amountCop: z.string().nullable(),
@@ -86,6 +104,14 @@ export const moderatorFeeEventSchema = z.object({
 
   registeredBy: z.string().uuid(),
   registeredAt: isoDateTime,
+  movementType: z.enum(['COLLECTED', 'NOT_COLLECTED', 'REFUNDED', 'INVALIDATED']).optional(),
+  effectiveAt: isoDateTime.nullable().optional(),
+  reason: z.string().nullable().optional(),
+  relatedEventId: z.string().uuid().nullable().optional(),
+  manualAmount: z.boolean().optional(),
+  sourceAmountCop: z.string().nullable().optional(),
+  differenceCop: z.string().nullable().optional(),
+  syncStatus: z.enum(['PENDING', 'SYNCED', 'FAILED', 'RECONCILIATION_REQUIRED']).optional(),
 });
 
 export type ModeratorFeeEvent = z.infer<
@@ -106,6 +132,9 @@ export const moderatorFeeResponseSchema = z.object({
   version: z.number().int().nonnegative(),
 
   lastRegisteredAt: isoDateTime.nullable(),
+  totalCollectedCop: z.string(),
+  totalRefundedCop: z.string(),
+  netCollectedCop: z.string(),
 
   history: z.array(moderatorFeeEventSchema),
 });

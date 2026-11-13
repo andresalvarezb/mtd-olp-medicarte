@@ -2396,27 +2396,14 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   ? observation
                   : '';
 
-              const hadPriorCollection = financial.history.some(
-                (previous) =>
-                  previous.version < payment.version &&
-                  previous.status === 'COLLECTED',
-              );
-
-              const isCorrection =
-                payment.version > 1 &&
-                (payment.status === 'NOT_COLLECTED' || hadPriorCollection);
-
               return {
                 id: payment.id,
-                type: payment.status === 'COLLECTED'
-                  ? 'MODERATOR_FEE_COLLECTED'
-                  : 'MODERATOR_FEE_NOT_COLLECTED',
+                type: `MODERATOR_FEE_${payment.status}`,
                 occurredAt: payment.registeredAt,
-                title: isCorrection
-                  ? 'Corrección de cuota moderadora'
-                  : payment.status === 'COLLECTED'
-                    ? 'Cuota moderadora recaudada'
-                    : 'Cuota moderadora no recaudada',
+                title: payment.status === 'COLLECTED' ? 'Cuota moderadora recaudada'
+                  : payment.status === 'NOT_COLLECTED' ? 'Cuota moderadora no recaudada'
+                  : payment.status === 'REFUNDED' ? 'Devolución efectiva de cuota moderadora'
+                  : 'Recaudo erróneo invalidado',
                 description: usefulObservation
                   ? 'Observación: ' + usefulObservation
                   : '',
@@ -2424,8 +2411,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                 organizationCode: null,
                 details: [
                   {
-                    label: 'Valor recaudado',
-                    value: payment.status === 'COLLECTED'
+                    label: payment.status === 'REFUNDED' ? 'Valor devuelto' : 'Valor recaudado',
+                    value: payment.status === 'COLLECTED' || payment.status === 'REFUNDED'
                       ? payment.amountCop === null
                         ? 'No disponible'
                         : moderatorFeeMoney(Number(payment.amountCop))
@@ -2433,16 +2420,19 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                   },
                   {
                     label: 'Estado',
-                    value: payment.status === 'COLLECTED'
-                      ? 'Pago recibido'
-                      : 'Pago no recibido',
+                    value: payment.status === 'COLLECTED' ? 'Pago recibido'
+                      : payment.status === 'NOT_COLLECTED' ? 'Pago no recibido'
+                      : payment.status === 'REFUNDED' ? 'Dinero devuelto'
+                      : 'Registro inválido; dinero no recibido',
                   },
-                  ...(payment.collectedAt &&
-                  moderatorFeeDate(payment.collectedAt) !==
+                  ...(payment.reason ? [{ label: 'Motivo', value: payment.reason }] : []),
+                  ...(payment.relatedEventId ? [{ label: 'Recaudo original', value: payment.relatedEventId }] : []),
+                  ...((payment.effectiveAt ?? payment.collectedAt) &&
+                  moderatorFeeDate(payment.effectiveAt ?? payment.collectedAt) !==
                     moderatorFeeDate(payment.registeredAt)
                     ? [{
-                        label: 'Fecha efectiva del recaudo',
-                        value: moderatorFeeDate(payment.collectedAt),
+                        label: 'Fecha efectiva del movimiento',
+                        value: moderatorFeeDate(payment.effectiveAt ?? payment.collectedAt),
                       }]
                     : []),
                 ],
@@ -4341,9 +4331,8 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                                             : event.type ===
                                                   'DELIVERY_RECORDED'
                                               ? 'Entrega'
-                                              : event.type === 'MODERATOR_FEE_COLLECTED' ||
-                                                event.type === 'MODERATOR_FEE_NOT_COLLECTED'
-                                              ? 'Recaudo'
+                                              : event.type.startsWith('MODERATOR_FEE_')
+                                              ? 'Financiero'
                                               : 'Acción'}
                               </span>
                             </div>
@@ -4849,6 +4838,10 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                     authorizationItemId={selected.id}
                     canManage={canManageModeratorFee}
                     mode="summary"
+                    operationalWarning={selected.isAnnulled ? 'Autorización anulada.' :
+                      selected.validityStatus !== 'IN_WINDOW' ? 'Autorización con novedad de vigencia.' :
+                      selected.operationalStatus === 'CLOSED' ? 'Autorización cerrada.' :
+                      selected.operationalStatus === 'OUT_OF_OPERATION' ? 'Autorización con novedad operativa.' : null}
                   />
                 ) : null}
 
@@ -5037,6 +5030,10 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
                     authorizationItemId={selected.id}
                     canManage={canManageModeratorFee}
                     mode="manage"
+                    operationalWarning={selected.isAnnulled ? 'Autorización anulada.' :
+                      selected.validityStatus !== 'IN_WINDOW' ? 'Autorización con novedad de vigencia.' :
+                      selected.operationalStatus === 'CLOSED' ? 'Autorización cerrada.' :
+                      selected.operationalStatus === 'OUT_OF_OPERATION' ? 'Autorización con novedad operativa.' : null}
                   />
                 ) : null}
 

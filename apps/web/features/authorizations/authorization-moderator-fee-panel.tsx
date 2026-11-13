@@ -7,6 +7,7 @@ import {
   getAuthorizationModeratorFee,
   getAuthorizationModeratorFeeInvoiceUrl,
   registerAuthorizationModeratorFee,
+  retryAuthorizationModeratorFeeSync,
   type ModeratorFeeResponse,
   type RegisterModeratorFeeRequest,
 } from '@/lib/authorization-moderator-fee-api';
@@ -19,13 +20,14 @@ import {
   normalizeModeratorFeeAmount,
 } from '@/lib/moderator-fee-presentation';
 
-type EntryStatus = '' | 'COLLECTED' | 'NOT_COLLECTED';
+type EntryStatus = '' | 'COLLECTED' | 'NOT_COLLECTED' | 'REFUNDED' | 'INVALIDATED';
 
 type Props = {
   organizationId: string;
   authorizationItemId: string;
   canManage: boolean;
   mode: 'summary' | 'manage';
+  operationalWarning?: string | null;
 };
 
 function statusLabel(status: ModeratorFeeResponse['status']): string {
@@ -34,6 +36,10 @@ function statusLabel(status: ModeratorFeeResponse['status']): string {
       return 'Recaudo registrado';
     case 'NOT_COLLECTED':
       return 'No recaudado';
+    case 'REFUNDED':
+      return 'Devuelto';
+    case 'INVALIDATED':
+      return 'Recaudo invalidado';
     default:
       return 'Sin registro de recaudo';
   }
@@ -64,6 +70,8 @@ function FinancialAmounts({ detail }: { detail: ModeratorFeeResponse }) {
         <span>Total recaudado</span>
         <strong>{moderatorFeeMoney(balances.collected)}</strong>
       </div>
+      <div><span>Total devuelto</span><strong>{moderatorFeeMoney(balances.refunded)}</strong></div>
+      <div><span>Recaudo neto</span><strong>{moderatorFeeMoney(balances.net)}</strong></div>
     </>
   );
 }
@@ -73,6 +81,7 @@ export function AuthorizationModeratorFeePanel({
   authorizationItemId,
   canManage,
   mode,
+  operationalWarning,
 }: Props) {
   const [detail, setDetail] = useState<ModeratorFeeResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,6 +94,9 @@ export function AuthorizationModeratorFeePanel({
   const [collectionDate, setCollectionDate] = useState('');
   const [professionalDocument, setProfessionalDocument] = useState('');
   const [observation, setObservation] = useState('');
+  const [reason, setReason] = useState('');
+  const [reference, setReference] = useState('');
+  const [confirmError, setConfirmError] = useState(false);
 
   const [fetchingInvoice, setFetchingInvoice] = useState(false);
   const [invoiceMessage, setInvoiceMessage] = useState<{
@@ -110,6 +122,9 @@ export function AuthorizationModeratorFeePanel({
     setCollectionDate('');
     setProfessionalDocument('');
     setObservation('');
+    setReason('');
+    setReference('');
+    setConfirmError(false);
     setFetchingInvoice(false);
     setInvoiceMessage(null);
     attempt.current = null;
@@ -188,12 +203,8 @@ export function AuthorizationModeratorFeePanel({
   }
 
   async function save(): Promise<void> {
-    if (detail && moderatorFeeBalances(detail).expected === 0) {
-      return;
-    }
     if (
       mode !== 'manage' ||
-      detail?.status === 'COLLECTED' ||
       !canManage ||
       saving ||
       !detail ||
@@ -202,24 +213,23 @@ export function AuthorizationModeratorFeePanel({
       return;
     }
 
-    const collectedIso = status === 'COLLECTED'
+    const collectedIso = status === 'COLLECTED' || status === 'REFUNDED'
       ? moderatorFeeCollectionDateIso(collectionDate)
       : null;
-    const normalizedAmount = status === 'COLLECTED'
+    const normalizedAmount = status === 'COLLECTED' || status === 'REFUNDED'
       ? normalizeModeratorFeeAmount(amountCop)
       : null;
     const expectedAmount = detail.expectedAmountCop === null
       ? null
       : normalizeModeratorFeeAmount(detail.expectedAmountCop);
 
-    if (status === 'COLLECTED' && !collectedIso) {
-      setError('Indica una fecha de recaudo válida, no futura, en Colombia.');
+    if ((status === 'COLLECTED' || status === 'REFUNDED') && !collectedIso) {
+      setError('Indica una fecha efectiva válida y no futura.');
       return;
     }
 
-    if (status === 'COLLECTED' && (
+    if (status === 'COLLECTED' && expectedAmount !== null && (
       normalizedAmount === null ||
-      expectedAmount === null ||
       normalizedAmount !== expectedAmount
     )) {
       setError(
@@ -227,6 +237,30 @@ export function AuthorizationModeratorFeePanel({
       );
       return;
     }
+    if ((status === 'COLLECTED' || status === 'REFUNDED') && normalizedAmount === null) {
+      setError('Indica un importe real mayor que cero.');
+      return;
+    }
+    if (status === 'COLLECTED' && expectedAmount === null && !observation.trim()) {
+      setError('El valor manual exige una observación.');
+      return;
+    }
+    const active = detail.history.find(event => event.status === 'COLLECTED' &&
+      !detail.history.some(reversal =>
+        (reversal.status === 'REFUNDED' || reversal.status === 'INVALIDATED') &&
+        reversal.relatedEventId === event.id));
+    if ((status === 'REFUNDED' || status === 'INVALIDATED') && (!active || !reason.trim())) {
+      setError('Indica el recaudo original y un motivo.');
+      return;
+    }
+    if (status === 'INVALIDATED' && !confirmError) {
+      setError('Confirma que el dinero nunca fue recibido.');
+      return;
+    }
+    if ((status === 'REFUNDED' || status === 'INVALIDATED') &&
+      !window.confirm(status === 'REFUNDED'
+        ? '¿Confirmas que el dinero ya fue devuelto al paciente?'
+        : '¿Confirmas que el recaudo original fue registrado por error y nunca se recibió dinero?')) return;
 
     const normalizedObservation = observation.trim() || null;
     const normalizedProfessional = professionalDocument.trim() || null;
@@ -239,6 +273,8 @@ export function AuthorizationModeratorFeePanel({
       collectedIso,
       professionalDocument: normalizedProfessional,
       observation: normalizedObservation,
+      reason: reason.trim(),
+      reference: reference.trim(),
     });
 
     if (attempt.current?.fingerprint !== fingerprint) {
@@ -261,7 +297,14 @@ export function AuthorizationModeratorFeePanel({
           status: 'COLLECTED',
           amountCop: normalizedAmount!,
           collectedAt: collectedIso!,
+          manualAmount: expectedAmount === null,
         }
+      : status === 'REFUNDED'
+      ? { ...base, status, amountCop: normalizedAmount!, effectiveAt: collectedIso!,
+          reason: reason.trim(), relatedEventId: active!.id, reference: reference.trim() || null }
+      : status === 'INVALIDATED'
+      ? { ...base, status, reason: reason.trim(), relatedEventId: active!.id,
+          confirmError: true, reference: reference.trim() || null }
       : {
           ...base,
           status: 'NOT_COLLECTED',
@@ -285,6 +328,9 @@ export function AuthorizationModeratorFeePanel({
       setCollectionDate('');
       setProfessionalDocument('');
       setObservation('');
+      setReason('');
+      setReference('');
+      setConfirmError(false);
       setSuccess('Estado del recaudo guardado correctamente.');
     } catch (cause: unknown) {
       if (
@@ -335,6 +381,9 @@ export function AuthorizationModeratorFeePanel({
       </div>
 
       {loading ? <p role="status">Cargando cuota moderadora…</p> : null}
+      {operationalWarning ? <p role="status" style={{ color: '#92400e' }}>
+        {operationalWarning} El registro de dinero real sigue disponible.
+      </p> : null}
 
       {detail ? (
         <>
@@ -350,10 +399,7 @@ export function AuthorizationModeratorFeePanel({
             <div>
               <span>Estado del recaudo</span>
               <strong>
-                {moderatorFeeBalances(detail).expected === 0 &&
-                detail.status === 'NOT_RECORDED'
-                  ? 'No requiere recaudo'
-                  : statusLabel(detail.status)}
+                {statusLabel(detail.status)}
               </strong>
             </div>
             {detail.status === 'COLLECTED' ? (
@@ -479,7 +525,7 @@ export function AuthorizationModeratorFeePanel({
           ) : null}
 
           {mode === 'manage' &&
-          moderatorFeeBalances(detail).expected !== 0 ? (
+          (
             <>
               {detail.status === 'NOT_RECORDED' ? (
                 <p role="status">
@@ -490,13 +536,15 @@ export function AuthorizationModeratorFeePanel({
                   No se registró recaudo. La cuota permanece pendiente mientras
                   exista un valor esperado.
                 </p>
+              ) : detail.status === 'REFUNDED' || detail.status === 'INVALIDATED' ? (
+                <p role="status">El movimiento anterior cerró el recaudo. Puede registrarse otro pago real.</p>
               ) : (
                 <p role="status">
                   Recaudo registrado. Cualquier corrección quedará en el historial.
                 </p>
               )}
 
-              {canManage && detail.status !== 'COLLECTED' ? (
+              {canManage ? (
                 <>
                   <label className="authorization-fulfillment-date">
                     <span>Estado a registrar</span>
@@ -507,10 +555,10 @@ export function AuthorizationModeratorFeePanel({
                       onChange={(event) => {
                         const next = event.target.value as EntryStatus;
                         setStatus(next);
-                        setAmountCop(next === 'COLLECTED'
-                          ? detail.expectedAmountCop ?? ''
+                        setAmountCop(next === 'COLLECTED' ? detail.expectedAmountCop ?? ''
+                          : next === 'REFUNDED' ? detail.history.find(event => event.status === 'COLLECTED')?.amountCop ?? ''
                           : '');
-                        setCollectionDate(next === 'COLLECTED'
+                        setCollectionDate(next === 'COLLECTED' || next === 'REFUNDED'
                           ? bogotaToday()
                           : '');
                         setError(null);
@@ -518,15 +566,17 @@ export function AuthorizationModeratorFeePanel({
                       }}
                     >
                       <option value="">Seleccionar</option>
-                      <option value="COLLECTED">Pago recibido</option>
-                      <option value="NOT_COLLECTED">Pago no recibido</option>
+                      {detail.status !== 'COLLECTED' ? <option value="COLLECTED">Pago recibido</option> : null}
+                      {detail.status !== 'COLLECTED' ? <option value="NOT_COLLECTED">Pago no recibido</option> : null}
+                      {detail.status === 'COLLECTED' ? <option value="REFUNDED">Devolución efectiva</option> : null}
+                      {detail.status === 'COLLECTED' ? <option value="INVALIDATED">Invalidar error</option> : null}
                     </select>
                   </label>
 
-                  {status === 'COLLECTED' ? (
+                  {status === 'COLLECTED' || status === 'REFUNDED' ? (
                     <>
                       <label className="authorization-fulfillment-date">
-                        <span>Valor recaudado (COP)</span>
+                        <span>{status === 'REFUNDED' ? 'Valor devuelto (COP)' : 'Valor recaudado (COP)'}</span>
                         <input
                           type="number"
                           className="control"
@@ -541,14 +591,14 @@ export function AuthorizationModeratorFeePanel({
                           }}
                         />
                       </label>
-                      <small>
+                      {status === 'COLLECTED' ? <small>
                         Debe corresponder al valor completo de la cuota:
                         {' '}{moderatorFeeMoney(moderatorFeeBalances(detail).expected)}.
                         No se permiten abonos parciales.
-                      </small>
+                      </small> : <small>La primera versión admite solo devolución total.</small>}
 
                       <label className="authorization-fulfillment-date">
-                        <span>Fecha de recaudo</span>
+                        <span>{status === 'REFUNDED' ? 'Fecha efectiva de devolución' : 'Fecha de recaudo'}</span>
                         <input
                           type="date"
                           className="control"
@@ -563,7 +613,7 @@ export function AuthorizationModeratorFeePanel({
                         />
                       </label>
 
-                      <label className="authorization-fulfillment-date">
+                      {status === 'COLLECTED' ? <label className="authorization-fulfillment-date">
                         <span>Cédula del profesional</span>
                         <input
                           type="text"
@@ -576,14 +626,34 @@ export function AuthorizationModeratorFeePanel({
                             setError(null);
                           }}
                         />
+                      </label> : null}
+                    </>
+                  ) : null}
+
+                  {status === 'REFUNDED' || status === 'INVALIDATED' ? (
+                    <>
+                      <label className="authorization-fulfillment-date">
+                        <span>Motivo obligatorio</span>
+                        <textarea className="control" maxLength={1000} value={reason}
+                          onChange={event => setReason(event.target.value)} required />
                       </label>
+                      <label className="authorization-fulfillment-date">
+                        <span>Soporte o referencia</span>
+                        <input className="control" maxLength={255} value={reference}
+                          onChange={event => setReference(event.target.value)} />
+                      </label>
+                      {status === 'INVALIDATED' ? <label>
+                        <input type="checkbox" checked={confirmError}
+                          onChange={event => setConfirmError(event.target.checked)} />
+                        Confirmo que el dinero nunca fue recibido.
+                      </label> : null}
                     </>
                   ) : null}
 
                   {status ? (
                     <>
                       <label className="authorization-fulfillment-date">
-                        <span>Observación (opcional)</span>
+                        <span>Observación {status === 'COLLECTED' && !normalizeModeratorFeeAmount(detail.expectedAmountCop ?? '') ? '(obligatoria para valor manual)' : '(opcional)'}</span>
                         <textarea
                           className="control"
                           rows={3}
@@ -611,15 +681,29 @@ export function AuthorizationModeratorFeePanel({
                 </>
               ) : (
                 <p role="status">
-                  {detail.status === 'COLLECTED'
-                    ? 'Cuota completamente recaudada. No se permiten nuevos pagos.'
-                    : 'Consulta de solo lectura. El recaudo lo gestiona MTD.'}
+                  Consulta de solo lectura. El recaudo lo gestiona MTD.
                 </p>
               )}
 
 
             </>
-          ) : null}
+          )}
+          <details style={{ marginTop: 16 }}>
+            <summary>Historial financiero ({detail.history.length})</summary>
+            <ol>{detail.history.map(event => <li key={event.id}>
+              {statusLabel(event.status)} · {moderatorFeeMoney(event.amountCop === null ? 0 : Number(event.amountCop))}
+              {' · '}{moderatorFeeDate(event.effectiveAt ?? event.collectedAt)}
+              {' · '}{event.reason ?? event.observation ?? 'Sin observación'}
+              {' · '}ID: {event.id}
+              {event.syncStatus ? ` · Hoja: ${event.syncStatus}` : ''}
+              {canManage && (event.syncStatus === 'FAILED' || event.syncStatus === 'PENDING')
+                ? <button type="button" className="btn secondary" onClick={() => {
+                    void retryAuthorizationModeratorFeeSync(organizationId, authorizationItemId, event.id)
+                      .then(setDetail).catch(cause => setError(cause instanceof Error ? cause.message : 'Error de sincronización'));
+                  }}>Reintentar Sheets</button> : null}
+            </li>)}</ol>
+          </details>
+          {detail.history[0] ? <p>Último movimiento: {statusLabel(detail.history[0].status)} · {moderatorFeeDate(detail.history[0].registeredAt)}</p> : null}
         </>
       ) : null}
 

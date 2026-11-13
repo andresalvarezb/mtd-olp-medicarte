@@ -511,6 +511,14 @@ export const authorizationModeratorFeeEvents = pgTable(
       length: 20,
     }).notNull(),
 
+    movementType: varchar('movement_type', { length: 20 }),
+    relatedEventId: uuid('related_event_id'),
+    effectiveAt: timestamp('effective_at', { withTimezone: true }),
+    reason: text('reason'),
+    manualAmount: boolean('manual_amount').notNull().default(false),
+    sourceAmountCop: numeric('source_amount_cop', { precision: 14, scale: 2 }),
+    differenceCop: numeric('difference_cop', { precision: 14, scale: 2 }),
+
     amountCop: numeric('amount_cop', {
       precision: 14,
       scale: 2,
@@ -545,6 +553,11 @@ export const authorizationModeratorFeeEvents = pgTable(
     }).notNull().defaultNow(),
   },
   table => [
+    foreignKey({
+      columns: [table.relatedEventId],
+      foreignColumns: [table.id],
+      name: 'authorization_moderator_fee_related_fk',
+    }).onDelete('restrict'),
     uniqueIndex('authorization_moderator_fee_version_unique')
       .on(table.authorizationItemId, table.version),
 
@@ -557,6 +570,9 @@ export const authorizationModeratorFeeEvents = pgTable(
     index('authorization_moderator_fee_created_idx')
       .on(table.createdAt, table.authorizationItemId),
 
+    index('authorization_moderator_fee_related_idx')
+      .on(table.relatedEventId).where(sql`${table.relatedEventId} IS NOT NULL`),
+
     check(
       'authorization_moderator_fee_version_positive',
       sql`${table.version} > 0`,
@@ -564,7 +580,7 @@ export const authorizationModeratorFeeEvents = pgTable(
 
     check(
       'authorization_moderator_fee_status_valid',
-      sql`${table.status} IN ('COLLECTED', 'NOT_COLLECTED')`,
+      sql`${table.status} IN ('COLLECTED', 'NOT_COLLECTED', 'REFUNDED', 'INVALIDATED')`,
     ),
 
     check(
@@ -582,6 +598,21 @@ export const authorizationModeratorFeeEvents = pgTable(
           AND ${table.amountCop} IS NULL
           AND ${table.collectedAt} IS NULL
         )
+        OR (
+          ${table.status} = 'REFUNDED'
+          AND ${table.amountCop} > 0
+          AND ${table.relatedEventId} IS NOT NULL
+          AND ${table.effectiveAt} IS NOT NULL
+          AND ${table.reason} IS NOT NULL
+          AND length(btrim(${table.reason})) > 0
+        )
+        OR (
+          ${table.status} = 'INVALIDATED'
+          AND ${table.amountCop} IS NULL
+          AND ${table.relatedEventId} IS NOT NULL
+          AND ${table.reason} IS NOT NULL
+          AND length(btrim(${table.reason})) > 0
+        )
       )`,
     ),
 
@@ -596,6 +627,34 @@ export const authorizationModeratorFeeEvents = pgTable(
       sql`${table.reference} IS NULL
         OR length(${table.reference}) <= 255`,
     ),
+    check('authorization_moderator_fee_movement_valid',
+      sql`${table.movementType} IS NULL OR (
+        ${table.movementType} = ${table.status} AND ${table.effectiveAt} IS NOT NULL
+      )`),
+    check('authorization_moderator_fee_manual_amount_valid',
+      sql`NOT ${table.manualAmount} OR (
+        ${table.status} = 'COLLECTED' AND ${table.observation} IS NOT NULL
+        AND length(btrim(${table.observation})) > 0
+      )`),
+  ],
+);
+
+export const moderatorFeeSheetSync = pgTable(
+  'moderator_fee_sheet_sync',
+  {
+    eventId: uuid('event_id').primaryKey().references(() => authorizationModeratorFeeEvents.id, {
+      onDelete: 'restrict',
+    }),
+    status: varchar('status', { length: 30 }).notNull().default('PENDING'),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    index('moderator_fee_sheet_sync_pending_idx').on(table.status, table.updatedAt),
+    check('moderator_fee_sheet_sync_status_valid', sql`${table.status} IN (
+      'PENDING', 'SYNCED', 'FAILED', 'RECONCILIATION_REQUIRED'
+    )`),
   ],
 );
 

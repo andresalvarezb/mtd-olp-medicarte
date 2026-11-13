@@ -2146,6 +2146,9 @@ export class ExportablesService {
               moderator_fee.created_at as moderator_fee_registered_at,
               moderator_fee.registered_by as moderator_fee_registered_by,
               moderator_fee.version as moderator_fee_version,
+              moderator_fee.total_collected_cop as moderator_fee_total_collected_cop,
+              moderator_fee.total_refunded_cop as moderator_fee_total_refunded_cop,
+              moderator_fee.net_collected_cop as moderator_fee_net_collected_cop,
 
               billing_audit.status
                 as billing_audit_status,
@@ -2369,6 +2372,25 @@ export class ExportablesService {
                 fee.created_at,
                 fee.registered_by,
                 fee.version
+                ,coalesce((select sum(payment.amount_cop)
+                  from authorization_moderator_fee_events payment
+                  where payment.authorization_item_id = ai.id and payment.status = 'COLLECTED'
+                    and not exists (select 1 from authorization_moderator_fee_events reversal
+                      where reversal.related_event_id = payment.id and reversal.status = 'INVALIDATED')), 0)
+                  as total_collected_cop
+                ,coalesce((select sum(refund.amount_cop)
+                  from authorization_moderator_fee_events refund
+                  where refund.authorization_item_id = ai.id and refund.status = 'REFUNDED'), 0)
+                  as total_refunded_cop
+                ,coalesce((select sum(payment.amount_cop)
+                  from authorization_moderator_fee_events payment
+                  where payment.authorization_item_id = ai.id and payment.status = 'COLLECTED'
+                    and not exists (select 1 from authorization_moderator_fee_events reversal
+                      where reversal.related_event_id = payment.id and reversal.status = 'INVALIDATED')), 0)
+                  - coalesce((select sum(refund.amount_cop)
+                    from authorization_moderator_fee_events refund
+                    where refund.authorization_item_id = ai.id and refund.status = 'REFUNDED'), 0)
+                  as net_collected_cop
 
               from authorization_moderator_fee_events fee
               where fee.authorization_item_id = ai.id
@@ -2509,6 +2531,9 @@ export class ExportablesService {
         'CUOTA_ESTABLECIDA_AUTORIZACION',
         'ESTADO_RECAUDO_CUOTA',
         'VALOR_RECAUDADO_CUOTA_COP',
+        'TOTAL_RECAUDADO_CUOTA_COP',
+        'TOTAL_DEVUELTO_CUOTA_COP',
+        'RECAUDO_NETO_CUOTA_COP',
         'FECHA_EFECTIVA_RECAUDO_CUOTA',
         'FECHA_REGISTRO_RECAUDO_CUOTA',
         'USUARIO_REGISTRO_RECAUDO_CUOTA',
@@ -3067,11 +3092,18 @@ export class ExportablesService {
               ? 'RECAUDADA'
               : feeStatus === 'NOT_COLLECTED'
                 ? 'NO RECAUDADA'
+                : feeStatus === 'REFUNDED'
+                  ? 'DEVUELTA'
+                  : feeStatus === 'INVALIDATED'
+                    ? 'INVALIDADA'
                 : feeStatus == null
                   ? 'SIN REGISTRO'
                   : 'INCONSISTENTE';
 
           output['VALOR_RECAUDADO_CUOTA_COP'] = feeAmount;
+          output['TOTAL_RECAUDADO_CUOTA_COP'] = Number(row['moderator_fee_total_collected_cop'] ?? 0);
+          output['TOTAL_DEVUELTO_CUOTA_COP'] = Number(row['moderator_fee_total_refunded_cop'] ?? 0);
+          output['RECAUDO_NETO_CUOTA_COP'] = Number(row['moderator_fee_net_collected_cop'] ?? 0);
 
           output['FECHA_EFECTIVA_RECAUDO_CUOTA'] =
             feeStatus === 'COLLECTED'

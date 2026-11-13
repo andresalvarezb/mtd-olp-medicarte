@@ -1,9 +1,9 @@
 # Catálogo estructural de la base de datos — generado
 
 > **Origen:** `packages/database/src/schema.ts` (Drizzle). **No demuestra que las migraciones estén aplicadas a un PostgreSQL concreto.**
-> **Identificador de fuente SHA-256:** `742d78811641000e4d2d8d99473615453a388d0d0709f37bfb6314eb3d86fdf8`. Generador: `scripts/db-schema-catalog.mjs`.
+> **Identificador de fuente SHA-256:** `31ed20b09988f837a81e56b67edb47a0fcdf59d4010877201a1be317a64f2055`. Generador: `scripts/db-schema-catalog.mjs`.
 
-**Tablas Drizzle:** 93. **Columnas:** 1204. **Referencias FK declaradas:** 243.
+**Tablas Drizzle:** 94. **Columnas:** 1216. **Referencias FK declaradas:** 244.
 
 ## Índice por proceso
 
@@ -20,7 +20,7 @@
 | Auditoría y novedades | 9 |
 | Conciliación operacional | 8 |
 | Cargas masivas, jobs y eventos técnicos | 13 |
-| Otros objetos | 5 |
+| Otros objetos | 6 |
 
 ## Diccionario de tablas
 
@@ -2359,7 +2359,7 @@
 
 #### `authorization_moderator_fee_events`
 
-**Columnas:** 13 · **Clave primaria:** id · **FK:** 3.
+**Columnas:** 20 · **Clave primaria:** id · **FK:** 3.
 
 | Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
 | --- | --- | --- | --- |
@@ -2367,6 +2367,13 @@
 | `authorization_item_id` | uuid | No | FK authorization_items |
 | `version` | integer | No |  |
 | `status` | varchar(20) | No |  |
+| `movement_type` | varchar(20) | Sí |  |
+| `related_event_id` | uuid | Sí |  |
+| `effective_at` | timestamp | Sí |  |
+| `reason` | text | Sí |  |
+| `manual_amount` | boolean | No | default: false |
+| `source_amount_cop` | numeric(14,2) | Sí |  |
+| `difference_cop` | numeric(14,2) | Sí |  |
 | `amount_cop` | numeric(14,2) | Sí |  |
 | `collected_at` | timestamp | Sí |  |
 | `observation` | text | Sí |  |
@@ -2379,9 +2386,29 @@
 
 **Claves foráneas:** `authorization_item_id → authorization_items(id)`; `registered_by → users(id)`; `organization_id → organizations(id)`.
 
-**Índices / unicidad declarados:** `authorization_moderator_fee_version_unique` (uniqueIndex); `authorization_moderator_fee_idempotency_unique` (uniqueIndex); `authorization_moderator_fee_history_idx` (index); `authorization_moderator_fee_created_idx` (index).
+**Referenciada por:** `moderator_fee_sheet_sync(event_id)`.
 
-**Checks declarados:** `authorization_moderator_fee_version_positive`; `authorization_moderator_fee_status_valid`; `authorization_moderator_fee_amount_consistency`; `authorization_moderator_fee_observation_length`; `authorization_moderator_fee_reference_length`.
+**Índices / unicidad declarados:** `authorization_moderator_fee_version_unique` (uniqueIndex); `authorization_moderator_fee_idempotency_unique` (uniqueIndex); `authorization_moderator_fee_history_idx` (index); `authorization_moderator_fee_created_idx` (index); `authorization_moderator_fee_related_idx` (index).
+
+**Checks declarados:** `authorization_moderator_fee_version_positive`; `authorization_moderator_fee_status_valid`; `authorization_moderator_fee_amount_consistency`; `authorization_moderator_fee_observation_length`; `authorization_moderator_fee_reference_length`; `authorization_moderator_fee_movement_valid`; `authorization_moderator_fee_manual_amount_valid`.
+
+#### `moderator_fee_sheet_sync`
+
+**Columnas:** 5 · **Clave primaria:** event_id · **FK:** 1.
+
+| Columna SQL | Tipo Drizzle | ¿Permite NULL? | Restricción / default |
+| --- | --- | --- | --- |
+| `event_id` | uuid | No | PK; FK authorization_moderator_fee_events |
+| `status` | varchar(30) | No | default: 'PENDING' |
+| `attempts` | integer | No | default: 0 |
+| `last_error` | text | Sí |  |
+| `updated_at` | timestamp | No | default: defaultNow() |
+
+**Claves foráneas:** `event_id → authorization_moderator_fee_events(id)`.
+
+**Índices / unicidad declarados:** `moderator_fee_sheet_sync_pending_idx` (index).
+
+**Checks declarados:** `moderator_fee_sheet_sync_status_valid`.
 
 #### `patient_backfill_batches`
 

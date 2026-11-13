@@ -1,5 +1,7 @@
 # RF-MTD-RECAUDO-001 — Recaudo único de cuota moderadora
 
+> **Superado en el ciclo financiero:** [RF-MTD-CM-002](./RF-MTD-CM-002-recaudo-devoluciones.md) elimina la elegibilidad operativa para registrar dinero real y define devoluciones e invalidaciones. Las reglas de bloqueo de este documento describen la versión anterior.
+
 **Estado:** aprobado funcionalmente; implementado localmente, pendiente de integración
 **Ámbito:** MTD y consulta financiera de MEDICARTE
 **Unidad de recaudo:** autorización de un único producto y N unidades

@@ -45,3 +45,14 @@ export function getAuthorizationModeratorFeeInvoiceUrl(
     { organizationId },
   );
 }
+
+export function retryAuthorizationModeratorFeeSync(
+  organizationId: string,
+  authorizationItemId: string,
+  eventId: string,
+): Promise<ModeratorFeeResponse> {
+  return apiRequest<ModeratorFeeResponse>(
+    `/medicarte/authorizations/${encodeURIComponent(authorizationItemId)}/moderator-fee/events/${encodeURIComponent(eventId)}/retry-sync`,
+    { method: 'POST', organizationId },
+  );
+}

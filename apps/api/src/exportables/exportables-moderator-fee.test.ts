@@ -76,6 +76,31 @@ function row(
 }
 
 describe('ExportablesService: recaudo de cuota moderadora', () => {
+  it('exporta devolución, invalidación y saldo neto sin sumar versiones', async () => {
+    const refunded = {
+      ...row('AUTO-DEVUELTA', 'REFUNDED', '12500.00', null, 2),
+      moderator_fee_total_collected_cop: '12500.00',
+      moderator_fee_total_refunded_cop: '12500.00',
+      moderator_fee_net_collected_cop: '0.00',
+    };
+    const invalidated = {
+      ...row('AUTO-INVALIDADA', 'INVALIDATED', null, null, 2),
+      moderator_fee_total_collected_cop: '0.00',
+      moderator_fee_total_refunded_cop: '0.00',
+      moderator_fee_net_collected_cop: '0.00',
+    };
+    const query = vi.fn().mockResolvedValue({ rows: [refunded, invalidated] });
+    const service = new ExportablesService({ pool: { query } } as never);
+    const workbook = XLSX.read((await service.authorizations(scope)).content, { type: 'buffer' });
+    const records = XLSX.utils.sheet_to_json<Record<string, string | number>>(
+      workbook.Sheets.AUTORIZACIONES!, { defval: '' });
+    expect(records[0]?.ESTADO_RECAUDO_CUOTA).toBe('DEVUELTA');
+    expect(records[0]?.TOTAL_RECAUDADO_CUOTA_COP).toBe(12500);
+    expect(records[0]?.TOTAL_DEVUELTO_CUOTA_COP).toBe(12500);
+    expect(records[0]?.RECAUDO_NETO_CUOTA_COP).toBe(0);
+    expect(records[1]?.ESTADO_RECAUDO_CUOTA).toBe('INVALIDADA');
+    expect(records[1]?.TOTAL_RECAUDADO_CUOTA_COP).toBe(0);
+  });
   it('separa cuota original, recaudo y ausencia de registro', async () => {
     const query = vi.fn().mockResolvedValue({
       rows: [
