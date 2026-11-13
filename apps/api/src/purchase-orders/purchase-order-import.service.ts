@@ -2355,15 +2355,20 @@ export class PurchaseOrderImportService {
         normalizeHeader,
       );
 
+    const candidateHeaders =
+      headers[2] === 'DOCUMENTO_PACIENTE'
+        ? [...headers.slice(0, 2), ...headers.slice(3)]
+        : headers;
+
     const currentHeaders =
-      (headers.length === TEMPLATE_HEADERS.length ||
-        (headers.length === TEMPLATE_HEADERS.length + 1 && headers[7] === 'PUNTO')) &&
+      (candidateHeaders.length === TEMPLATE_HEADERS.length ||
+        (candidateHeaders.length === TEMPLATE_HEADERS.length + 1 && candidateHeaders[7] === 'PUNTO')) &&
       TEMPLATE_HEADERS.slice(0, 5).every(
-        (expected, index) => headers[index] === expected,
+        (expected, index) => candidateHeaders[index] === expected,
       ) &&
-      headers[5] === 'FECHA_ASIGNACION' &&
-      (headers[6] === 'FECHA_FINAL_VIGENCIA' ||
-        headers[6] === 'FECHA_FINALIZACION');
+      candidateHeaders[5] === 'FECHA_ASIGNACION' &&
+      (candidateHeaders[6] === 'FECHA_FINAL_VIGENCIA' ||
+        candidateHeaders[6] === 'FECHA_FINALIZACION');
 
     const previousHeaders =
       headers.length === PREVIOUS_TEMPLATE_HEADERS.length &&
@@ -2441,7 +2446,7 @@ export class PurchaseOrderImportService {
        * Tanto V2 como V3 se normalizan internamente
        * al contrato V3.
        *
-       * La posición semántica de las columnas no cambia.
+       * La columna informativa de documento no cambia las claves operativas.
        */
       for (
         let column = 0;

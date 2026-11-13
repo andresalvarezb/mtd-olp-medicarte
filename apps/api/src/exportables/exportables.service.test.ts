@@ -443,6 +443,7 @@ describe(
             {
               authorization_key: 'KEY-001|PROD-1',
               numero_autorizacion: 'KEY-001',
+              documento_paciente: '00123456',
               codigo_medicamento: 'PROD-1',
               cantidad: 10,
               fecha_asignacion: today,
@@ -452,6 +453,7 @@ describe(
             {
               authorization_key: 'KEY-002|PROD-2',
               numero_autorizacion: 'KEY-002',
+              documento_paciente: '00123456',
               codigo_medicamento: 'PROD-2',
               cantidad: 7,
               fecha_asignacion: '2000-01-01',
@@ -461,6 +463,7 @@ describe(
             {
               authorization_key: 'KEY-003|PROD-3',
               numero_autorizacion: 'KEY-003',
+              documento_paciente: null,
               codigo_medicamento: 'PROD-3',
               cantidad: 8,
               fecha_asignacion: '2026-11-01',
@@ -483,6 +486,7 @@ describe(
 
         const exported = await service.purchaseOrderCandidates(scope);
         expect(exported.filename).toBe('AUTO-para-generar-OC.xlsx');
+        expect(exported.rowCount).toBe(3);
 
         const workbook = XLSX.read(exported.content, { type: 'buffer' });
         const sheet = workbook.Sheets['ORDENES_COMPRA'];
@@ -492,6 +496,7 @@ describe(
         expect(matrix[0]).toEqual([
           'CLAVE_AUTORIZACION_ORIGEN',
           'CLAVE_AUTORIZACION_DESTINO',
+          'DOCUMENTO PACIENTE',
           'OC',
           'CODIGO_PRODUCTO',
           'CANTIDAD',
@@ -503,6 +508,7 @@ describe(
         expect(matrix[1]).toEqual([
           '',
           'KEY-001|PROD-1',
+          '00123456',
           '',
           'PROD-1',
           10,
@@ -513,6 +519,7 @@ describe(
         expect(matrix[2]).toEqual([
           '',
           'KEY-002|PROD-2',
+          '00123456',
           '',
           'PROD-2',
           7,
@@ -521,7 +528,13 @@ describe(
           'Medellín',
         ]);
         expect(matrix[3]?.[1]).toBe('KEY-003|PROD-3');
+        expect(matrix[3]?.[2] ?? '').toBe('');
         expect(matrix).toHaveLength(4);
+        const documentCell = sheet?.['C2'] as
+          | { t?: string; v?: unknown }
+          | undefined;
+        expect(documentCell?.t).toBe('s');
+        expect(documentCell?.v).toBe('00123456');
         expect(matrix.some((row) => row[1] === 'KEY-004|PROD-4')).toBe(false);
         const metadata = XLSX.utils.sheet_to_json<unknown[]>(
           workbook.Sheets['METADATA']!, { header: 1 },
@@ -531,6 +544,10 @@ describe(
         expect(String(metadata[3]?.[1])).toContain('hoy + 20 días');
         expect(String(metadata[3]?.[1])).toContain('días 1 a 5 de gracia');
         expect(query.mock.calls[0]?.[1]).toEqual([scope.organizationId]);
+        expect(query).toHaveBeenCalledTimes(1);
+        const sql = String(query.mock.calls[0]?.[0]).replace(/\s+/g, ' ').toLowerCase();
+        expect(sql).toContain('left join patients patient on patient.id = ai.patient_id');
+        expect(sql).toContain('patient.identification_value_raw as documento_paciente');
       },
     );
   },
@@ -558,8 +575,8 @@ describe('ExportablesService purchaseOrderCandidates PUNTO SQL', () => {
     const values = XLSX.utils.sheet_to_json<unknown[]>(
       workbook.Sheets['ORDENES_COMPRA']!, { header: 1 },
     );
-    expect(values[0]?.[7]).toBe('PUNTO');
-    expect(values[1]?.[7]).toBe('CHAPINERO');
+    expect(values[0]?.[8]).toBe('PUNTO');
+    expect(values[1]?.[8]).toBe('CHAPINERO');
 
     const sql = String(query.mock.calls[0]?.[0]).replace(/\s+/g, ' ').toLowerCase();
     expect(sql).toContain('e.punto as punto');

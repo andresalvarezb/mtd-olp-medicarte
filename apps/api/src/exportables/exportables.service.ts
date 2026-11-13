@@ -82,6 +82,8 @@ type CandidateRow =
 
     numero_autorizacion: string;
 
+    documento_paciente: string | null;
+
     codigo_medicamento: string;
 
     cantidad: number;
@@ -429,6 +431,7 @@ export class ExportablesService {
               ai.id,
               ai.authorization_key,
               ai.numero_autorizacion,
+              patient.identification_value_raw as documento_paciente,
               ai.codigo_medicamento,
               case
                 when scheduled_point.point_count > 0 then
@@ -620,6 +623,9 @@ export class ExportablesService {
             from
               authorization_items ai
 
+            left join patients patient
+              on patient.id = ai.patient_id
+
             left join lateral (
               select
                 product.minimum_quantity
@@ -793,6 +799,7 @@ export class ExportablesService {
           select
             e.authorization_key,
             e.numero_autorizacion,
+            e.documento_paciente,
             e.codigo_medicamento,
             e.punto as punto,
             purchase_balance.remaining_quantity
@@ -1030,6 +1037,7 @@ export class ExportablesService {
           [
             'CLAVE_AUTORIZACION_ORIGEN',
             'CLAVE_AUTORIZACION_DESTINO',
+            'DOCUMENTO PACIENTE',
             'OC',
             'CODIGO_PRODUCTO',
             'CANTIDAD',
@@ -1043,6 +1051,8 @@ export class ExportablesService {
               '',
 
               row.authorization_key,
+
+              row.documento_paciente ?? '',
 
               '',
 
@@ -1071,6 +1081,10 @@ export class ExportablesService {
         {
           wch:
             38,
+        },
+        {
+          wch:
+            24,
         },
         {
           wch:

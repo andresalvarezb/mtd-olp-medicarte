@@ -313,6 +313,30 @@ describe(
       },
     );
 
+    it('acepta DOCUMENTO PACIENTE informativo en la columna C', async () => {
+      const { instance, query } = service();
+      const buffer = workbook([
+        [
+          'CLAVE_AUTORIZACION_ORIGEN',
+          'CLAVE_AUTORIZACION_DESTINO',
+          'DOCUMENTO PACIENTE',
+          'OC',
+          'CODIGO_PRODUCTO',
+          'CANTIDAD',
+          'FECHA_ASIGNACION',
+          'FECHA_FINAL_VIGENCIA',
+          'PUNTO',
+        ],
+        ['', 'KEY-001|PROD-1', '00123456', '', 'PROD-1', 1, '', '', 'Bogotá'],
+      ]);
+
+      const result = await instance.import(uploaded(buffer), scope);
+
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0]?.authorizationKey).toBe('KEY-001|PROD-1');
+      expect(result.results[0]?.errorCode).toBe('PURCHASE_ORDER_CODE_REQUIRED');
+      expect(query).not.toHaveBeenCalled();
+    });
 
     it(
       'rechaza cantidad cero sin tocar base de datos',
