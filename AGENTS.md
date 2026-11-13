@@ -12,6 +12,9 @@
 - Usar `requirements-implementation` al desarrollar un requerimiento aprobado; no para documentarlo, revisarlo o estimarlo sin cambios.
 - Usar `patient-master-integrity` cuando cambien la identidad maestra de pacientes, sus enlaces históricos, backfill/conciliación, sincronización MTDOM o consumidores migrados bajo RF-PAC-001/RF-PAC-002; no por rutas que solo incluyan `patient`.
 - Usar `purchase-fulfillment-integrity` cuando cambien estados, cantidades o enlaces entre autorizaciones, órdenes, recepciones, inventario, asignaciones y consumos, incluidos imports o conciliaciones de esa cadena.
+- Usar `financial-integrity` cuando cambien cuotas moderadoras, recaudos, devoluciones, saldos, eventos o conciliaciones financieras; no por logística o presentación sin efecto financiero.
+- Usar `exportables-contract-integrity` cuando cambien columnas, filas, fuentes, filtros o formatos de exportables Excel/CSV; no por consultas ajenas al archivo.
+- Usar `production-data-safety` para diagnosticar o proponer correcciones de registros productivos; no por SELECT explicativos ni pruebas sintéticas. La skill no autoriza conexión a producción ni SQL de modificación.
 - Usar `rbac-point-scope` cuando cambien enforcement o visibilidad por identidad, roles, organizaciones, puntos, listados, recursos por id u operaciones masivas.
 - Usar `drizzle-schema-safety` para cambios persistentes en `schema.ts`, migraciones, constraints, índices, seeds versionados o catálogo; no por una consulta SQL aislada.
 - Usar `local-test-environments` al preparar, reutilizar, coordinar en paralelo o limpiar entornos locales de integración con servicios compartidos; no para pruebas unitarias, CI, `prodshadow` ni despliegues remotos.

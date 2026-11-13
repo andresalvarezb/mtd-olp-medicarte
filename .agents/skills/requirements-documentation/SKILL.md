@@ -9,9 +9,9 @@ description: Documenta, aclara o actualiza requerimientos funcionales de Medicar
 
 1. Inspecciona `git status --short --branch`, `AGENTS.md` y `docs/requirements/`. Conserva cambios locales y busca primero el documento por ID antes de crear otro.
 2. Reúne evidencia selectiva: abre `docs/flujo-mtd.md`, requerimientos relacionados y solo las rutas de código o contratos necesarias para distinguir comportamiento vigente de intención nueva. No hagas una exploración general del repositorio.
-3. Redacta el cambio mínimo en `docs/requirements/<ID>-<slug>.md`. Separa con claridad objetivo, alcance, actores, reglas e invariantes, criterios de aceptación observables, fuera de alcance, decisiones pendientes y evidencia técnica cuando aplique. Conserva el estilo útil del documento existente en vez de imponer una plantilla rígida.
+3. Redacta el cambio mínimo en `docs/requirements/<ID>-<slug>.md`. Distingue comportamiento existente, defecto observado, regla nueva aprobada y decisión pendiente; separa objetivo, alcance, actores, criterios de aceptación observables y fuera de alcance cuando aporten claridad. Conserva el estilo útil del documento existente en vez de imponer una plantilla rígida o repetir reglas ya enlazadas.
 4. No presentes como implementada una regla que solo está aprobada. Detecta contradicciones con otros documentos y resuélvelas únicamente cuando exista una decisión explícita; de lo contrario, enlázalas como pendientes.
-5. Activa las skills locales de dominio si el requerimiento toca flujo de compra/entrega, RBAC/puntos o esquema persistente. Úsalas para formular invariantes y riesgos, no para implementar el requerimiento.
+5. Activa las skills locales de dominio solo por la frontera realmente afectada. Úsalas para contrastar invariantes y riesgos, sin convertir inferencias técnicas en decisiones funcionales.
 6. Revisa enlaces, IDs, fechas, ejemplos y trazabilidad; ejecuta `git diff --check` y confirma que el diff no contiene código ni documentos ajenos al alcance.
 
 **Finaliza cuando:** el documento permite implementar y probar sin inventar reglas, las decisiones pendientes están visibles y se informan archivos cambiados y validaciones realizadas.

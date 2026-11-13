@@ -14,4 +14,4 @@
 - Bulk/imports: revisar `apps/api/src/bulk-imports/` y servicios `*-bulk.service.ts`; definir rechazo total o parcial y revalidar cada fila al escribir.
 - Workers/jobs: comprobar que el actor o scope se propague y que una ejecución diferida no reutilice grants revocados.
 
-Buscar endpoints y repositorios con `rg -n "<recurso|permiso|scope>" apps/api/src packages`. Ejecutar pruebas enfocadas con `pnpm --filter @authorization/api test -- <ruta.test.ts>` y `pnpm typecheck` si cambia el contrato. Una comprobación de UI no sustituye la restricción SQL.
+Buscar endpoints y repositorios con `rg -n "<recurso|permiso|scope>" apps/api/src packages`. Ejecutar `pnpm.cmd test:focused -- apps/api/src/ruta/archivo.test.ts` en PowerShell y typecheck si cambia el contrato. Una comprobación de UI no sustituye la restricción SQL.
