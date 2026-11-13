@@ -8,7 +8,16 @@ import { currentBogotaDate } from '@authorization/domain';
 import type { Scope } from '../../apps/api/src/common/request-scope';
 import { InventoryAvailabilityRepository } from '../../apps/api/src/inventory/inventory-availability.repository';
 import { ORGANIZATION_IDS } from './helpers/auth';
+import { AccessService } from '../../apps/api/src/identity/access.service';
+import { InventoryAvailabilityReconciliationService } from '../../apps/api/src/inventory/inventory-availability-reconciliation.service';
 
+const integrationTarget = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid');
+if (
+  !['localhost', '127.0.0.1'].includes(integrationTarget.hostname) ||
+  integrationTarget.pathname !== '/authorization_test_integration'
+) {
+  throw new Error('AUTO_AVAILABILITY_TEST_REFUSES_NONLOCAL_OR_NONTEST_DATABASE');
+}
 const database = createDatabase(process.env.DATABASE_URL!);
 const repository = new InventoryAvailabilityRepository(database);
 const suffix = randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase();
@@ -189,7 +198,7 @@ afterAll(async () => {
   }
 });
 
-describe('automatic assignment of available inventory', () => {
+describe.sequential('automatic assignment of available inventory', () => {
   it('completes one AUTO from multiple OCs in FEFO order and does not duplicate on replay', async () => {
     const first = await database.db.transaction((tx) =>
       repository.assignAutomaticallyInTx(tx, scope(), 'STOCK_BECAME_AVAILABLE', {
@@ -263,4 +272,84 @@ describe('automatic assignment of available inventory', () => {
     );
     expect(count.rows[0]?.count).toBe(4);
   });
+  it('reconciles pre-existing stock without a receipt event, previews without writes, and survives concurrent replay', async () => {
+    // This fixture is synthetic and belongs only to the guarded integration database.
+    // Release its prior test reservations, never production allocations.
+    await database.pool.query(
+      `update inventory_authorization_allocations
+       set released_quantity = allocated_quantity, status = 'RELEASED',
+           updated_by = $2, updated_at = now()
+       where authorization_item_id = $1 and consumed_quantity = 0`,
+      [authorizationItemId, userId],
+    );
+    const reconciliation = new InventoryAvailabilityReconciliationService(repository, new AccessService(database));
+    const actor = { userId, organizationId: ORGANIZATION_IDS.MTD, correlationId };
+    const options = { commercialCodes: [product], dispensingPointIds: [pointId], limit: 1 };
+
+    const fingerprint = async () => {
+      const result = await database.pool.query<{ snapshot: unknown }>(
+        `select jsonb_build_object(
+           'allocations', (select jsonb_agg(to_jsonb(a) order by a.id)
+             from inventory_authorization_allocations a where a.authorization_item_id = $1),
+           'batches', (select jsonb_agg(to_jsonb(b) order by b.id)
+             from inventory_allocation_batches b where b.correlation_id = $2),
+           'auditCount', (select count(*) from audit_events where correlation_id = $2),
+           'receipts', (select jsonb_agg(to_jsonb(r) order by r.id)
+             from purchase_order_receipts r where r.purchase_order_id = any($3::uuid[])),
+           'orderLines', (select jsonb_agg(to_jsonb(l) order by l.id)
+             from purchase_order_lines l where l.purchase_order_id = any($3::uuid[]))
+         ) as snapshot`,
+        [authorizationItemId, correlationId, purchaseOrderIds],
+      );
+      return result.rows[0]!.snapshot;
+    };
+    const beforePreview = await fingerprint();
+    const preview = await reconciliation.runPage(actor, { ...options, dryRun: true });
+    expect(preview).toMatchObject({
+      dryRun: true, failed: 0, assignedQuantity: 0, plannedQuantity: 6, hasMore: false, nextCursor: null,
+    });
+    expect(preview.items[0]).toMatchObject({
+      commercialCode: product, status: 'PREVIEWED',
+      result: { requests: [
+        { authorizationKey, purchaseOrderCode: orderCodes[0], quantity: 2 },
+        { authorizationKey, purchaseOrderCode: orderCodes[1], quantity: 4 },
+      ] },
+    });
+    expect(await fingerprint()).toEqual(beforePreview);
+
+    const runs = await Promise.all([
+      reconciliation.runPage(actor, { ...options, dryRun: false }),
+      reconciliation.runPage(actor, { ...options, dryRun: false }),
+    ]);
+    expect(runs.reduce((sum, result) => sum + result.failed, 0)).toBe(0);
+    expect(runs.reduce((sum, result) => sum + result.assignedQuantity, 0)).toBe(6);
+    const allocations = await database.pool.query<{ purchase_order_code: string; quantity: number }>(
+      `select po.purchase_order_code,
+              sum(a.allocated_quantity - a.consumed_quantity - a.released_quantity)::int as quantity
+       from inventory_authorization_allocations a
+       join purchase_orders po on po.id = a.purchase_order_id
+       where a.authorization_item_id = $1 and a.status in ('ALLOCATED', 'PARTIALLY_CONSUMED')
+       group by po.purchase_order_code order by po.purchase_order_code`,
+      [authorizationItemId],
+    );
+    expect(allocations.rows).toEqual([
+      { purchase_order_code: orderCodes[0], quantity: 2 },
+      { purchase_order_code: orderCodes[1], quantity: 4 },
+    ]);
+    const replay = await reconciliation.runPage(actor, { ...options, dryRun: false });
+    expect(replay).toMatchObject({ failed: 0, assignedQuantity: 0 });
+    const audit = await database.pool.query<{ count: number }>(
+      `select count(*)::int as count from audit_events
+       where correlation_id = $1 and action = 'INVENTORY_AVAILABILITY_ASSIGNED'
+         and after ->> 'source' = 'AUTO'
+         and after ->> 'trigger' = 'AVAILABILITY_RECONCILIATION'`,
+      [correlationId],
+    );
+    expect(audit.rows[0]!.count).toBe(1);
+    const afterExecute = await fingerprint() as Record<string, unknown>;
+    const before = beforePreview as Record<string, unknown>;
+    expect(afterExecute.receipts).toEqual(before.receipts);
+    expect(afterExecute.orderLines).toEqual(before.orderLines);
+  }, 30_000);
+
 });

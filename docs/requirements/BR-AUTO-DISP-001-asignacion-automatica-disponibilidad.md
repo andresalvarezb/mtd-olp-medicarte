@@ -1,6 +1,6 @@
 # BR-AUTO-DISP-001 — Asignación automática de producto disponible a AUTOs
 
-**Estado:** reglas aprobadas; implementación incluida en la rama de funcionalidad y PR pendiente de revisión.
+**Estado:** asignador base integrado en PR #154; complemento de reconciliación sujeto a revisión, pruebas y activación controlada.
 **Fecha:** 2026-11-12.
 
 ## Objetivo
@@ -87,3 +87,24 @@ El punto resuelto debe coincidir exactamente con el punto donde está disponible
 La asignación manual vigente se encuentra en `apps/api/src/inventory/inventory-availability.repository.ts`, en `assignBatch()` y `resolveAssignment()`. La implementación de esta regla agrega selección automática por prioridad de vencimiento y composición de una reserva completa desde una o varias OCs; su evidencia de pruebas y revisión se mantiene en el PR.
 
 Ver [BR-AUTO-OC-001](BR-AUTO-OC-001-vigencia-para-asignacion.md), [BR-AUTO-EXP-001](BR-AUTO-EXP-001-gracia-continuidad-atencion.md) y [ADR-043](../adr/043-authorization-order-receipt-fulfillment-reassignment.md).
+
+## Complemento: disponibilidad preexistente y reevaluación periódica
+
+La ausencia de un evento nuevo no debe dejar indefinidamente sin evaluar stock recibido
+antes del despliegue. Se agrega una conciliación explícita y periódica que reutiliza el
+asignador y sus reglas originales. No altera reservas existentes ni cantidades consumidas.
+
+Criterios adicionales de aceptación:
+
+12. El stock preexistente puede asignarse sin fabricar una recepción o editar una AUTO.
+13. La simulación se ejecuta en una transacción READ ONLY y muestra el plan sin persistirlo.
+14. El barrido pagina productos completos, sin dividir artificialmente sus OCs fuente.
+15. La repetición y concurrencia de barridos no duplican reservas; fallos y productos
+    ocupados se reportan y se reevaluan, no se presentan como éxito.
+16. El actor del scheduler se configura explícitamente y conserva permisos reales;
+    no se crean administradores ni se elevan alcances para ejecutar la conciliación.
+17. El scheduler se entrega desactivado. Su activación de escritura requiere validación
+    de la simulación y aprobación operativa; el merge no constituye esa aprobación.
+
+Diseño, variables, pruebas y operación:
+[Reconciliación de disponibilidad](../operations/auto-availability-reconciliation.md).

@@ -54,6 +54,8 @@ import { ReceivedAllocationBackfillBootstrapService } from './receipts/received-
 import { InventoryController } from './inventory/inventory.controller';
 import { InventoryAvailabilityController } from './inventory/inventory-availability.controller';
 import { InventoryAvailabilityRepository } from './inventory/inventory-availability.repository';
+import { InventoryAvailabilityReconciliationController } from './inventory/inventory-availability-reconciliation.controller';
+import { InventoryAvailabilityReconciliationService } from './inventory/inventory-availability-reconciliation.service';
 import { InventoryAvailabilityService } from './inventory/inventory-availability.service';
 import { InventoryRepository } from './inventory/inventory.repository';
 import { InventoryService } from './inventory/inventory.service';
@@ -193,6 +195,7 @@ new Gauge({
     ]),
   ],
   controllers: [
+    InventoryAvailabilityReconciliationController,
     MipresRecheckController,
     DispensationImportController,
     AuthController,
@@ -240,6 +243,7 @@ new Gauge({
     ...(config.NODE_ENV === 'production' ? [] : [FoundationController]),
   ],
   providers: [
+    InventoryAvailabilityReconciliationService,
     MipresRecheckService,
     DispensationImportService,
     AuthGuard,

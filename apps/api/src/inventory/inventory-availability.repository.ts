@@ -10,6 +10,11 @@ import { applyPointScope, lockActivePointGrants } from '../common/point-scope.sq
 
 import { DATABASE } from '../tokens';
 import { REALTIME_AUDIENCE, realtimeInvalidationSql } from '../common/realtime-outbox';
+import type {
+  AutomaticAssignmentOutcome,
+  AutomaticReconciliationOptions,
+  AutomaticReconciliationProductResult,
+} from './inventory-availability-reconciliation.contract';
 
 import {
   calculateAssignableAvailability,
@@ -32,7 +37,8 @@ export type InventoryAvailabilityTransaction = Tx;
 export type AutomaticAssignmentTrigger =
   | 'STOCK_BECAME_AVAILABLE'
   | 'RESERVATION_RELEASED'
-  | 'AUTHORIZATION_ENABLED';
+  | 'AUTHORIZATION_ENABLED'
+  | 'AVAILABILITY_RECONCILIATION';
 
 type AutomaticAssignmentFilters = Readonly<{
   commercialCodes: readonly string[];
@@ -1288,18 +1294,114 @@ export class InventoryAvailabilityRepository {
     });
   }
 
+  /** Discover received products, not AUTO-OC commercial links. Physical balances are rechecked below. */
+  async listAutomaticReconciliationProducts(options: AutomaticReconciliationOptions) {
+    const filter = options.commercialCodes
+      ? sql`AND received.commercial_code IN (${sql.join(options.commercialCodes.map((code) => sql`${code}`), sql`, `)})`
+      : sql``;
+    const cursor = options.cursor
+      ? sql`AND received.commercial_code COLLATE "C" > ${options.cursor} COLLATE "C"`
+      : sql``;
+    return this.database.db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL statement_timeout = '15000'`);
+      const result = await tx.execute<{ commercial_code: string }>(sql`
+        WITH received AS (
+          SELECT pol.commercial_code
+          FROM purchase_order_receipt_lines porl
+          JOIN purchase_order_receipts por ON por.id = porl.receipt_id
+          JOIN purchase_order_lines pol ON pol.id = porl.purchase_order_line_id
+          JOIN purchase_orders po ON po.id = por.purchase_order_id
+          WHERE por.confirmed_at IS NOT NULL AND porl.received_quantity > 0
+            AND po.status NOT IN ('CANCELLED', 'REJECTED')
+          UNION
+          SELECT dl.commercial_code
+          FROM inventory_movements im
+          JOIN receipt_lines rl ON rl.id = im.source_id
+          JOIN receipts r ON r.id = rl.receipt_id
+          JOIN delivery_lines dl ON dl.id = rl.delivery_line_id
+          JOIN deliveries d ON d.id = dl.delivery_id
+          JOIN purchase_orders po ON po.id = d.purchase_order_id
+          WHERE im.movement_type = 'RECEIPT' AND im.source_type = 'RECEIPT_LINE'
+            AND im.quantity_delta > 0 AND r.status = 'CONFIRMED'
+            AND po.status NOT IN ('CANCELLED', 'REJECTED')
+        )
+        SELECT DISTINCT received.commercial_code COLLATE "C" AS commercial_code
+        FROM received
+        WHERE received.commercial_code IS NOT NULL
+          AND BTRIM(received.commercial_code) <> ''
+          ${filter} ${cursor}
+        ORDER BY commercial_code
+        LIMIT ${options.limit + 1}
+      `);
+      const commercialCodes = result.rows.slice(0, options.limit).map((row) => row.commercial_code);
+      const hasMore = result.rows.length > options.limit;
+      return {
+        commercialCodes,
+        hasMore,
+        nextCursor: hasMore ? commercialCodes[commercialCodes.length - 1] ?? null : null,
+      };
+    }, { accessMode: 'read only' });
+  }
+
+  async reconcileAutomaticProduct(
+    scope: Scope,
+    commercialCode: string,
+    options: AutomaticReconciliationOptions,
+  ): Promise<AutomaticReconciliationProductResult> {
+    return this.database.db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL statement_timeout = '15000'`);
+      await tx.execute(sql`SET LOCAL lock_timeout = '2000'`);
+      if (!options.dryRun) {
+        // This additional lock coordinates reconcilers only. Existing receipt/assignment
+        // locks remain authoritative and are still acquired by assignBatchInTx().
+        const lock = await tx.execute<{ locked: boolean }>(sql`
+          SELECT pg_try_advisory_xact_lock(hashtextextended(
+            ${`AUTO_AVAILABILITY_RECONCILIATION:${commercialCode}`}, 0::bigint
+          )) AS locked
+        `);
+        if (lock.rows[0]?.locked !== true) {
+          return {
+            status: 'BUSY',
+            result: { assignedQuantity: 0, assignedAuthorizationKeys: [], unmatchedStock: [] },
+          };
+        }
+      }
+      const result = await this.assignAutomaticallyInTx(tx, scope, 'AVAILABILITY_RECONCILIATION', {
+        commercialCodes: [commercialCode],
+        ...(options.dispensingPointIds ? { dispensingPointIds: options.dispensingPointIds } : {}),
+      }, {
+        dryRun: options.dryRun,
+        deadlineAtMs: Date.now() + 20_000,
+      });
+      return {
+        status: options.dryRun ? 'PREVIEWED' : result.assignedQuantity > 0 ? 'ASSIGNED' : 'UNCHANGED',
+        result,
+      };
+    }, {
+      accessMode: options.dryRun ? 'read only' : 'read write',
+      isolationLevel: options.dryRun ? 'repeatable read' : 'read committed',
+    });
+  }
+
   async assignAutomaticallyInTx(
     tx: InventoryAvailabilityTransaction,
     scope: Scope,
     trigger: AutomaticAssignmentTrigger,
     filters: AutomaticAssignmentFilters,
-  ) {
+    options: Readonly<{ dryRun?: boolean; deadlineAtMs?: number }> = {},
+  ): Promise<AutomaticAssignmentOutcome> {
+    const checkBudget = () => {
+      if (options.deadlineAtMs !== undefined && Date.now() > options.deadlineAtMs) {
+        throw new Error('INVENTORY_AUTO_RECONCILIATION_PLANNING_TIMEOUT');
+      }
+    };
     const commercialCodes = [...new Set(filters.commercialCodes.map((code) => code.trim()).filter(Boolean))];
     if (commercialCodes.length === 0) {
       return { assignedQuantity: 0, assignedAuthorizationKeys: [], unmatchedStock: [] };
     }
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      checkBudget();
       const sourceRows = await this.loadAutomaticAvailabilitySources(
         tx,
         scope,
@@ -1314,6 +1416,7 @@ export class InventoryAvailabilityRepository {
       const unresolvedPointCounts = new Map<string, number>();
       const candidates: AutomaticAssignmentCandidate[] = [];
       for (const candidate of rawCandidates) {
+        checkBudget();
         let dispensingPointId: string;
         try {
           dispensingPointId = await this.resolveAuthorizationDispensingPoint(
@@ -1362,6 +1465,20 @@ export class InventoryAvailabilityRepository {
             ? 'NO_MATCHING_POINT' as const
             : unmatched.reason,
       }));
+
+      checkBudget();
+      // Return before audit, SAVEPOINT or assignment. The caller also enforces READ ONLY.
+      if (options.dryRun === true) {
+        return {
+          dryRun: true,
+          assignedQuantity: 0,
+          assignedAuthorizationKeys: [],
+          plannedQuantity: plan.requests.reduce((total, request) => total + request.quantity, 0),
+          plannedAuthorizationKeys: plan.assignedAuthorizationKeys,
+          requests: plan.requests,
+          unmatchedStock,
+        };
+      }
 
       if (plan.requests.length === 0) {
         for (const unmatched of unmatchedStock) {
