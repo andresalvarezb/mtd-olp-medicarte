@@ -10,8 +10,9 @@ description: Protege estados, cantidades y enlaces en la cadena autorización �
 1. Lee `references/evidence.md` y abre la implementación, contratos y pruebas vigentes del tramo afectado.
 2. Mapea origen, autoridad y transición de cada dato. No equipares orden, entrega, recepción, reserva/asignación y consumo.
 3. Identifica `DIRECT_RECEIPT` o `LOT_LEDGER`; no mezcles fuentes ni actualices ambos por conveniencia.
-4. Para imports, verifica validación, deduplicación, idempotencia y enlaces creados. Para conciliaciones, distingue detección, reparación autorizada y auditoría.
-5. Conserva transacciones, locks, límites acumulados, compatibilidad histórica y significado de `received`, `accepted`, `allocated`, `consumed` y `fulfilled`.
-6. Usa `rg` para consumidores y ejecuta las pruebas enfocadas indicadas en la referencia; amplía a typecheck o suite API según el riesgo.
+4. Para asignación automática de OC, contrasta `BR-AUTO-DISP-001`: stock físico libre por OC/producto/punto, prioridad de vencimiento, reserva completa de una AUTO y revalidación dentro de transacción. Distingue snapshot comercial de OC, reserva física activa y asignación histórica; ni consumo ni reasignación liberan por sí mismos unidades ya consumidas. Comprueba liberación de capacidad y continuidad de reservas con la regla vigente de vencimiento.
+5. Para imports y eventos repetidos, verifica validación, deduplicación, idempotencia y enlaces creados. Para conciliaciones, distingue detección, reparación autorizada y auditoría.
+6. Conserva transacciones, locks, límites acumulados, compatibilidad histórica y significado de `received`, `accepted`, `allocated`, `released`, `consumed` y `fulfilled`. Prueba reintentos y carreras por las mismas unidades.
+7. Usa `rg` para consumidores y ejecuta las pruebas enfocadas indicadas en la referencia; amplía a typecheck o suite API según el riesgo. Si cruza acceso, finanzas o datos reales, aplica las fronteras de `AGENTS.md`.
 
 **Finaliza cuando:** la cadena y sus invariantes están documentadas, cada cambio tiene prueba enfocada, no quedan cantidades o modos ambiguos y se reportan comandos ejecutados y tramos no cubiertos. Nunca pruebes contra producción.

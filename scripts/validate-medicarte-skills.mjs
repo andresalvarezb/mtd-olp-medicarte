@@ -6,8 +6,11 @@ import path from 'node:path';
 const root = process.cwd();
 const skills = [
   'drizzle-schema-safety',
+  'exportables-contract-integrity',
+  'financial-integrity',
   'local-test-environments',
   'patient-master-integrity',
+  'production-data-safety',
   'purchase-fulfillment-integrity',
   'rbac-point-scope',
   'requirements-documentation',
@@ -15,6 +18,8 @@ const skills = [
 ];
 const evidenceSkills = new Set([
   'drizzle-schema-safety',
+  'exportables-contract-integrity',
+  'financial-integrity',
   'purchase-fulfillment-integrity',
   'rbac-point-scope',
 ]);
@@ -25,6 +30,16 @@ const retiredSkills = [
 ];
 const failures = [];
 const posix = (p) => p.replaceAll('\\', '/');
+const skillRoot = path.join(root, '.agents/skills');
+const actualSkills = fs.readdirSync(skillRoot, { withFileTypes: true });
+for (const entry of actualSkills) {
+  if (entry.isSymbolicLink() || !entry.isDirectory() || !skills.includes(entry.name))
+    failures.push(`Skill inesperada o insegura en .agents/skills: ${entry.name}`);
+}
+for (const skill of skills) {
+  if (!actualSkills.some((entry) => entry.name === skill && entry.isDirectory()))
+    failures.push(`Falta directorio .agents/skills/${skill}`);
+}
 function checkFile(relative) {
   const p = path.join(root, relative);
   try {
@@ -57,7 +72,15 @@ for (const skill of skills) {
     const name = match[1].match(/^name:\s*(.*)$/m)?.[1]?.trim();
     const description = match[1].match(/^description:\s*(.*)$/m)?.[1]?.trim();
     if (name !== skill) failures.push(`${dir}: name debe coincidir con el directorio`);
-    if (!description || description.length < 20) failures.push(`${dir}: description incompleta`);
+    if (!description || description.length < 20 || description.length > 500 || description.startsWith('"') !== description.endsWith('"'))
+      failures.push(`${dir}: description inválida o incompleta`);
+    if (match[1].split(/\r?\n/).some((line) => line.trim() && !/^(name|description):\s*.+$/.test(line)))
+      failures.push(`${dir}: frontmatter con campo o sintaxis no admitidos`);
+  }
+  for (const link of source.matchAll(/\]\((references\/[^)]+\.md)\)|`(references\/[^`\r\n]+\.md)`/g)) {
+    const relative = link[1] ?? link[2];
+    if (relative.includes('..') || path.isAbsolute(relative)) failures.push(`${dir}: referencia insegura ${relative}`);
+    else checkFile(`${dir}/${relative}`);
   }
   if (evidenceSkills.has(skill) && !source.includes('references/evidence.md'))
     failures.push(`${dir}: SKILL.md no enlaza evidence.md`);
@@ -71,12 +94,15 @@ for (const skill of skills) {
 }
 const rootInstructions = checkFile('AGENTS.md');
 const guide = checkFile('docs/ai/medicarte-skills.md');
+const evaluationGuide = checkFile('docs/ai/medicarte-skills-evaluation.md');
 const workflow = checkFile('.github/workflows/medicarte-skills.yml');
 for (const skill of skills) {
   if (!rootInstructions.includes(skill)) failures.push(`AGENTS.md no referencia ${skill}`);
-  if (evidenceSkills.has(skill) && !guide.includes(skill))
+  if (!guide.includes(skill))
     failures.push(`docs/ai/medicarte-skills.md no referencia ${skill}`);
 }
+if (!evaluationGuide.includes('diez skills') || !guide.includes('diez skills'))
+  failures.push('Inventario documental no declara diez skills');
 if (!rootInstructions.includes('develop')) failures.push('AGENTS.md no declara develop');
 for (const [label, source] of [
   ['AGENTS.md', rootInstructions],
@@ -131,17 +157,21 @@ if (evaluation) {
   const ids = new Set();
   const categories = new Set();
   const positiveCoverage = new Set();
+  const combinedCoverage = new Set();
+  let negativeCount = 0;
   for (const item of cases) {
     if (!item?.id || ids.has(item.id))
       failures.push(`Caso de evaluacion sin id unico: ${item?.id ?? '<vacio>'}`);
     ids.add(item?.id);
     categories.add(item?.category);
+    if (item?.category === 'negative') negativeCount++;
     if (!Array.isArray(item?.expectedSkills))
       failures.push(`${item?.id}: expectedSkills debe ser una lista`);
     else {
       for (const expected of item.expectedSkills) {
         if (!skills.includes(expected)) failures.push(`${item.id}: skill desconocida ${expected}`);
         if (item.category === 'positive') positiveCoverage.add(expected);
+        if (item.category === 'combined') combinedCoverage.add(expected);
       }
       if (item.shouldTrigger !== item.expectedSkills.length > 0)
         failures.push(`${item.id}: shouldTrigger no coincide con expectedSkills`);
@@ -156,6 +186,10 @@ if (evaluation) {
   }
   for (const skill of skills) {
     if (!positiveCoverage.has(skill)) failures.push(`Falta caso positivo para ${skill}`);
+  }
+  if (negativeCount < 3) failures.push('Faltan controles negativos variados');
+  for (const skill of ['exportables-contract-integrity', 'rbac-point-scope', 'financial-integrity', 'production-data-safety']) {
+    if (!combinedCoverage.has(skill)) failures.push(`Falta caso combinado para ${skill}`);
   }
 }
 

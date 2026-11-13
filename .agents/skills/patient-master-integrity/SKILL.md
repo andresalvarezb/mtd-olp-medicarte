@@ -20,6 +20,7 @@ No inferir que RF-PAC-002 habilita la sincronización incremental ni un horario 
 ## Invariantes específicas de pacientes
 
 1. La clave verificada es compuesta `(tipo_identificacion, identificacion)`. No quitar ceros ni colapsar tipos/separadores hasta aprobar reglas compatibles con las fuentes reales. No asignar una identidad canónica a componentes faltantes, contradictorios o ambiguos.
+   Contrastar homologación de tipo y número en contratos MTDOM, importador, backfill y pruebas; no usar documento aislado como identidad.
 2. `authorization_items.patient_id` debe ser nullable durante la transición. `authorization_items.source_data` y las claves/autorizaciones históricas se conservan como evidencia; el enlace nuevo no reemplaza esas fuentes ni las relaciones operacionales.
 3. Crear/reutilizar pacientes de manera idempotente aun con confirmaciones concurrentes. Backfill enlaza solo coincidencias únicas verificadas; los casos faltantes, en conflicto, `404` o `409` quedan pendientes de conciliación. Ningún fallo de identidad elimina o revierte una autorización.
 4. La llamada HTTP a MTDOM es asíncrona y queda fuera de la transacción de confirmación/importación. Rechazar respuestas cuya identidad no corresponda a la solicitada. Reprocesar es seguro; el checkpoint no avanza hasta persistir todas las páginas y `next_cursor` se trata como opaco.
@@ -27,6 +28,7 @@ No inferir que RF-PAC-002 habilita la sincronización incremental ni un horario 
 6. En consumidores, preservar equivalencia para filas enlazadas y `patient_id = NULL`, incluidos fallback y prioridad `programación activa → punto predeterminado → mapeo AT`. Nunca derivar punto de dirección o geografía ni reemplazar claves de trazabilidad.
 7. OLP no accede al maestro. La ficha requiere permiso específico y enforcement de servidor por rol, organización y punto; leer una autorización relacionada no concede acceso automático a la ficha.
 8. No habilitar perfil `personal` fuera de la autorización contextual permitida por RF-PAC-002 ni antes de los gates aplicables. No consumir `/v1/patients/changes` sin un requerimiento versionado que revoque explícitamente la prohibición vigente y autorice el alcance de datos. No registrar secretos ni PII en logs, métricas, fixtures o reportes.
+9. En lookup puntual, verificar identidad solicitada, autorización visible y alcance antes de consultar MTDOM; persistir solo campos locales aprobados y minimizar respuesta, cachés y trazas. Cualquier activación de sincronización requiere gate versionado, alcance y evidencia de pruebas; no habilitar jobs por una variable o horario inferidos.
 
 ## Verificación específica y cierre
 

@@ -1,4 +1,23 @@
-# Evaluación controlada de las skills Medicarte (pendiente de ejecución real)
+# Evaluación controlada de las skills Medicarte
+
+## Inventario y alcance vigentes — 2026-11-13
+
+El inventario objetivo es de diez skills en `.agents/skills/`, descritas en `docs/ai/medicarte-skills.md`. La matriz `evals/medicarte-skills.cases.json` contiene casos positivos, negativos, ambiguos y combinados. Pasar el validador estático comprueba estructura y cobertura declarada, no activación real. Registrar nuevas pruebas CLI con versión, commit, prompt exacto y lectura observada de `SKILL.md` en la traza. `release-verification` no se crea: los workflows de GitHub y controles actuales cubren la validación de este cambio; una necesidad adicional requiere evidencia concreta.
+
+Las secciones siguientes conservan corridas históricas con su alcance y nombres de entonces. Sus resultados no se atribuyen a las diez skills actuales.
+
+## Smoke tests del inventario nuevo — 2026-11-13
+
+Codex CLI `0.169.0`; cuatro sesiones independientes con `codex exec --sandbox read-only --json` sobre `feat/agent-skills-integrity-v2`, sin mencionar el nombre de la skill en el prompt. Todas terminaron con código 0. Se inspeccionaron eventos `command_execution` que ejecutaron `Get-Content` del archivo `SKILL.md`, no menciones de la respuesta. Trazas fuera de Git en el directorio temporal de la sesión (`medicarte-skill-smoke-*.jsonl`).
+
+| Caso | Lectura real de skill Medicarte | Resultado |
+| --- | --- | --- |
+| Diagnóstico de corrección productiva | `production-data-safety/SKILL.md` | Activación observada; sin acceso a producción ni SQL ejecutado. |
+| Cambio de columnas AUTO para OC | `exportables-contract-integrity/SKILL.md` | Activación observada. |
+| Devolución de cuota moderadora | `financial-integrity/SKILL.md` | Activación observada. |
+| Control visual sin cambio de datos/contrato | Ninguna | Sin falso positivo observado. |
+
+Una repetición por caso no prueba confiabilidad general ni cubre todas las combinaciones y casos ambiguos de la matriz. No se ejecutaron pruebas A/B ni pruebas funcionales desde estas sesiones de solo lectura.
 
 > Nota histórica: las ejecuciones del 30 de octubre de 2026 anteriores al cambio de nombre
 > conservan los identificadores usados en sus trazas. Sus equivalencias actuales son
@@ -17,7 +36,7 @@
 
 ## Ensayo de descubrimiento
 
-Desde la raíz del repositorio, confirmar que existen los tres archivos `.agents/skills/*/SKILL.md`. Ejecutar una solicitud explícita de lectura, en **solo lectura**, por ejemplo:
+Desde la raíz del repositorio, confirmar que existen los diez archivos `.agents/skills/*/SKILL.md`. Ejecutar una solicitud explícita de lectura, en **solo lectura**, por ejemplo:
 
 ```bash
 codex exec --sandbox read-only --json 'Utiliza $purchase-fulfillment-integrity para identificar tres invariantes comprobables de recepción y consumo. Solo analiza, no modifiques archivos.' > codex-explicit.jsonl
@@ -25,9 +44,9 @@ codex exec --sandbox read-only --json 'Utiliza $purchase-fulfillment-integrity p
 
 Guardar el JSONL fuera de Git. La lectura o mención explícita de `SKILL.md` en la traza es evidencia de uso; la mera respuesta correcta sin una traza que demuestre lectura no prueba descubrimiento automático.
 
-## Cuatro casos de activación
+## Casos de activación
 
-Ejecutar cada prompt en una sesión nueva, sin mencionar el nombre de la skill, con modo de solo lectura y `--json`. Revisar que el caso positivo lea la skill correcta; el caso negativo **no** debería leer ninguna de las tres. Registrar las rutas visitadas y las acciones ejecutadas.
+Ejecutar cada prompt en una sesión nueva, sin mencionar el nombre de la skill, con modo de solo lectura y `--json`. Revisar lecturas reales de las skills esperadas y falsos positivos en casos negativos. Registrar las rutas visitadas y las acciones ejecutadas.
 
 ## Comparación A/B
 

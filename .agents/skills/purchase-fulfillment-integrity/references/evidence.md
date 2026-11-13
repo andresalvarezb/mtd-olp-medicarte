@@ -7,6 +7,10 @@
 - `apps/api/src/receipts/receipt-purchase-order-allocation.test.ts`
 - `apps/api/src/fulfillments/authorization-fulfillment-inventory-mode.test.ts`
 - `apps/api/src/purchase-orders/purchase-order-import-direct.service.test.ts`
+- `docs/requirements/BR-AUTO-DISP-001-asignacion-automatica-disponibilidad.md`: asignación automática y no duplicación.
+- `docs/requirements/BR-AUTO-EXP-001-gracia-continuidad-atencion.md`: vigencia y continuidad de reservas.
+- `apps/api/src/inventory/inventory-availability.repository.ts`: reserva física y asignación.
+- `apps/api/src/inventory/inventory-availability-auto-planner.test.ts`: prioridad, stock y reintentos.
 
 ## Casos condicionales
 
@@ -14,4 +18,4 @@
 - Imports de consumo: revisar `authorization-fulfillment-import.service.ts` y su prueba; confirmar que importar no invente recepción o inventario.
 - Conciliaciones: revisar `apps/api/src/reconciliation/` y separar diagnóstico, reparación, idempotencia y registro de auditoría.
 
-Buscar consumidores y contratos con `rg -n "<símbolo>" apps packages tests`. Ejecutar pruebas enfocadas con `pnpm --filter @authorization/api test -- <ruta.test.ts>` y, si cambian contratos o varios módulos, `pnpm typecheck`. Esta lista orienta; no reemplaza el análisis de impacto.
+Buscar consumidores y contratos con `rg -n "<símbolo>" apps packages tests`. Ejecutar `pnpm.cmd test:focused -- apps/api/src/ruta/archivo.test.ts` en PowerShell y typecheck si cambian contratos. Esta lista orienta; no reemplaza el análisis de impacto.
