@@ -10,6 +10,9 @@ import { InventoryAvailabilityRepository } from '../../apps/api/src/inventory/in
 import { ORGANIZATION_IDS } from './helpers/auth';
 import { AccessService } from '../../apps/api/src/identity/access.service';
 import { InventoryAvailabilityReconciliationService } from '../../apps/api/src/inventory/inventory-availability-reconciliation.service';
+import { ReceiptRepository } from '../../apps/api/src/receipts/receipt.repository';
+import type { InventoryRepository } from '../../apps/api/src/inventory/inventory.repository';
+import type { HistoricalPurchaseOrderSourceRecoveryService } from '../../apps/api/src/legacy/historical-purchase-order-source-recovery.service';
 
 const integrationTarget = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid');
 if (
@@ -174,6 +177,10 @@ afterAll(async () => {
     await database.pool.query(`delete from inventory_allocation_batches where correlation_id = $1`, [correlationId]);
     if (authorizationItemId) {
       await database.pool.query(
+        `delete from purchase_order_authorization_sources where authorization_item_id = $1`,
+        [authorizationItemId],
+      );
+      await database.pool.query(
         `delete from patient_default_dispensing_points where patient_document = any($1::text[])`,
         [[patientDocument]],
       );
@@ -272,6 +279,82 @@ describe.sequential('automatic assignment of available inventory', () => {
     );
     expect(count.rows[0]?.count).toBe(4);
   });
+  it('no duplica una AUTO cubierta cuando llega su OC original', async () => {
+    const originalCode = `AUTO-AVAIL-ORIGIN-${suffix}`;
+    await insertOrderWithReceipt({
+      code: originalCode,
+      quantity: 6,
+      expirationDate: '2027-12-31',
+    });
+
+    const originalId = purchaseOrderIds.at(-1)!;
+    const lines = await database.pool.query<{ id: string }>(
+      `select id from purchase_order_lines
+       where purchase_order_id = $1 and commercial_code = $2`,
+      [originalId, product],
+    );
+
+    await database.pool.query(
+      `insert into purchase_order_authorization_sources (
+        purchase_order_line_id, authorization_item_id,
+        projected_demand_line_id, projected_demand_revision,
+        source_quantity_snapshot
+      ) values ($1, $2, $3, 1, 6)`,
+      [lines.rows[0]!.id, authorizationItemId, randomUUID()],
+    );
+
+    const recovery = {
+      recoverForPurchaseOrder: () => Promise.resolve(),
+    } as unknown as HistoricalPurchaseOrderSourceRecoveryService;
+
+    const receipts = new ReceiptRepository(
+      database,
+      {} as unknown as InventoryRepository,
+      recovery,
+      repository,
+    );
+
+    const result = await receipts.reconcilePurchaseOrderAllocations(
+      originalId, scope(),
+    );
+    expect(result.assignedNow).toBe(0);
+    expect(result.unassignedNow).toBe(6);
+
+    const replay = await receipts.reconcilePurchaseOrderAllocations(
+      originalId, scope(),
+    );
+    expect(replay.assignedNow).toBe(0);
+
+    const balances = await database.pool.query<{
+      original_reserved: number;
+      other_reserved: number;
+    }>(
+      `select
+        (select coalesce(sum(greatest(
+          allocated_quantity-consumed_quantity-released_quantity,0
+        )),0)::int
+         from inventory_authorization_allocations
+         where authorization_item_id=$1
+           and purchase_order_id=$2
+           and status in ('ALLOCATED','PARTIALLY_CONSUMED')
+        ) as original_reserved,
+        (select coalesce(sum(greatest(
+          allocated_quantity-consumed_quantity-released_quantity,0
+        )),0)::int
+         from inventory_authorization_allocations
+         where authorization_item_id=$1
+           and purchase_order_id<>$2
+           and status in ('ALLOCATED','PARTIALLY_CONSUMED')
+        ) as other_reserved`,
+      [authorizationItemId, originalId],
+    );
+
+    expect(balances.rows[0]).toEqual({
+      original_reserved: 0,
+      other_reserved: 6,
+    });
+  });
+
   it('reconciles pre-existing stock without a receipt event, previews without writes, and survives concurrent replay', async () => {
     // This fixture is synthetic and belongs only to the guarded integration database.
     // Release its prior test reservations, never production allocations.

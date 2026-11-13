@@ -14,6 +14,7 @@ import {
   authorizationFulfillmentWindowLabel,
   canStartAuthorizationFulfillment,
 } from './authorization-fulfillment-availability';
+import { groupAuthorizationPurchaseOrders } from './authorization-purchase-order-groups';
 import { getAuthorizationModeratorFee } from '@/lib/authorization-moderator-fee-api';
 import { moderatorFeeDate, moderatorFeeMoney } from '@/lib/moderator-fee-presentation';
 
@@ -2515,6 +2516,9 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
         )
       : null;
 
+  const selectedPurchaseOrderGroups = selected
+    ? groupAuthorizationPurchaseOrders(selected)
+    : null;
 
   return (
     <>
@@ -4765,42 +4769,36 @@ const authorizationRealtimeRevision = useRealtimeRevision(['AUTHORIZATIONS']);
 
                   <div>
                     <span>
-                      OC relacionadas
+                      OC con producto reservado para entrega
                     </span>
 
-                    {selected.purchaseOrders.length >
-                      0 ? (
+                    {selectedPurchaseOrderGroups?.forDelivery.length ? (
                       <div>
-                        {selected.purchaseOrders.map(
-                          (order) => (
-                            <small
-                              key={
-                                order.id
-                              }
-                              style={{
-                                display:
-                                  'block',
-                              }}
-                            >
-                              <strong>
-                                {order.purchaseOrderCode}
-                              </strong>
-                              {' · '}
-                              {order.sourceQuantity}
-                              {' unidad(es) asociadas'}
-                              {order.availableQuantity >
-                                0
-                                ? ` · ${order.availableQuantity} disponible(s)`
-                                : ''}
-                            </small>
-                          ),
-                        )}
+                        {selectedPurchaseOrderGroups.forDelivery.map((order) => (
+                          <small key={order.id} style={{ display: 'block' }}>
+                            <strong>{order.purchaseOrderCode}</strong>
+                            {' · '}{order.availableQuantity}{' unidad(es) reservada(s)'}
+                          </small>
+                        ))}
                       </div>
                     ) : (
-                      <strong>
-                        Sin OC relacionada
-                      </strong>
+                      <strong>Sin reserva física para consumir</strong>
                     )}
+
+                    {selectedPurchaseOrderGroups?.commercialOrigins.length ? (
+                      <details style={{ marginTop: '12px' }}>
+                        <summary>OC originales (trazabilidad comercial)</summary>
+                        {selectedPurchaseOrderGroups.commercialOrigins.map((order) => (
+                          <small key={order.id} style={{ display: 'block' }}>
+                            <strong>{order.purchaseOrderCode}</strong>
+                            {' · '}{order.sourceQuantity}{' unidad(es) vinculada(s) a la compra'}
+                            {order.coveredByOtherOrder
+                              ? ' · necesidad cubierta con reserva de otra OC'
+                              : ''}
+                          </small>
+                        ))}
+                      </details>
+                    ) : null}
                   </div>
 
                   <div>
