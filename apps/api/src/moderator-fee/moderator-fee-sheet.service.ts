@@ -14,6 +14,9 @@ import { google, type sheets_v4 } from 'googleapis';
 import { API_CONFIG } from '../tokens';
 
 export type ModeratorFeeSheetRow = {
+  eventId?: string;
+  relatedEventId?: string | null;
+  netAmountCop?: string;
   /** UUID de la autorización */
   authorizationItemId: string;
 
@@ -42,7 +45,7 @@ export type ModeratorFeeSheetRow = {
   amountCop: string | null;
 
   /** Estado registrado: COLLECTED | NOT_COLLECTED */
-  status: 'COLLECTED' | 'NOT_COLLECTED';
+  status: 'COLLECTED' | 'NOT_COLLECTED' | 'REFUNDED' | 'INVALIDATED';
 
   /** Observación libre */
   observation: string | null;
@@ -85,6 +88,12 @@ export const CANONICAL_HEADERS = [
   'FACTURA',
   'ESTADO',
   'Código Formulario',
+  'ID_MOVIMIENTO_FINANCIERO',
+  'TIPO_MOVIMIENTO_FINANCIERO',
+  'VALOR_DEVUELTO_COP',
+  'RECAUDO_NETO_COP',
+  'EVENTO_ORIGINAL',
+  'CONCILIACION_CONTABLE',
 ];
 
 /**
@@ -153,6 +162,17 @@ function formatEffectiveDate(dateStr: string | null | undefined, fallback: strin
   }
 }
 
+function sheetColumn(index: number): string {
+  let value = index + 1;
+  let column = '';
+  while (value > 0) {
+    value -= 1;
+    column = String.fromCharCode(65 + (value % 26)) + column;
+    value = Math.floor(value / 26);
+  }
+  return column;
+}
+
 /**
  * Construye la fila de valores alineada con las columnas del Sheet.
  */
@@ -172,23 +192,32 @@ export function buildRowValues(headers: string[], data: ModeratorFeeSheetRow): s
     'CENTRO COSTOS': 'BOGOTA',
     'Cobertura o plan de beneficios': '15.PARTICULAR',
     'Codigo_Diagnostico': 'CDGN001',
-    'SERVICIO': '1RECCUOTMOD',
-    'CANTIDAD': '1',
+    'SERVICIO': data.status === 'COLLECTED' ? '1RECCUOTMOD' : '',
+    'CANTIDAD': data.status === 'COLLECTED' ? '1' : '0',
     'PROFESIONAL': data.professionalDocument?.trim() ?? '',
     'OBSERVACION': 'RECAUDO CUOTA MODERADORA ALTO COSTO',
-    'CopagoVALOR': data.amountCop ?? data.expectedAmountCop ?? '',
-    'PREFIJO FRA': 'MT',
+    'CopagoVALOR': data.status === 'COLLECTED' ? data.amountCop ?? '' : '0',
+    'PREFIJO FRA': data.status === 'COLLECTED' ? 'MT' : '',
     'Fecha inicio Facturación': firstDayOfMonth,
     'Fecha fin Facturación': today,
     'Tipo_Documento': mapDocumentType(data.patientDocumentType),
-    'Forma de pago': '1.CREDITO',
+    'Forma de pago': data.status === 'COLLECTED' ? '1.CREDITO' : '',
     'Clase*': '2-PERSONA NATURAL',
     'Tipo de empresa*': '4-PERSONA NATURAL',
     'Régimen fiscal*': '05-REGIMEN ORDINARIO',
     'Responsabilidad fiscal DIAN*': 'R99-PN-NO RESPONSABLE',
     'FACTURA': '',
-    'ESTADO': '',
+    'ESTADO': data.status === 'COLLECTED' ? 'RECAUDO EFECTIVO'
+      : data.status === 'NOT_COLLECTED' ? 'NO RECAUDADO'
+      : 'PENDIENTE CONCILIACION CONTABLE',
     'Código Formulario': '',
+    'ID_MOVIMIENTO_FINANCIERO': data.eventId ?? '',
+    'TIPO_MOVIMIENTO_FINANCIERO': data.status,
+    'VALOR_DEVUELTO_COP': data.status === 'REFUNDED' ? data.amountCop ?? '' : '0',
+    'RECAUDO_NETO_COP': data.netAmountCop ?? '',
+    'EVENTO_ORIGINAL': data.relatedEventId ?? '',
+    'CONCILIACION_CONTABLE': data.status === 'REFUNDED' || data.status === 'INVALIDATED'
+      ? 'PENDIENTE' : '',
   };
 
   const targetHeaders = headers.length > 0 ? headers : CANONICAL_HEADERS;
@@ -204,13 +233,7 @@ export class ModeratorFeeSheetService {
     private readonly config: ApiConfig,
   ) {}
 
-  /**
-   * Escribe una fila en el Google Sheet configurado.
-   *
-   * Falla silenciosamente si el Sheet no está configurado
-   * o si ocurre un error de red / permisos, para no
-   * interrumpir el flujo principal de registro de recaudo.
-   */
+  /** Resuelve credenciales para lectura y escritura de Sheets. */
   private getCredentialPath(): string | null {
     let credentialFile = this.config.GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE;
 
@@ -326,13 +349,7 @@ export class ModeratorFeeSheetService {
     }
   }
 
-  /**
-   * Escribe una fila en el Google Sheet configurado.
-   *
-   * Falla silenciosamente si el Sheet no está configurado
-   * o si ocurre un error de red / permisos, para no
-   * interrumpir el flujo principal de registro de recaudo.
-   */
+  /** Escribe una fila identificada; el llamador conserva el fallo para reintento. */
   async appendRow(data: ModeratorFeeSheetRow): Promise<void> {
     const spreadsheetId = this.config.GOOGLE_SHEETS_MODERATOR_FEE_ID;
     const credentialFile = this.getCredentialPath();
@@ -342,7 +359,7 @@ export class ModeratorFeeSheetService {
         'Google Sheets para cuota moderadora no configurado. ' +
         'Define GOOGLE_SHEETS_MODERATOR_FEE_ID y GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE.',
       );
-      return;
+      throw new Error('MODERATOR_FEE_SHEET_NOT_CONFIGURED');
     }
 
     try {
@@ -353,11 +370,24 @@ export class ModeratorFeeSheetService {
 
       const sheets = google.sheets({ version: 'v4', auth });
 
-      const sheetName =
+      const billingSheetName =
         this.config.GOOGLE_SHEETS_MODERATOR_FEE_SHEET_NAME || DEFAULT_SHEET_NAME;
+      const sheetName = data.status === 'COLLECTED'
+        ? billingSheetName : `${billingSheetName}_MOVIMIENTOS`;
 
       // 1. Asegurar que existe la hoja y obtener los encabezados actuales
       const headers = await this.ensureHeaderRow(sheets, spreadsheetId, sheetName);
+
+      if (data.eventId) {
+        const eventColumn = headers.indexOf('ID_MOVIMIENTO_FINANCIERO');
+        if (eventColumn < 0) throw new Error('MODERATOR_FEE_SHEET_EVENT_ID_COLUMN_MISSING');
+        const column = sheetColumn(eventColumn);
+        const existing = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: `${sheetName}!${column}:${column}`,
+        });
+        if (existing.data.values?.some(row => row.includes(data.eventId))) return;
+      }
 
       // 2. Construir la fila alineada a las columnas de la hoja
       const values = buildRowValues(headers, data);
@@ -365,7 +395,7 @@ export class ModeratorFeeSheetService {
       // 3. Agregar la fila con los datos del recaudo
       await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `${sheetName}!A:AB`,
+        range: `${sheetName}!A:${sheetColumn(headers.length - 1)}`,
         valueInputOption: 'USER_ENTERED',
         requestBody: {
           values: [values],
@@ -376,11 +406,11 @@ export class ModeratorFeeSheetService {
         `Recaudo cuota moderadora registrado en Sheet (${sheetName}): ${data.authorizationItemId} - Autorización: ${data.authorizationNumber}`,
       );
     } catch (cause: unknown) {
-      // No lanzar el error — el recaudo ya fue guardado en BD.
       this.logger.error(
         'No fue posible registrar el recaudo en Google Sheets.',
         cause instanceof Error ? cause.stack : String(cause),
       );
+      throw cause;
     }
   }
 
@@ -433,13 +463,24 @@ export class ModeratorFeeSheetService {
         return CANONICAL_HEADERS;
       }
 
+      const missing = CANONICAL_HEADERS.slice(-6).filter(header => !firstRow.includes(header));
+      if (missing.length) {
+        const expanded = [...firstRow, ...missing];
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${sheetName}!1:1`,
+          valueInputOption: 'RAW',
+          requestBody: { values: [expanded] },
+        });
+        return expanded;
+      }
       return firstRow;
     } catch (cause: unknown) {
       this.logger.warn(
         'No fue posible verificar/crear encabezados en la hoja.',
         cause instanceof Error ? cause.stack : String(cause),
       );
-      return CANONICAL_HEADERS;
+      throw cause;
     }
   }
 }

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -43,14 +44,18 @@ function fixture(
     activeReservation?: boolean;
     authorizationItemCount?: number;
     annulledAt?: string | null;
+    sheetFailure?: boolean;
   } = {},
 ) {
   let expectedAmountCop = initialExpectedAmountCop;
+  let sheetFailure = options.sheetFailure ?? false;
+  const syncStatuses = new Map<string, string>();
 
   const events: Array<Record<string, unknown>> = [];
   const sqlStatements: string[] = [];
   const release = vi.fn();
-  const appendRow = vi.fn(() => Promise.resolve());
+  const appendRow = vi.fn(() => sheetFailure
+    ? Promise.reject(new Error('Sheets no disponible')) : Promise.resolve());
 
   const query = vi.fn((statement: string, params?: unknown[]) => {
     const normalized = statement.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -86,13 +91,14 @@ function fixture(
 
     if (normalized.includes('from authorization_moderator_fee_events')) {
       return Promise.resolve({
-        rows: [...events].reverse(),
+        rows: [...events].reverse().map(event => ({ ...event,
+          sync_status: syncStatuses.get(String(event.id)) ?? null })),
       });
     }
 
     if (normalized.includes('insert into authorization_moderator_fee_events')) {
       events.push({
-        id: '70000000-0000-4000-8000-000000000001',
+        id: `70000000-0000-4000-8000-${String(events.length + 1).padStart(12, '0')}`,
         version: params?.[1],
         status: params?.[2],
         amount_cop: params?.[3],
@@ -101,6 +107,12 @@ function fixture(
         reference: params?.[6],
         registered_by: params?.[7],
         idempotency_key: params?.[10],
+        related_event_id: params?.[12],
+        effective_at: params?.[13],
+        reason: params?.[14],
+        manual_amount: params?.[15],
+        source_amount_cop: params?.[16],
+        difference_cop: params?.[17],
         created_at: new Date('2026-10-17T10:00:00Z'),
       });
 
@@ -111,6 +123,14 @@ function fixture(
 
     if (normalized.includes('insert into audit_events')) {
       return Promise.resolve({ rows: [] });
+    }
+    if (normalized.includes('moderator_fee_sheet_sync')) {
+      const eventId = String(params?.[0]);
+      if (normalized.startsWith('insert')) syncStatuses.set(eventId, String(params?.[1]));
+      if (normalized.startsWith('update')) syncStatuses.set(eventId,
+        normalized.includes("status = 'failed'") ? 'FAILED' : String(params?.[1]));
+      return Promise.resolve({ rows: normalized.startsWith('select')
+        ? [{ status: syncStatuses.get(eventId) ?? 'PENDING' }] : [] });
     }
 
     if (normalized === 'select id from users where id = $1::uuid for share') {
@@ -159,6 +179,7 @@ function fixture(
     setExpectedAmountCop(value: string | null) {
       expectedAmountCop = value;
     },
+    setSheetFailure(value: boolean) { sheetFailure = value; },
   };
 }
 
@@ -186,17 +207,17 @@ describe('Recaudo de cuota moderadora', () => {
     expect(statement).not.toContain('fecha_programada');
   });
 
-  it('envía a la hoja solo la fecha efectiva del fulfillment confirmado', async () => {
+  it('envía a la hoja la fecha financiera, independiente del fulfillment', async () => {
     const environment = fixture(true, '12500', '2026-10-15');
 
     await environment.service.register(authorizationId, payment, mtdScope);
 
     expect(environment.appendRow).toHaveBeenCalledWith(
-      expect.objectContaining({ effectiveDate: '2026-10-15' }),
+      expect.objectContaining({ effectiveDate: '2026-10-16T15:00:00.000Z' }),
     );
   });
 
-  it('conserva fecha efectiva nula cuando no existe atención confirmada', async () => {
+  it('conserva fecha financiera cuando no existe atención confirmada', async () => {
     const environment = fixture(true, '12500', null, {
       activeReservation: true,
     });
@@ -204,7 +225,7 @@ describe('Recaudo de cuota moderadora', () => {
     await environment.service.register(authorizationId, payment, mtdScope);
 
     expect(environment.appendRow).toHaveBeenCalledWith(
-      expect.objectContaining({ effectiveDate: null }),
+      expect.objectContaining({ effectiveDate: '2026-10-16T15:00:00.000Z' }),
     );
   });
 
@@ -255,19 +276,14 @@ describe('Recaudo de cuota moderadora', () => {
       environment.sqlStatements.some((value) => value.includes('insert into audit_events')),
     ).toBe(true);
 
-    expect(environment.release).toHaveBeenCalledOnce();
+    expect(environment.release).toHaveBeenCalledTimes(2);
   });
 
-  it('rechaza recaudar sin atención confirmada ni reserva activa', async () => {
+  it('permite recaudar sin atención confirmada ni reserva activa', async () => {
     const environment = fixture(true, '12500', null);
 
-    await expect(
-      environment.service.register(authorizationId, payment, mtdScope),
-    ).rejects.toMatchObject({
-      response: { code: 'MODERATOR_FEE_NOT_ELIGIBLE' },
-    });
-
-    expect(environment.events).toHaveLength(0);
+    expect((await environment.service.register(authorizationId, payment, mtdScope)).status).toBe('COLLECTED');
+    expect(environment.events).toHaveLength(1);
   });
 
   it('permite recaudar antes de la atención con reserva activa', async () => {
@@ -297,18 +313,13 @@ describe('Recaudo de cuota moderadora', () => {
     expect(environment.events).toHaveLength(0);
   });
 
-  it('rechaza recaudar una autorización anulada', async () => {
+  it('permite registrar dinero recibido sobre autorización anulada', async () => {
     const environment = fixture(true, '12500', '2026-10-15', {
       annulledAt: '2026-10-14T10:00:00Z',
     });
 
-    await expect(
-      environment.service.register(authorizationId, payment, mtdScope),
-    ).rejects.toMatchObject({
-      response: { code: 'MODERATOR_FEE_AUTHORIZATION_CANCELLED' },
-    });
-
-    expect(environment.events).toHaveLength(0);
+    expect((await environment.service.register(authorizationId, payment, mtdScope)).status).toBe('COLLECTED');
+    expect(environment.events).toHaveLength(1);
   });
 
   it('no duplica un reintento con la misma clave', async () => {
@@ -563,12 +574,12 @@ describe('Recaudo de cuota moderadora', () => {
     expect(environment.events).toHaveLength(1);
   });
 
-  it('una corrección posterior no rehabilita un segundo recaudo', async () => {
+  it('NOT_COLLECTED no puede ocultar un recaudo activo', async () => {
     const environment = fixture();
 
     await environment.service.register(authorizationId, payment, mtdScope);
 
-    await environment.service.register(
+    await expect(environment.service.register(
       authorizationId,
       {
         status: 'NOT_COLLECTED',
@@ -577,23 +588,8 @@ describe('Recaudo de cuota moderadora', () => {
         observation: 'Corrección conservando historial',
       },
       mtdScope,
-    );
-
-    await expect(
-      environment.service.register(
-        authorizationId,
-        {
-          ...payment,
-          expectedVersion: 2,
-          idempotencyKey: '60000000-0000-4000-8000-000000000006',
-        },
-        mtdScope,
-      ),
-    ).rejects.toMatchObject({
-      response: { code: 'MODERATOR_FEE_ALREADY_COLLECTED' },
-    });
-
-    expect(environment.events).toHaveLength(2);
+    )).rejects.toMatchObject({ response: { code: 'MODERATOR_FEE_ACTIVE_COLLECTION' } });
+    expect(environment.events).toHaveLength(1);
   });
 
   it('obtiene la URL de la factura desde el servicio de Sheets', async () => {
@@ -604,5 +600,112 @@ describe('Recaudo de cuota moderadora', () => {
     expect(result).toEqual({
       invoiceUrl: 'https://drive.google.com/test-invoice.pdf',
     });
+  });
+
+  it.each(['REFUNDED', 'INVALIDATED'] as const)(
+    '%s cierra el recaudo y permite otro legítimo', async status => {
+      const environment = fixture(true, '12500', null);
+      const first = await environment.service.register(authorizationId, payment, mtdScope);
+      const relatedEventId = first.history[0]!.id;
+      const reversal = status === 'REFUNDED'
+        ? { status, amountCop: '12500.00', effectiveAt: '2026-10-18T10:00:00-05:00',
+            reason: 'Devolución efectiva', relatedEventId }
+        : { status, reason: 'Registro original erróneo', relatedEventId,
+            confirmError: true as const };
+      const after = await environment.service.register(authorizationId,
+        { ...reversal, expectedVersion: 1,
+          idempotencyKey: '60000000-0000-4000-8000-000000000007' }, mtdScope);
+      expect(after.status).toBe(status);
+      expect(after.netCollectedCop).toBe('0.00');
+      expect(after.totalRefundedCop).toBe(status === 'REFUNDED' ? '12500.00' : '0.00');
+      expect(after.history).toHaveLength(2);
+      await expect(environment.service.register(authorizationId,
+        { ...reversal, expectedVersion: 2,
+          idempotencyKey: '60000000-0000-4000-8000-000000000008' }, mtdScope))
+        .rejects.toMatchObject({ response: { code: 'MODERATOR_FEE_NO_ACTIVE_COLLECTION' } });
+      const next = await environment.service.register(authorizationId,
+        { ...payment, expectedVersion: 2,
+          idempotencyKey: '60000000-0000-4000-8000-000000000009' }, mtdScope);
+      expect(next.status).toBe('COLLECTED');
+      expect(next.netCollectedCop).toBe('12500.00');
+    },
+  );
+
+  it('exige importe manual y observación cuando la fuente es inválida', async () => {
+    const environment = fixture(true, null, null);
+    const result = await environment.service.register(authorizationId, {
+      ...payment, amountCop: '8500.00', manualAmount: true,
+      observation: 'Importe efectivamente recibido según comprobante',
+    }, mtdScope);
+    expect(result.amountCop).toBe('8500.00');
+    expect(result.history[0]?.manualAmount).toBe(true);
+    expect(result.history[0]?.sourceAmountCop).toBeNull();
+  });
+
+  it('rechaza devolución parcial y referencia a otro recaudo', async () => {
+    const environment = fixture();
+    const first = await environment.service.register(authorizationId, payment, mtdScope);
+    await expect(environment.service.register(authorizationId, {
+      status: 'REFUNDED', amountCop: '1000', effectiveAt: '2026-10-18T10:00:00-05:00',
+      reason: 'Devolución', relatedEventId: first.history[0]!.id,
+      expectedVersion: 1, idempotencyKey: '60000000-0000-4000-8000-000000000010',
+    }, mtdScope)).rejects.toMatchObject({
+      response: { code: 'MODERATOR_FEE_PARTIAL_REFUND_UNSUPPORTED' },
+    });
+  });
+
+  it('conserva pago si Sheets falla y permite reintento sin duplicar evento', async () => {
+    const environment = fixture(true, '12500', null, { sheetFailure: true });
+    const paid = await environment.service.register(authorizationId, payment, mtdScope);
+    expect(paid.status).toBe('COLLECTED');
+    expect(environment.events).toHaveLength(1);
+    expect((await environment.service.detail(authorizationId, mtdScope)).history[0]?.syncStatus)
+      .toBe('FAILED');
+    environment.setSheetFailure(false);
+    const retried = await environment.service.retrySheetSync(
+      authorizationId, paid.history[0]!.id, mtdScope);
+    expect(retried.history[0]?.syncStatus).toBe('SYNCED');
+    expect(environment.events).toHaveLength(1);
+  });
+
+  it('conserva NOT_COLLECTED histórico sin interpretarlo como devolución', async () => {
+    const environment = fixture();
+    environment.events.push({
+      id: '70000000-0000-4000-8000-000000000001', version: 1,
+      status: 'COLLECTED', amount_cop: '12500.00',
+      collected_at: '2026-10-16T15:00:00.000Z',
+      observation: null, reference: null, registered_by: mtdScope.userId,
+      idempotency_key: idempotencyKey, created_at: '2026-10-17T10:00:00.000Z',
+    });
+    environment.events.push({
+      id: '70000000-0000-4000-8000-000000000002', version: 2,
+      status: 'NOT_COLLECTED', amount_cop: null, collected_at: null,
+      observation: 'Nota histórica', reference: null, registered_by: mtdScope.userId,
+      idempotency_key: '60000000-0000-4000-8000-000000000011',
+      created_at: '2026-10-18T10:00:00.000Z',
+    });
+    const detail = await environment.service.detail(authorizationId, mtdScope);
+    expect(detail.status).toBe('COLLECTED');
+    expect(detail.netCollectedCop).toBe('12500.00');
+    expect(detail.totalRefundedCop).toBe('0.00');
+    expect(detail.history.map(event => event.status)).toEqual(['NOT_COLLECTED', 'COLLECTED']);
+  });
+
+  it('rechaza invalidar o devolver sin recaudo anterior', async () => {
+    const environment = fixture();
+    for (const request of [
+      { status: 'INVALIDATED' as const, reason: 'Error de registro',
+        confirmError: true as const },
+      { status: 'REFUNDED' as const, reason: 'Devolución', amountCop: '12500',
+        effectiveAt: '2026-10-18T10:00:00-05:00' },
+    ]) {
+      await expect(environment.service.register(authorizationId, {
+        ...request, relatedEventId: '70000000-0000-4000-8000-000000000001',
+        expectedVersion: 0, idempotencyKey: randomUUID(),
+      }, mtdScope)).rejects.toMatchObject({
+        response: { code: 'MODERATOR_FEE_NO_ACTIVE_COLLECTION' },
+      });
+    }
+    expect(environment.events).toHaveLength(0);
   });
 });

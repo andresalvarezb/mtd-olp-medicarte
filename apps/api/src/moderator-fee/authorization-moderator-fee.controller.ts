@@ -93,4 +93,17 @@ export class AuthorizationModeratorFeeController {
       await this.scope(request, organizationId, 'moderator_fees.manage'),
     );
   }
+
+  @Post(':id/moderator-fee/events/:eventId/retry-sync')
+  async retrySync(
+    @Param('id') rawId: string,
+    @Param('eventId') rawEventId: string,
+    @Headers('x-organization-id') organizationId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.service.retrySheetSync(
+      uuid.parse(rawId), uuid.parse(rawEventId),
+      await this.scope(request, organizationId, 'moderator_fees.manage'),
+    );
+  }
 }

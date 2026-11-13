@@ -14,19 +14,26 @@ export function normalizeModeratorFeeAmount(value: string): string | null {
 }
 
 export function moderatorFeeBalances(
-  detail: Pick<ModeratorFeeResponse, 'expectedAmountCop' | 'amountCop' | 'status'>,
-): { expected: number | null; collected: number | null; pending: number | null } {
+  detail: Pick<ModeratorFeeResponse, 'expectedAmountCop' | 'amountCop' | 'status'> &
+    Partial<Pick<ModeratorFeeResponse, 'totalCollectedCop' | 'totalRefundedCop' | 'netCollectedCop'>>,
+): { expected: number | null; collected: number | null; refunded: number | null; net: number | null; pending: number | null } {
   const expectedCents = cents(detail.expectedAmountCop);
-  const collectedCents = detail.status === 'COLLECTED'
-    ? cents(detail.amountCop)
+  const collectedCents = detail.totalCollectedCop !== undefined
+    ? cents(detail.totalCollectedCop)
+    : detail.status === 'COLLECTED' ? cents(detail.amountCop)
     : 0;
+  const refundedCents = cents(detail.totalRefundedCop ?? '0');
+  const netCents = detail.netCollectedCop !== undefined
+    ? cents(detail.netCollectedCop) : collectedCents;
 
   return {
     expected: expectedCents === null ? null : expectedCents / 100,
     collected: collectedCents === null ? null : collectedCents / 100,
-    pending: expectedCents === null || collectedCents === null
+    refunded: refundedCents === null ? null : refundedCents / 100,
+    net: netCents === null ? null : netCents / 100,
+    pending: expectedCents === null || netCents === null
       ? null
-      : Math.max(0, expectedCents - collectedCents) / 100,
+      : Math.max(0, expectedCents - netCents) / 100,
   };
 }
 

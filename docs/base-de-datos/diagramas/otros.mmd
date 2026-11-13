@@ -8,6 +8,9 @@ erDiagram
     uuid registered_by FK
     uuid organization_id FK
   }
+  moderator_fee_sheet_sync {
+    uuid event_id PK,FK
+  }
   patient_backfill_batches {
     uuid id PK
     uuid organization_id FK
@@ -23,5 +26,6 @@ erDiagram
   patient_sync_checkpoints {
     uuid id PK
   }
+  authorization_moderator_fee_events ||--o{ moderator_fee_sheet_sync : "event_id"
   patient_backfill_batches ||--o{ patient_backfill_items : "batch_id"
   %% Relaciones entre dominios: consultar schema-index.json / catálogo generado.

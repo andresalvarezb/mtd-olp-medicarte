@@ -43,7 +43,7 @@ type AuthorizationRow = QueryResultRow & {
 type EventRow = QueryResultRow & {
   id: string;
   version: number;
-  status: 'COLLECTED' | 'NOT_COLLECTED';
+  status: 'COLLECTED' | 'NOT_COLLECTED' | 'REFUNDED' | 'INVALIDATED';
   amount_cop: string | null;
   collected_at: Date | string | null;
   observation: string | null;
@@ -51,6 +51,13 @@ type EventRow = QueryResultRow & {
   registered_by: string;
   created_at: Date | string;
   idempotency_key: string;
+  effective_at: Date | string | null;
+  reason: string | null;
+  related_event_id: string | null;
+  manual_amount: boolean;
+  source_amount_cop: string | null;
+  difference_cop: string | null;
+  sync_status: 'PENDING' | 'SYNCED' | 'FAILED' | 'RECONCILIATION_REQUIRED' | null;
 };
 
 type QueryClient = Pick<PoolClient, 'query'>;
@@ -199,6 +206,9 @@ const HISTORY_SQL = `
     registered_by,
     created_at,
     idempotency_key
+    ,effective_at, reason, related_event_id, manual_amount, source_amount_cop,
+    difference_cop,
+    (select status from moderator_fee_sheet_sync where event_id = authorization_moderator_fee_events.id) as sync_status
 
   from authorization_moderator_fee_events
 
@@ -211,8 +221,8 @@ function iso(value: Date | string): string {
   return new Date(value).toISOString();
 }
 
-function nullableIso(value: Date | string | null): string | null {
-  return value === null ? null : iso(value);
+function nullableIso(value: Date | string | null | undefined): string | null {
+  return value == null ? null : iso(value);
 }
 
 function nullableText(value: string | null | undefined): string | null {
@@ -365,21 +375,43 @@ export class AuthorizationModeratorFeeService {
 
   private response(authorization: AuthorizationRow, events: EventRow[]): ModeratorFeeResponse {
     const latest = events[0];
+    const reversed = new Set(events.filter(event =>
+      event.status === 'INVALIDATED',
+    ).map(event => event.related_event_id));
+    const validCollections = events.filter(event =>
+      event.status === 'COLLECTED' && !reversed.has(event.id),
+    );
+    const refunded = events.filter(event => event.status === 'REFUNDED');
+    const latestCollection = events.find(event => event.status === 'COLLECTED');
+    const hasActiveCollection = latestCollection && !events.some(event =>
+      (event.status === 'REFUNDED' || event.status === 'INVALIDATED') &&
+      event.related_event_id === latestCollection.id,
+    );
+    const sum = (rows: EventRow[]) => (rows.reduce((cents, event) =>
+      cents + Math.round(Number(event.amount_cop ?? 0) * 100), 0) / 100).toFixed(2);
+    const collectedCents = validCollections.reduce((total, event) =>
+      total + Math.round(Number(event.amount_cop ?? 0) * 100), 0);
+    const refundedCents = refunded.reduce((total, event) =>
+      total + Math.round(Number(event.amount_cop ?? 0) * 100), 0);
 
     return {
       authorizationItemId: authorization.id,
 
       expectedAmountCop: authorization.expected_amount_cop,
 
-      status: latest?.status ?? 'NOT_RECORDED',
+      status: hasActiveCollection ? 'COLLECTED' : latest?.status ?? 'NOT_RECORDED',
 
-      amountCop: latest?.amount_cop ?? null,
+      amountCop: hasActiveCollection ? latestCollection.amount_cop : latest?.amount_cop ?? null,
 
-      collectedAt: latest ? nullableIso(latest.collected_at) : null,
+      collectedAt: hasActiveCollection ? nullableIso(latestCollection.collected_at)
+        : latest ? nullableIso(latest.collected_at) : null,
 
       version: latest ? Number(latest.version) : 0,
 
       lastRegisteredAt: latest ? iso(latest.created_at) : null,
+      totalCollectedCop: sum(validCollections),
+      totalRefundedCop: sum(refunded),
+      netCollectedCop: ((collectedCents - refundedCents) / 100).toFixed(2),
 
       history: events.map((event) => ({
         id: event.id,
@@ -399,6 +431,14 @@ export class AuthorizationModeratorFeeService {
         registeredBy: event.registered_by,
 
         registeredAt: iso(event.created_at),
+        movementType: event.status,
+        effectiveAt: nullableIso(event.effective_at ?? event.collected_at),
+        reason: event.reason,
+        relatedEventId: event.related_event_id,
+        manualAmount: event.manual_amount ?? false,
+        sourceAmountCop: event.source_amount_cop,
+        differenceCop: event.difference_cop,
+        ...(event.sync_status ? { syncStatus: event.sync_status } : {}),
       })),
     };
   }
@@ -436,6 +476,71 @@ export class AuthorizationModeratorFeeService {
     return { invoiceUrl };
   }
 
+  async retrySheetSync(
+    authorizationItemId: string,
+    eventId: string,
+    scope: Scope,
+  ): Promise<ModeratorFeeResponse> {
+    this.assertManage(scope);
+    const client = await this.database.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const authorization = await this.authorization(client, authorizationItemId, scope, true);
+      const events = await this.history(client, authorizationItemId);
+      const event = events.find(item => item.id === eventId);
+      if (!event) throw new NotFoundException('Movimiento financiero no encontrado.');
+      const sync = await client.query<{ status: string }>(
+        `select status from moderator_fee_sheet_sync where event_id = $1::uuid for update`,
+        [eventId],
+      );
+      if (!sync.rows[0] || sync.rows[0].status === 'SYNCED' ||
+        sync.rows[0].status === 'RECONCILIATION_REQUIRED') {
+        await client.query('COMMIT');
+        return this.response(authorization, events);
+      }
+      try {
+        const eventBalance = this.response(authorization,
+          events.filter(item => Number(item.version) <= Number(event.version)));
+        await this.sheetService.appendRow({
+          eventId,
+          relatedEventId: event.related_event_id,
+          netAmountCop: eventBalance.netCollectedCop,
+          authorizationItemId,
+          authorizationNumber: authorization.numero_autorizacion,
+          patientDocument: authorization.patient_document,
+          patientDocumentType: authorization.patient_document_type,
+          patientName: authorization.patient_name,
+          effectiveDate: nullableIso(event.effective_at ?? event.collected_at),
+          professionalDocument: event.reference,
+          status: event.status,
+          expectedAmountCop: authorization.expected_amount_cop,
+          amountCop: event.amount_cop,
+          observation: event.observation,
+          registeredAt: iso(event.created_at),
+          registeredBy: event.registered_by,
+        });
+        await client.query(`update moderator_fee_sheet_sync set status = $2,
+          attempts = attempts + 1, last_error = null, updated_at = now()
+          where event_id = $1::uuid`, [eventId,
+          event.status === 'REFUNDED' || event.status === 'INVALIDATED'
+            ? 'RECONCILIATION_REQUIRED' : 'SYNCED']);
+      } catch (cause: unknown) {
+        await client.query(`update moderator_fee_sheet_sync set status = 'FAILED',
+          attempts = attempts + 1, last_error = $2, updated_at = now()
+          where event_id = $1::uuid`,
+          [eventId, cause instanceof Error ? cause.message : String(cause)]);
+      }
+      const updated = await this.history(client, authorizationItemId);
+      await client.query('COMMIT');
+      return this.response(authorization, updated);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async register(
     authorizationItemId: string,
     body: RegisterModeratorFeeRequest,
@@ -444,8 +549,9 @@ export class AuthorizationModeratorFeeService {
     this.assertManage(scope);
 
     const collectedAt = body.status === 'COLLECTED' ? iso(body.collectedAt) : null;
+    const effectiveAt = body.status === 'REFUNDED' ? iso(body.effectiveAt) : collectedAt;
 
-    if (collectedAt !== null && new Date(collectedAt).getTime() > Date.now()) {
+    if (effectiveAt !== null && new Date(effectiveAt).getTime() > Date.now()) {
       throw new BadRequestException({
         code: 'MODERATOR_FEE_FUTURE_COLLECTION',
         message: 'La fecha de recaudo no puede ser futura.',
@@ -454,6 +560,10 @@ export class AuthorizationModeratorFeeService {
 
     const observation = nullableText(body.observation);
     const reference = nullableText(body.professionalDocument ?? body.reference);
+    const reason = body.status === 'REFUNDED' || body.status === 'INVALIDATED'
+      ? body.reason.trim() : null;
+    const relatedEventId = body.status === 'REFUNDED' || body.status === 'INVALIDATED'
+      ? body.relatedEventId : null;
 
     const client = await this.database.pool.connect();
 
@@ -471,7 +581,7 @@ export class AuthorizationModeratorFeeService {
 
       if (previousAttempt) {
         const amountMatches =
-          body.status === 'COLLECTED'
+          body.status === 'COLLECTED' || body.status === 'REFUNDED'
             ? body.amountCop === undefined ||
               Number(body.amountCop).toFixed(2) === previousAttempt.amount_cop
             : previousAttempt.amount_cop === null;
@@ -481,7 +591,14 @@ export class AuthorizationModeratorFeeService {
           amountMatches &&
           nullableIso(previousAttempt.collected_at) === collectedAt &&
           previousAttempt.observation === observation &&
-          previousAttempt.reference === reference;
+          previousAttempt.reference === reference &&
+          (body.status === 'COLLECTED' || body.status === 'REFUNDED'
+            ? nullableIso(previousAttempt.effective_at ?? previousAttempt.collected_at) === effectiveAt
+            : true) &&
+          previousAttempt.reason === reason &&
+          (previousAttempt.related_event_id ?? null) === relatedEventId &&
+          (previousAttempt.manual_amount ?? false) ===
+            (body.status === 'COLLECTED' ? (body.manualAmount ?? false) : false);
 
         if (!samePayload) {
           throw new ConflictException({
@@ -503,55 +620,82 @@ export class AuthorizationModeratorFeeService {
         });
       }
 
-      if (body.status === 'COLLECTED') {
-        if (authorization.annulled_at !== null) {
-          throw new ConflictException({
-            code: 'MODERATOR_FEE_AUTHORIZATION_CANCELLED',
-            message: 'No se puede recaudar una autorización anulada.',
-          });
-        }
+      const latestCollection = events.find(event => event.status === 'COLLECTED');
+      const activeCollection = latestCollection && !events.some(event =>
+        (event.status === 'REFUNDED' || event.status === 'INVALIDATED') &&
+        event.related_event_id === latestCollection.id,
+      ) ? latestCollection : null;
 
-        if (!authorization.has_confirmed_fulfillment && !authorization.has_active_reservation) {
-          throw new ConflictException({
-            code: 'MODERATOR_FEE_NOT_ELIGIBLE',
-            message:
-              'El recaudo exige una atención confirmada o una asignación con reserva activa.',
-          });
-        }
-      }
-
-      // El reintento idempotente se resolvió previamente.
-      // No permitir un segundo cobro sobre una cuota ya recaudada.
-      if (events.some((event) => event.status === 'COLLECTED') && body.status === 'COLLECTED') {
+      if (activeCollection && body.status === 'COLLECTED') {
         throw new ConflictException({
           code: 'MODERATOR_FEE_ALREADY_COLLECTED',
-          message: 'La cuota moderadora ya fue recaudada completamente.',
+          message: 'Ya existe un recaudo activo.',
         });
+      }
+      if (activeCollection && body.status === 'NOT_COLLECTED') {
+        throw new ConflictException({
+          code: 'MODERATOR_FEE_ACTIVE_COLLECTION',
+          message: 'Un pago activo solo puede cerrarse mediante devolución o invalidación.',
+        });
+      }
+      if (body.status === 'REFUNDED' || body.status === 'INVALIDATED') {
+        if (!activeCollection || activeCollection.id !== body.relatedEventId) {
+          throw new ConflictException({
+            code: 'MODERATOR_FEE_NO_ACTIVE_COLLECTION',
+            message: 'No existe el recaudo activo indicado.',
+          });
+        }
+        if (body.status === 'REFUNDED' &&
+          Number(body.amountCop).toFixed(2) !== Number(activeCollection.amount_cop).toFixed(2)) {
+          throw new BadRequestException({
+            code: 'MODERATOR_FEE_PARTIAL_REFUND_UNSUPPORTED',
+            message: 'La devolución debe corresponder al recaudo total.',
+          });
+        }
+        if (body.status === 'REFUNDED' && activeCollection.collected_at &&
+          new Date(body.effectiveAt).getTime() < new Date(activeCollection.collected_at).getTime()) {
+          throw new BadRequestException({
+            code: 'MODERATOR_FEE_REFUND_BEFORE_COLLECTION',
+            message: 'La devolución no puede anteceder al recaudo.',
+          });
+        }
       }
 
       // Solo los registros nuevos utilizan la cuota vigente.
       // El cliente no determina el importe financiero.
       let amountCop: string | null = null;
+      let manualAmount = false;
+      let sourceAmountCop: string | null = null;
+      let differenceCop: string | null = null;
 
       if (body.status === 'COLLECTED') {
         const expected = authorization.expected_amount_cop?.trim() ?? '';
 
         if (!/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(expected) || Number(expected) <= 0) {
-          throw new BadRequestException({
-            code: 'MODERATOR_FEE_EXPECTED_AMOUNT_INVALID',
-            message:
-              'La autorización no tiene una cuota moderadora positiva y válida para registrar el pago.',
-          });
+          if (!body.amountCop || !observation || body.manualAmount !== true) {
+            throw new BadRequestException({
+              code: 'MODERATOR_FEE_MANUAL_AMOUNT_REQUIRED',
+              message: 'Indica el importe real, una observación y confirma el valor manual.',
+            });
+          }
+          manualAmount = true;
+          amountCop = Number(body.amountCop).toFixed(2);
+          sourceAmountCop = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(expected)
+            ? Number(expected).toFixed(2) : null;
+          differenceCop = sourceAmountCop === null ? null
+            : (Number(amountCop) - Number(sourceAmountCop)).toFixed(2);
+        } else {
+          sourceAmountCop = Number(expected).toFixed(2);
+          amountCop = sourceAmountCop;
+          if (body.amountCop !== undefined && Number(body.amountCop).toFixed(2) !== amountCop) {
+            throw new BadRequestException({
+              code: 'MODERATOR_FEE_AMOUNT_MISMATCH',
+              message: 'El importe informado no coincide con la cuota definida en la autorización.',
+            });
+          }
         }
-
-        amountCop = Number(expected).toFixed(2);
-
-        if (body.amountCop !== undefined && Number(body.amountCop).toFixed(2) !== amountCop) {
-          throw new BadRequestException({
-            code: 'MODERATOR_FEE_AMOUNT_MISMATCH',
-            message: 'El importe informado no coincide con la cuota definida en la autorización.',
-          });
-        }
+      } else if (body.status === 'REFUNDED') {
+        amountCop = Number(body.amountCop).toFixed(2);
       }
 
       const previous = events[0];
@@ -566,6 +710,7 @@ export class AuthorizationModeratorFeeService {
       }
 
       const version = currentVersion + 1;
+      const recordedEffectiveAt = effectiveAt ?? new Date().toISOString();
 
       const inserted = await client.query<{ id: string }>(
         `
@@ -580,7 +725,14 @@ export class AuthorizationModeratorFeeService {
             registered_by,
             organization_id,
             correlation_id,
-            idempotency_key
+            idempotency_key,
+            movement_type,
+            related_event_id,
+            effective_at,
+            reason,
+            manual_amount,
+            source_amount_cop,
+            difference_cop
           )
 
           values (
@@ -594,7 +746,14 @@ export class AuthorizationModeratorFeeService {
             $8::uuid,
             $9::uuid,
             $10::uuid,
-            $11::uuid
+            $11::uuid,
+            $12,
+            $13::uuid,
+            $14::timestamptz,
+            $15,
+            $16,
+            $17::numeric,
+            $18::numeric
           )
 
           returning id
@@ -611,6 +770,13 @@ export class AuthorizationModeratorFeeService {
           scope.organizationId,
           scope.correlationId,
           body.idempotencyKey,
+          body.status,
+          relatedEventId,
+          recordedEffectiveAt,
+          reason,
+          manualAmount,
+          sourceAmountCop,
+          differenceCop,
         ],
       );
 
@@ -666,32 +832,29 @@ export class AuthorizationModeratorFeeService {
             status: body.status,
             amountCop,
             collectedAt,
+          effectiveAt: recordedEffectiveAt,
+            relatedEventId,
+            reason,
+            manualAmount,
+            sourceAmountCop,
+            differenceCop,
           }),
 
           scope.correlationId,
         ],
       );
 
+      await client.query(
+        `insert into moderator_fee_sheet_sync (event_id, status) values ($1::uuid, $2)`,
+        [eventId, 'PENDING'],
+      );
+
       const updatedEvents = await this.history(client, authorizationItemId);
 
       await client.query('COMMIT');
 
-      // Enviar al Google Sheet de forma no bloqueante (fire-and-forget).
-      // Si falla, solo se loguea un warning — el recaudo ya quedó en BD.
-      void this.sheetService.appendRow({
-        authorizationItemId,
-        authorizationNumber: authorization.numero_autorizacion,
-        patientDocument: authorization.patient_document,
-        patientDocumentType: authorization.patient_document_type,
-        patientName: authorization.patient_name,
-        effectiveDate: authorization.fulfillment_effective_date,
-        professionalDocument: body.professionalDocument ?? body.reference ?? null,
-        status: body.status,
-        expectedAmountCop: authorization.expected_amount_cop,
-        amountCop: amountCop,
-        observation: observation,
-        registeredAt: new Date().toISOString(),
-        registeredBy: scope.userId,
+      await this.retrySheetSync(authorizationItemId, eventId, scope).catch(cause => {
+        this.logger.error('Falló la entrega de cuota moderadora a Sheets', cause);
       });
 
       return this.response(authorization, updatedEvents);

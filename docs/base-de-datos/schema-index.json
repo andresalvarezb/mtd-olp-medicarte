@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "packages/database/src/schema.ts",
-  "sourceSha256": "742d78811641000e4d2d8d99473615453a388d0d0709f37bfb6314eb3d86fdf8",
+  "sourceSha256": "31ed20b09988f837a81e56b67edb47a0fcdf59d4010877201a1be317a64f2055",
   "kind": "drizzle-static",
   "notLiveDatabase": true,
   "groupLabels": {
@@ -1786,6 +1786,55 @@
           "default": null
         },
         {
+          "name": "movement_type",
+          "type": "varchar(20)",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "related_event_id",
+          "type": "uuid",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "effective_at",
+          "type": "timestamp",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "manual_amount",
+          "type": "boolean",
+          "nullable": false,
+          "pk": false,
+          "default": "false"
+        },
+        {
+          "name": "source_amount_cop",
+          "type": "numeric(14,2)",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "difference_cop",
+          "type": "numeric(14,2)",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
           "name": "amount_cop",
           "type": "numeric(14,2)",
           "nullable": true,
@@ -1897,6 +1946,10 @@
         {
           "name": "authorization_moderator_fee_created_idx",
           "kind": "index"
+        },
+        {
+          "name": "authorization_moderator_fee_related_idx",
+          "kind": "index"
         }
       ],
       "checks": [
@@ -1904,7 +1957,9 @@
         "authorization_moderator_fee_status_valid",
         "authorization_moderator_fee_amount_consistency",
         "authorization_moderator_fee_observation_length",
-        "authorization_moderator_fee_reference_length"
+        "authorization_moderator_fee_reference_length",
+        "authorization_moderator_fee_movement_valid",
+        "authorization_moderator_fee_manual_amount_valid"
       ]
     },
     {
@@ -5542,6 +5597,72 @@
         "mipres_manual_decision_concepts_action_check",
         "mipres_manual_decision_concepts_code_not_blank_check",
         "mipres_manual_decision_concepts_name_not_blank_check"
+      ]
+    },
+    {
+      "name": "moderator_fee_sheet_sync",
+      "variable": "moderatorFeeSheetSync",
+      "group": "otros",
+      "pk": [
+        "event_id"
+      ],
+      "columns": [
+        {
+          "name": "event_id",
+          "type": "uuid",
+          "nullable": false,
+          "pk": true,
+          "default": null
+        },
+        {
+          "name": "status",
+          "type": "varchar(30)",
+          "nullable": false,
+          "pk": false,
+          "default": "'PENDING'"
+        },
+        {
+          "name": "attempts",
+          "type": "integer",
+          "nullable": false,
+          "pk": false,
+          "default": "0"
+        },
+        {
+          "name": "last_error",
+          "type": "text",
+          "nullable": true,
+          "pk": false,
+          "default": null
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp",
+          "nullable": false,
+          "pk": false,
+          "default": "defaultNow()"
+        }
+      ],
+      "fks": [
+        {
+          "columns": [
+            "event_id"
+          ],
+          "to": "authorization_moderator_fee_events",
+          "toColumns": [
+            "id"
+          ],
+          "source": "references"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "moderator_fee_sheet_sync_pending_idx",
+          "kind": "index"
+        }
+      ],
+      "checks": [
+        "moderator_fee_sheet_sync_status_valid"
       ]
     },
     {

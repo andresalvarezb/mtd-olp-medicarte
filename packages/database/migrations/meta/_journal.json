@@ -841,6 +841,13 @@
       "when": 1794515859000,
       "tag": "0119_inventory_auto_allocation_source",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1794515860000,
+      "tag": "0120_moderator_fee_financial_movements",
+      "breakpoints": true
     }
   ]
 }

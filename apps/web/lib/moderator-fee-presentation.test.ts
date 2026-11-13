@@ -11,19 +11,19 @@ describe('Presentación de cuota moderadora', () => {
   it('muestra cuota pendiente completa cuando no existe recaudo', () => {
     expect(moderatorFeeBalances({
       expectedAmountCop: '50000.00', amountCop: null, status: 'NOT_RECORDED',
-    })).toEqual({ expected: 50000, collected: 0, pending: 50000 });
+    })).toEqual({ expected: 50000, collected: 0, refunded: 0, net: 0, pending: 50000 });
   });
 
   it('muestra cuota pendiente tras registrar NO RECAUDADO', () => {
     expect(moderatorFeeBalances({
       expectedAmountCop: '50000', amountCop: null, status: 'NOT_COLLECTED',
-    })).toEqual({ expected: 50000, collected: 0, pending: 50000 });
+    })).toEqual({ expected: 50000, collected: 0, refunded: 0, net: 0, pending: 50000 });
   });
 
   it('usa solo el último estado, no suma los eventos históricos', () => {
     expect(moderatorFeeBalances({
       expectedAmountCop: '50000', amountCop: '50000.00', status: 'COLLECTED',
-    })).toEqual({ expected: 50000, collected: 50000, pending: 0 });
+    })).toEqual({ expected: 50000, collected: 50000, refunded: 0, net: 50000, pending: 0 });
   });
 
   it('evita saldos negativos y conserva centavos exactos', () => {
