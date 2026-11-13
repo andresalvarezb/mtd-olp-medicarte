@@ -430,7 +430,21 @@ export class ExportablesService {
               ai.authorization_key,
               ai.numero_autorizacion,
               ai.codigo_medicamento,
-              coalesce(patient_point.name, tariff_points.point_names) as punto,
+              case
+                when scheduled_point.point_count > 0 then
+                  case
+                    when scheduled_point.point_count = 1
+                      and scheduled_point.active then scheduled_point.name
+                    else null
+                  end
+                when patient_point.name is not null then
+                  case
+                    when patient_point.active then patient_point.name
+                    else null
+                  end
+                when tariff_points.point_count = 1 then tariff_points.name
+                else null
+              end as punto,
               ai.source_data ->> 'FECHA_ASIGNACION' as raw_assignment_date,
               ai.source_data ->> 'FECHA_FINAL_VIGENCIA' as raw_expiration_date,
 
@@ -637,8 +651,27 @@ export class ExportablesService {
             ) tap
               on true
 
+            /* Misma prioridad que PurchaseOrderImportService.destinationPoint():
+               programación de AUTO, habitual del paciente, mapping AT. */
             left join lateral (
-              select dp.name
+              select
+                count(*)::int as point_count,
+                max(candidate.name) as name,
+                bool_and(candidate.active) as active
+              from (
+                select distinct dp.id, dp.name, dp.active
+                from patient_schedules ps
+                join dispensing_points dp
+                  on dp.id = ps.dispensing_point_id
+                where ps.authorization_item_id = ai.id
+                  and ps.status in ('SCHEDULED', 'RESCHEDULED')
+                order by dp.id
+                limit 2
+              ) candidate
+            ) scheduled_point on true
+
+            left join lateral (
+              select dp.name, dp.active
               from patient_default_dispensing_points pdp
               join dispensing_points dp
                 on dp.id = pdp.dispensing_point_id
@@ -651,9 +684,9 @@ export class ExportablesService {
             ) patient_point on true
 
             left join lateral (
-              select string_agg(point_name, ', ' order by point_name) as point_names
+              select count(*)::int as point_count, max(mapped_points.name) as name
               from (
-                select distinct dp.name as point_name
+                select distinct dp.id, dp.name
                 from tariff_annex_products product
                 join product_delivery_point_mappings mapping
                   on mapping.invima_record_normalized = coalesce(
@@ -668,6 +701,8 @@ export class ExportablesService {
                   on dp.id = mapping.dispensing_point_id
                 where product.active = true
                   and upper(btrim(product.codigo_producto)) = upper(btrim(ai.codigo_medicamento))
+                order by dp.id
+                limit 2
               ) mapped_points
             ) tariff_points on true
           ),
@@ -756,9 +791,10 @@ export class ExportablesService {
           )
 
           select
-            authorization_key,
-            numero_autorizacion,
-            codigo_medicamento,
+            e.authorization_key,
+            e.numero_autorizacion,
+            e.codigo_medicamento,
+            e.punto as punto,
             purchase_balance.remaining_quantity
               as cantidad,
             coalesce(

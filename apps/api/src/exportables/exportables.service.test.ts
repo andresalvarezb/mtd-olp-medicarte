@@ -537,6 +537,45 @@ describe(
 );
 
 
+describe('ExportablesService purchaseOrderCandidates PUNTO SQL', () => {
+  it('proyecta PUNTO y aplica prioridad de programación con rechazo de ambigüedades', async () => {
+    const query = vi.fn().mockResolvedValue({
+      rows: [{
+        authorization_key: 'AUTO-1|PROD-1',
+        numero_autorizacion: 'AUTO-1',
+        codigo_medicamento: 'PROD-1',
+        cantidad: 3,
+        fecha_asignacion: currentBogotaDate(),
+        fecha_final_vigencia: currentBogotaDate(),
+        punto: 'CHAPINERO',
+      }],
+    });
+    const service = new ExportablesService({ pool: { query } } as never);
+    const workbook = XLSX.read(
+      (await service.purchaseOrderCandidates(scope)).content,
+      { type: 'buffer' },
+    );
+    const values = XLSX.utils.sheet_to_json<unknown[]>(
+      workbook.Sheets['ORDENES_COMPRA']!, { header: 1 },
+    );
+    expect(values[0]?.[7]).toBe('PUNTO');
+    expect(values[1]?.[7]).toBe('CHAPINERO');
+
+    const sql = String(query.mock.calls[0]?.[0]).replace(/\s+/g, ' ').toLowerCase();
+    expect(sql).toContain('e.punto as punto');
+    expect(sql).toContain('from patient_schedules ps');
+    expect(sql).toContain("ps.status in ('scheduled', 'rescheduled')");
+    expect(sql).toContain('ps.authorization_item_id = ai.id');
+    expect(sql).toContain('when scheduled_point.point_count > 0');
+    expect(sql).toContain('when scheduled_point.point_count = 1');
+    expect(sql).toContain('and scheduled_point.active');
+    expect(sql).toContain('when patient_point.active then patient_point.name');
+    expect(sql).toContain('when tariff_points.point_count = 1 then tariff_points.name');
+    expect(sql).not.toContain('string_agg(point_name');
+  });
+});
+
+
 describe('ExportablesService MTD scope', () => {
   it('rejects purchase order exports outside MTD before querying data', async () => {
     const query = vi.fn();
